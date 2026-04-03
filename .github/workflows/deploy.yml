@@ -1,0 +1,53 @@
+name: Deploy CSV Filter Project
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/deploy.yml"
+
+concurrency:
+  group: deploy-csv-filter-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64]
+
+    steps:
+      - name: Update repo
+        shell: bash
+        run: |
+          set -e
+          cd /var/www/CSV_Filter_Project
+          git fetch origin
+          git reset --hard origin/main
+
+      - name: Deploy backend
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+          cd /var/www/CSV_Filter_Project/backend
+          nvm use
+          npm install
+          pm2 restart csvfilter-backend
+          pm2 save
+
+      - name: Deploy frontend
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+          cd /var/www/CSV_Filter_Project/frontend
+          nvm use
+          npm install
+          npm run build
+          sudo systemctl reload nginx

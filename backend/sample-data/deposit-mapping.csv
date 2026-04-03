@@ -1,0 +1,23 @@
+Id,Name,Amount
+23,Bottle Deposit,0.05
+24,c15 Deposit,0.15
+25,Beer 4pk,0.2
+26,Beer 6pk,0.3
+27,Beer 12pk,0.6
+28,Beer 18pk,0.9
+29,Beer 24pk,1.2
+30,Beer 30pk,1.5
+31,Beer 8pk deposit,0.4
+32,0.05 x 28pk Deposit,1.4
+33,35pk Deposit,1.75
+34,10pk Deposit,0.5
+35,20pk deposit,1
+36,15pk Deposit,0.75
+40,9pk Deposit,0.45
+42,10PK c15 Deposit,1.5
+43,4PK c15 Deposit,0.6
+44,6PK c15 Deposit,0.9
+45,12PK c15 Deposit,1.8
+46,30PK c15 Deposit,4.5
+47,8PK c15 Deposit,1.2
+48,20PK c15 Deposit,3

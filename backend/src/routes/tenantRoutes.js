@@ -1,0 +1,150 @@
+/**
+ * Tenant (Organization) routes  —  /api/tenants
+ */
+
+import { Router } from 'express';
+import { protect, authorize } from '../middleware/auth.js';
+import { requireTenant, requireActiveTenant } from '../middleware/scopeToTenant.js';
+import prisma from '../config/postgres.js';
+
+const router = Router();
+
+const PLAN_LIMITS = {
+  trial:      { maxStores: 1,    maxUsers: 3   },
+  basic:      { maxStores: 3,    maxUsers: 10  },
+  pro:        { maxStores: 25,   maxUsers: 100 },
+  enterprise: { maxStores: 9999, maxUsers: 9999 },
+};
+
+/* ── POST /api/tenants  — create org + bind to calling user ─────────────── */
+router.post('/', protect, async (req, res, next) => {
+  try {
+    const { name, slug, billingEmail, plan } = req.body;
+
+    const org = await prisma.organization.create({
+      data: {
+        name,
+        slug,
+        billingEmail,
+        plan: plan || 'trial',
+      },
+    });
+
+    // Bind the creating user to this new org
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data:  { orgId: org.id },
+    });
+
+    res.status(201).json(org);
+  } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(400).json({ error: 'That organisation name/slug is already taken.' });
+    }
+    next(err);
+  }
+});
+
+/* ── GET /api/tenants/me  — caller's own org ────────────────────────────── */
+router.get('/me', protect, requireTenant, async (req, res, next) => {
+  try {
+    const org = await prisma.organization.findUnique({ where: { id: req.orgId } });
+    if (!org) return res.status(404).json({ error: 'Organisation not found.' });
+    res.json(org);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── PUT /api/tenants/me  — update settings ─────────────────────────────── */
+router.put('/me', protect, requireTenant, requireActiveTenant, async (req, res, next) => {
+  try {
+    const allowed = ['name', 'billingEmail', 'settings'];
+    const data = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => allowed.includes(k))
+    );
+
+    const org = await prisma.organization.update({
+      where: { id: req.orgId },
+      data,
+    });
+    res.json(org);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── PUT /api/tenants/me/plan  — change subscription plan ───────────────── */
+router.put('/me/plan', protect, requireTenant, authorize('superadmin', 'admin', 'owner'), async (req, res, next) => {
+  try {
+    const VALID_PLANS = Object.keys(PLAN_LIMITS);
+    const { plan } = req.body;
+
+    if (!plan || !VALID_PLANS.includes(plan)) {
+      return res.status(400).json({ error: `Invalid plan. Choose: ${VALID_PLANS.join(', ')}` });
+    }
+
+    const org = await prisma.organization.findUnique({ where: { id: req.orgId } });
+    if (!org) return res.status(404).json({ error: 'Organisation not found.' });
+
+    if (plan !== 'enterprise') {
+      const limits = PLAN_LIMITS[plan];
+      const [storeCount, userCount] = await Promise.all([
+        prisma.store.count({ where: { orgId: req.orgId, isActive: true } }),
+        prisma.user.count({ where: { orgId: req.orgId } }),
+      ]);
+
+      if (storeCount > limits.maxStores) {
+        return res.status(409).json({
+          error: `Cannot downgrade: you have ${storeCount} active store(s) but the ${plan} plan allows ${limits.maxStores}.`,
+        });
+      }
+      if (userCount > limits.maxUsers) {
+        return res.status(409).json({
+          error: `Cannot downgrade: you have ${userCount} user(s) but the ${plan} plan allows ${limits.maxUsers}.`,
+        });
+      }
+    }
+
+    const limits = PLAN_LIMITS[plan];
+    const updated = await prisma.organization.update({
+      where: { id: req.orgId },
+      data: {
+        plan,
+        maxStores: limits.maxStores,
+        maxUsers:  limits.maxUsers,
+      },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── GET /api/tenants/:id  — superadmin inspect ─────────────────────────── */
+router.get('/:id', protect, authorize('superadmin'), async (req, res, next) => {
+  try {
+    const org = await prisma.organization.findUnique({ where: { id: req.params.id } });
+    if (!org) return res.status(404).json({ error: 'Organisation not found.' });
+    res.json(org);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── DELETE /api/tenants/:id  — soft-delete (superadmin only) ───────────── */
+router.delete('/:id', protect, authorize('superadmin'), async (req, res, next) => {
+  try {
+    const org = await prisma.organization.update({
+      where: { id: req.params.id },
+      data:  { isActive: false, deactivatedAt: new Date() },
+    });
+    res.json({ message: 'Organisation deactivated.', org });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Organisation not found.' });
+    next(err);
+  }
+});
+
+export default router;

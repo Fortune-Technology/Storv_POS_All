@@ -1,0 +1,974 @@
+// ═══════════════════════════════════════════════════════════════
+// Future Foods Portal — Full Application Schema
+// PostgreSQL via Prisma
+//
+// ── Core multi-tenant models ─────────────────────────────────
+//   Organization  = tenant (was MongoDB Tenant)
+//   Store         = physical location within an org
+//   User          = employee / admin account
+//   UserStore     = many-to-many: user ↔ store
+//
+// ── Operations ───────────────────────────────────────────────
+//   Invoice       = vendor invoice (OCR-processed PDF/image)
+//   Customer      = loyalty / charge-account customer
+//   FeeMapping    = maps fee labels → internal fee types
+//   PosToken      = cached POS auth token per user/store
+//   PosLog        = POS API call audit log (TTL 30 days)
+//   WeatherCache  = daily weather fetched from Open-Meteo
+//   Document      = generic document OCR store
+//   VendorProductMap = vendor item code ↔ POS product lookup
+//
+// ── CSV transform pipeline ───────────────────────────────────
+//   Upload / Transform / DepositMap  (MongoDB models.js)
+//
+// ── Native POS Catalog ───────────────────────────────────────
+//   Department / TaxRule / DepositRule / Vendor
+//   RebateProgram / MasterProduct / StoreProduct
+//
+// ID strategy:
+//   cuid()           → user-facing records (User, Store, Invoice…)
+//   autoincrement()  → high-volume logs / cache tables
+// ═══════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────
+// DEPARTMENT
+// Org-level product groupings (Beer, Wine, Grocery…)
+// ─────────────────────────────────────────────────
+model Department {
+  id              Int       @id @default(autoincrement())
+  orgId           String    // tenant isolation
+  name            String
+  code            String?   // "BEER", "WINE", "SPIRITS", "GROC", "TOBAC", "FOOD"
+  description     String?
+
+  // Age verification
+  ageRequired     Int?      // minimum purchase age: 21 (alcohol), 18 (tobacco), null (none)
+
+  // Tax / EBT
+  ebtEligible     Boolean   @default(false)
+  taxClass        String?   // "alcohol", "tobacco", "hot_food", "grocery", "none"
+  defaultTaxRate  Decimal?  @db.Decimal(6, 4) // override if no TaxRule matched
+
+  // Industry flags — restrict features by industry profile
+  // e.g. bottle deposits only relevant for "liquor" / "grocery"
+  bottleDeposit   Boolean   @default(false)
+
+  // Display
+  sortOrder       Int       @default(0)
+  color           String?   // hex color for POS UI
+  active          Boolean   @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  products        MasterProduct[]
+
+  @@unique([orgId, code])
+  @@index([orgId, active])
+  @@map("departments")
+}
+
+// ─────────────────────────────────────────────────
+// TAX RULE
+// Configurable tax rates per org / store / product class
+// ─────────────────────────────────────────────────
+model TaxRule {
+  id          Int       @id @default(autoincrement())
+  orgId       String
+  storeId     String?   // null = org-wide default; set to override for a specific store
+  name        String    // "Maine State Food Tax", "Maine Alcohol Excise"
+  description String?
+
+  rate        Decimal   @db.Decimal(6, 4) // e.g. 0.0550 = 5.5%
+
+  // Which product classes this rule applies to
+  // Stored as comma-separated string: "alcohol,spirits"
+  appliesTo   String    // "grocery", "alcohol", "tobacco", "hot_food", "all"
+
+  // EBT: if true, EBT-eligible items are exempt from this tax
+  ebtExempt   Boolean   @default(true)
+
+  // Geographic
+  state       String?   // "ME", "NH" — for multi-state support later
+  county      String?   // county-level tax if needed
+
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, appliesTo])
+  @@map("tax_rules")
+}
+
+// ─────────────────────────────────────────────────
+// DEPOSIT RULE
+// Container redemption value (CRV) / bottle deposit
+// Maine: <24oz = $0.05, ≥24oz = $0.15
+// ─────────────────────────────────────────────────
+model DepositRule {
+  id              Int       @id @default(autoincrement())
+  orgId           String
+  name            String    // "Maine CRV Small", "Maine CRV Large"
+  description     String?
+
+  // Volume range (oz) — null means no limit in that direction
+  minVolumeOz     Float?    // inclusive lower bound
+  maxVolumeOz     Float?    // exclusive upper bound (null = no max)
+
+  // Container types this rule applies to (comma-separated)
+  containerTypes  String    @default("bottle,can") // "bottle", "can", "carton", "jug"
+
+  depositAmount   Decimal   @db.Decimal(10, 4)  // e.g. 0.05 or 0.15
+
+  // Geographic
+  state           String?   // "ME"
+
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  products        MasterProduct[]
+
+  @@index([orgId, state])
+  @@map("deposit_rules")
+}
+
+// ─────────────────────────────────────────────────
+// VENDOR
+// Supplier / distributor records
+// ─────────────────────────────────────────────────
+model Vendor {
+  id          Int       @id @default(autoincrement())
+  orgId       String
+  name        String
+  code        String?   // short code e.g. "HERSHEYS", "PINE-STATE"
+
+  // Contact
+  contactName String?
+  email       String?
+  phone       String?
+  address     Json?     // { street, city, state, zip }
+  website     String?
+
+  // Terms
+  terms       String?   // "Net 30", "Net 14", "COD"
+  accountNo   String?   // our account number with this vendor
+
+  // Invoice import — link vendor aliases used in invoices
+  aliases     String[]  // ["Hershey's", "HERSHEY ICE CREAM"] for fuzzy matching
+
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    MasterProduct[]
+
+  @@unique([orgId, name])
+  @@index([orgId, active])
+  @@map("vendors")
+}
+
+// ─────────────────────────────────────────────────
+// REBATE PROGRAM
+// Manufacturer coupons / tobacco rebates
+// (Marlboro, Newport, Camel, etc.)
+// ─────────────────────────────────────────────────
+model RebateProgram {
+  id              Int       @id @default(autoincrement())
+  orgId           String
+  name            String    // "Marlboro Premium Retailer Rebate"
+  manufacturer    String    // "Philip Morris", "RJ Reynolds"
+  description     String?
+
+  // Which products qualify (can link to specific MasterProducts later)
+  qualifyingUpcs  String[]  // UPCs or SKUs this rebate applies to
+
+  // Rebate structure
+  rebateType      String    // "per_unit", "percent_of_purchase", "fixed_monthly"
+  rebateAmount    Decimal   @db.Decimal(10, 4) // $ per unit OR percent OR fixed
+
+  minQtyPerMonth  Int?      // minimum units to qualify
+  maxQtyPerMonth  Int?      // cap per month
+
+  // Validity
+  startDate       DateTime?
+  endDate         DateTime?
+  active          Boolean   @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([orgId, active])
+  @@map("rebate_programs")
+}
+
+// ─────────────────────────────────────────────────
+// MASTER PRODUCT (Org-level catalog)
+// The canonical product record for the organization.
+// All stores share the same catalog; price/stock
+// overrides live in StoreProduct.
+// ─────────────────────────────────────────────────
+model MasterProduct {
+  id                  Int           @id @default(autoincrement())
+  orgId               String
+
+  // Identifiers
+  upc                 String?       // 7–14 digit barcode (primary scan key)
+  plu                 String?       // Price Look-Up (produce, bulk)
+  sku                 String?       // internal SKU / item code
+  itemCode            String?       // vendor item code (e.g. Hershey's code)
+
+  // Display
+  name                String
+  description         String?       // long description for ecom / shelf tag
+  brand               String?
+  imageUrl            String?
+
+  // Physical attributes
+  size                String?       // "12oz", "750ml", "1.75L", "1lb"
+  sizeUnit            String?       // "oz", "ml", "L", "lb", "g", "each"
+  pack                Int?          // total individual units per case (always = casePacks × sellUnitSize)
+  casePacks           Int?          // how many sell units come in a vendor case (e.g. 4 for "4 of 6pk")
+  sellUnitSize        Int?          // units per sell unit (1=single, 6=6pk, 18=18pk whole)
+  sellUnit            String?       // "each" | "pack" | "case"
+  // Legacy aliases kept for backward compat:
+  innerPack           Int?          // alias for casePacks
+  unitsPerPack        Int?          // alias for sellUnitSize
+  weight              Decimal?      @db.Decimal(10, 4) // net weight for by-weight items
+
+  // Classification
+  departmentId        Int?
+  department          Department?   @relation(fields: [departmentId], references: [id])
+  vendorId            Int?
+  vendor              Vendor?       @relation(fields: [vendorId], references: [id])
+
+  // Tax
+  taxClass            String?       // "grocery", "alcohol", "tobacco", "hot_food", "none"
+  // Tax rates resolved at checkout using TaxRule table; taxClass is the lookup key
+
+  // Deposit / CRV
+  depositRuleId       Int?
+  depositRule         DepositRule?  @relation(fields: [depositRuleId], references: [id])
+  containerType       String?       // "bottle", "can", "carton" — used to match DepositRule
+  containerVolumeOz   Float?        // actual volume for deposit calculation
+
+  // Pricing (org-level defaults; stores can override in StoreProduct)
+  defaultCostPrice    Decimal?      @db.Decimal(10, 4)
+  defaultRetailPrice  Decimal?      @db.Decimal(10, 4)
+  defaultCasePrice    Decimal?      @db.Decimal(10, 4)  // cost per case
+
+  // Selling method
+  byWeight            Boolean       @default(false)   // sold per lb/kg at scale
+  byUnit              Boolean       @default(true)
+
+  // Compliance flags
+  ebtEligible         Boolean       @default(false)
+  ageRequired         Int?          // 21 or 18; null = no age check
+  taxable             Boolean       @default(true)
+  discountEligible    Boolean       @default(true)
+  foodstamp           Boolean       @default(false)  // alias for ebtEligible
+
+  // Inventory management
+  trackInventory      Boolean       @default(true)
+  reorderPoint        Int?          // trigger reorder when stock hits this
+  reorderQty          Int?          // suggested order quantity
+
+  // Ecommerce
+  hideFromEcom        Boolean       @default(false)
+  ecomDescription     String?       // SEO-friendly description
+  ecomTags            String[]      // searchable tags
+
+  // POS sync fields (IT Retail / MarktPOS)
+  itRetailUpc         String?       // UPC as stored in IT Retail
+  itRetailPlu         String?       // PLU in IT Retail
+  posLastSyncAt       DateTime?     // last time synced from/to POS
+
+  // Status
+  active              Boolean       @default(true)
+  deleted             Boolean       @default(false)
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  storeProducts       StoreProduct[]
+
+  @@unique([orgId, upc])
+  @@index([orgId, deleted, active])
+  @@index([orgId, departmentId])
+  @@index([orgId, vendorId])
+  @@index([orgId, name])
+  @@map("master_products")
+}
+
+// ─────────────────────────────────────────────────
+// STORE PRODUCT (Store-level inventory)
+// Price overrides, stock levels, and store-specific
+// settings for each product at each location.
+// ─────────────────────────────────────────────────
+model StoreProduct {
+  id                Int           @id @default(autoincrement())
+  storeId           String        // MongoDB Store._id
+  orgId             String
+
+  masterProductId   Int
+  masterProduct     MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+
+  // Price overrides (null = use MasterProduct default)
+  retailPrice       Decimal?      @db.Decimal(10, 4)
+  costPrice         Decimal?      @db.Decimal(10, 4)
+  casePrice         Decimal?      @db.Decimal(10, 4)
+
+  // Sale / promo price
+  salePrice         Decimal?      @db.Decimal(10, 4)
+  saleStart         DateTime?
+  saleEnd           DateTime?
+
+  // Stock
+  quantityOnHand    Decimal?      @db.Decimal(10, 2)   // Decimal supports by-weight (lbs)
+  quantityOnOrder   Decimal?      @db.Decimal(10, 2)
+  lastStockUpdate   DateTime?
+  lastReceivedAt    DateTime?
+
+  // Store-specific flags
+  active            Boolean       @default(true)
+  inStock           Boolean       @default(true)       // for quick ecom filtering
+
+  // Shelf info
+  aisle             String?
+  shelfLocation     String?
+  bin               String?
+
+  // POS sync tracking
+  posLastSyncAt     DateTime?
+  posSyncSource     String?       // "itretail", "manual", "invoice"
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([storeId, masterProductId])
+  @@index([storeId, orgId, active])
+  @@index([storeId, orgId])
+  @@map("store_products")
+}
+
+// ─────────────────────────────────────────────────
+// PROMOTION
+// Org-level deals: sale, BOGO, volume tiers,
+// mix & match, combo bundles.
+// dealConfig JSON shape varies by promoType:
+//   sale:       { discountType, discountValue }
+//   bogo:       { buyQty, getQty, getDiscount }
+//   volume:     { tiers: [{minQty, price}] }
+//   mix_match:  { minQty, comboPrice }
+//   combo:      { productIds, comboPrice }
+// ─────────────────────────────────────────────────
+model Promotion {
+  id            Int       @id @default(autoincrement())
+  orgId         String
+
+  name          String
+  promoType     String    // "sale" | "bogo" | "volume" | "mix_match" | "combo"
+  description   String?
+
+  // Scope — either specific products or entire departments
+  productIds    Int[]     // MasterProduct IDs this promo applies to
+  departmentIds Int[]     // Department IDs (broadens scope)
+
+  // Deal configuration — shape depends on promoType
+  dealConfig    Json      @default("{}")
+
+  // POS display
+  badgeLabel    String?   // e.g. "2 FOR $5", "BOGO", "BUY 6 SAVE 10%"
+  badgeColor    String?   // hex e.g. "#ef4444"
+
+  // Validity window
+  startDate     DateTime?
+  endDate       DateTime?
+  active        Boolean   @default(true)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([orgId, active])
+  @@index([orgId, promoType])
+  @@map("promotions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// POS TRANSACTION  (native POS cashier)
+// ─────────────────────────────────────────────────────────────
+
+model Transaction {
+  id               String    @id @default(cuid())
+  orgId            String
+  storeId          String
+  cashierId        String
+  stationId        String?
+
+  txNumber         String    // human-readable: "TXN-20240301-001423"
+  status           String    @default("complete") // "complete"|"voided"|"suspended"
+
+  lineItems        Json      // CartItem[] — denormalised snapshot at time of sale
+  subtotal         Decimal   @db.Decimal(10, 4)
+  taxTotal         Decimal   @db.Decimal(10, 4)
+  depositTotal     Decimal   @db.Decimal(10, 4)  @default(0)
+  ebtTotal         Decimal   @db.Decimal(10, 4)  @default(0)
+  grandTotal       Decimal   @db.Decimal(10, 4)
+
+  tenderLines      Json      // [{ method, amount }]
+  changeGiven      Decimal   @db.Decimal(10, 4)  @default(0)
+
+  ageVerifications Json?     // [{ productId, method, age, verifiedAt }]
+  notes            String?
+
+  offlineCreatedAt DateTime? // set when created offline
+  syncedAt         DateTime? // set when synced to server
+  refundOf         String?    // ID of original transaction (for refunds)
+  voidedAt         DateTime?  // timestamp when voided
+  voidedById       String?    // user ID who performed the void
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([orgId, storeId, createdAt])
+  @@index([orgId, cashierId])
+  @@index([txNumber])
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────────────
+// STATION
+// A physical POS register terminal.
+// Registered once by a manager; persists its token
+// in the browser's localStorage so cashiers can PIN-in.
+// ─────────────────────────────────────────────────
+model Station {
+  id          String    @id @default(cuid())
+  orgId       String
+  storeId     String
+  name        String    // "Register 1", "Express Lane"
+  token       String    @unique  // long-lived station token — stored in POS localStorage
+  lastSeenAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("stations")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORE MULTI-TENANT MODELS
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// ORGANIZATION  (was: MongoDB Tenant)
+// Top-level billing / account entity.
+// ─────────────────────────────────────────────────
+model Organization {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique           // URL-safe identifier
+  plan          String    @default("trial") // "trial" | "starter" | "pro" | "enterprise"
+  billingEmail  String?
+  trialEndsAt   DateTime?
+  maxStores     Int       @default(1)
+  maxUsers      Int       @default(3)
+  ratePerStation Decimal? @db.Decimal(10, 2)
+
+  // Org-wide preferences stored as JSONB
+  // { timezone, currency, defaultTaxRate, receiptFooter, loyaltyEnabled }
+  settings      Json      @default("{}")
+
+  isActive      Boolean   @default(true)
+  deactivatedAt DateTime?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  users         User[]
+  stores        Store[]
+
+  @@map("organizations")
+}
+
+// ─────────────────────────────────────────────────
+// USER
+// Employee / admin account scoped to one org.
+// May have access to multiple stores via UserStore.
+// ─────────────────────────────────────────────────
+model User {
+  id                  String       @id @default(cuid())
+  orgId               String
+  organization        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name                String
+  email               String       @unique
+  phone               String?
+  password            String       // bcrypt hash — never select by default in queries
+  posPin              String?      // bcrypt hash of 4–6 digit POS PIN
+
+  role                String       @default("staff") // "superadmin" | "admin" | "manager" | "staff"
+
+  // MarktPOS / IT Retail credentials (stored encrypted at app layer)
+  marktPOSUsername    String?
+  marktPOSPassword    String?
+
+  // Default store location (used for weather, etc.)
+  storeLatitude       Float?
+  storeLongitude      Float?
+  storeTimezone       String?
+  storeAddress        String?
+
+  // Password reset flow
+  resetPasswordToken  String?
+  resetPasswordExpire DateTime?
+
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  stores              UserStore[]
+  invoices            Invoice[]
+  documents           Document[]
+  posToken            PosToken?
+
+  @@index([orgId, role])
+  @@index([orgId, email])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────
+// USER STORE  (junction: User ↔ Store)
+// ─────────────────────────────────────────────────
+model UserStore {
+  userId  String
+  storeId String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, storeId])
+  @@map("user_stores")
+}
+
+// ─────────────────────────────────────────────────
+// STORE
+// Physical retail location within an org.
+// ─────────────────────────────────────────────────
+model Store {
+  id                    String       @id @default(cuid())
+  orgId                 String
+  organization          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerId               String?      // User.id of the store owner / manager
+
+  name                  String
+  latitude              Float?
+  longitude             Float?
+  timezone              String?
+  address               String?
+  stationCount          Int          @default(1)
+  monthlyRatePerStation Decimal?     @db.Decimal(10, 2)
+
+  // POS integration credentials — stored as JSONB so we can support
+  // multiple POS systems (IT Retail, Square, MarktPOS…) without schema changes.
+  // Shape: { type, username, password, storeCode, chainCode, locationId,
+  //          merchantId, restaurantGuid, apiKey }
+  pos                   Json?
+
+  // IT Retail / MarktPOS identifiers
+  itRetailStoreId       String?
+  itRetailTenantId      String?
+
+  isActive              Boolean      @default(true)
+  branding              Json?        @default("{}")
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  users                 UserStore[]
+  customers             Customer[]
+  invoices              Invoice[]
+  documents             Document[]
+  posTokens             PosToken[]
+  posLogs               PosLog[]
+  feeMappings           FeeMapping[]
+  vendorProductMaps     VendorProductMap[]
+
+  @@index([orgId, isActive])
+  @@map("stores")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPERATIONS
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// CUSTOMER
+// Loyalty / house-account customer.
+// ─────────────────────────────────────────────────
+model Customer {
+  id                   String   @id @default(cuid())
+  orgId                String
+  storeId              String?
+  store                Store?   @relation(fields: [storeId], references: [id])
+
+  // Name fields — some POS systems provide split, some combined
+  name                 String?
+  firstName            String?
+  lastName             String?
+  email                String?
+  phone                String?
+
+  // Loyalty
+  loyaltyPoints        Int      @default(0)
+  // Array of { date, points, reason, balance } — JSONB for flexibility
+  pointsHistory        Json     @default("[]")
+
+  // POS-synced fields
+  posCustomerId        String?
+  cardNo               String?
+  discount             Decimal? @db.Decimal(5, 4)  // e.g. 0.0500 = 5%
+  balance              Decimal? @db.Decimal(10, 2)
+  balanceLimit         Decimal? @db.Decimal(10, 2)
+  instoreChargeEnabled Boolean  @default(false)
+
+  birthDate            DateTime?
+  expirationDate       DateTime?
+
+  deleted              Boolean  @default(false)
+  posSyncedAt          DateTime?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([orgId, storeId, deleted])
+  @@index([orgId, email])
+  @@index([orgId, phone])
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────────
+// INVOICE
+// Vendor delivery invoice processed via Azure OCR.
+// lineItems → JSONB (25+ fields per line; schema varies by vendor)
+// pages     → JSONB array of page image paths / Azure page metadata
+// ─────────────────────────────────────────────────
+model Invoice {
+  id                  String   @id @default(cuid())
+  orgId               String
+  storeId             String?
+  store               Store?   @relation(fields: [storeId], references: [id])
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id])
+
+  fileName            String?
+  fileType            String?  // "pdf" | "image" | "csv"
+
+  // Header fields extracted by OCR
+  vendorName          String?
+  customerNumber      String?
+  invoiceNumber       String?
+  invoiceDate         DateTime?
+  paymentDueDate      DateTime?
+  paymentType         String?
+  checkNumber         String?
+
+  // Financial summary
+  totalInvoiceAmount  Decimal? @db.Decimal(10, 2)
+  tax                 Decimal? @db.Decimal(10, 2)
+  totalDiscount       Decimal? @db.Decimal(10, 2)
+  totalDeposit        Decimal? @db.Decimal(10, 2)
+  otherFees           Decimal? @db.Decimal(10, 2)
+
+  // Quantity summary
+  totalCasesReceived  Decimal? @db.Decimal(10, 2)
+  totalUnitsReceived  Decimal? @db.Decimal(10, 2)
+
+  // Personnel
+  driverName          String?
+  salesRepName        String?
+  loadNumber          String?
+
+  // Page images / Azure page results (array of objects)
+  pages               Json     @default("[]")
+
+  // Line items — complex, vendor-specific shape
+  // Each item may have: description, upc, sku, qty, caseQty, unitQty,
+  // unitCost, caseCost, retailPrice, deposit, discount, tax, total, etc.
+  lineItems           Json     @default("[]")
+
+  // Processing state
+  status              String   @default("pending") // "pending" | "processing" | "complete" | "error"
+  processingError     String?
+  rawText             String?  @db.Text
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([orgId, invoiceDate])
+  @@index([orgId, vendorName])
+  @@map("invoices")
+}
+
+// ─────────────────────────────────────────────────
+// FEE MAPPING
+// Maps fee label strings (from invoices / POS) to
+// internal fee types for consistent reporting.
+// ─────────────────────────────────────────────────
+model FeeMapping {
+  id           String   @id @default(cuid())
+  orgId        String
+  storeId      String?
+  store        Store?   @relation(fields: [storeId], references: [id])
+
+  feeType      String   // "bottle_deposit" | "bag_fee" | "alcohol_surcharge"
+  mappedValue  String   // the raw label as it appears in invoices / POS
+  description  String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, storeId, feeType, mappedValue])
+  @@index([orgId, storeId])
+  @@map("fee_mappings")
+}
+
+// ─────────────────────────────────────────────────
+// POS TOKEN
+// Cached POS auth token per user (one per user max).
+// ─────────────────────────────────────────────────
+model PosToken {
+  id        String    @id @default(cuid())
+  orgId     String
+  storeId   String?
+  store     Store?    @relation(fields: [storeId], references: [id])
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token     String    @db.Text
+  expiresAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("pos_tokens")
+}
+
+// ─────────────────────────────────────────────────
+// POS LOG
+// Immutable audit log of POS API calls.
+// Application layer should purge records > 30 days
+// (equivalent to MongoDB TTL index).
+// ─────────────────────────────────────────────────
+model PosLog {
+  id         Int      @id @default(autoincrement())
+  orgId      String
+  storeId    String?
+  store      Store?   @relation(fields: [storeId], references: [id])
+
+  endpoint   String
+  method     String   // "GET" | "POST" | "PUT" | "DELETE"
+  status     String   // "success" | "error"
+  statusCode Int?
+  message    String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, storeId, createdAt])
+  @@map("pos_logs")
+}
+
+// ─────────────────────────────────────────────────
+// WEATHER CACHE
+// Daily weather data per lat/lng from Open-Meteo.
+// Unique on (date, latitude, longitude).
+// ─────────────────────────────────────────────────
+model WeatherCache {
+  id               Int      @id @default(autoincrement())
+  date             String   // "YYYY-MM-DD"
+  latitude         Float
+  longitude        Float
+
+  temperatureMax   Float?
+  temperatureMin   Float?
+  temperatureMean  Float?
+  precipitationSum Float?
+  weatherCode      Int?
+  condition        String?  // "sunny" | "rainy" | "snowy" | "cloudy"
+  windSpeedMax     Float?
+  humidity         Float?
+
+  source           String?  // "open-meteo" | "noaa"
+  fetchedAt        DateTime @default(now())
+
+  @@unique([date, latitude, longitude])
+  @@index([date])
+  @@map("weather_cache")
+}
+
+// ─────────────────────────────────────────────────
+// DOCUMENT
+// Generic OCR-processed document store
+// (receipts, contracts, etc. beyond invoices).
+// extractedFields → flexible JSONB per docType.
+// ─────────────────────────────────────────────────
+model Document {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String?
+  store           Store?   @relation(fields: [storeId], references: [id])
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+
+  fileName        String
+  fileType        String?  // "pdf" | "image" | "csv"
+  docType         String?  // "invoice" | "contract" | "receipt" | "other"
+  extractedFields Json?    // shape varies by docType — kept as JSONB
+  confidence      Float?   // overall OCR confidence score 0.0–1.0
+
+  uploadedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orgId, storeId, docType])
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────────
+// VENDOR PRODUCT MAP
+// Lookup table: vendor item code ↔ POS product.
+// Built up over time from invoice processing.
+// ─────────────────────────────────────────────────
+model VendorProductMap {
+  id                String    @id @default(cuid())
+  orgId             String
+  storeId           String?
+  store             Store?    @relation(fields: [storeId], references: [id])
+
+  vendorName        String
+  vendorItemCode    String
+  vendorDescription String?
+
+  // Matched POS product
+  posProductId      String?
+  posUPC            String?
+  posName           String?
+
+  matchTier         String?   // "exact" | "fuzzy" | "manual"
+  confirmedCount    Int       @default(0)  // how many times confirmed correct
+  lastSeenAt        DateTime?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([orgId, storeId, vendorName, vendorItemCode])
+  @@index([orgId, storeId, vendorName])
+  @@map("vendor_product_maps")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CSV TRANSFORM PIPELINE
+// (original webapp functionality — was in MongoDB models.js)
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// UPLOAD
+// Tracks uploaded CSV/Excel files before transform.
+// ─────────────────────────────────────────────────
+model Upload {
+  id           String    @id @default(cuid())
+  uploadId     String    @unique  // legacy UUID from original app
+
+  filename     String
+  originalPath String?
+  fileType     String?
+  fileSize     Int?
+  rowCount     Int?
+  columns      Json      @default("[]")  // String[] — column headers
+  preview      Json?     // first N rows as array of objects
+  vendorId     String?
+  status       String    @default("pending") // "pending" | "processing" | "complete" | "error"
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  transforms   Transform[]
+
+  @@map("uploads")
+}
+
+// ─────────────────────────────────────────────────
+// TRANSFORM
+// Result of a CSV transformation run.
+// ─────────────────────────────────────────────────
+model Transform {
+  id            String    @id @default(cuid())
+  transformId   String    @unique  // legacy UUID
+
+  uploadId      String
+  upload        Upload    @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  depositMapId  String?
+  outputPath    String?
+  outputFormat  String?   // "csv" | "xlsx"
+  vendorId      String?
+  rowsProcessed Int?
+  warnings      Json      @default("[]")  // String[] — non-fatal issues
+  status        String    @default("pending")
+  error         String?
+  completedAt   DateTime?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("transforms")
+}
+
+// ─────────────────────────────────────────────────
+// DEPOSIT MAP
+// Uploaded CSV that maps item codes → deposit amounts.
+// mappings → JSONB object: { [itemCode]: depositAmount }
+// ─────────────────────────────────────────────────
+model DepositMap {
+  id            String   @id @default(cuid())
+  depositMapId  String   @unique  // legacy UUID
+
+  filename      String
+  filePath      String?
+  mappings      Json     @default("{}")  // { itemCode: depositAmount }
+  totalMappings Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("deposit_maps")
+}
+
+// ─────────────────────────────────────────────────
+// CLOCK EVENT
+// Employee clock in / clock out records.
+// Identified by PIN without requiring a full JWT session.
+// ─────────────────────────────────────────────────
+model ClockEvent {
+  id        String   @id @default(cuid())
+  orgId     String
+  storeId   String
+  userId    String
+  stationId String?
+  type      String   // "in" | "out"
+  note      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, storeId, userId, createdAt])
+  @@index([orgId, storeId, createdAt])
+  @@map("clock_events")
+}

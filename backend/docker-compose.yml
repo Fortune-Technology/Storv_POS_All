@@ -1,0 +1,31 @@
+# Docker Compose — Local PostgreSQL for Future Foods Portal
+# Usage:
+#   docker compose up -d        Start PostgreSQL in background
+#   docker compose down         Stop (keeps data volume)
+#   docker compose down -v      Stop AND wipe all data (clean slate)
+#   docker compose logs -f      Watch logs
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: futurefoods-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: futurefoods
+      POSTGRES_PASSWORD: futurefoods123
+      POSTGRES_DB: futurefoods_portal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U futurefoods -d futurefoods_portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    name: futurefoods_postgres_data

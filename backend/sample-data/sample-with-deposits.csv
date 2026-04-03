@@ -1,0 +1,5 @@
+Item,UPC,Description,Department,REG_RETAIL,PACK,REGULARCOST,TAX1,FOOD_STAMP,WIC,BOTTLE_DEPOSIT
+12345,011111,Beer 6 pack,Beverages,9.99,1,7.50,Y,N,N,0.3
+67890,022222,Beer 12 pack,Beverages,15.99,1,12.00,Y,N,N,0.60
+11111,033333,Soda 6 pack,Beverages,4.99,1,3.00,Y,N,N,0.05
+22222,044444,Beer 24 pack,Beverages,25.99,1,20.00,Y,N,N,1.2

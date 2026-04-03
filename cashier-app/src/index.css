@@ -1,0 +1,141 @@
+/* ─────────────────────────────────────────────────────────────
+   Future Foods POS — Design System
+   Dark, high-contrast, touchscreen-optimised
+───────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Backgrounds */
+  --bg-base:      #0f1117;
+  --bg-panel:     #161922;
+  --bg-card:      #1e2130;
+  --bg-input:     #252836;
+  --bg-hover:     #2a2f44;
+
+  /* Brand — overridden at runtime by applyBranding() */
+  --green:        #7ac143;
+  --green-dim:    rgba(122,193,67,.15);
+  --green-border: rgba(122,193,67,.35);
+  --red:          #e03f3f;
+  --red-dim:      rgba(224,63,63,.15);
+  --amber:        #f59e0b;
+  --amber-dim:    rgba(245,158,11,.15);
+  --blue:         #3b82f6;
+  --blue-dim:     rgba(59,130,246,.15);
+  --purple:       #8b5cf6;
+
+  /* Text */
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+  --text-deposit:   #7dd3fc;
+
+  /* Borders */
+  --border:         rgba(255,255,255,.07);
+  --border-light:   rgba(255,255,255,.12);
+
+  /* Status bar */
+  --statusbar-bg:   #0a0c12;
+
+  /* Radius */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  20px;
+
+  /* Touch targets */
+  --touch:   52px;
+  --touch-sm:44px;
+
+  /* Fonts */
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+/* Scrollable areas */
+.scroll { overflow-y: auto; overflow-x: hidden; }
+.scroll::-webkit-scrollbar { width: 4px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+
+/* Buttons */
+button { font-family: inherit; cursor: pointer; border: none; outline: none; }
+button:active { transform: scale(.97); }
+button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* Inputs */
+input, select {
+  font-family: inherit;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  padding: .75rem 1rem;
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .15s;
+}
+input:focus, select:focus { border-color: var(--green); }
+
+/* Scan flash animations */
+@keyframes flashGreen {
+  0%   { background: rgba(122,193,67,.25); }
+  100% { background: transparent; }
+}
+@keyframes flashRed {
+  0%   { background: rgba(224,63,63,.25); }
+  100% { background: transparent; }
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.7);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+  animation: fadeIn .15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-xl);
+  width: 100%; max-width: 480px;
+  box-shadow: 0 32px 80px rgba(0,0,0,.6);
+  animation: slideUp .2s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Spin utility */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15%       { transform: translateX(-8px); }
+  30%       { transform: translateX(8px); }
+  45%       { transform: translateX(-6px); }
+  60%       { transform: translateX(6px); }
+  75%       { transform: translateX(-3px); }
+  90%       { transform: translateX(3px); }
+}
+
+/* Print styles — receipt */
+@media print {
+  body { background: #fff; color: #000; font-family: 'Courier New', monospace; }
+  .no-print { display: none !important; }
+  .receipt-print { display: block !important; }
+}

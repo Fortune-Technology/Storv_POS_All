@@ -1,0 +1,65 @@
+/**
+ * Sales Analytics Routes — /api/sales/*
+ */
+
+import { Router } from 'express';
+import { protect } from '../middleware/auth.js';
+import {
+  daily,
+  weekly,
+  monthly,
+  monthlyComparison,
+  departments,
+  departmentComparison,
+  topProducts,
+  productsGrouped,
+  productMovement,
+  dailyProductMovement,
+  predictionsDaily,
+  predictionsWeekly,
+  predictionsResiduals,
+  vendorOrders,
+  dailyWithWeather,
+  weeklyWithWeather,
+  monthlyWithWeather,
+  yearlyWithWeather,
+  realtimeSales,
+} from '../controllers/salesController.js';
+
+const router = Router();
+
+// All routes require JWT auth
+router.use(protect);
+
+// Sales summaries
+router.get('/daily', daily);
+router.get('/weekly', weekly);
+router.get('/monthly', monthly);
+router.get('/monthly-comparison', monthlyComparison);
+
+// Sales + Weather combined
+router.get('/daily-with-weather', dailyWithWeather);
+router.get('/weekly-with-weather', weeklyWithWeather);
+router.get('/monthly-with-weather', monthlyWithWeather);
+router.get('/yearly-with-weather', yearlyWithWeather);
+router.get('/realtime', realtimeSales);
+
+// Departments
+router.get('/departments', departments);
+router.get('/departments/comparison', departmentComparison);
+
+// Products
+router.get('/products/top', topProducts);
+router.get('/products/grouped', productsGrouped);
+router.get('/products/movement', productMovement);
+router.get('/products/daily-movement', dailyProductMovement);
+
+// Predictions
+router.get('/predictions/daily', predictionsDaily);
+router.get('/predictions/weekly', predictionsWeekly);
+router.get('/predictions/residuals', predictionsResiduals);
+
+// Vendor orders
+router.get('/vendor-orders', vendorOrders);
+
+export default router;

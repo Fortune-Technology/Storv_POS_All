@@ -1,0 +1,134 @@
+/* ===================================
+   OCR MODULE STYLES
+   =================================== */
+
+.ocr-section {
+    position: relative;
+    padding: 2rem 0;
+}
+
+.ocr-header-lead {
+    max-width: 700px;
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    margin: 1rem auto 3rem;
+}
+
+.ocr-card-container {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+.ocr-card-container>.fade-in {
+    padding: 1rem;
+}
+
+/* Previews */
+.ocr-preview-container {
+    margin-top: 1.5rem;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.ocr-preview-pdf {
+    height: 500px;
+    width: 100%;
+}
+
+.ocr-preview-image {
+    max-width: 100%;
+    max-height: 500px;
+    object-fit: contain;
+}
+
+/* History List */
+.ocr-history-list {
+    max-height: 600px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.ocr-history-item {
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--bg-tertiary) !important;
+    border: 1px solid transparent !important;
+}
+
+.ocr-history-item:hover {
+    border-color: var(--accent-primary) !important;
+}
+
+.ocr-history-item.active {
+    border-color: var(--accent-primary) !important;
+    background: rgba(122, 193, 67, 0.05) !important;
+}
+
+/* Background Glows */
+.ocr-glow {
+    position: fixed;
+    z-index: -1;
+    border-radius: 50%;
+    filter: blur(150px);
+    opacity: 0.05;
+    pointer-events: none;
+}
+
+.ocr-glow-1 {
+    top: 20%;
+    left: -10%;
+    width: 400px;
+    height: 400px;
+    background: var(--accent-primary);
+}
+
+.ocr-glow-2 {
+    bottom: 10%;
+    right: -5%;
+    width: 300px;
+    height: 300px;
+    background: var(--accent-secondary);
+}
+
+/* Table Enhancements */
+.ocr-table-field-key {
+    width: 30%;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.ocr-table-field-confidence {
+    width: 15%;
+}
+
+.ocr-inline-input {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.875rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    transition: border-color 0.2s;
+}
+
+.ocr-inline-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+@keyframes slideInTop {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
