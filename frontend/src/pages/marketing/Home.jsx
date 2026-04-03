@@ -71,7 +71,7 @@ const Home = () => {
     {
       icon: <Users size={32} />,
       title: 'Customer Loyalty',
-      desc: 'Manage points and rewards synchronized directly with your IT Retail POS.',
+      desc: 'Manage points and rewards synchronized directly with your POS.',
       path: '/features#loyalty'
     },
     {
@@ -235,7 +235,7 @@ const Home = () => {
           </div>
           <div className="teaser-card">
             <div className="stars">★★★★★</div>
-            <p>"Finally a system that speaks to IT Retail perfectly. The real-time hub is addictive."</p>
+            <p>"Finally a system that speaks to our POS perfectly. The real-time hub is addictive."</p>
             <div className="author">— Mike R., Food Market Owner</div>
           </div>
         </div>

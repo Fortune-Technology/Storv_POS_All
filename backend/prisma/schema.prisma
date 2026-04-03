@@ -287,9 +287,6 @@ model MasterProduct {
   ecomDescription     String?       // SEO-friendly description
   ecomTags            String[]      // searchable tags
 
-  // POS sync fields (IT Retail / MarktPOS)
-  itRetailUpc         String?       // UPC as stored in IT Retail
-  itRetailPlu         String?       // PLU in IT Retail
   posLastSyncAt       DateTime?     // last time synced from/to POS
 
   // Status
@@ -518,10 +515,6 @@ model User {
 
   role                String       @default("staff") // "superadmin" | "admin" | "manager" | "staff"
 
-  // MarktPOS / IT Retail credentials (stored encrypted at app layer)
-  marktPOSUsername    String?
-  marktPOSPassword    String?
-
   // Default store location (used for weather, etc.)
   storeLatitude       Float?
   storeLongitude      Float?
@@ -577,14 +570,10 @@ model Store {
   monthlyRatePerStation Decimal?     @db.Decimal(10, 2)
 
   // POS integration credentials — stored as JSONB so we can support
-  // multiple POS systems (IT Retail, Square, MarktPOS…) without schema changes.
+  // multiple POS systems without schema changes.
   // Shape: { type, username, password, storeCode, chainCode, locationId,
   //          merchantId, restaurantGuid, apiKey }
   pos                   Json?
-
-  // IT Retail / MarktPOS identifiers
-  itRetailStoreId       String?
-  itRetailTenantId      String?
 
   isActive              Boolean      @default(true)
   branding              Json?        @default("{}")

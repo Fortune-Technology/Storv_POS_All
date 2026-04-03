@@ -69,7 +69,6 @@ function toDateInput(val) {
   return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
 }
 
-// Safely extract id/name from IT Retail objects (field names vary by endpoint)
 function posId(obj)   { return obj?.id   ?? obj?.posId ?? obj?._id  ?? ''; }
 function posName(obj) { return obj?.name ?? obj?.description        ?? ''; }
 
@@ -637,7 +636,7 @@ function ReviewPanel({
                             {!readOnly && item.mappingStatus === 'unmatched' && (
                               <div style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.22)', borderRadius: '8px', padding: '0.65rem 0.875rem', marginBottom: '0.1rem' }}>
                                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>⚠ Not linked to a POS product</div>
-                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>This item won&apos;t be pushed to IT Retail on Confirm &amp; Sync until linked.</div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>This item won&apos;t be synced until linked to a product.</div>
                                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                   <button onClick={() => onOpenSearch(i, 'search')}
                                     style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
@@ -645,7 +644,7 @@ function ReviewPanel({
                                   </button>
                                   <button onClick={() => onOpenSearch(i, 'create')}
                                     style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
-                                    <PlusCircle size={13} /> Create New in IT Retail
+                                    <PlusCircle size={13} /> Create New Product
                                   </button>
                                 </div>
                               </div>
@@ -857,7 +856,7 @@ function ReviewPanel({
                         {!readOnly && (
                           <div style={{ padding: '0.65rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-secondary)' }}>
                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              💡 Field edits are tracked in draft — use buttons to push directly to IT Retail
+                              💡 Field edits are tracked in draft — use buttons to sync to your catalog
                             </span>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                               {isMatched && (item.linkedProductId || item.posProductId) ? (
@@ -1025,7 +1024,7 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
               {!modal.isLoading && modal.results.length === 0 && !modal.query && (
                 <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
                   <Search size={36} style={{ opacity: 0.15, marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
-                  <p style={{ fontSize: '0.875rem' }}>Type to search IT Retail products</p>
+                  <p style={{ fontSize: '0.875rem' }}>Type to search catalog products</p>
                 </div>
               )}
             </>
@@ -1092,8 +1091,8 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
                 style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.9rem', padding: '0.75rem', marginTop: '0.25rem' }}
               >
                 {isCreating
-                  ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Creating in IT Retail…</>
-                  : <><PlusCircle size={16} /> Create Product in IT Retail</>}
+                  ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Creating product…</>
+                  : <><PlusCircle size={16} /> Create Product</>}
               </button>
             </div>
           )}
@@ -1244,7 +1243,7 @@ const InvoiceImport = () => {
         driverName: editData.driverName, salesRepName: editData.salesRepName, loadNumber: editData.loadNumber,
       });
 
-      // Step 2 — bulk-push all matched items to IT Retail
+      // Step 2 — bulk-push all matched items to catalog
       const matchedItems = editData.lineItems.filter(
         item => (item.mappingStatus === 'matched' || item.mappingStatus === 'manual')
           && (item.linkedProductId || item.posProductId)
@@ -1280,7 +1279,7 @@ const InvoiceImport = () => {
         } else if (failed > 0) {
           toast.warning(`⚠ Invoice synced · ${succeeded} products updated in POS · ${failed} failed${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
         } else {
-          toast.success(`✅ Invoice synced · ${succeeded} products updated in IT Retail${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
+          toast.success(`✅ Invoice synced · ${succeeded} products updated${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
         }
       } else {
         // No matched items — just confirm
@@ -1302,7 +1301,7 @@ const InvoiceImport = () => {
     if (res.data?.testingMode) {
       toast.info('🔧 Dev mode: POS update simulated — no real change made');
     } else {
-      toast.success('✅ Product updated in IT Retail');
+      toast.success('✅ Product updated in catalog');
     }
   };
 
@@ -1312,7 +1311,7 @@ const InvoiceImport = () => {
       toast.info('🔧 Dev mode: POS create simulated — no real product created');
       return null;
     }
-    toast.success('✅ Product created in IT Retail');
+    toast.success('✅ Product created in catalog');
     return res.data?.newProductId || null;
   };
 
@@ -1352,7 +1351,7 @@ const InvoiceImport = () => {
           return { ...prev, lineItems: items };
         });
       }
-      toast.success('✅ Product created in IT Retail and linked to this invoice item');
+      toast.success('✅ Product created in catalog and linked to this invoice item');
       setSearchModal({ isOpen: false, itemIdx: null, query: '', results: [], isLoading: false, tab: 'search', itemData: null });
     } catch (err) {
       toast.error('Create failed: ' + (err.response?.data?.error || err.message));
@@ -1363,7 +1362,7 @@ const InvoiceImport = () => {
     setIsRefreshingPOS(true);
     try {
       await clearInvoicePOSCache();
-      toast.success('✅ POS cache cleared — next invoice upload will fetch the latest products & vendors from IT Retail');
+      toast.success('✅ POS product cache cleared');
     } catch (err) {
       toast.error('Failed to refresh: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -1442,7 +1441,7 @@ const InvoiceImport = () => {
               onClick={handleRefreshPOS}
               disabled={isRefreshingPOS}
               className="btn btn-secondary btn-sm"
-              title="Clear cached POS products — forces fresh fetch from IT Retail on next upload. Use after adding new vendors or products in IT Retail."
+              title="Clear cached POS products — forces a fresh fetch on next upload."
               style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
             >
               {isRefreshingPOS

@@ -1,60 +1,20 @@
 import prisma from '../config/postgres.js';
 import * as gptService from '../services/gptService.js';
-import * as marktPOSService from '../services/marktPOSService.js';
 import {
   matchLineItems,
   saveConfirmedMappings,
   getPOSCache,
-  setPOSCache,
   clearPOSCache,
 } from '../services/matchingService.js';
 import fs from 'fs/promises';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: load store's POS credentials for background processing
-// ─────────────────────────────────────────────────────────────────────────────
-async function buildPOSUser(user, storeId) {
-  try {
-    if (!storeId) return user;
-    const store = await prisma.store.findUnique({
-      where: { id: storeId },
-      select: { pos: true },
-    });
-    const pos = store?.pos;
-    if (pos?.type === 'itretail' && pos.username && pos.password) {
-      return {
-        ...user,
-        marktPOSUsername: pos.username,
-        marktPOSPassword: pos.password,
-        _posStoreId: storeId,
-      };
-    }
-  } catch (err) {
-    console.warn('⚠️ Could not load store POS credentials:', err.message);
-  }
-  return user;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal: background processing (called after HTTP response is sent)
 // ─────────────────────────────────────────────────────────────────────────────
 async function processInvoiceBackground(invoiceId, file, user, storeId) {
   try {
-    const posUser = await buildPOSUser(user, storeId);
-
-    let posProducts = [];
-    try {
-      const cached = getPOSCache(user.id);
-      if (cached) {
-        posProducts = cached;
-      } else {
-        const { data } = await marktPOSService.fetchMarktPOSProducts(posUser);
-        posProducts = marktPOSService.extractProductArray(data).map(marktPOSService.normalizeProduct);
-        setPOSCache(user.id, posProducts);
-      }
-    } catch (err) {
-      console.warn('⚠️ Could not fetch POS products for matching:', err.message);
-    }
+    const posProducts = getPOSCache(user.id) ?? [];
 
     const buffer = await fs.readFile(file.path);
     const result = await gptService.extractInvoiceData(buffer, file.mimetype);
@@ -155,19 +115,7 @@ export const uploadInvoices = async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    let posProducts = [];
-    try {
-      const cached = getPOSCache(req.user.id);
-      if (cached) {
-        posProducts = cached;
-      } else {
-        const { data } = await marktPOSService.fetchMarktPOSProducts(req.user);
-        posProducts = marktPOSService.extractProductArray(data).map(marktPOSService.normalizeProduct);
-        setPOSCache(req.user.id, posProducts);
-      }
-    } catch (err) {
-      console.warn('⚠️ Could not fetch POS products for mapping:', err.message);
-    }
+    const posProducts = getPOSCache(req.user.id) ?? [];
 
     const results = [];
 
@@ -399,7 +347,7 @@ export const clearInvoicePOSCache = async (req, res) => {
     clearPOSCache(req.user.id);
     res.json({
       success: true,
-      message: 'POS product cache cleared — next upload will fetch fresh data from IT Retail',
+      message: 'POS product cache cleared',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

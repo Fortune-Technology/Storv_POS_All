@@ -107,7 +107,7 @@ export const getFeeMappings = () => api.get('/fees-mappings');
 export const upsertFeeMapping = (mapping) => api.post('/fees-mappings', mapping);
 export const deleteFeeMapping = (id) => api.delete(`/fees-mappings/${id}`);
 
-// Sales Analytics (IT Retail)
+// Sales Analytics
 export const getSalesDaily = (params) => api.get('/sales/daily', { params }).then(r => r.data);
 export const getSalesWeekly = (params) => api.get('/sales/weekly', { params }).then(r => r.data);
 export const getSalesMonthly = (params) => api.get('/sales/monthly', { params }).then(r => r.data);

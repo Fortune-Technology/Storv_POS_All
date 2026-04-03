@@ -542,7 +542,6 @@ export const createMasterProduct = async (req, res) => {
       ebtEligible, ageRequired, taxable, discountEligible, foodstamp,
       trackInventory, reorderPoint, reorderQty,
       hideFromEcom, ecomDescription, ecomTags,
-      itRetailUpc, itRetailPlu,
       active,
     } = req.body;
 
@@ -590,8 +589,6 @@ export const createMasterProduct = async (req, res) => {
         hideFromEcom:       Boolean(hideFromEcom),
         ecomDescription:    ecomDescription || null,
         ecomTags:           Array.isArray(ecomTags) ? ecomTags : [],
-        itRetailUpc:        itRetailUpc || null,
-        itRetailPlu:        itRetailPlu || null,
         active:             active !== false,
       },
       include: {
@@ -654,8 +651,6 @@ export const updateMasterProduct = async (req, res) => {
     if (body.active        !== undefined) updates.active        = Boolean(body.active);
     if (body.hideFromEcom  !== undefined) updates.hideFromEcom  = Boolean(body.hideFromEcom);
     if (body.ecomTags      !== undefined) updates.ecomTags      = Array.isArray(body.ecomTags) ? body.ecomTags : [];
-    if (body.itRetailUpc   !== undefined) updates.itRetailUpc   = body.itRetailUpc || null;
-    if (body.itRetailPlu   !== undefined) updates.itRetailPlu   = body.itRetailPlu || null;
 
     const product = await prisma.masterProduct.update({
       where: { id, orgId },

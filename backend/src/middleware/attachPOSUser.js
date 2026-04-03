@@ -4,12 +4,11 @@
  * Runs after `protect` + `scopeToTenant` on all /api/pos/* routes.
  * Loads the active store's POS credentials and attaches req.posUser
  * so every POS controller can simply pass req.posUser to
- * marktPOSRequest() without knowing about credential location.
+ * the POS request helper without knowing about credential location.
  *
  * Credential resolution order:
  *   1. Active store's pos.username / pos.password  (normal production path)
  *   2. MARKTPOS_USERNAME / MARKTPOS_PASSWORD env   (dev / fallback)
- *   3. req.user fields                             (legacy)
  */
 
 import prisma from '../config/postgres.js';
@@ -18,8 +17,8 @@ export const attachPOSUser = async (req, res, next) => {
   try {
     const base = { ...req.user };
 
-    let username = base.marktPOSUsername;
-    let password = base.marktPOSPassword;
+    let username = null;
+    let password = null;
     let config   = {
       baseURL:      'https://app.marktpos.com',
       securityCode: '',
@@ -33,7 +32,7 @@ export const attachPOSUser = async (req, res, next) => {
           select: { pos: true },
         });
         const pos = store?.pos;
-        if (pos?.type === 'itretail') {
+        if (pos) {
           username = pos.username || username;
           password = pos.password || password;
           if (pos.baseURL)      config.baseURL      = pos.baseURL;
@@ -47,9 +46,9 @@ export const attachPOSUser = async (req, res, next) => {
 
     req.posUser = {
       ...base,
-      marktPOSUsername: username || '',
-      marktPOSPassword: password || '',
-      marktPOSConfig:   config,
+      posUsername: username || '',
+      posPassword: password || '',
+      posConfig:   config,
     };
 
     next();

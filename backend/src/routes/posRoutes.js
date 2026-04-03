@@ -35,7 +35,7 @@ router.use(attachPOSUser);   // merges store POS credentials → req.posUser
 router.post('/connect', connectPOS);
 router.get('/status', getStatus);
 
-// Products from MarktPOS
+// Products
 router.get('/products/search', globalProductSearch);
 router.get('/products', fetchProducts);
 router.post('/products/sync', syncAllProducts);
@@ -57,13 +57,12 @@ router.get('/taxes-fees', getTaxesFees);
 // Product detail update (pack, case_cost, retail price, dept, vendor, cert_code, fees, taxes)
 router.put('/products/:id/details', updatePOSProductDetails);
 
-// Create new product in IT Retail
 router.post('/products/create', createPOSProduct);
 
 // Logs
 router.get('/logs', getLogs);
 
-// Debug — raw MarktPOS response (first 3 products)
+// Debug — raw products response (first 3 products)
 router.get('/debug/products-raw', debugProductsRaw);
 // Debug — raw departments / fees / taxes response (use to confirm endpoint shapes)
 router.get('/debug/reference-data', debugReferenceData);
