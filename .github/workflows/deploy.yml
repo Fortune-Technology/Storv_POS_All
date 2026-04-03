@@ -47,6 +47,7 @@ jobs:
           cd /var/www/Fortune_POS_Platform/frontend
           nvm use 20
           npm install
+          rm -rf dist
           npm run build
           rm -rf /var/www/dashboard/*
           cp -r dist/* /var/www/dashboard/
@@ -61,6 +62,7 @@ jobs:
           cd /var/www/Fortune_POS_Platform/cashier-app
           nvm use 20
           npm install
+          rm -rf dist
           npm run build
           rm -rf /var/www/pos/*
           cp -r dist/* /var/www/pos/
