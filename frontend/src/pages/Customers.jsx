@@ -200,7 +200,7 @@ const Customers = () => {
                       </tr>
                     ) : (
                       customers.map((customer) => (
-                        <tr key={customer._id}>
+                        <tr key={customer.id}>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                               <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 600, flexShrink: 0 }}>
@@ -209,7 +209,7 @@ const Customers = () => {
                               <div>
                                 <p style={{ fontWeight: 600 }}>{getDisplayName(customer)}</p>
                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                  {customer.posCustomerId ? `POS: ${customer.posCustomerId.substring(0, 8)}...` : `ID: ${customer._id.slice(-8)}`}
+                                  {customer.posCustomerId ? `POS: ${customer.posCustomerId.substring(0, 8)}...` : `ID: ${customer.id.slice(-8)}`}
                                 </p>
                               </div>
                             </div>

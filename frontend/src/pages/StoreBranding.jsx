@@ -191,9 +191,9 @@ export default function StoreBranding() {
       setStores(list);
       if (list.length === 0) return;
       const paramId = searchParams.get('store');
-      const match   = paramId && list.find(s => (s.id || s._id) === paramId);
+      const match   = paramId && list.find(s => (s.id || s.id) === paramId);
       const target  = match || list[0];
-      setStoreId(target.id || target._id);
+      setStoreId(target.id || target.id);
       setStoreName(target.name);
     }).catch(() => {});
   }, []);
@@ -280,7 +280,7 @@ export default function StoreBranding() {
                 <select
                   value={storeId}
                   onChange={e => {
-                    const s = stores.find(x => (x.id || x._id) === e.target.value);
+                    const s = stores.find(x => (x.id || x.id) === e.target.value);
                     setStoreId(e.target.value);
                     setStoreName(s?.name || '');
                   }}
@@ -291,7 +291,7 @@ export default function StoreBranding() {
                   }}
                 >
                   {stores.map(s => (
-                    <option key={s.id || s._id} value={s.id || s._id}>{s.name}</option>
+                    <option key={s.id || s.id} value={s.id || s.id}>{s.name}</option>
                   ))}
                 </select>
               </div>

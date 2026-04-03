@@ -228,12 +228,12 @@ export default function StoreSwitcher() {
           </div>
 
           {/* Store list */}
-          {stores.map((store, idx) => (
+          {stores.map((store) => (
             <StoreOption
-              key={store._id}
+              key={store.id}
               store={store}
-              isActive={store._id === activeStore._id}
-              onSelect={() => { switchStore(store._id); setOpen(false); }}
+              isActive={store.id === activeStore.id}
+              onSelect={() => { switchStore(store.id); setOpen(false); }}
             />
           ))}
         </div>

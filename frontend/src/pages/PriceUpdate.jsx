@@ -30,7 +30,7 @@ const PriceUpdate = () => {
   const handleBulkUpdate = async () => {
     if (Object.keys(updates).length === 0) return;
     setSyncing(true);
-    const updateArray = Object.keys(updates).map(id => ({ _id: id, price: updates[id] }));
+    const updateArray = Object.keys(updates).map(id => ({ id: id, price: updates[id] }));
     
     try {
       const { data } = await bulkUpdatePrices(updateArray);
@@ -95,7 +95,7 @@ const PriceUpdate = () => {
               </thead>
               <tbody>
                 {products.map((product) => (
-                  <tr key={product._id}>
+                  <tr key={product.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         <div style={{ padding: '0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
@@ -114,10 +114,10 @@ const PriceUpdate = () => {
                           type="number" 
                           step="0.01"
                           className="form-input" 
-                          style={{ padding: '0.4rem 0.6rem', background: updates[product._id] ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-tertiary)' }}
+                          style={{ padding: '0.4rem 0.6rem', background: updates[product.id] ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-tertiary)' }}
                           placeholder={product.price}
-                          value={updates[product._id] || ''}
-                          onChange={(e) => handlePriceChange(product._id, e.target.value)}
+                          value={updates[product.id] || ''}
+                          onChange={(e) => handlePriceChange(product.id, e.target.value)}
                         />
                       </div>
                     </td>

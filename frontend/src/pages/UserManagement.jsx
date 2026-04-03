@@ -69,7 +69,7 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
           style={{ cursor: 'pointer' }}
         >
           <option value="">Select a store…</option>
-          {stores.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+          {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
           Cashiers can only be assigned to one store
@@ -101,9 +101,9 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
           <div style={{ padding: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>No stores yet</div>
         ) : (
           stores.map((s, i) => {
-            const checked = storeIds.includes(s._id);
+            const checked = storeIds.includes(s.id);
             return (
-              <label key={s._id} style={{
+              <label key={s.id} style={{
                 display: 'flex', alignItems: 'center', gap: '0.6rem',
                 padding: '0.55rem 0.75rem', cursor: 'pointer',
                 borderBottom: i < stores.length - 1 ? '1px solid var(--border-color)' : 'none',
@@ -113,7 +113,7 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={() => toggle(s._id)}
+                  onChange={() => toggle(s.id)}
                   style={{ accentColor: 'var(--accent-primary)', width: 14, height: 14, cursor: 'pointer' }}
                 />
                 <div>
@@ -392,7 +392,7 @@ export default function UserManagement() {
         : <span style={{ color: 'var(--text-muted)' }}>—</span>;
     }
     return ids.map((s, i) => {
-      const store = stores.find(st => st._id === (s._id || s));
+      const store = stores.find(st => st.id === (s.id || s));
       return (
         <span key={i} style={{ display: 'inline-block', background: 'rgba(122,193,67,0.1)', color: 'var(--accent-primary)', fontSize: '0.7rem', fontWeight: 600, padding: '0.1rem 0.45rem', borderRadius: '9999px', margin: '0.1rem 0.15rem' }}>
           {store?.name || '?'}
@@ -485,13 +485,13 @@ export default function UserManagement() {
                 </thead>
                 <tbody>
                   {users.map(u => {
-                    const isSelf   = u._id === currentUser._id;
+                    const isSelf   = u.id === currentUser.id;
                     const isFixed  = FIXED_ROLES.includes(u.role);
-                    const updating = updatingId === u._id;
-                    const removing = removingId === u._id;
+                    const updating = updatingId === u.id;
+                    const removing = removingId === u.id;
 
                     return (
-                      <tr key={u._id}
+                      <tr key={u.id}
                         style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s' }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}>
@@ -515,7 +515,7 @@ export default function UserManagement() {
                             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                               <select
                                 value={u.role}
-                                onChange={e => handleRoleChange(u._id, e.target.value)}
+                                onChange={e => handleRoleChange(u.id, e.target.value)}
                                 disabled={updating}
                                 style={{
                                   appearance: 'none', border: 'none', background: 'transparent',
@@ -550,7 +550,7 @@ export default function UserManagement() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                             {['cashier', 'staff', 'manager'].includes(u.role) && (
                               <button
-                                onClick={() => { setPinModal({ userId: u._id, userName: u.name }); setPinValue(''); setPinError(''); }}
+                                onClick={() => { setPinModal({ userId: u.id, userName: u.name }); setPinValue(''); setPinError(''); }}
                                 title="Set POS PIN"
                                 style={{
                                   background: 'rgba(122,193,67,0.1)', border: '1px solid rgba(122,193,67,0.25)',
@@ -567,7 +567,7 @@ export default function UserManagement() {
                             )}
                             {!isFixed && !isSelf && (
                               <button
-                                onClick={() => handleRemove(u._id, u.name)}
+                                onClick={() => handleRemove(u.id, u.name)}
                                 disabled={removing}
                                 title="Remove from organisation"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', borderRadius: '6px', transition: 'color 0.15s' }}

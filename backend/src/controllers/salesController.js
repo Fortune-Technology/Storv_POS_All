@@ -61,7 +61,7 @@ const today = () => toISO(new Date());
 export const daily = async (req, res) => {
   try {
     const { from = daysAgo(30), to = today() } = req.query;
-    const data = await getDailySales(from, to);
+    const data = await getDailySales(req.posUser ?? req.user, req.storeId, from, to);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -72,7 +72,7 @@ export const daily = async (req, res) => {
 export const weekly = async (req, res) => {
   try {
     const { from = weeksAgo(12), to = today() } = req.query;
-    const data = await getWeeklySales(from, to);
+    const data = await getWeeklySales(req.posUser ?? req.user, req.storeId, from, to);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -83,7 +83,7 @@ export const weekly = async (req, res) => {
 export const monthly = async (req, res) => {
   try {
     const { from = monthsAgo(24), to = today() } = req.query;
-    const data = await getMonthlySales(from, to);
+    const data = await getMonthlySales(req.posUser ?? req.user, req.storeId, from, to);
     res.json(data);
   } catch (err) {
     console.error('❌ Sales Controller Error [monthly]:', err.response?.data || err.message);
@@ -93,7 +93,7 @@ export const monthly = async (req, res) => {
 
 export const monthlyComparison = async (req, res) => {
   try {
-    const data = await getMonthlySalesComparison();
+    const data = await getMonthlySalesComparison(req.posUser ?? req.user, req.storeId);
     res.json(data);
   } catch (err) {
     console.error('❌ Sales Controller Error [monthlyComparison]:', err.response?.data || err.message);
@@ -106,7 +106,7 @@ export const monthlyComparison = async (req, res) => {
 export const departments = async (req, res) => {
   try {
     const { from = daysAgo(30), to = today() } = req.query;
-    const data = await getDepartmentSales(from, to);
+    const data = await getDepartmentSales(req.posUser ?? req.user, req.storeId, from, to);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -122,7 +122,7 @@ export const departmentComparison = async (req, res) => {
       from2 = daysAgo(60),
       to2 = daysAgo(31),
     } = req.query;
-    const data = await getDepartmentComparison(from, to, from2, to2);
+    const data = await getDepartmentComparison(req.posUser ?? req.user, req.storeId, from, to, from2, to2);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -135,7 +135,7 @@ export const departmentComparison = async (req, res) => {
 export const topProducts = async (req, res) => {
   try {
     const { date = yesterday() } = req.query;
-    const data = await getTopProducts(date);
+    const data = await getTopProducts(req.posUser ?? req.user, req.storeId, date);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -152,7 +152,7 @@ export const productsGrouped = async (req, res) => {
       pageSize = 20,
       skip = 0,
     } = req.query;
-    const data = await getProductsGrouped(from, to, orderBy, Number(pageSize), Number(skip));
+    const data = await getProductsGrouped(req.posUser ?? req.user, req.storeId, from, to, orderBy, Number(pageSize), Number(skip));
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -169,7 +169,7 @@ export const productMovement = async (req, res) => {
       weekly = false,
     } = req.query;
     if (!upc) return res.status(400).json({ error: 'upc is required' });
-    const data = await getProductMovement(upc, dateStart, dateFinish, weekly === 'true');
+    const data = await getProductMovement(req.posUser ?? req.user, req.storeId, upc, dateStart, dateFinish, weekly === 'true');
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -180,7 +180,7 @@ export const productMovement = async (req, res) => {
 export const dailyProductMovement = async (req, res) => {
   try {
     const { startDate = daysAgo(30), endDate = today() } = req.query;
-    const data = await getDailyProductMovement(startDate, endDate);
+    const data = await getDailyProductMovement(req.posUser ?? req.user, req.storeId, startDate, endDate);
     res.json(data);
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
@@ -197,7 +197,7 @@ export const predictionsDaily = async (req, res) => {
     // Fetch last 90 days of daily sales history
     const from = daysAgo(90);
     const to = today();
-    const rawData = await getDailySales(from, to);
+    const rawData = await getDailySales(req.posUser ?? req.user, req.storeId, from, to);
     const series = (rawData.value || []).map((r) => r.TotalNetSales || 0);
 
     if (series.length < 7) {
@@ -258,7 +258,7 @@ export const predictionsResiduals = async (req, res) => {
 
     // Fetch enough history: test window + training buffer (min 90 days training)
     const totalDays = testDays + 90;
-    const rawData = await getDailySales(daysAgo(totalDays), today());
+    const rawData = await getDailySales(req.posUser ?? req.user, req.storeId, daysAgo(totalDays), today());
     const rows = (rawData.value || []).filter((r) => r.Date && r.TotalNetSales != null);
 
     if (rows.length < testDays + 14) {
@@ -341,7 +341,7 @@ export const predictionsWeekly = async (req, res) => {
     // Fetch last 52 weeks
     const from = weeksAgo(52);
     const to = today();
-    const rawData = await getWeeklySales(from, to);
+    const rawData = await getWeeklySales(req.posUser ?? req.user, req.storeId, from, to);
     const series = (rawData.value || []).map((r) => r.TotalNetSales || 0);
 
     if (series.length < 8) {
@@ -376,7 +376,7 @@ export const predictionsWeekly = async (req, res) => {
 export const dailyWithWeather = async (req, res) => {
   try {
     const { from = daysAgo(30), to = today() } = req.query;
-    const salesData = await getDailySales(from, to);
+    const salesData = await getDailySales(req.posUser ?? req.user, req.storeId, from, to);
     const salesRows = salesData.value || [];
 
     // Fetch weather if user has location set
@@ -408,7 +408,7 @@ export const dailyWithWeather = async (req, res) => {
 export const weeklyWithWeather = async (req, res) => {
   try {
     const { from = weeksAgo(12), to = today() } = req.query;
-    const salesData = await getWeeklySales(from, to);
+    const salesData = await getWeeklySales(req.posUser ?? req.user, req.storeId, from, to);
 
     let weather = [];
     let weeklyWeather = [];
@@ -459,7 +459,7 @@ export const weeklyWithWeather = async (req, res) => {
 export const monthlyWithWeather = async (req, res) => {
   try {
     const { from = monthsAgo(24), to = today() } = req.query;
-    const salesData = await getMonthlySales(from, to);
+    const salesData = await getMonthlySales(req.posUser ?? req.user, req.storeId, from, to);
 
     let weather = [];
     let monthlyWeather = [];
@@ -504,7 +504,7 @@ export const yearlyWithWeather = async (req, res) => {
   try {
     const { from = monthsAgo(60), to = today() } = req.query;
     // Use monthly data and aggregate to yearly
-    const salesData = await getMonthlySales(from, to);
+    const salesData = await getMonthlySales(req.posUser ?? req.user, req.storeId, from, to);
     const monthlyRows = salesData.value || [];
 
     // Aggregate monthly sales into yearly
@@ -593,7 +593,7 @@ export const realtimeSales = async (req, res) => {
 
     // Fetch last 7 days so we always have the most recent available day
     const from7 = daysAgo(7);
-    const salesData = await getDailySales(from7, todayDate);
+    const salesData = await getDailySales(req.posUser ?? req.user, req.storeId, from7, todayDate);
     const rows = (salesData.value || []).filter(r => r.Date);
 
     // Sort descending and pick the most recent row that has actual sales
@@ -632,7 +632,7 @@ export const vendorOrders = async (req, res) => {
     const startDate = daysAgo(60);
     const endDate = today();
 
-    const rawMovement = await getDailyProductMovement(startDate, endDate);
+    const rawMovement = await getDailyProductMovement(req.posUser ?? req.user, req.storeId, startDate, endDate);
 
     // Group by UPC
     const byUpc = {};

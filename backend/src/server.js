@@ -98,7 +98,7 @@ const startServer = async () => {
   app.listen(PORT, () => {
     console.log(`✓ Server running on port ${PORT}`);
     console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`✓ CORS enabled for: ${process.env.CORS_ORIGIN || 'http://localhost:5173'}`);
+    console.log(`✓ CORS enabled for: ${process.env.CORS_ORIGIN || 'http://localhost:5173, http://localhost:5174'}`);
     console.log('✓ Database: PostgreSQL (Prisma)');
   });
 };
