@@ -34,7 +34,7 @@ jobs:
           npm install
           npx prisma db push
           npm run db:seed -- default || true
-          pm2 restart ft-backend
+          pm2 restart fortuneTech-backend
           pm2 save
 
       - name: Deploy frontend
