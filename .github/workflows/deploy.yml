@@ -1,16 +1,12 @@
-name: Deploy CSV Filter Project
+name: Deploy Fortune POS Platform
 
 on:
   push:
     branches:
       - main
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/deploy.yml"
 
 concurrency:
-  group: deploy-csv-filter-main
+  group: deploy-ft-main
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          cd /var/www/CSV_Filter_Project
+          cd /var/www/Fortune_POS_Platform
           git fetch origin
           git reset --hard origin/main
 
@@ -33,10 +29,12 @@ jobs:
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-          cd /var/www/CSV_Filter_Project/backend
+          cd /var/www/Fortune_POS_Platform/backend
           nvm use
           npm install
-          pm2 restart csvfilter-backend
+          npx prisma db push
+          npm run db:seed -- default || true
+          pm2 restart ft-backend
           pm2 save
 
       - name: Deploy frontend
@@ -46,8 +44,26 @@ jobs:
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-          cd /var/www/CSV_Filter_Project/frontend
+          cd /var/www/Fortune_POS_Platform/frontend
           nvm use
           npm install
           npm run build
-          sudo systemctl reload nginx
+          rm -rf /var/www/dashboard/*
+          cp -r dist/* /var/www/dashboard/
+
+      - name: Deploy POS
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+          cd /var/www/Fortune_POS_Platform/cashier-app
+          nvm use
+          npm install
+          npm run build
+          rm -rf /var/www/pos/*
+          cp -r dist/* /var/www/pos/
+
+      - name: Reload nginx
+        run: sudo systemctl reload nginx
