@@ -8,7 +8,7 @@ import prisma from '../config/postgres.js';
  * exponential backoff on network failures, and endpoint discovery.
  */
 
-const BASE_URL = () => process.env.MARKTPOS_BASE_URL || 'https://app.marktpos.com';
+const BASE_URL = (u) => u?.marktPOSConfig?.baseURL || process.env.MARKTPOS_BASE_URL || 'https://app.marktpos.com';
 const MAX_RETRIES = 3;
 
 // ─── Discovered endpoint cache ───
@@ -33,12 +33,12 @@ const loadTokenFromDB = async (userId) => {
  * Authenticate with MarktPOS and obtain an access token.
  */
 export const getMarktPOSToken = async (user, credentials = null) => {
-  const userId = user?._id;
+  const userId = user?._id || user?.id; // standardise
   const username = credentials?.username || user?.marktPOSUsername;
   const password = credentials?.password || user?.marktPOSPassword;
   
-  const securityCode = process.env.MARKTPOS_SECURITY_CODE;
-  const accessLevel = process.env.MARKTPOS_ACCESS_LEVEL || '0';
+  const securityCode = user?.marktPOSConfig?.securityCode || process.env.MARKTPOS_SECURITY_CODE;
+  const accessLevel  = user?.marktPOSConfig?.accessLevel  || process.env.MARKTPOS_ACCESS_LEVEL || '0';
 
   if (!username || !password) {
     throw new Error('MarktPOS credentials not provided or configured for this store.');
@@ -57,7 +57,7 @@ export const getMarktPOSToken = async (user, credentials = null) => {
   params.append('username', username);
   params.append('password', password);
 
-  let tokenUrl = `${BASE_URL()}/token?accesslevel=${accessLevel}`;
+  let tokenUrl = `${BASE_URL(user)}/token?accesslevel=${accessLevel}`;
   if (securityCode) {
     tokenUrl += `&securityCode=${securityCode}`;
   }
@@ -80,7 +80,7 @@ export const getMarktPOSToken = async (user, credentials = null) => {
         await prisma.posToken.upsert({
           where:  { userId: String(userId) },
           update: { token: accessToken, expiresAt: new Date(expiry) },
-          create: { userId: String(userId), token: accessToken, expiresAt: new Date(expiry), orgId: 'unknown' },
+          create: { userId: String(userId), token: accessToken, expiresAt: new Date(expiry), orgId: user.orgId || 'unknown' },
         });
       } catch (dbErr) {
         console.warn(`⚠ Could not persist POS token for user ${userId}:`, dbErr.message);
@@ -88,11 +88,11 @@ export const getMarktPOSToken = async (user, credentials = null) => {
     }
 
     console.log(`✓ MarktPOS token obtained for user ${userId || 'temp'}, expires:`, new Date(expiry).toISOString());
-    await logPOSCall('POST', '/token', 'success', 200, 'Token obtained');
+    await logPOSCall('POST', '/token', 'success', 200, 'Token obtained', user);
 
     return accessToken;
   } catch (error) {
-    await logPOSCall('POST', '/token', 'fail', error.response?.status, error.message);
+    await logPOSCall('POST', '/token', 'fail', error.response?.status, error.message, user);
 
     if (error.response?.status === 400 || error.response?.status === 401) {
       throw new Error('Invalid MarktPOS credentials. Please check your username and password.');
@@ -105,10 +105,11 @@ export const getMarktPOSToken = async (user, credentials = null) => {
  * Make an authenticated request to the MarktPOS API for a specific user.
  * Automatically handles token refresh on 401 and retries on network errors.
  */
-export const marktPOSRequest = async (method, endpoint, user, data = null, retryCount = 0) => {
+export const marktPOSRequest = async (method, endpoint, user, data = null, retryCount = 0, params = null) => {
   try {
     const token = await getMarktPOSToken(user);
-    const url = `${BASE_URL()}/api${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+    const baseUrl = BASE_URL(user);
+    const url = `${baseUrl}/api${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
 
     console.log(`🔗 MarktPOS ${method} ${url} (User: ${user?._id || user?.id})`);
 
@@ -129,10 +130,11 @@ export const marktPOSRequest = async (method, endpoint, user, data = null, retry
     };
 
     if (data) config.data = data;
+    if (params) config.params = params;
 
     const response = await axios(config);
 
-    await logPOSCall(method, endpoint, 'success', response.status);
+    await logPOSCall(method, endpoint, 'success', response.status, '', user);
 
     return response.data;
   } catch (err) {
@@ -146,7 +148,7 @@ export const marktPOSRequest = async (method, endpoint, user, data = null, retry
         const uid = String(user._id || user.id);
         await prisma.posToken.deleteMany({ where: { userId: uid } });
       }
-      return marktPOSRequest(method, endpoint, user, data, retryCount + 1);
+      return marktPOSRequest(method, endpoint, user, data, retryCount + 1, params);
     }
 
     // Network timeout — retry up to MAX_RETRIES with exponential backoff
@@ -154,10 +156,10 @@ export const marktPOSRequest = async (method, endpoint, user, data = null, retry
       const delay = Math.pow(2, retryCount) * 1000;
       console.warn(`⚠ Network error on ${endpoint}, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
       await new Promise(resolve => setTimeout(resolve, delay));
-      return marktPOSRequest(method, endpoint, user, data, retryCount + 1);
+      return marktPOSRequest(method, endpoint, user, data, retryCount + 1, params);
     }
 
-    await logPOSCall(method, endpoint, 'fail', err.response?.status, err.message);
+    await logPOSCall(method, endpoint, 'fail', err.response?.status, err.message, user);
 
     if (!err.response) {
       throw new Error('MarktPOS system unavailable. Please try again later.');
@@ -428,11 +430,11 @@ export const getDebugProductsRaw = async (user) => {
 // LOGGING
 // ═══════════════════════════════════════════════════════
 
-const logPOSCall = async (method, endpoint, status, statusCode, message = '') => {
+const logPOSCall = async (method, endpoint, status, statusCode, message = '', user = null) => {
   try {
     await prisma.posLog.create({
       data: {
-        orgId:      'unknown', // no orgId in service layer — posController could set this
+        orgId:      user?.orgId || 'unknown', // log the actual org if possible
         method:     method.toUpperCase(),
         endpoint,
         status,

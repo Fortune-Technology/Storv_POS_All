@@ -62,7 +62,7 @@ export const connectPOS = async (req, res, next) => {
 export const getStatus = async (req, res, next) => {
   try {
     const posUser = req.posUser ?? req.user;
-    const displayUsername = posUser?.marktPOSUsername || process.env.MARKTPOS_USERNAME;
+    const displayUsername = posUser?.marktPOSUsername || '';
 
     const stored = await prisma.posToken.findFirst({
       where: { userId: req.user.id },

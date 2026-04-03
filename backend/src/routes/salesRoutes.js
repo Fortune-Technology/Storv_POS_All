@@ -4,6 +4,8 @@
 
 import { Router } from 'express';
 import { protect } from '../middleware/auth.js';
+import { scopeToTenant } from '../middleware/scopeToTenant.js';
+import { attachPOSUser } from '../middleware/attachPOSUser.js';
 import {
   daily,
   weekly,
@@ -30,6 +32,8 @@ const router = Router();
 
 // All routes require JWT auth
 router.use(protect);
+router.use(scopeToTenant);   // sets req.storeId from X-Store-Id header or first store
+router.use(attachPOSUser);   // gets store.pos JSON → req.posUser.marktPOSConfig
 
 // Sales summaries
 router.get('/daily', daily);

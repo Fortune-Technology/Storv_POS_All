@@ -203,7 +203,7 @@ function InvoiceCard({ inv, selected, onOpen, onDelete }) {
           <button onClick={e => { e.stopPropagation(); onOpen(inv); }} className="btn btn-secondary btn-sm" style={{ fontSize: '0.78rem', padding: '6px 14px', whiteSpace: 'nowrap' }}>View</button>
         )}
         {inv.status !== 'synced' && inv.status !== 'processed' && (
-          <button onClick={e => onDelete(inv._id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px', display: 'flex' }} title="Delete">
+          <button onClick={e => onDelete(inv.id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px', display: 'flex' }} title="Delete">
             <Trash2 size={15} />
           </button>
         )}
@@ -1119,7 +1119,7 @@ const InvoiceImport = () => {
   const [isRefreshingPOS,   setIsRefreshingPOS]   = useState(false);
   const pollRef = useRef(null);
 
-  const selectedInvoice = invoices.find(inv => inv._id === selectedId) || null;
+  const selectedInvoice = invoices.find(inv => inv.id === selectedId) || null;
 
   const loadInvoices = useCallback(async () => {
     try {
@@ -1156,13 +1156,13 @@ const InvoiceImport = () => {
     setIsUploading(true);
     for (const file of acceptedFiles) {
       const stubId = `stub-${Date.now()}-${Math.random()}`;
-      setInvoices(prev => [{ _id: stubId, fileName: file.name, status: 'processing', uploadedAt: new Date().toISOString() }, ...prev]);
+      setInvoices(prev => [{ id: stubId, fileName: file.name, status: 'processing', uploadedAt: new Date().toISOString() }, ...prev]);
       try {
         const fd = new FormData();
         fd.append('invoices', file);
         const { data } = await queueInvoice(fd);
         const real = data.invoices?.[0];
-        if (real) setInvoices(prev => prev.map(inv => inv._id === stubId ? real : inv));
+        if (real) setInvoices(prev => prev.map(inv => inv.id === stubId ? real : inv));
       } catch {
         setInvoices(prev => prev.filter(inv => inv._id !== stubId));
         toast.error(`Failed to queue ${file.name}`);
@@ -1178,7 +1178,7 @@ const InvoiceImport = () => {
 
   const openReview = (inv) => {
     if (inv.status === 'processing') { toast.info('Still processing — check back shortly'); return; }
-    setSelectedId(inv._id);
+    setSelectedId(inv.id);
     const canEdit = inv.status === 'draft';
     setEditData(canEdit ? { ...inv, lineItems: JSON.parse(JSON.stringify(inv.lineItems || [])) } : null);
   };
@@ -1211,7 +1211,7 @@ const InvoiceImport = () => {
     if (!editData) return;
     setIsSavingDraft(true);
     try {
-      await saveInvoiceDraft(editData._id, {
+      await saveInvoiceDraft(editData.id, {
         lineItems: editData.lineItems, vendorName: editData.vendorName, invoiceNumber: editData.invoiceNumber,
         invoiceDate: editData.invoiceDate, paymentDueDate: editData.paymentDueDate, paymentType: editData.paymentType,
         checkNumber: editData.checkNumber, customerNumber: editData.customerNumber,
@@ -1235,7 +1235,7 @@ const InvoiceImport = () => {
     try {
       // Step 1 — mark invoice as synced in MongoDB + save vendor-product mappings
       await confirmInvoice({
-        id: editData._id, lineItems: editData.lineItems, vendorName: editData.vendorName,
+        id: editData.id, lineItems: editData.lineItems, vendorName: editData.vendorName,
         invoiceNumber: editData.invoiceNumber, invoiceDate: editData.invoiceDate,
         totalInvoiceAmount: editData.totalInvoiceAmount, customerNumber: editData.customerNumber,
         paymentDueDate: editData.paymentDueDate, paymentType: editData.paymentType,
@@ -1376,7 +1376,7 @@ const InvoiceImport = () => {
     if (!window.confirm('Delete this invoice? This cannot be undone.')) return;
     try {
       await deleteInvoiceDraft(id);
-      setInvoices(prev => prev.filter(inv => inv._id !== id));
+      setInvoices(prev => prev.filter(inv => inv.id !== id));
       if (selectedId === id) closeReview();
       toast.success('Deleted');
     } catch (err) {
@@ -1505,7 +1505,7 @@ const InvoiceImport = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {filteredInvoices.map(inv => (
-              <InvoiceCard key={inv._id} inv={inv} selected={selectedId === inv._id} onOpen={openReview} onDelete={handleDelete} />
+              <InvoiceCard key={inv.id} inv={inv} selected={selectedId === inv.id} onOpen={openReview} onDelete={handleDelete} />
             ))}
           </div>
         )}

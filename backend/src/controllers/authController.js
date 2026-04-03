@@ -28,8 +28,8 @@ export const signup = async (req, res, next) => {
         password: hashed,
         // orgId is required — signup without org creates a pending account
         // The org can be created / linked separately via the onboarding flow.
-        // For now we require orgId in the body or default to a placeholder.
-        orgId: req.body.orgId ?? 'pending',
+        // orgId is required — signup without org points to the default seeded organization.
+        orgId: req.body.orgId ?? req.body.tenantId ?? 'default',
       },
     });
 

@@ -152,19 +152,20 @@ function Toggle({ checked, onChange, label }) {
         onClick={() => onChange(!checked)}
         style={{
           width: 36, height: 20, borderRadius: 10, flexShrink: 0,
-          background: checked ? '#7ac143' : 'rgba(255,255,255,.12)',
+          background: checked ? '#7ac143' : 'var(--bg-tertiary)',
           position: 'relative', transition: 'background .2s', cursor: 'pointer',
+          border: `1px solid ${checked ? '#7ac143' : 'var(--border-color)'}`,
         }}
       >
         <div style={{
-          position: 'absolute', top: 2,
-          left: checked ? 18 : 2,
+          position: 'absolute', top: 1,
+          left: checked ? 17 : 1,
           width: 16, height: 16, borderRadius: '50%',
           background: '#fff', transition: 'left .15s',
-          boxShadow: '0 1px 3px rgba(0,0,0,.4)',
+          boxShadow: '0 1px 3px rgba(0,0,0,.2)',
         }} />
       </div>
-      <span style={{ fontSize: '0.85rem', color: '#cbd5e1', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
     </label>
   );
 }
@@ -178,9 +179,9 @@ function ChipToggle({ checked, onChange, label }) {
       style={{
         padding: '0.4rem 0.85rem',
         borderRadius: 20,
-        border: checked ? '1px solid #7ac143' : '1px solid rgba(255,255,255,.12)',
-        background: checked ? 'rgba(122,193,67,.12)' : 'rgba(255,255,255,.04)',
-        color: checked ? '#7ac143' : '#64748b',
+        border: checked ? '1px solid #7ac143' : '1px solid var(--border-color)',
+        background: checked ? 'rgba(122,193,67,.12)' : 'var(--bg-tertiary)',
+        color: checked ? '#7ac143' : 'var(--text-muted)',
         fontSize: '0.78rem', fontWeight: 600,
         cursor: 'pointer', transition: 'all .15s',
         display: 'flex', alignItems: 'center', gap: 5,
@@ -355,7 +356,7 @@ function POSPreview({ config, branding }) {
     <div style={{
       borderRadius: 12, overflow: 'hidden',
       border: `1px solid ${C.border}`,
-      boxShadow: '0 12px 40px rgba(0,0,0,.5)',
+      boxShadow: 'var(--shadow-lg)',
       userSelect: 'none',
     }}>
       {/* Status bar */}
@@ -434,9 +435,9 @@ export default function POSSettings() {
         setStores(list);
         if (!list.length) return;
         const paramId = searchParams.get('store');
-        const match   = paramId && list.find(s => (s.id || s._id) === paramId);
+        const match   = paramId && list.find(s => (s.id || s.id) === paramId);
         const target  = match || list[0];
-        setStoreId(target.id || target._id);
+        setStoreId(target.id || target.id);
       })
       .catch(() => {});
   }, []);
@@ -516,15 +517,16 @@ export default function POSSettings() {
   // ── Shared styles ──────────────────────────────────────────────────────
 
   const cardStyle = {
-    background: '#161922',
-    border: '1px solid rgba(255,255,255,.08)',
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border-color)',
     borderRadius: 14,
     padding: '1.5rem',
     marginBottom: '1.25rem',
+    boxShadow: 'var(--shadow-sm)',
   };
 
   const sectionLabel = {
-    fontSize: '0.72rem', fontWeight: 700, color: '#64748b',
+    fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)',
     letterSpacing: '0.07em', marginBottom: '1rem', display: 'block',
   };
 
@@ -547,10 +549,10 @@ export default function POSSettings() {
               <Monitor size={18} color="#7ac143" />
             </div>
             <div>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', margin: 0 }}>
+              <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
                 POS Settings
               </h1>
-              <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
                 Configure your Point of Sale terminal layout and features
               </p>
             </div>
@@ -562,13 +564,13 @@ export default function POSSettings() {
               value={storeId}
               onChange={e => setStoreId(e.target.value)}
               style={{
-                background: '#252836', color: '#f1f5f9',
-                border: '1px solid rgba(255,255,255,.12)', borderRadius: 8,
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)', borderRadius: 8,
                 padding: '0.55rem 0.875rem', fontSize: '0.85rem', cursor: 'pointer',
               }}
             >
               {stores.map(s => (
-                <option key={s.id || s._id} value={s.id || s._id}>{s.name}</option>
+                <option key={s.id || s.id} value={s.id || s.id}>{s.name}</option>
               ))}
             </select>
           )}
@@ -595,8 +597,8 @@ export default function POSSettings() {
                       key={preset.key}
                       onClick={() => setField('layout', preset.key)}
                       style={{
-                        background: active ? 'rgba(122,193,67,.07)' : '#1e2130',
-                        border: `2px solid ${active ? '#7ac143' : 'rgba(255,255,255,.08)'}`,
+                        background: active ? 'rgba(122,193,67,.07)' : 'var(--bg-tertiary)',
+                        border: `2px solid ${active ? '#7ac143' : 'var(--border-color)'}`,
                         borderRadius: 12, padding: '0.875rem',
                         cursor: 'pointer', textAlign: 'left',
                         transition: 'border-color .15s, background .15s',
@@ -622,7 +624,7 @@ export default function POSSettings() {
                       {/* Name */}
                       <div style={{
                         fontSize: '0.82rem', fontWeight: 700,
-                        color: active ? '#7ac143' : '#e2e8f0',
+                        color: active ? '#7ac143' : 'var(--text-primary)',
                         marginBottom: 3,
                       }}>
                         {preset.name}
@@ -681,12 +683,12 @@ export default function POSSettings() {
                       onClick={() => setField('cashRounding', value)}
                       style={{
                         flex: 1, padding: '0.75rem', borderRadius: 10, textAlign: 'left',
-                        border: `1.5px solid ${config.cashRounding === value ? '#7ac143' : 'rgba(255,255,255,.08)'}`,
-                        background: config.cashRounding === value ? 'rgba(122,193,67,.07)' : '#1e2130',
+                        border: `1.5px solid ${config.cashRounding === value ? '#7ac143' : 'var(--border-color)'}`,
+                        background: config.cashRounding === value ? 'rgba(122,193,67,.07)' : 'var(--bg-tertiary)',
                         cursor: 'pointer', transition: 'all .15s',
                       }}
                     >
-                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: config.cashRounding === value ? '#7ac143' : '#e2e8f0', marginBottom: 2 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: config.cashRounding === value ? '#7ac143' : 'var(--text-primary)', marginBottom: 2 }}>
                         {label}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{sub}</div>
@@ -775,9 +777,9 @@ export default function POSSettings() {
                       style={{
                         padding: '0.55rem 1.25rem',
                         borderRadius: 8,
-                        border: `2px solid ${active ? '#7ac143' : 'rgba(255,255,255,.1)'}`,
-                        background: active ? 'rgba(122,193,67,.1)' : '#1e2130',
-                        color: active ? '#7ac143' : '#64748b',
+                        border: `2px solid ${active ? '#7ac143' : 'var(--border-color)'}`,
+                        background: active ? 'rgba(122,193,67,.1)' : 'var(--bg-tertiary)',
+                        color: active ? '#7ac143' : 'var(--text-muted)',
                         fontWeight: 700, fontSize: '0.85rem',
                         cursor: 'pointer', transition: 'all .15s',
                         display: 'flex', alignItems: 'center', gap: 6,
@@ -814,9 +816,9 @@ export default function POSSettings() {
                       style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '0.5rem 1rem', borderRadius: 8,
-                        border: `1.5px solid ${branding.theme === key ? '#7ac143' : 'rgba(255,255,255,.1)'}`,
-                        background: branding.theme === key ? 'rgba(122,193,67,.1)' : '#1e2130',
-                        color: branding.theme === key ? '#7ac143' : '#64748b',
+                        border: `1.5px solid ${branding.theme === key ? '#7ac143' : 'var(--border-color)'}`,
+                        background: branding.theme === key ? 'rgba(122,193,67,.1)' : 'var(--bg-tertiary)',
+                        color: branding.theme === key ? '#7ac143' : 'var(--text-muted)',
                         fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
                         transition: 'all .15s',
                       }}
@@ -842,7 +844,7 @@ export default function POSSettings() {
                         background: c, border: 'none', cursor: 'pointer', flexShrink: 0,
                         outline: branding.primaryColor === c ? `3px solid ${c}` : '2px solid transparent',
                         outlineOffset: 2,
-                        boxShadow: branding.primaryColor === c ? '0 0 0 1px #0f1117' : 'none',
+                        boxShadow: branding.primaryColor === c ? '0 0 0 1px var(--bg-primary)' : 'none',
                         transition: 'outline-color .12s',
                       }}
                     />
@@ -880,8 +882,8 @@ export default function POSSettings() {
                   placeholder="e.g. Corner Mart POS"
                   style={{
                     width: '100%', maxWidth: 320,
-                    background: '#252836', color: '#f1f5f9',
-                    border: '1px solid rgba(255,255,255,.12)', borderRadius: 8,
+                    background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)', borderRadius: 8,
                     padding: '0.5rem 0.75rem', fontSize: '0.85rem',
                   }}
                 />
@@ -890,7 +892,8 @@ export default function POSSettings() {
               {/* Live colour preview strip */}
               <div style={{
                 marginTop: '1.25rem', padding: '0.75rem 1rem', borderRadius: 8,
-                background: '#0f1117', display: 'flex', alignItems: 'center', gap: 12,
+                background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', gap: 12,
+                border: '1px solid var(--border-color)',
               }}>
                 <div style={{
                   width: 10, height: 10, borderRadius: '50%',
@@ -946,8 +949,8 @@ export default function POSSettings() {
         {/* ── Right column: sticky live preview ── */}
         <div style={{
           width: 420, flexShrink: 0,
-          borderLeft: '1px solid rgba(255,255,255,.06)',
-          background: '#0f1117',
+          borderLeft: '1px solid var(--border-color)',
+          background: 'var(--bg-primary)',
           display: 'flex', flexDirection: 'column',
           padding: '2rem',
           overflowY: 'auto',
@@ -965,10 +968,10 @@ export default function POSSettings() {
             <POSPreview config={config} branding={branding} />
           ) : (
             <div style={{
-              height: 220, background: '#161922', borderRadius: 12,
-              border: '1px solid rgba(255,255,255,.06)',
+              height: 220, background: 'var(--bg-secondary)', borderRadius: 12,
+              border: '1px solid var(--border-color)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#475569', fontSize: '0.8rem',
+              color: 'var(--text-muted)', fontSize: '0.8rem',
             }}>
               Select a store to preview
             </div>
@@ -987,13 +990,14 @@ export default function POSSettings() {
                 onClick={() => setField('layout', key)}
                 style={{
                   padding: '0.6rem 0.875rem', borderRadius: 8, textAlign: 'left', cursor: 'pointer',
-                  background: config.layout === key ? 'rgba(122,193,67,.08)' : 'rgba(255,255,255,.02)',
-                  border: `1.5px solid ${config.layout === key ? '#7ac143' : 'rgba(255,255,255,.06)'}`,
+                  background: config.layout === key ? 'rgba(122,193,67,.08)' : 'var(--bg-secondary)',
+                  border: `1.5px solid ${config.layout === key ? '#7ac143' : 'var(--border-color)'}`,
                   transition: 'all .15s',
+                  boxShadow: config.layout === key ? 'var(--shadow-sm)' : 'none',
                 }}
               >
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: config.layout === key ? '#7ac143' : '#94a3b8' }}>{label}</div>
-                <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: 2 }}>{note}</div>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: config.layout === key ? '#7ac143' : 'var(--text-primary)' }}>{label}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{note}</div>
               </button>
             ))}
           </div>

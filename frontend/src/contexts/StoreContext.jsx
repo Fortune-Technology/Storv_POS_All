@@ -4,7 +4,7 @@
  * Provides:
  *   stores        — all stores the current user can access
  *   activeStore   — the currently selected store object
- *   activeStoreId — its _id string (persisted in localStorage)
+ *   activeStoreId — its id string (persisted in localStorage)
  *   switchStore   — call to change active store
  *   loading       — true while first fetch is in progress
  *   reload        — manually refetch store list
@@ -37,10 +37,10 @@ export function StoreProvider({ children }) {
 
       // Auto-select first store if none is saved or saved one no longer exists
       const saved   = localStorage.getItem('activeStoreId');
-      const exists  = list.some(s => s._id === saved);
+      const exists  = list.some(s => s.id === saved);
 
       if (!exists && list.length > 0) {
-        const firstId = list[0]._id;
+        const firstId = list[0].id;
         setActiveStoreId(firstId);
         localStorage.setItem('activeStoreId', firstId);
       }
@@ -58,13 +58,13 @@ export function StoreProvider({ children }) {
     localStorage.setItem('activeStoreId', storeId);
   };
 
-  const activeStore = stores.find(s => s._id === activeStoreId) ?? stores[0] ?? null;
+  const activeStore = stores.find(s => s.id === activeStoreId) ?? stores[0] ?? null;
 
   return (
     <StoreContext.Provider value={{
       stores,
       activeStore,
-      activeStoreId: activeStore?._id ?? null,
+      activeStoreId: activeStore?.id ?? null,
       switchStore,
       loading,
       reload: loadStores,

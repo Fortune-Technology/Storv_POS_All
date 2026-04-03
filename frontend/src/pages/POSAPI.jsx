@@ -114,7 +114,7 @@ const POSAPI = () => {
     if (!isITRetail) { setConnectionStatus('disconnected'); return; }
     checkStatus();
     fetchLogs();
-  }, [activeStore?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeStore?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (connectionStatus === 'connected') loadLocalProducts();
@@ -207,7 +207,7 @@ const POSAPI = () => {
   const handleSearch = (e) => { e.preventDefault(); setCurrentPage(1); loadLocalProducts(); };
 
   /* ── Price editing ───────────────────────────────────────────────────── */
-  const startEditing  = (p) => { setEditingRow(p._id); setEditPrice({ costPrice: p.costPrice || '', retailPrice: p.retailPrice || '' }); };
+  const startEditing  = (p) => { setEditingRow(p.id); setEditPrice({ costPrice: p.costPrice || '', retailPrice: p.retailPrice || '' }); };
   const cancelEditing = ()  => { setEditingRow(null); setEditPrice({ costPrice: '', retailPrice: '' }); };
   const handleSavePrice = async (product) => {
     setPriceUpdateLoading(true);
@@ -220,14 +220,14 @@ const POSAPI = () => {
   };
 
   /* ── Bulk selection ──────────────────────────────────────────────────── */
-  const toggleSelectAll = () => setSelectedProducts(selectedProducts.size === products.length ? new Set() : new Set(products.map(p => p._id)));
+  const toggleSelectAll = () => setSelectedProducts(selectedProducts.size === products.length ? new Set() : new Set(products.map(p => p.id)));
   const toggleSelect = (id) => { const n = new Set(selectedProducts); n.has(id) ? n.delete(id) : n.add(id); setSelectedProducts(n); };
   const handleBulkUpdate = async () => {
     if (!selectedProducts.size) { toast.warning('Select at least one product'); return; }
     if (!bulkMarkup) { toast.warning(bulkMode === 'markup' ? 'Enter markup %' : 'Enter a price'); return; }
     setBulkLoading(true);
     try {
-      const updates = products.filter(p => selectedProducts.has(p._id)).map(p => {
+      const updates = products.filter(p => selectedProducts.has(p.id)).map(p => {
         const item = { posProductId: p.posProductId };
         item.retailPrice = bulkMode === 'markup' ? parseFloat((p.costPrice * (1 + parseFloat(bulkMarkup) / 100)).toFixed(2)) : parseFloat(bulkMarkup);
         return item;
@@ -584,10 +584,10 @@ const POSAPI = () => {
                           </thead>
                           <tbody>
                             {products.map(product => (
-                              <tr key={product._id} className={selectedProducts.has(product._id) ? 'pos-row-selected' : ''}>
+                              <tr key={product.id} className={selectedProducts.has(product.id) ? 'pos-row-selected' : ''}>
                                 <td>
-                                  <button onClick={() => toggleSelect(product._id)} className="pos-checkbox-btn">
-                                    {selectedProducts.has(product._id) ? <CheckSquare size={18} className="pos-check-active" /> : <Square size={18} />}
+                                  <button onClick={() => toggleSelect(product.id)} className="pos-checkbox-btn">
+                                    {selectedProducts.has(product.id) ? <CheckSquare size={18} className="pos-check-active" /> : <Square size={18} />}
                                   </button>
                                 </td>
                                 <td>
@@ -597,12 +597,12 @@ const POSAPI = () => {
                                 <td className="pos-mono">{product.upc || '—'}</td>
                                 <td><span className="pos-category-badge">{product.category || '—'}</span></td>
                                 <td>
-                                  {editingRow === product._id
+                                  {editingRow === product.id
                                     ? <input type="number" step="0.01" className="form-input pos-price-input" value={editPrice.costPrice} onChange={e => setEditPrice({ ...editPrice, costPrice: e.target.value })} />
                                     : <span className="pos-price">{fmtCur(product.costPrice)}</span>}
                                 </td>
                                 <td>
-                                  {editingRow === product._id
+                                  {editingRow === product.id
                                     ? <input type="number" step="0.01" className="form-input pos-price-input" value={editPrice.retailPrice} onChange={e => setEditPrice({ ...editPrice, retailPrice: e.target.value })} />
                                     : <span className="pos-price pos-price-retail">{fmtCur(product.retailPrice)}</span>}
                                 </td>
@@ -682,7 +682,7 @@ const POSAPI = () => {
                     <div className="pos-empty-state" style={{ padding:'2rem' }}><Info size={32}/><p>No API logs yet.</p></div>
                   ) : (
                     logs.map((log, i) => (
-                      <div key={log._id||i} className="pos-log-item">
+                      <div key={log.id||i} className="pos-log-item">
                         <div className="pos-log-left">
                           <span className={`pos-log-method pos-method-${log.method?.toLowerCase()}`}>{log.method}</span>
                           <span className="pos-log-endpoint">{log.endpoint}</span>

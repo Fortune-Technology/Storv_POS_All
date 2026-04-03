@@ -607,7 +607,7 @@ export default function ProductForm() {
             setup.stores.map(store =>
               upsertStoreInventory({
                 masterProductId: newProductId,
-                storeId: store.id || store._id,
+                storeId: store.id,
               }).catch(() => {}) // non-fatal; store-product can be set up later
             )
           );

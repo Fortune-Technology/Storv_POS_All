@@ -195,7 +195,7 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
       };
 
       const result = isEdit
-        ? await updateStore(store._id, payload)
+        ? await updateStore(store.id, payload)
         : await createStore(payload);
 
       onSaved(result, isEdit);
@@ -405,7 +405,7 @@ function StoreCard({ store, onEdit, onDeactivate }) {
   const [removing, setRemoving] = useState(false);
   const { activeStoreId, switchStore } = useStore();
   const navigate = useNavigate();
-  const isActive = store._id === activeStoreId;
+  const isActive = store.id === activeStoreId;
 
   const tzLabel = TIMEZONES.find(t => t.value === store.timezone)?.label || store.timezone;
   const monthly = calcMonthly(store.stationCount ?? 1);
@@ -417,8 +417,8 @@ function StoreCard({ store, onEdit, onDeactivate }) {
     if (!window.confirm(`Deactivate "${store.name}"? It can be reactivated later.`)) return;
     setRemoving(true);
     try {
-      await deactivateStore(store._id);
-      onDeactivate(store._id);
+      await deactivateStore(store.id);
+      onDeactivate(store.id);
       toast.success(`${store.name} deactivated.`);
     } catch (e) {
       toast.error(e.response?.data?.error || 'Could not deactivate store.');
@@ -435,7 +435,7 @@ function StoreCard({ store, onEdit, onDeactivate }) {
         cursor: 'pointer',
         transition: 'border-color 0.2s',
       }}
-      onClick={() => switchStore(store._id)}
+      onClick={() => switchStore(store.id)}
       title={isActive ? 'Currently viewing' : 'Click to switch to this store'}
     >
       {/* Header */}
@@ -460,7 +460,7 @@ function StoreCard({ store, onEdit, onDeactivate }) {
         </div>
         <div style={{ display: 'flex', gap: '0.35rem' }} onClick={e => e.stopPropagation()}>
           <button
-            onClick={() => navigate(`/portal/branding?store=${store._id}`)}
+            onClick={() => navigate(`/portal/branding?store=${store.id}`)}
             title="Customize POS branding"
             style={{
               display: 'flex', alignItems: 'center', gap: '0.3rem',
@@ -570,13 +570,13 @@ export default function StoreManagement() {
   useEffect(() => { load(); }, [load]);
 
   const handleSaved = (result, isEdit) => {
-    setStores(prev => isEdit ? prev.map(s => s._id === result._id ? result : s) : [...prev, result]);
+    setStores(prev => isEdit ? prev.map(s => s.id === result.id ? result : s) : [...prev, result]);
     setLimitMsg(null);
     reload(); // refresh store switcher in sidebar
   };
   const handleLimitHit    = (msg)   => { setLimitMsg(msg); };
   const handleEdit        = (store) => { setEditStore(store); setShowModal(true); };
-  const handleDeactivated = (id)    => { setStores(prev => prev.filter(s => s._id !== id)); reload(); };
+  const handleDeactivated = (id)    => { setStores(prev => prev.filter(s => s.id !== id)); reload(); };
   const openAdd           = ()      => { setEditStore(null); setShowModal(true); };
 
   const totalRegisters = stores.reduce((n, s) => n + (s.stationCount || 1), 0);
@@ -641,7 +641,7 @@ export default function StoreManagement() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.25rem' }}>
             {stores.map(s => (
-              <StoreCard key={s._id} store={s} onEdit={handleEdit} onDeactivate={handleDeactivated} />
+              <StoreCard key={s.id} store={s} onEdit={handleEdit} onDeactivate={handleDeactivated} />
             ))}
           </div>
         )}

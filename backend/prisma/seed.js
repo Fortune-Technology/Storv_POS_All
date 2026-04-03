@@ -261,6 +261,35 @@ const PRODUCTS = [
 async function main() {
   console.log(`\n🌱 Seeding PostgreSQL for orgId: ${ORG_ID}\n`);
 
+  // ── Organization ─────────────────────────────────────────
+  await prisma.organization.upsert({
+    where: { id: ORG_ID },
+    update: { name: 'Fortune Technology' },
+    create: {
+      id: ORG_ID,
+      name: 'Fortune Technology',
+      slug: 'fortune-tech',
+      plan: 'pro',
+    },
+  });
+  console.log(`  ✓ Organization '${ORG_ID}' created/verified`);
+
+  // ── Store ───────────────────────────────────────────────
+  const storeId = 'default-store';
+  await prisma.store.upsert({
+    where: { id: storeId },
+    update: { name: 'Main Street Marketplace' },
+    create: {
+      id: storeId,
+      orgId: ORG_ID,
+      name: 'Main Street Marketplace',
+      address: '123 Main St, Portland, ME 04101',
+      timezone: 'America/New_York',
+      isActive: true,
+    },
+  });
+  console.log(`  ✓ Default store '${storeId}' created/verified`);
+
   // ── Departments ──────────────────────────────────────────
   let deptCount = 0;
   for (const dept of DEPARTMENTS) {

@@ -30,7 +30,7 @@ const DocumentHistory = ({ refresh }) => {
         
         try {
             await api.delete(`/document/${id}`);
-            setHistory(prev => prev.filter(doc => doc._id !== id));
+            setHistory(prev => prev.filter(doc => doc.id !== id));
             if (expandedItem === id) setExpandedItem(null);
         } catch (err) {
             alert('Failed to delete history item');
@@ -81,9 +81,9 @@ const DocumentHistory = ({ refresh }) => {
             <div className="mt-lg ocr-history-list">
                 {history.map((doc) => (
                     <div 
-                        key={doc._id} 
-                        className={`card ocr-history-item ${expandedItem === doc._id ? 'active' : 'inactive'}`}
-                        onClick={() => toggleExpand(doc._id)}
+                        key={doc.id} 
+                        className={`card ocr-history-item ${expandedItem === doc.id ? 'active' : 'inactive'}`}
+                        onClick={() => toggleExpand(doc.id)}
                     >
                         <div className="flex-between">
                             <div className="flex items-center gap-md">
@@ -106,13 +106,13 @@ const DocumentHistory = ({ refresh }) => {
                                 }`}>
                                     {(doc.confidence * 100).toFixed(0)}%
                                 </span>
-                                <button className="btn btn-sm btn-secondary p-xs rounded-full" onClick={(e) => handleDelete(doc._id, e)}>
+                                <button className="btn btn-sm btn-secondary p-xs rounded-full" onClick={(e) => handleDelete(doc.id, e)}>
                                     🗑️
                                 </button>
                             </div>
                         </div>
 
-                        {expandedItem === doc._id && (
+                        {expandedItem === doc.id && (
                             <div className="mt-lg slide-in-top">
                                 <div className="table-container bg-secondary border-light">
                                     <table className="table table-sm">

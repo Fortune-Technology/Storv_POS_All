@@ -20,6 +20,11 @@ export const attachPOSUser = async (req, res, next) => {
 
     let username = base.marktPOSUsername;
     let password = base.marktPOSPassword;
+    let config   = {
+      baseURL:      'https://app.marktpos.com',
+      securityCode: '',
+      accessLevel:  '0',
+    };
 
     if (req.storeId) {
       try {
@@ -28,22 +33,23 @@ export const attachPOSUser = async (req, res, next) => {
           select: { pos: true },
         });
         const pos = store?.pos;
-        if (pos?.type === 'itretail' && pos.username && pos.password) {
-          username = pos.username;
-          password = pos.password;
+        if (pos?.type === 'itretail') {
+          username = pos.username || username;
+          password = pos.password || password;
+          if (pos.baseURL)      config.baseURL      = pos.baseURL;
+          if (pos.securityCode) config.securityCode = pos.securityCode;
+          if (pos.accessLevel)  config.accessLevel  = pos.accessLevel;
         }
       } catch (storeErr) {
         console.warn('⚠️ attachPOSUser: could not load store:', storeErr.message);
       }
     }
 
-    if (!username) username = process.env.MARKTPOS_USERNAME;
-    if (!password) password = process.env.MARKTPOS_PASSWORD;
-
     req.posUser = {
       ...base,
       marktPOSUsername: username || '',
       marktPOSPassword: password || '',
+      marktPOSConfig:   config,
     };
 
     next();

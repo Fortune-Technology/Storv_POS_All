@@ -79,7 +79,7 @@ const FeesMappings = () => {
               </thead>
               <tbody>
                 {mappings.map((mapping) => (
-                  <tr key={mapping._id}>
+                  <tr key={mapping.id}>
                     <td style={{ fontWeight: 600 }}>{mapping.feeType}</td>
                     <td><code style={{ background: 'rgba(255,221,100,0.1)', color: '#ffd700', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>{mapping.mappedValue}</code></td>
                     <td><span style={{ color: 'var(--text-secondary)' }}>{mapping.description || 'N/A'}</span></td>
@@ -93,7 +93,7 @@ const FeesMappings = () => {
                           <Edit size={16} />
                         </button>
                         <button 
-                          onClick={() => handleDelete(mapping._id)}
+                          onClick={() => handleDelete(mapping.id)}
                           className="btn btn-secondary" 
                           style={{ padding: '0.5rem', color: 'var(--error)' }}
                         >
@@ -126,7 +126,7 @@ const FeesMappings = () => {
                 <X size={24} />
               </button>
 
-              <h2 style={{ fontSize: '1.75rem', marginBottom: '1.5rem' }}>{editingMapping._id ? 'Edit' : 'Add'} Fee Mapping</h2>
+              <h2 style={{ fontSize: '1.75rem', marginBottom: '1.5rem' }}>{editingMapping.id ? 'Edit' : 'Add'} Fee Mapping</h2>
               
               <form onSubmit={handleUpsert}>
                 <div className="form-group">
