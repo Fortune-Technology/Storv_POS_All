@@ -4,7 +4,7 @@
  */
 
 import { Link, useLocation } from 'react-router-dom';
-import logoImg from '../assets/future-foods-logo.jpg';
+import StoreveuLogo from './StoreveuLogo';
 
 const Navbar = () => {
     const location = useLocation();
@@ -26,7 +26,7 @@ const Navbar = () => {
             <div className="container">
                 <div className="flex-between" style={{ padding: 'var(--space-lg) 0' }}>
                     <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-                        <img src={logoImg} alt="FutureFoods Logo" style={{ maxHeight: '40px' }} />
+                        <StoreveuLogo height={36} darkMode={true} />
                     </Link>
 
                     <div style={{ display: 'flex', gap: 'var(--space-md)' }}>

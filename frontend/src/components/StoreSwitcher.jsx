@@ -1,25 +1,13 @@
-/**
- * StoreSwitcher — prominent store selector in the Sidebar.
- *
- * Design goals:
- *  - Instantly readable from a distance (large avatar, big name, high contrast)
- *  - Clearly separated from navigation (full-bleed green band)
- *  - Obvious that it's interactive when multiple stores exist
- */
-
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check, Loader, MapPin, ArrowLeftRight } from 'lucide-react';
+import { ChevronDown, Check, Loader, MapPin, Store } from 'lucide-react';
 import { useStore } from '../contexts/StoreContext';
 
-/* ── Helpers ─────────────────────────────────────────────────────────────── */
 function storeInitial(name = '') {
   return name.trim().charAt(0).toUpperCase() || '?';
 }
 
-/* ── Individual store row in the dropdown ────────────────────────────────── */
 function StoreOption({ store, isActive, onSelect }) {
   const [hovered, setHovered] = useState(false);
-
   return (
     <button
       onClick={onSelect}
@@ -29,75 +17,69 @@ function StoreOption({ store, isActive, onSelect }) {
         width: '100%',
         display: 'flex',
         alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.75rem 1rem',
+        gap: 10,
+        padding: '10px 14px',
         border: 'none',
         cursor: isActive ? 'default' : 'pointer',
         textAlign: 'left',
         background: isActive
-          ? 'rgba(122,193,67,0.1)'
+          ? 'rgba(122,193,67,0.08)'
           : hovered
-            ? 'var(--bg-tertiary)'
-            : 'transparent',
-        transition: 'background 0.12s',
-        borderBottom: '1px solid var(--border-color)',
+          ? 'rgba(255,255,255,0.04)'
+          : 'transparent',
+        transition: 'background 0.1s',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}
     >
       {/* Avatar */}
       <div style={{
-        width: 38, height: 38, borderRadius: '10px', flexShrink: 0,
-        background: isActive ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-        border: isActive ? 'none' : '1.5px solid var(--border-color)',
+        width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+        background: isActive ? '#7ac143' : 'rgba(255,255,255,0.08)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '1rem', fontWeight: 800,
-        color: isActive ? '#fff' : 'var(--text-muted)',
-        transition: 'all 0.15s',
+        fontSize: '0.95rem', fontWeight: 800,
+        color: isActive ? '#fff' : 'rgba(255,255,255,0.45)',
       }}>
         {storeInitial(store.name)}
       </div>
 
-      {/* Name + address */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: '0.9rem', fontWeight: isActive ? 700 : 500,
-          color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+          fontSize: '0.85rem', fontWeight: isActive ? 700 : 500,
+          color: isActive ? '#fff' : 'rgba(255,255,255,0.75)',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
           {store.name}
         </div>
         {store.address && (
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.25rem',
-            fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            display: 'flex', alignItems: 'center', gap: 3,
+            fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)',
+            marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            <MapPin size={10} style={{ flexShrink: 0 }} />
+            <MapPin size={9} style={{ flexShrink: 0 }} />
             {store.address}
           </div>
         )}
       </div>
 
-      {/* Active check */}
       {isActive && (
         <div style={{
-          width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-          background: 'var(--accent-primary)',
+          width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+          background: '#7ac143',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <Check size={13} color="#fff" strokeWidth={3} />
+          <Check size={11} color="#fff" strokeWidth={3} />
         </div>
       )}
     </button>
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════════════ */
 export default function StoreSwitcher() {
   const { stores, activeStore, switchStore, loading } = useStore();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -108,126 +90,117 @@ export default function StoreSwitcher() {
 
   const canSwitch = stores.length > 1;
 
-  /* ── Loading state ─────────────────────────────────────────────────────── */
   if (loading) {
     return (
-      <div style={bandStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <div style={{ ...avatarStyle, background: 'rgba(255,255,255,0.12)' }}>
-            <Loader size={16} color="rgba(255,255,255,0.5)" style={{ animation: 'spin 1s linear infinite' }} />
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ ...avatarStyle, background: 'rgba(255,255,255,0.07)' }}>
+            <Loader size={14} color="rgba(255,255,255,0.3)" style={{ animation: 'spin 1s linear infinite' }} />
           </div>
-          <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Loading…</span>
+          <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>Loading…</span>
         </div>
       </div>
     );
   }
 
-  /* ── No store ──────────────────────────────────────────────────────────── */
   if (!activeStore) return null;
 
-  /* ── Main render ───────────────────────────────────────────────────────── */
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', margin: '0 12px 12px' }}>
 
-      {/* ── Full-bleed green band ─────────────────────────────────────────── */}
+      {/* ── Trigger card ── */}
       <button
         onClick={() => canSwitch && setOpen(v => !v)}
         disabled={!canSwitch}
         title={canSwitch ? 'Switch store' : activeStore.name}
         style={{
-          ...bandStyle,
+          ...cardStyle,
           cursor: canSwitch ? 'pointer' : 'default',
-          opacity: 1,
+          width: '100%',
+          transition: 'background 0.12s, border-color 0.12s',
         }}
+        onMouseEnter={e => { if (canSwitch) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+        onMouseLeave={e => { if (canSwitch) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
       >
-        {/* Large store avatar */}
+        {/* Avatar */}
         <div style={avatarStyle}>
           {storeInitial(activeStore.name)}
         </div>
 
-        {/* Store name block */}
+        {/* Text */}
         <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
           <div style={{
-            fontSize: '0.6rem', fontWeight: 700,
-            color: 'rgba(255,255,255,0.6)',
+            fontSize: '0.58rem', fontWeight: 700,
+            color: 'rgba(255,255,255,0.4)',
             textTransform: 'uppercase', letterSpacing: '0.08em',
-            lineHeight: 1, marginBottom: '0.2rem',
+            marginBottom: 3,
           }}>
-            {canSwitch ? 'Active store · tap to switch' : 'Active store'}
+            Active Store
           </div>
           <div style={{
-            fontSize: '1rem', fontWeight: 800,
+            fontSize: '0.88rem', fontWeight: 800,
             color: '#fff',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             lineHeight: 1.2,
-            letterSpacing: '-0.01em',
           }}>
             {activeStore.name}
           </div>
           {activeStore.address && (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: '0.25rem',
-              fontSize: '0.68rem', color: 'rgba(255,255,255,0.55)',
-              marginTop: '0.25rem',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              display: 'flex', alignItems: 'center', gap: 3,
+              fontSize: '0.64rem', color: 'rgba(255,255,255,0.35)',
+              marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
-              <MapPin size={9} style={{ flexShrink: 0 }} />
+              <MapPin size={8} style={{ flexShrink: 0 }} />
               {activeStore.address}
             </div>
           )}
         </div>
 
-        {/* Switch icon for multi-store */}
         {canSwitch && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', flexShrink: 0,
-          }}>
-            <ArrowLeftRight size={14} color="rgba(255,255,255,0.7)" />
-            <ChevronDown
-              size={12}
-              color="rgba(255,255,255,0.6)"
-              style={{
-                transform: open ? 'rotate(180deg)' : 'rotate(0)',
-                transition: 'transform 0.2s',
-              }}
-            />
-          </div>
+          <ChevronDown
+            size={15}
+            color="rgba(255,255,255,0.45)"
+            style={{
+              flexShrink: 0,
+              transform: open ? 'rotate(180deg)' : 'rotate(0)',
+              transition: 'transform 0.2s',
+            }}
+          />
         )}
       </button>
 
-      {/* ── Dropdown ──────────────────────────────────────────────────────── */}
+      {/* ── Dropdown ── */}
       {open && (
         <div style={{
           position: 'absolute',
-          top: 'calc(100% + 4px)',
-          left: '0.75rem',
-          right: '0.75rem',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '0.875rem',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+          top: 'calc(100% + 6px)',
+          left: 0,
+          right: 0,
+          background: '#1e2433',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 12,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
           zIndex: 9999,
           overflow: 'hidden',
-          animation: 'fadeIn 0.15s ease',
+          animation: 'fadeIn 0.12s ease',
         }}>
-          {/* Dropdown header */}
+          {/* Header */}
           <div style={{
-            padding: '0.6rem 1rem',
-            background: 'var(--bg-tertiary)',
-            borderBottom: '1px solid var(--border-color)',
-            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '8px 14px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', gap: 6,
           }}>
-            <ArrowLeftRight size={12} style={{ color: 'var(--accent-primary)' }} />
+            <Store size={11} color="#7ac143" />
             <span style={{
-              fontSize: '0.68rem', fontWeight: 700,
-              color: 'var(--text-muted)',
+              fontSize: '0.62rem', fontWeight: 700,
+              color: 'rgba(255,255,255,0.4)',
               textTransform: 'uppercase', letterSpacing: '0.07em',
             }}>
-              Switch store — {stores.length} available
+              {stores.length} {stores.length === 1 ? 'Store' : 'Stores'}
             </span>
           </div>
 
-          {/* Store list */}
           {stores.map((store) => (
             <StoreOption
               key={store.id}
@@ -242,33 +215,23 @@ export default function StoreSwitcher() {
   );
 }
 
-/* ── Styles ──────────────────────────────────────────────────────────────── */
-
-/** Full-bleed green band — the main trigger */
-const bandStyle = {
-  width: '100%',
+const cardStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '0.875rem',
-  padding: '0.875rem 1rem',
-  background: 'linear-gradient(135deg, #5a9e2f 0%, #7ac143 60%, #8fd44e 100%)',
-  border: 'none',
-  borderTop: '1px solid rgba(255,255,255,0.08)',
-  borderBottom: '1px solid rgba(0,0,0,0.18)',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.12)',
+  gap: 10,
+  padding: '10px 12px',
+  background: 'rgba(255,255,255,0.05)',
+  border: '1px solid rgba(255,255,255,0.09)',
+  borderRadius: 12,
 };
 
-/** Large circular avatar with store initial */
 const avatarStyle = {
-  width: 44, height: 44,
-  borderRadius: '12px',
-  background: 'rgba(0,0,0,0.2)',
-  border: '1.5px solid rgba(255,255,255,0.25)',
-  boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.15)',
+  width: 36, height: 36,
+  borderRadius: 10,
+  background: '#7ac143',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: '1.25rem', fontWeight: 900,
+  fontSize: '1.05rem', fontWeight: 900,
   color: '#fff',
   flexShrink: 0,
   letterSpacing: '-0.02em',
-  fontFamily: 'Outfit, sans-serif',
 };

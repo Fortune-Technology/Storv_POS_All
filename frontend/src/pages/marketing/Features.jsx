@@ -34,7 +34,7 @@ const Features = () => {
           <div className="features-hero-content">
             <h1 className="features-title">Enterprise Power, <span className="text-gradient">Simplified</span></h1>
             <p className="features-subtitle">
-              From AI-powered automation to predictive sales forecasting, FutureFoods provides the tools you need to stay ahead of the competition.
+              From AI-powered automation to predictive sales forecasting, Storeveu provides the tools you need to stay ahead of the competition.
             </p>
             <MarketingButton href="/contact" size="lg">Get Started Today</MarketingButton>
           </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import logoImg from '../../assets/future-foods-logo.jpg';
+import StoreveuLogo from '../StoreveuLogo';
 import './MarketingFooter.css';
 
 const MarketingFooter = () => {
@@ -43,8 +43,7 @@ const MarketingFooter = () => {
           {/* Logo and About Col */}
           <div className="mkt-footer-brand">
             <Link to="/" className="mkt-footer-logo">
-              <img src={logoImg} alt="FutureFoods" />
-
+              <StoreveuLogo height={32} darkMode={false} />
             </Link>
             <p className="mkt-footer-desc">
               The smartest POS solution for modern retailers. Powered by AI to simplify your inventory, billing, and growth.
@@ -70,7 +69,7 @@ const MarketingFooter = () => {
         </div>
 
         <div className="mkt-footer-bottom">
-          <p>© {currentYear} FutureFoods. All rights reserved.</p>
+          <p>© {currentYear} Storeveu. All rights reserved.</p>
           <div className="mkt-footer-legal">
             <Link to="/terms">Terms of Service</Link>
             <Link to="/privacy">Privacy</Link>

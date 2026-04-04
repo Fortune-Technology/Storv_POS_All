@@ -67,8 +67,8 @@ const Pricing = () => {
       a: 'We use a hybrid OCR approach combining Microsoft Azure Document Intelligence for layout extraction and OpenAI GPT-4o-mini for logical data enrichment. This ensures we capture net costs, deposits, and line items with over 99% accuracy.'
     },
     {
-      q: 'Can I use FutureFoods with my existing POS system?',
-      a: 'Yes! FutureFoods comes with Storv POS built in — a full-featured point of sale system designed specifically for your business. No third-party POS required.'
+      q: 'Can I use Storeveu with my existing POS system?',
+      a: 'Yes! Storeveu comes with Storv POS built in — a full-featured point of sale system designed specifically for your business. No third-party POS required.'
     },
     {
       q: 'Is there a limit to how many stores I can manage?',

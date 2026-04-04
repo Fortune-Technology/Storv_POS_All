@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import logoImg from '../assets/future-foods-logo.jpg';
+import StoreveuLogo from './StoreveuLogo';
 import {
   Radio,
   Users,
@@ -138,8 +138,8 @@ const Sidebar = () => {
         </button>
 
         {/* Logo */}
-        <div style={{ padding: '0 0.75rem 0.875rem', display: 'flex', justifyContent: 'center' }}>
-          <img src={logoImg} alt="FutureFoods Logo" style={{ maxWidth: '100%', height: 'auto' }} />
+        <div style={{ padding: '0.75rem 1rem 0.875rem', display: 'flex', justifyContent: 'center' }}>
+          <StoreveuLogo height={32} darkMode={true} />
         </div>
 
         {/* ── Store Switcher ───────────────────────────────────────────── */}
