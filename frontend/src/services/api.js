@@ -143,6 +143,7 @@ export const updateStoreLocation = (data) => api.put('/weather/store-location', 
 export const createTenant      = (data) => api.post('/tenants', data).then(r => r.data);
 export const getMyTenant       = ()     => api.get('/tenants/me').then(r => r.data);
 export const updateMyTenant    = (data) => api.put('/tenants/me', data).then(r => r.data);
+export const deleteMyTenant    = (confirmName) => api.delete('/tenants/me', { data: { confirmName } }).then(r => r.data);
 export const updateTenantPlan  = (plan) => api.put('/tenants/me/plan', { plan }).then(r => r.data);
 
 // ── Stores ────────────────────────────────────────────────────────────────

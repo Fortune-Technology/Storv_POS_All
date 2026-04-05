@@ -20,20 +20,16 @@ export const signup = async (req, res, next) => {
 
     const hashed = await bcrypt.hash(password, 12);
 
-    const orgId = req.body.orgId ?? req.body.tenantId ?? 'default';
-
-    // First user in this org becomes the owner; all subsequent users are staff.
-    const existingCount = await prisma.user.count({ where: { orgId } });
-    const role = existingCount === 0 ? 'owner' : 'staff';
-
+    // All new signups start without an org (orgId = 'default', role = 'staff').
+    // The role is promoted to 'owner' in POST /api/tenants when the user creates their organisation.
     const user = await prisma.user.create({
       data: {
         name,
         email,
         phone,
         password: hashed,
-        orgId,
-        role,
+        orgId:    'default',
+        role:     'staff',
       },
     });
 
