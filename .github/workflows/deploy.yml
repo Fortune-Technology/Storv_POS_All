@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Update repo
@@ -22,48 +22,94 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
+      # ---------------- BACKEND ----------------
       - name: Deploy backend
         shell: bash
         run: |
           set -e
+
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
           cd /var/www/Fortune_POS_Platform/backend
           nvm use 20
+
+          echo "📦 Installing dependencies..."
           npm install
+
+          echo "🗄️ Running Prisma..."
+          npx prisma generate
           npx prisma db push
-          npm run db:seed -- default || true
-          pm2 restart fortuneTech-backend
+
+          echo "🌱 Seeding (safe)..."
+          npm run seed || true
+
+          echo "🔥 Killing rogue processes on port 5001..."
+          fuser -k 5001/tcp || true
+
+          echo "🚀 Restarting backend with PM2..."
+          pm2 delete ft-backend || true
+          pm2 start src/server.js --name ft-backend
           pm2 save
 
-      - name: Deploy frontend
+          echo "⏳ Waiting for server..."
+          sleep 5
+
+          echo "🧪 Health check..."
+          curl -f http://localhost:5001/health
+
+      # ---------------- DASHBOARD ----------------
+      - name: Deploy dashboard frontend
         shell: bash
         run: |
           set -e
+
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
           cd /var/www/Fortune_POS_Platform/frontend
           nvm use 20
+
+          echo "📦 Installing frontend deps..."
           npm install
+
+          echo "🏗️ Building dashboard..."
+          rm -rf dist
           npm run build
+
+          echo "📂 Deploying dashboard..."
           rm -rf /var/www/dashboard/*
           cp -r dist/* /var/www/dashboard/
 
-      - name: Deploy POS
+      # ---------------- POS ----------------
+      - name: Deploy POS app
         shell: bash
         run: |
           set -e
+
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
           cd /var/www/Fortune_POS_Platform/cashier-app
           nvm use 20
+
+          echo "📦 Installing POS deps..."
           npm install
+
+          echo "🏗️ Building POS..."
+          rm -rf dist
           npm run build
+
+          echo "📂 Deploying POS..."
           rm -rf /var/www/pos/*
           cp -r dist/* /var/www/pos/
 
+      # ---------------- NGINX ----------------
       - name: Reload nginx
-        run: sudo systemctl reload nginx
+        run: |
+          echo "🔄 Reloading nginx..."
+          sudo systemctl reload nginx
+
+      # ---------------- SUCCESS ----------------
+      - name: Deployment complete
+        run: echo "✅ Fortune POS deployed successfully!"
