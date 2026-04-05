@@ -247,25 +247,29 @@ export default function StationSetupScreen() {
   };
 
   // ── Detect QZ Tray printers ───────────────────────────────────────────
+  const [qzStatus, setQzStatus] = React.useState('unknown'); // 'unknown'|'running'|'not_running'
+
   const detectQZPrinters = async (forLabel = false) => {
     setDetectingPrinters(true);
+    setQzStatus('unknown');
     try {
       if (typeof window.qz === 'undefined') {
-        alert('QZ Tray is not running. Please start QZ Tray on this computer first.\n\nDownload: https://qz.io');
+        setQzStatus('not_running');
         return;
       }
       const q = window.qz;
       if (!q.websocket.isActive()) {
-        await q.websocket.connect({ retries: 1, delay: 1 });
+        await q.websocket.connect({ retries: 2, delay: 1 });
         q.security.setCertificatePromise((res) => res(''));
         q.security.setSignaturePromise(() => Promise.resolve(''));
       }
+      setQzStatus('running');
       const printers = await q.printers.find();
       const list = (Array.isArray(printers) ? printers : [printers]).filter(Boolean);
       if (forLabel) setDetectedLabelPrinters(list);
       else setDetectedPrinters(list);
     } catch (err) {
-      alert('Could not connect to QZ Tray: ' + err.message);
+      setQzStatus('not_running');
     } finally {
       setDetectingPrinters(false);
     }
@@ -671,31 +675,81 @@ export default function StationSetupScreen() {
                   </div>
                 )}
 
-                {/* USB / QZ Tray: detect + dropdown */}
+                {/* USB / QZ Tray: detect + dropdown + manual fallback */}
                 {hw.receiptPrinter.type === 'qz' && (
-                  <Field label="USB Printer Name">
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <select
-                        value={hw.receiptPrinter.name}
-                        onChange={e => updHW('receiptPrinter', { name: e.target.value })}
-                        style={{ ...S.select, flex: 1 }}
-                      >
-                        <option value="">— Click Detect to find printers —</option>
-                        {detectedPrinters.map(p => <option key={p} value={p}>{p}</option>)}
-                        {hw.receiptPrinter.name && !detectedPrinters.includes(hw.receiptPrinter.name) && (
-                          <option value={hw.receiptPrinter.name}>{hw.receiptPrinter.name}</option>
+                  <>
+                    {/* QZ Tray status banner */}
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                      background: qzStatus === 'running'     ? 'rgba(22,163,74,.08)'
+                                : qzStatus === 'not_running' ? 'rgba(239,68,68,.08)'
+                                : 'rgba(255,255,255,.04)',
+                      border: `1px solid ${qzStatus === 'running' ? 'rgba(22,163,74,.25)' : qzStatus === 'not_running' ? 'rgba(239,68,68,.25)' : 'rgba(255,255,255,.08)'}`,
+                      borderRadius: 8, padding: '10px 12px',
+                    }}>
+                      <div style={{ fontSize: '0.78rem', lineHeight: 1.5 }}>
+                        {qzStatus === 'running' && <span style={{ color: '#4ade80', fontWeight: 700 }}>✓ QZ Tray is running</span>}
+                        {qzStatus === 'not_running' && (
+                          <span style={{ color: '#f87171', fontWeight: 700 }}>
+                            ✗ QZ Tray not detected —{' '}
+                            <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{ color: '#7b95e0' }}>
+                              Download &amp; install it
+                            </a>
+                            , then click Detect again.
+                          </span>
                         )}
-                      </select>
-                      <button onClick={() => detectQZPrinters(false)} disabled={detectingPrinters} style={S.testBtn(null)} title="Auto-detect via QZ Tray">
-                        {detectingPrinters ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Detect
+                        {qzStatus === 'unknown' && (
+                          <span style={{ color: '#6b7280' }}>
+                            QZ Tray bridges USB printers to this browser.{' '}
+                            <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{ color: '#7b95e0' }}>
+                              Download QZ Tray
+                            </a>
+                            {' '}if not installed, then click Detect.
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => detectQZPrinters(false)}
+                        disabled={detectingPrinters}
+                        style={{ ...S.testBtn(qzStatus === 'running' ? 'ok' : null), whiteSpace: 'nowrap', flexShrink: 0 }}
+                      >
+                        {detectingPrinters
+                          ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Detecting…</>
+                          : <><RefreshCw size={12} /> Detect Printers</>
+                        }
                       </button>
                     </div>
-                    {detectedPrinters.length === 0 && (
-                      <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
-                        Make sure <strong style={{ color: '#94a3b8' }}>QZ Tray</strong> is running on this computer before clicking Detect.
-                      </div>
+
+                    {/* Printer dropdown — populated after detect */}
+                    {detectedPrinters.length > 0 && (
+                      <Field label="Select Printer">
+                        <select
+                          value={hw.receiptPrinter.name}
+                          onChange={e => updHW('receiptPrinter', { name: e.target.value })}
+                          style={S.select}
+                        >
+                          <option value="">— Select a printer —</option>
+                          {detectedPrinters.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                      </Field>
                     )}
-                  </Field>
+
+                    {/* Manual name input — always available as fallback */}
+                    <Field label={detectedPrinters.length > 0 ? 'Or type printer name manually' : 'Printer Name (type manually)'}>
+                      <input
+                        value={hw.receiptPrinter.name}
+                        onChange={e => updHW('receiptPrinter', { name: e.target.value })}
+                        placeholder="e.g. Epson TM-T20II Receipt"
+                        style={S.field}
+                      />
+                      <div style={{ fontSize: '0.71rem', color: '#4b5563', marginTop: 4 }}>
+                        The printer name must match exactly as shown in{' '}
+                        <strong style={{ color: '#94a3b8' }}>Windows → Control Panel → Devices and Printers</strong>
+                      </div>
+                    </Field>
+                  </>
                 )}
 
                 {/* Paper width + test */}
