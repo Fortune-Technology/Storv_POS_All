@@ -21,6 +21,7 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import InvoiceImport from './pages/InvoiceImport';
+import InventoryCount from './pages/InventoryCount';
 import PriceUpdate from './pages/PriceUpdate';
 import FeesMappings from './pages/FeesMappings';
 import POSAPI from './pages/POSAPI';
@@ -48,7 +49,9 @@ import Departments    from './pages/Departments';
 import Vendors        from './pages/Vendors';
 import VendorDetail   from './pages/VendorDetail';
 import Promotions        from './pages/Promotions';
+import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
+import Lottery from './pages/Lottery';
 
 // Legacy Pages
 import UploadPage from './pages/UploadPage';
@@ -107,6 +110,7 @@ function App() {
         {/* ── Operations ──────────────────────────────────────────────── */}
         <Route path="/portal/customers"     element={<ProtectedRoute><Customers /></ProtectedRoute>} />
         <Route path="/portal/invoice-import" element={<ProtectedRoute><InvoiceImport /></ProtectedRoute>} />
+        <Route path="/portal/inventory-count" element={<ProtectedRoute><InventoryCount /></ProtectedRoute>} />
         <Route path="/portal/price-update"  element={<ProtectedRoute><PriceUpdate /></ProtectedRoute>} />
         <Route path="/portal/fees-mappings" element={<ProtectedRoute><FeesMappings /></ProtectedRoute>} />
         <Route path="/portal/pos-api"       element={<ProtectedRoute><POSAPI /></ProtectedRoute>} />
@@ -145,6 +149,10 @@ function App() {
         <Route path="/portal/vendors"          element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
         <Route path="/portal/vendors/:id"      element={<ProtectedRoute><VendorDetail /></ProtectedRoute>} />
         <Route path="/portal/promotions"       element={<ProtectedRoute><Promotions /></ProtectedRoute>} />
+        <Route path="/portal/import" element={<ProtectedRoute><BulkImport /></ProtectedRoute>} />
+
+        {/* ── Lottery ─────────────────────────────────────────────────── */}
+        <Route path="/portal/lottery" element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
 
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />

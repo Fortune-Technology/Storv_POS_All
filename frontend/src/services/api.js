@@ -71,6 +71,9 @@ export const uploadInvoices = (formData) => api.post('/invoice/upload', formData
 export const queueInvoice = (formData) => api.post('/invoice/queue', formData, {
   headers: { 'Content-Type': 'multipart/form-data' },
 });
+export const queueMultipageInvoice = (formData) => api.post('/invoice/queue-multipage', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+});
 export const confirmInvoice = (data) => api.post('/invoice/confirm', data);
 export const getInvoiceHistory = () => api.get('/invoice/history');
 export const getInvoiceDrafts = () => api.get('/invoice/drafts');
@@ -210,5 +213,45 @@ export const evaluateCatalogPromotions = (items) => api.post('/catalog/promotion
 // ── Catalog — helper aliases ──────────────────────────────────────────────
 export const getMasterProducts = (params) => api.get('/catalog/products', { params }).then(r => r.data);
 export const getDepartments    = ()        => api.get('/catalog/departments').then(r => r.data);
+
+// ─── Bulk Import ─────────────────────────────────────────────────────────────
+export const previewImport = (formData) =>
+  api.post('/catalog/import/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+
+export const commitImport = (formData) =>
+  api.post('/catalog/import/commit', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+
+export const downloadImportTemplate = (type) =>
+  api.get(`/catalog/import/template/${type}`, { responseType: 'blob' }).then(r => r.data);
+
+export const getImportHistory = (params) =>
+  api.get('/catalog/import/history', { params }).then(r => r.data);
+
+// ── Lottery ───────────────────────────────────────────────────────────────────
+// Helper: controllers return either a plain value or { success, data } — unwrap both
+const lotteryUnwrap = (r) => r.data?.data ?? r.data;
+
+export const getLotteryGames          = (params) => api.get('/lottery/games', { params }).then(lotteryUnwrap);
+export const createLotteryGame        = (data)   => api.post('/lottery/games', data).then(lotteryUnwrap);
+export const updateLotteryGame        = (id, d)  => api.put(`/lottery/games/${id}`, d).then(lotteryUnwrap);
+export const deleteLotteryGame        = (id)     => api.delete(`/lottery/games/${id}`).then(lotteryUnwrap);
+
+export const getLotteryBoxes          = (params) => api.get('/lottery/boxes', { params }).then(lotteryUnwrap);
+export const receiveLotteryBoxOrder   = (data)   => api.post('/lottery/boxes/receive', data).then(lotteryUnwrap);
+export const activateLotteryBox       = (id, d)  => api.put(`/lottery/boxes/${id}/activate`, d).then(lotteryUnwrap);
+export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id}`, d).then(lotteryUnwrap);
+
+export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
+
+export const getLotteryShiftReports   = (params) => api.get('/lottery/shift-reports', { params }).then(lotteryUnwrap);
+export const getLotteryShiftReport    = (shiftId) => api.get(`/lottery/shift-reports/${shiftId}`).then(lotteryUnwrap);
+
+// These return plain objects (no success/data wrapper) — r.data is the object directly
+export const getLotteryDashboard      = (params) => api.get('/lottery/dashboard', { params }).then(r => r.data);
+export const getLotteryReport         = (params) => api.get('/lottery/report', { params }).then(r => r.data);
+export const getLotteryCommissionReport = (params) => api.get('/lottery/commission', { params }).then(r => r.data);
+
+export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
+export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
 
 export default api;

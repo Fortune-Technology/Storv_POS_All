@@ -374,10 +374,56 @@ function Tog({ value, onChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CanIcon — SVG aluminium can (used inside PackVisual)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CanIcon({ w = 22, h = 34, color = '#3d56b5', color2 = '#253785', visible = true, delay = 0 }) {
+  return (
+    <svg
+      width={w} height={h} viewBox="0 0 22 34"
+      style={{
+        display: 'block', flexShrink: 0,
+        transform: visible ? 'scale(1) translateY(0)' : 'scale(0.15) translateY(10px)',
+        opacity: visible ? 1 : 0,
+        transition: `transform 0.3s cubic-bezier(0.34,1.56,0.64,1) ${delay}s, opacity 0.2s ease ${delay}s`,
+      }}
+    >
+      {/* Top lid */}
+      <ellipse cx="11" cy="4.5" rx="7.8" ry="2.2" fill={color2} />
+      {/* Body */}
+      <rect x="3.2" y="4.5" width="15.6" height="22" rx="1.5" fill={color} />
+      {/* Highlight sheen */}
+      <rect x="5.5" y="7" width="3.5" height="16" rx="1.5" fill="rgba(255,255,255,0.18)" />
+      {/* Bottom cap */}
+      <ellipse cx="11" cy="26.5" rx="7.8" ry="2.2" fill={color2} />
+      {/* Tab ring */}
+      <ellipse cx="11" cy="4.5" rx="3.2" ry="1.1" fill="rgba(255,255,255,0.25)" />
+      {/* Pull tab */}
+      <path d="M9.2 3 Q11 1.2 12.8 3" stroke="rgba(255,255,255,0.65)" strokeWidth="1.1" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ─── grid-columns count for a given unit count ────────────────────────────────
+function getPackCols(n) {
+  if (n <= 1)  return 1;
+  if (n <= 2)  return 2;
+  if (n <= 4)  return 2;   // 4  → 2×2
+  if (n <= 6)  return 3;   // 6  → 2×3
+  if (n <= 8)  return 4;   // 8  → 2×4
+  if (n <= 9)  return 3;   // 9  → 3×3
+  if (n <= 12) return 4;   // 12 → 3×4
+  if (n <= 15) return 5;   // 15 → 3×5
+  if (n <= 18) return 6;   // 18 → 3×6
+  if (n <= 20) return 5;   // 20 → 4×5
+  return 6;                // 24 → 4×6
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PackVisual — animated visualization of what the customer buys
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PackVisual({ sellUnit, sellUnitSize, casePacks }) {
+function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
   const [visible,  setVisible]  = useState(false);
   const [animKey,  setAnimKey]  = useState(0);
   const timerRef = useRef(null);
@@ -388,93 +434,147 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks }) {
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setVisible(true), 40);
     return () => clearTimeout(timerRef.current);
-  }, [sellUnit, sellUnitSize]);
+  }, [sellUnit, sellUnitSize, casePacks]);
 
   if (sellUnit === 'each') return null;
 
-  const count   = Math.min(sellUnitSize, 24);
-  const isSmall = count > 12;
-  const w = isSmall ? 22 : 28;
-  const h = isSmall ? 36 : 44;
+  const count  = Math.min(sellUnitSize, 24);
+  const cols   = getPackCols(count);
 
-  // Colour palette per sell unit
-  const canColor  = sellUnit === 'case' ? '#3b82f6' : '#7ac143';
-  const canColor2 = sellUnit === 'case' ? '#1d4ed8' : '#4a7a28';
+  // Can sizing: larger for small packs, smaller for big ones
+  const canW   = count <= 6 ? 28 : count <= 12 ? 22 : 17;
+  const canH   = count <= 6 ? 42 : count <= 12 ? 34 : 26;
+  const gap    = count <= 6 ? 6  : count <= 12 ? 5  : 4;
+
+  const canColor  = sellUnit === 'case' ? '#3b82f6' : '#3d56b5';
+  const canColor2 = sellUnit === 'case' ? '#1d4ed8' : '#253785';
+
+  const totalUnits = count * casePacks;
+  const depPerPack = depositPerUnit != null ? depositPerUnit * count     : null;
+  const depPerCase = depositPerUnit != null ? depositPerUnit * totalUnits : null;
+  const fmt$       = v => v == null ? '' : '$' + Number(v).toFixed(2);
+  const packLabel  = sellUnit === 'case' ? `${count}-unit case` : `${count}-pack`;
+
+  // Mini pack thumbnail cols (max 3 cols for readability)
+  const miniCols  = Math.min(getPackCols(Math.min(count, 6)), 3);
+  const miniCount = Math.min(count, 6);
 
   return (
     <div style={{
       borderRadius: 10, padding: '1rem 1rem 0.875rem', marginTop: '1rem',
       background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
     }}>
+      {/* ── Header ── */}
       <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
         letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.875rem',
         display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Package size={11} />
-        What the customer receives — {count} unit{count !== 1 ? 's' : ''}
+        <span style={{ fontSize: '0.9rem' }}>🥫</span>
+        {sellUnit === 'case'
+          ? `Case visual — ${count} units sold as one`
+          : `Pack visual — ${count} cans / bottles per pack`}
       </div>
 
-      {/* Unit grid */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: isSmall ? 3 : 5, justifyContent: 'center', minHeight: h + 12 }}>
+      {/* ── Can grid ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(${cols}, ${canW}px)`,
+        gap,
+        justifyContent: 'center',
+      }}>
         {Array.from({ length: count }, (_, i) => (
-          <div
+          <CanIcon
             key={`${animKey}-${i}`}
-            title={`Unit ${i + 1}`}
-            style={{
-              width: w, height: h,
-              borderRadius: isSmall ? 3 : 5,
-              background: `linear-gradient(160deg, ${canColor} 0%, ${canColor2} 100%)`,
-              border: `1px solid ${canColor}66`,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'space-between',
-              padding: isSmall ? '2px 2px 3px' : '3px 3px 4px',
-              transform: visible ? 'scale(1) translateY(0)' : 'scale(0.2) translateY(10px)',
-              opacity: visible ? 1 : 0,
-              transition: `transform 0.28s cubic-bezier(0.34,1.56,0.64,1) ${i * 0.035}s,
-                           opacity 0.18s ease ${i * 0.035}s`,
-            }}
-          >
-            {/* Top ridge */}
-            <div style={{ width: '72%', height: 2, background: 'rgba(255,255,255,.55)', borderRadius: 1 }} />
-            {/* Body */}
-            <div style={{
-              width: '68%', height: h * 0.38,
-              background: 'rgba(255,255,255,.1)',
-              borderRadius: 2,
-            }} />
-            {/* Bottom ridge */}
-            <div style={{ width: '72%', height: 2, background: 'rgba(255,255,255,.35)', borderRadius: 1 }} />
-          </div>
+            w={canW} h={canH}
+            color={canColor} color2={canColor2}
+            visible={visible}
+            delay={i * 0.03}
+          />
         ))}
       </div>
 
-      {/* Case row dots */}
-      {casePacks > 1 && sellUnit === 'pack' && (
-        <div style={{ marginTop: '0.875rem', display: 'flex', justifyContent: 'center', gap: 5, flexWrap: 'wrap' }}>
-          {Array.from({ length: Math.min(casePacks, 8) }, (_, i) => (
-            <div key={i} style={{
-              padding: '2px 7px', borderRadius: 4,
-              background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-              fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600,
-              transform: visible ? 'scale(1)' : 'scale(0)',
-              transition: `transform 0.2s ease ${count * 0.035 + i * 0.05}s`,
-            }}>
-              Pack {i + 1}
-            </div>
-          ))}
-          {casePacks > 8 && (
-            <div style={{ padding: '2px 7px', borderRadius: 4, background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              +{casePacks - 8} more
-            </div>
-          )}
+      {/* ── Case layout (pack mode with multiple packs) ── */}
+      {sellUnit === 'pack' && casePacks > 1 && (
+        <div style={{ marginTop: '0.875rem' }}>
+          <div style={{
+            fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase',
+            letterSpacing: '0.07em', color: 'var(--text-muted)', marginBottom: 6, textAlign: 'center',
+          }}>
+            Vendor case = {casePacks} × {count}-pack = {totalUnits} units
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
+            {Array.from({ length: Math.min(casePacks, 12) }, (_, i) => {
+              const isFirst = i === 0;
+              return (
+                <div key={i} style={{
+                  border: `1px solid ${isFirst ? canColor + '80' : 'var(--border-color)'}`,
+                  borderRadius: 5, padding: '4px 5px',
+                  background: isFirst ? canColor + '12' : 'var(--bg-secondary)',
+                  transform: visible ? 'scale(1)' : 'scale(0)',
+                  transition: `transform 0.2s ease ${count * 0.03 + i * 0.04}s`,
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${miniCols}, 6px)`,
+                    gap: 2,
+                  }}>
+                    {Array.from({ length: miniCount }, (_, j) => (
+                      <div key={j} style={{
+                        width: 6, height: 9, borderRadius: 1,
+                        background: isFirst ? canColor : '#94a3b880',
+                      }} />
+                    ))}
+                  </div>
+                  {isFirst && (
+                    <div style={{ fontSize: '0.5rem', textAlign: 'center', marginTop: 2,
+                      color: canColor, fontWeight: 800, letterSpacing: '0.04em' }}>
+                      YOU SELL
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {casePacks > 12 && (
+              <div style={{ display: 'flex', alignItems: 'center',
+                fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                +{casePacks - 12} more
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      <div style={{ marginTop: '0.625rem', textAlign: 'center', fontSize: '0.73rem', fontWeight: 700, color: canColor }}>
+      {/* ── Summary line ── */}
+      <div style={{ marginTop: '0.75rem', textAlign: 'center', fontSize: '0.73rem', fontWeight: 700, color: canColor }}>
         {sellUnit === 'pack'
-          ? `${count}-pack · ${casePacks} pack${casePacks > 1 ? 's' : ''} per vendor case = ${count * casePacks} units total`
+          ? `${count}-pack · ${casePacks} pack${casePacks !== 1 ? 's' : ''} per case = ${totalUnits} units total`
           : `${count}-unit case sold as one item`}
       </div>
+
+      {/* ── Deposit breakdown ── */}
+      {depositPerUnit != null && (
+        <div style={{
+          marginTop: '0.75rem',
+          display: 'flex', gap: '0.875rem', justifyContent: 'center', flexWrap: 'wrap',
+          padding: '0.5rem 0.875rem',
+          background: '#06b6d40d', borderRadius: 7, border: '1px solid #06b6d428',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: '0.8rem' }}>💧</span>
+            <span style={{ fontSize: '0.62rem', fontWeight: 800, color: '#06b6d4',
+              textTransform: 'uppercase', letterSpacing: '0.06em' }}>Deposit</span>
+          </div>
+          {[
+            ['Per unit',              fmt$(depositPerUnit)],
+            [`Per ${packLabel}`,      fmt$(depPerPack)],
+            [`Per case (${totalUnits})`, fmt$(depPerCase)],
+          ].map(([label, val]) => (
+            <div key={label} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '0.57rem', color: '#06b6d4', fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -528,6 +628,9 @@ export default function ProductForm() {
   const [selectedStores, setSelectedStores] = useState(null);
   const [showDeptMgr,    setShowDeptMgr]    = useState(false);
   const [showVendMgr,    setShowVendMgr]    = useState(false);
+
+  // ── Deposit toggle ─────────────────────────────────────────────────────────
+  const [depositToggle, setDepositToggle] = useState(false);
 
   // ── Deals state ────────────────────────────────────────────────────────────
   const [deals,       setDeals]       = useState([]);   // existing/new deals
@@ -603,6 +706,11 @@ export default function ProductForm() {
           size:               p.size              ?? '',
           sizeUnit:           p.sizeUnit          ?? 'oz',
         });
+        // Auto-enable deposit toggle if product already has deposit data
+        if (p.containerVolumeOz || p.containerType || p.depositRuleId) {
+          setDepositToggle(true);
+        }
+
         // Load existing promotions for this product
         const promoData = promoRes?.data || [];
         if (Array.isArray(promoData) && promoData.length) {
@@ -814,7 +922,7 @@ export default function ProductForm() {
   }
 
   const selDept = departments.find(d => d.id === parseInt(form.departmentId));
-  const needsDeposit = selDept?.bottleDeposit || form.containerVolumeOz || form.containerType;
+  const needsDeposit = depositToggle || selDept?.bottleDeposit || form.containerVolumeOz || form.containerType;
 
   return (
     <div className="layout-container">
@@ -1163,7 +1271,12 @@ export default function ProductForm() {
                 </div>
 
                 {/* Animated Pack Visualization */}
-                <PackVisual sellUnit={form.sellUnit} sellUnitSize={sellUnitSize} casePacks={casePacks} />
+                <PackVisual
+                  sellUnit={form.sellUnit}
+                  sellUnitSize={sellUnitSize}
+                  casePacks={casePacks}
+                  depositPerUnit={depositPerUnit}
+                />
               </div>
 
               {/* ── 4. Store Deals & Offers ── */}
@@ -1373,104 +1486,117 @@ export default function ProductForm() {
                 )}
               </div>
 
-              {/* ── 5. Container & Deposit ── */}
-              {needsDeposit ? (
-                <div style={card}>
+              {/* ── 5. Container & Bottle Deposit ── */}
+              <div style={card}>
+                {/* Section header with ON/OFF toggle */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: needsDeposit ? '0.875rem' : 0 }}>
                   <div style={sectionTitle}>Container &amp; Bottle Deposit</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
-                    <div>
-                      <label style={lbl}>Container Type</label>
-                      <select className="form-input" style={{ width:'100%' }}
-                        value={form.containerType}
-                        onChange={e => setF('containerType', e.target.value)}>
-                        <option value="">— Select —</option>
-                        {CONTAINER_TYPES.map(c => <option key={c}>{c}</option>)}
-                      </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !depositToggle;
+                      setDepositToggle(next);
+                      // Clear deposit fields when toggling off (unless dept forces it)
+                      if (!next && !selDept?.bottleDeposit) {
+                        setF('containerType', '');
+                        setF('containerVolumeOz', '');
+                        setF('depositRuleId', '');
+                      }
+                    }}
+                    style={{
+                      display:'flex', alignItems:'center', gap:6,
+                      padding:'0.3rem 0.875rem', borderRadius:20, border:'none',
+                      cursor:'pointer', fontSize:'0.75rem', fontWeight:700,
+                      background: needsDeposit ? '#06b6d415' : 'var(--bg-tertiary)',
+                      color: needsDeposit ? '#06b6d4' : 'var(--text-muted)',
+                      transition:'all 0.15s',
+                    }}
+                  >
+                    <span style={{ fontSize:'0.85rem' }}>{needsDeposit ? '💧' : '○'}</span>
+                    {needsDeposit ? 'Deposit ON' : 'No deposit'}
+                  </button>
+                </div>
+
+                {needsDeposit ? (
+                  <>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
+                      <div>
+                        <label style={lbl}>Container Type</label>
+                        <select className="form-input" style={{ width:'100%' }}
+                          value={form.containerType}
+                          onChange={e => setF('containerType', e.target.value)}>
+                          <option value="">— Select —</option>
+                          {CONTAINER_TYPES.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lbl}>Container Size (oz)</label>
+                        <div style={{ display:'flex', gap:5 }}>
+                          {[12, 16, 22, 24, 32, 40].map(n => (
+                            <button key={n} type="button"
+                              onClick={() => setF('containerVolumeOz', String(n))}
+                              style={{ flex:1, padding:'0.35rem 0', borderRadius:5, fontSize:'0.75rem', fontWeight:700, cursor:'pointer',
+                                border: parseFloat(form.containerVolumeOz)===n?'none':'1px solid var(--border-color)',
+                                background: parseFloat(form.containerVolumeOz)===n?'var(--accent-primary)':'var(--bg-tertiary)',
+                                color: parseFloat(form.containerVolumeOz)===n?'#fff':'var(--text-secondary)' }}>
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                        <input className="form-input" style={{ width:'100%', marginTop:5 }}
+                          type="number" step="0.5" min="0"
+                          value={form.containerVolumeOz} placeholder="Custom oz"
+                          onChange={e => setF('containerVolumeOz', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Deposit Rule</label>
+                        <select className="form-input" style={{ width:'100%' }}
+                          value={form.depositRuleId}
+                          onChange={e => setF('depositRuleId', e.target.value)}>
+                          <option value="">Auto-match by volume</option>
+                          {depositRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label style={lbl}>Container Size (oz)</label>
-                      <div style={{ display:'flex', gap:5 }}>
-                        {[12, 16, 22, 24, 32, 40].map(n => (
-                          <button key={n} type="button"
-                            onClick={() => setF('containerVolumeOz', String(n))}
-                            style={{ flex:1, padding:'0.35rem 0', borderRadius:5, fontSize:'0.75rem', fontWeight:700, cursor:'pointer',
-                              border: parseFloat(form.containerVolumeOz)===n?'none':'1px solid var(--border-color)',
-                              background: parseFloat(form.containerVolumeOz)===n?'var(--accent-primary)':'var(--bg-tertiary)',
-                              color: parseFloat(form.containerVolumeOz)===n?'#fff':'var(--text-secondary)' }}>
-                            {n}
-                          </button>
+                    {depositPerUnit != null ? (
+                      <div style={{ display:'flex', gap:'1rem', padding:'0.75rem 1rem',
+                        background:'#06b6d415', borderRadius:8, border:'1px solid #06b6d430', flexWrap:'wrap' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <Check size={14} color="#06b6d4" />
+                          <span style={{ fontSize:'0.78rem', fontWeight:600, color:'#06b6d4' }}>
+                            {matchedDepositRule.name}
+                          </span>
+                        </div>
+                        {[
+                          [`Per unit`,            fmt$(depositPerUnit)],
+                          [`Per ${sellUnitLabel}`, fmt$(depositPerSellUnit)],
+                          [`Per case (${totalUnitsPerCase} units)`, fmt$(depositPerCase)],
+                        ].map(([label, val]) => (
+                          <div key={label} style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:'0.62rem', color:'#06b6d4', fontWeight:600, textTransform:'uppercase' }}>{label}</div>
+                            <div style={{ fontSize:'0.9rem', fontWeight:700, color:'var(--text-primary)' }}>{val}</div>
+                          </div>
                         ))}
                       </div>
-                      <input className="form-input" style={{ width:'100%', marginTop:5 }}
-                        type="number" step="0.5" min="0"
-                        value={form.containerVolumeOz} placeholder="Custom oz"
-                        onChange={e => setF('containerVolumeOz', e.target.value)} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Deposit Rule</label>
-                      <select className="form-input" style={{ width:'100%' }}
-                        value={form.depositRuleId}
-                        onChange={e => setF('depositRuleId', e.target.value)}>
-                        <option value="">Auto-match by volume</option>
-                        {depositRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  {depositPerUnit != null ? (
-                    <div style={{ display:'flex', gap:'1rem', padding:'0.75rem 1rem',
-                      background:'#06b6d415', borderRadius:8, border:'1px solid #06b6d430', flexWrap:'wrap' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <Check size={14} color="#06b6d4" />
-                        <span style={{ fontSize:'0.78rem', fontWeight:600, color:'#06b6d4' }}>
-                          {matchedDepositRule.name}
-                        </span>
+                    ) : volOz ? (
+                      <div style={{ padding:'0.6rem 0.875rem', background:'var(--bg-tertiary)', borderRadius:6,
+                        color:'var(--text-muted)', fontSize:'0.78rem' }}>
+                        No deposit rule matched for {volOz}oz — check deposit rules or select manually.
                       </div>
-                      {[
-                        [`Per unit`,            fmt$(depositPerUnit)],
-                        [`Per ${sellUnitLabel}`, fmt$(depositPerSellUnit)],
-                        [`Per case (${totalUnitsPerCase} units)`, fmt$(depositPerCase)],
-                      ].map(([label, val]) => (
-                        <div key={label} style={{ textAlign:'center' }}>
-                          <div style={{ fontSize:'0.62rem', color:'#06b6d4', fontWeight:600, textTransform:'uppercase' }}>{label}</div>
-                          <div style={{ fontSize:'0.9rem', fontWeight:700, color:'var(--text-primary)' }}>{val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : volOz ? (
-                    <div style={{ padding:'0.6rem 0.875rem', background:'var(--bg-tertiary)', borderRadius:6,
-                      color:'var(--text-muted)', fontSize:'0.78rem' }}>
-                      No deposit rule matched for {volOz}oz — check deposit rules or select manually.
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div style={card}>
-                  <div style={sectionTitle}>Container &amp; Bottle Deposit</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.875rem' }}>
-                    <div>
-                      <label style={lbl}>Container Type</label>
-                      <select className="form-input" style={{ width:'100%' }}
-                        value={form.containerType}
-                        onChange={e => setF('containerType', e.target.value)}>
-                        <option value="">None / N/A</option>
-                        {CONTAINER_TYPES.map(c => <option key={c}>{c}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={lbl}>Volume (oz) — for deposit</label>
-                      <input className="form-input" style={{ width:'100%' }}
-                        type="number" step="0.5" min="0"
-                        value={form.containerVolumeOz} placeholder="e.g. 12"
-                        onChange={e => setF('containerVolumeOz', e.target.value)} />
-                    </div>
-                    <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
-                      <span style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>
-                        Enter volume to auto-calculate bottle deposit (Maine CRV)
-                      </span>
-                    </div>
+                    ) : (
+                      <div style={{ padding:'0.6rem 0.875rem', background:'var(--bg-tertiary)', borderRadius:6,
+                        color:'var(--text-muted)', fontSize:'0.78rem' }}>
+                        Select container type and enter size (oz) to auto-match a deposit rule.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                    Toggle <strong>Deposit ON</strong> if this product requires a bottle deposit (CRV, Maine 5¢, etc.).
+                    The deposit amount will appear in the pack visual above and be applied at checkout.
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
             </div>{/* end left column */}
 

@@ -15,8 +15,36 @@ import {
 import {
   Plus, Edit2, Trash2, RotateCcw, X, Check,
   ShieldAlert, Leaf, Tag, Layers, GripVertical,
-  Search, ToggleLeft, ToggleRight, Package, Monitor,
+  Search, ToggleLeft, ToggleRight, Package, Monitor, Copy,
 } from 'lucide-react';
+
+// ─── ID Chip (click to copy) ──────────────────────────────────────────────────
+function IdChip({ id }) {
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(String(id));
+    import('react-toastify').then(({ toast }) => toast.success(`Dept ID ${id} copied`, { autoClose: 1500 }));
+  };
+  return (
+    <div
+      onClick={copy}
+      title="Click to copy Department ID"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 700,
+        color: '#7c3aed', background: 'rgba(124,58,237,0.1)',
+        border: '1px solid rgba(124,58,237,0.22)',
+        padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
+        userSelect: 'none', whiteSpace: 'nowrap',
+        transition: 'background .15s',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,58,237,0.18)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'rgba(124,58,237,0.1)'}
+    >
+      #{id} <Copy size={9} />
+    </div>
+  );
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -142,7 +170,15 @@ function DeptForm({ dept, onSave, onClose, saving }) {
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary, #e2e8f0)' }}>
                 {dept ? 'Edit Department' : 'New Department'}
               </div>
-              {dept && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)' }}>ID #{dept.id}</div>}
+              {dept && (
+                <div
+                  onClick={() => { navigator.clipboard.writeText(String(dept.id)); import('react-toastify').then(({ toast }) => toast.success(`Dept ID ${dept.id} copied`, { autoClose: 1500 })); }}
+                  title="Click to copy Department ID"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', fontFamily: 'monospace', fontWeight: 700, color: '#7c3aed', background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.22)', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  ID #{dept.id} <Copy size={9} />
+                </div>
+              )}
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted, #6b7280)', padding: 4, display: 'flex' }}>
@@ -300,7 +336,7 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
       onDragEnd={onDragEnd}
       style={{
         display: 'grid',
-        gridTemplateColumns: '28px 2fr 1fr 80px 60px 80px 90px',
+        gridTemplateColumns: '28px 60px 2fr 1fr 80px 60px 80px 90px',
         gap: '0 8px',
         padding: '0.75rem 1rem',
         alignItems: 'center',
@@ -322,6 +358,9 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
       >
         <GripVertical size={15} />
       </div>
+
+      {/* ID chip */}
+      <div><IdChip id={dept.id} /></div>
 
       {/* Name + Code */}
       <div style={{ minWidth: 0 }}>
@@ -626,7 +665,7 @@ export default function Departments() {
         <div style={cardStyle}>
           {/* Header row */}
           <div style={{
-            display: 'grid', gridTemplateColumns: '28px 2fr 1fr 80px 60px 80px 90px',
+            display: 'grid', gridTemplateColumns: '28px 60px 2fr 1fr 80px 60px 80px 90px',
             gap: '0 8px', padding: '0.5rem 1rem',
             borderBottom: '1px solid var(--border-color, #1f2937)',
             fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted, #6b7280)',
@@ -635,6 +674,7 @@ export default function Departments() {
             <span title="Drag to reorder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <GripVertical size={11} />
             </span>
+            <span style={{ color: '#7c3aed' }}>ID</span>
             <span>DEPARTMENT</span>
             <span>DESCRIPTION</span>
             <span>SHOW IN POS</span>

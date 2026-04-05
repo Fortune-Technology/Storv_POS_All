@@ -56,6 +56,13 @@ import {
   deletePromotion,
   evaluatePromotions,
 } from '../controllers/catalogController.js';
+import {
+  previewImport,
+  commitImport,
+  getImportTemplate,
+  getImportHistory,
+  getImportJob,
+} from '../controllers/importController.js';
 
 const router = express.Router();
 
@@ -119,5 +126,13 @@ router.post('/promotions',         authorize('superadmin', 'admin', 'owner', 'ma
 router.put('/promotions/:id',      authorize('superadmin', 'admin', 'owner', 'manager'), updatePromotion);
 router.delete('/promotions/:id',   authorize('superadmin', 'admin', 'owner'), deletePromotion);
 router.post('/promotions/evaluate', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier'), evaluatePromotions);
+
+// ─── Import ───────────────────────────────────────────────────
+// Preview requires manager+; commit requires manager+; templates are public (no auth needed for template download)
+router.post('/import/preview',        authorize('superadmin','admin','owner','manager'), previewImport);
+router.post('/import/commit',         authorize('superadmin','admin','owner','manager'), commitImport);
+router.get('/import/template/:type',  authorize('superadmin','admin','owner','manager'), getImportTemplate);
+router.get('/import/history',         authorize('superadmin','admin','owner','manager'), getImportHistory);
+router.get('/import/history/:id',     authorize('superadmin','admin','owner','manager'), getImportJob);
 
 export default router;

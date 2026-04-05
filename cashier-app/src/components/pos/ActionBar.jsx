@@ -14,7 +14,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
-  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole,
+  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -57,6 +57,7 @@ export default function ActionBar({
   onPriceCheck, onHold, onReprint, onNoSale,
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
+  onLottery,
   // Cash drawer / shift
   onOpenShift, onCloseShift, onCashDrop, onPayout,
   shiftOpen = false,
@@ -179,6 +180,8 @@ export default function ActionBar({
         <>
           <ACT icon={ArrowDownCircle} label="Cash Drop" onClick={onCashDrop} color="var(--amber)" />
           <ACT icon={ArrowUpCircle}   label="Paid Out"  onClick={onPayout}   color="#a855f7" />
+          <Divider />
+          <ACT icon={Ticket} label="Lottery" onClick={onLottery} color="var(--green)" />
           <Divider />
         </>
       )}

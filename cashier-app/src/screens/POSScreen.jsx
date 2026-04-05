@@ -36,6 +36,10 @@ import ReprintReceiptModal     from '../components/modals/ReprintReceiptModal.js
 import OpenShiftModal          from '../components/modals/OpenShiftModal.jsx';
 import CloseShiftModal         from '../components/modals/CloseShiftModal.jsx';
 import CashDrawerModal         from '../components/modals/CashDrawerModal.jsx';
+import LotteryModal        from '../components/modals/LotteryModal.jsx';
+import LotteryShiftModal   from '../components/modals/LotteryShiftModal.jsx';
+import { useLotteryStore } from '../stores/useLotteryStore.js';
+import { getLotteryBoxes } from '../api/pos.js';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -81,6 +85,17 @@ export default function POSScreen() {
   const storeId = useStationStore(s => s.station?.storeId);
   const { shift, loading: shiftLoading, loadActiveShift } = useShiftStore();
 
+  // ── Lottery store ────────────────────────────────────────────────────────
+  const {
+    games: lotteryGames,
+    sessionSales, sessionPayouts,
+    loadGames:       loadLotteryGames,
+    recordSale:      recordLotterySale,
+    recordPayout:    recordLotteryPayout,
+    saveShiftReport: saveLotteryShiftReport,
+    resetSession:    resetLotterySession,
+  } = useLotteryStore();
+
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
   useEffect(() => {
@@ -94,6 +109,16 @@ export default function POSScreen() {
       setShowOpenShift(true);
     }
   }, [shiftChecked, shiftLoading, shift]);
+
+  // Load lottery games and active boxes when shift opens
+  useEffect(() => {
+    if (shift && storeId) {
+      loadLotteryGames(storeId);
+      getLotteryBoxes({ storeId, status: 'active' })
+        .then(r => setLotteryActiveBoxes(r?.data || r || []))
+        .catch(() => {});
+    }
+  }, [shift?.id, storeId]); // eslint-disable-line
 
   useOnlineStatus();
   useBranding();
@@ -114,6 +139,10 @@ export default function POSScreen() {
   const [showCloseShift,  setShowCloseShift]  = useState(false);
   const [showCashDrawer,  setShowCashDrawer]  = useState(false);
   const [cashDrawerTab,   setCashDrawerTab]   = useState('drop'); // 'drop' | 'payout'
+  // Lottery modals
+  const [showLottery,        setShowLottery]        = useState(false);
+  const [showLotteryShift,   setShowLotteryShift]   = useState(false);
+  const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Discount modal: discountTarget = lineId string → line discount, null → order discount
   const [discountTarget,  setDiscountTarget]  = useState(undefined); // undefined = closed
 
@@ -236,6 +265,11 @@ export default function POSScreen() {
   // ── Discount helpers ─────────────────────────────────────────────────────
   const openLineDiscount  = () => requireManager('Line Discount',  () => setDiscountTarget(selectedLineId));
   const openOrderDiscount = () => requireManager('Order Discount', () => setDiscountTarget(null));
+
+  // ── Lottery handlers ─────────────────────────────────────────────────────
+  const handleLotteryShiftSave = async (data) => {
+    await saveLotteryShiftReport(data);
+  };
 
   // ── Quick tender helpers ─────────────────────────────────────────────────
   // cashAmt: optional pre-fill for cash amount (from on-screen quick-cash buttons)
@@ -989,6 +1023,7 @@ export default function POSScreen() {
         onCloseShift={() => requireManager('Close Shift', () => setShowCloseShift(true))}
         onCashDrop={() => { setCashDrawerTab('drop'); setShowCashDrawer(true); }}
         onPayout={() => { setCashDrawerTab('payout'); setShowCashDrawer(true); }}
+        onLottery={() => setShowLottery(true)}
         shiftOpen={!!shift}
       />
 
@@ -1003,6 +1038,7 @@ export default function POSScreen() {
           initMethod={tenderInitMethod}
           initCashAmount={tenderInitCash}
           cashRounding={posConfig.cashRounding || 'none'}
+          lotteryCashOnly={posConfig.lottery?.cashOnly || false}
           onClose={closeTender}
           onComplete={(tx) => setLastCompletedTx(tx)}
         />
@@ -1089,6 +1125,25 @@ export default function POSScreen() {
         <CashDrawerModal
           defaultTab={cashDrawerTab}
           onClose={() => setShowCashDrawer(false)}
+        />
+      )}
+
+      {/* ── Lottery Modal (combined Sale + Payout) ── */}
+      <LotteryModal
+        open={showLottery}
+        games={lotteryGames}
+        onClose={() => setShowLottery(false)}
+      />
+      {showLotteryShift && (
+        <LotteryShiftModal
+          open
+          shiftId={shift?.id}
+          activeBoxes={lotteryActiveBoxes}
+          sessionSales={sessionSales}
+          sessionPayouts={sessionPayouts}
+          scanRequired={posConfig.lottery?.scanRequiredAtShiftEnd || false}
+          onSave={handleLotteryShiftSave}
+          onClose={() => setShowLotteryShift(false)}
         />
       )}
     </div>

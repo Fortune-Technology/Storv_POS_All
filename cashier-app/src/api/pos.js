@@ -122,3 +122,22 @@ export const getActivePromotionsForPOS = () =>
     const d = r.data;
     return Array.isArray(d) ? d : (d?.data ?? []);
   });
+
+// ── Lottery ───────────────────────────────────────────────────────────────────
+export const getLotteryGames = (storeId) =>
+  api.get('/lottery/games', { params: { storeId } }).then(r => r.data);
+
+export const getLotteryBoxes = (params) =>
+  api.get('/lottery/boxes', { params }).then(r => r.data);
+
+export const createLotteryTransaction = (tx) =>
+  api.post('/lottery/transactions', tx).then(r => r.data);
+
+export const bulkCreateLotteryTransactions = (transactions, shiftId) =>
+  api.post('/lottery/transactions/bulk', { transactions, shiftId }).then(r => r.data);
+
+export const getLotteryShiftReport = (shiftId) =>
+  api.get(`/lottery/shift-reports/${shiftId}`).then(r => r.data);
+
+export const saveLotteryShiftReport = (data) =>
+  api.post('/lottery/shift-reports', data).then(r => r.data);

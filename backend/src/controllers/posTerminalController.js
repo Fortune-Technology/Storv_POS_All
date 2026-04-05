@@ -127,13 +127,17 @@ export const createTransaction = async (req, res) => {
     const orgId = getOrgId(req);
     const {
       storeId, stationId,
-      lineItems, tenderLines, ageVerifications, notes,
+      lineItems, lotteryItems, tenderLines, ageVerifications, notes,
       subtotal, taxTotal, depositTotal, ebtTotal, grandTotal, changeGiven,
       offlineCreatedAt, status,
+      shiftId,
     } = req.body;
 
-    if (!storeId)    return res.status(400).json({ error: 'storeId required' });
-    if (!lineItems?.length) return res.status(400).json({ error: 'lineItems required' });
+    if (!storeId) return res.status(400).json({ error: 'storeId required' });
+    // Allow lottery-only transactions (no regular lineItems)
+    if (!lineItems?.length && !lotteryItems?.length) {
+      return res.status(400).json({ error: 'lineItems or lotteryItems required' });
+    }
 
     // Generate a human-readable transaction number
     const today = new Date();
@@ -149,7 +153,7 @@ export const createTransaction = async (req, res) => {
         stationId:       stationId || null,
         txNumber,
         status:          status || 'complete',
-        lineItems:       lineItems,
+        lineItems:       lineItems || [],
         subtotal:        parseFloat(subtotal)     || 0,
         taxTotal:        parseFloat(taxTotal)     || 0,
         depositTotal:    parseFloat(depositTotal) || 0,
@@ -163,6 +167,24 @@ export const createTransaction = async (req, res) => {
         syncedAt:        new Date(),
       },
     });
+
+    // ── Save lottery transactions if present ──────────────────────────────
+    if (Array.isArray(lotteryItems) && lotteryItems.length) {
+      await prisma.lotteryTransaction.createMany({
+        data: lotteryItems.map(li => ({
+          orgId,
+          storeId,
+          shiftId:         shiftId || null,
+          cashierId:       req.user.id,
+          stationId:       stationId || null,
+          type:            li.type === 'payout' ? 'payout' : 'sale',
+          amount:          Math.abs(parseFloat(li.amount) || 0),
+          gameId:          li.gameId || null,
+          notes:           li.notes || null,
+          posTransactionId: tx.id,
+        })),
+      });
+    }
 
     res.status(201).json(tx);
   } catch (err) {

@@ -24,6 +24,11 @@ export const DEFAULT_POS_CONFIG = {
     voidTx: true,
     endOfDay: true,
   },
+  lottery: {
+    enabled:               true,
+    cashOnly:              false,
+    scanRequiredAtShiftEnd: false,
+  },
   quickTender: ['card', 'cash', 'ebt'],
 };
 

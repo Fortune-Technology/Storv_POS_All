@@ -16,8 +16,38 @@ import {
 import {
   Plus, Edit2, X, Check, Search, Truck, Phone,
   Mail, Globe, ExternalLink, ToggleLeft, ToggleRight,
-  Building2, ChevronRight, Package,
+  Building2, ChevronRight, Package, Copy,
 } from 'lucide-react';
+
+// ─── ID Chip (click to copy) ──────────────────────────────────────────────────
+function IdChip({ id }) {
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(String(id)).then(() => {
+      // brief visual feedback via title attr — toast already imported
+    });
+    import('react-toastify').then(({ toast }) => toast.success(`Vendor ID ${id} copied`, { autoClose: 1500 }));
+  };
+  return (
+    <div
+      onClick={copy}
+      title="Click to copy Vendor ID"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontFamily: 'monospace', fontSize: '0.7rem', fontWeight: 700,
+        color: '#3d56b5', background: 'rgba(61,86,181,0.1)',
+        border: '1px solid rgba(61,86,181,0.22)',
+        padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
+        userSelect: 'none', whiteSpace: 'nowrap',
+        transition: 'background .15s',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(61,86,181,0.18)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'rgba(61,86,181,0.1)'}
+    >
+      #{id} <Copy size={9} />
+    </div>
+  );
+}
 
 // ─── Toggle ───────────────────────────────────────────────────────────────────
 
@@ -153,7 +183,15 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary, #e2e8f0)' }}>
                 {vendor ? 'Edit Vendor' : 'New Vendor'}
               </div>
-              {vendor && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)' }}>ID #{vendor.id}</div>}
+              {vendor && (
+                <div
+                  onClick={() => { navigator.clipboard.writeText(String(vendor.id)); import('react-toastify').then(({ toast }) => toast.success(`Vendor ID ${vendor.id} copied`, { autoClose: 1500 })); }}
+                  title="Click to copy Vendor ID"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', fontFamily: 'monospace', fontWeight: 700, color: '#3d56b5', background: 'rgba(61,86,181,0.1)', border: '1px solid rgba(61,86,181,0.22)', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  ID #{vendor.id} <Copy size={9} />
+                </div>
+              )}
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted, #6b7280)', padding: 4, display: 'flex' }}>
@@ -288,7 +326,7 @@ function VendorRow({ vendor, onEdit, onToggleActive, onViewDetail }) {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: '2fr 1fr 1fr 1fr 60px 80px 100px',
+      gridTemplateColumns: '64px 2fr 1fr 1fr 1fr 60px 80px 100px',
       gap: '0 8px',
       padding: '0.75rem 1rem',
       alignItems: 'center',
@@ -296,6 +334,9 @@ function VendorRow({ vendor, onEdit, onToggleActive, onViewDetail }) {
       opacity: vendor.active ? 1 : 0.55,
       transition: 'opacity .15s, background .1s',
     }}>
+      {/* ID chip */}
+      <div><IdChip id={vendor.id} /></div>
+
       {/* Name + code + contact */}
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -515,12 +556,13 @@ export default function Vendors() {
         <div style={cardStyle}>
           {/* Header row */}
           <div style={{
-            display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 60px 80px 100px',
+            display: 'grid', gridTemplateColumns: '64px 2fr 1fr 1fr 1fr 60px 80px 100px',
             gap: '0 8px', padding: '0.5rem 1rem',
             borderBottom: '1px solid var(--border-color, #1f2937)',
             fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted, #6b7280)',
             letterSpacing: '0.07em', background: 'var(--bg-tertiary, #0f172a)',
           }}>
+            <span style={{ color: '#3d56b5' }}>ID</span>
             <span>VENDOR</span>
             <span>EMAIL</span>
             <span>PHONE</span>

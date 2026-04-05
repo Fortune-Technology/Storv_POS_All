@@ -25,6 +25,8 @@ import {
   Layers,
   Truck,
   Tag,
+  Upload,
+  Ticket,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -39,12 +41,20 @@ const menuGroups = [
     ],
   },
   {
+    label: 'Lottery',
+    items: [
+      { name: 'Lottery',  icon: <Ticket size={13} />,  path: '/portal/lottery' },
+    ],
+  },
+  {
     label: 'Catalog',
     items: [
       { name: 'Products',    icon: <Package size={13} />,  path: '/portal/catalog' },
       { name: 'Departments', icon: <Layers size={13} />,   path: '/portal/departments' },
       { name: 'Vendors',     icon: <Truck size={13} />,    path: '/portal/vendors' },
       { name: 'Promotions',  icon: <Tag size={13} />,      path: '/portal/promotions' },
+      { name: 'Bulk Import',      icon: <Upload size={13} />,    path: '/portal/import' },
+      { name: 'Inventory Count', icon: <BarChart2 size={13} />, path: '/portal/inventory-count' },
     ],
   },
   {
@@ -138,8 +148,8 @@ const Sidebar = () => {
         </button>
 
         {/* Logo */}
-        <div style={{ padding: '1rem 1rem 0.75rem', display: 'flex', justifyContent: 'center' }}>
-          <StoreveuLogo height={34} darkMode={true} />
+        <div style={{ padding: '0.5rem 0.5rem 0.75rem', display: 'flex', justifyContent: 'center' }}>
+          <StoreveuLogo height={70} darkMode={false} />
         </div>
 
         {/* ── Store Switcher ───────────────────────────────────────────── */}

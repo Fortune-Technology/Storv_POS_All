@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   queueUpload,
+  queueMultipageUpload,
   uploadInvoices,
   confirmInvoice,
   getInvoiceHistory,
@@ -42,8 +43,10 @@ const upload = multer({
 router.use(protect);
 router.use(authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'));
 
-// NEW: instant-queue endpoint (responds immediately, processes in background)
+// instant-queue: single or multiple separate invoices
 router.post('/queue', upload.array('invoices'), queueUpload);
+// instant-queue: multiple files as ONE multi-page invoice
+router.post('/queue-multipage', upload.array('invoices'), queueMultipageUpload);
 
 // Legacy synchronous upload (kept for compatibility)
 router.post('/upload', upload.array('invoices'), uploadInvoices);

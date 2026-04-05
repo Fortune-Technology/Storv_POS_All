@@ -36,6 +36,11 @@ const DEFAULT_CONFIG = {
     voidTx: true,
     endOfDay: true,
   },
+  lottery: {
+    enabled:               true,
+    cashOnly:              false,
+    scanRequiredAtShiftEnd: false,
+  },
   quickTender: ['card', 'cash', 'ebt'],
 };
 
@@ -866,6 +871,47 @@ export default function POSSettings() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ── Lottery Settings ────────────────────────────────────────────────── */}
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                🎟️ Lottery
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Enable Lottery Sales</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Show lottery buttons in the POS action bar</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.enabled ?? true}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, enabled: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Cash Only for Lottery</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>When cart has lottery items, only allow cash payment</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.cashOnly ?? false}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, cashOnly: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+
+                {/* Scan Required at Shift End */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0', borderTop: '1px solid var(--border-light)', cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Require Ticket Scan at Shift End</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Cashier must scan all active boxes before closing a lottery shift</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.scanRequiredAtShiftEnd ?? false}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, scanRequiredAtShiftEnd: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
               </div>
             </div>
 

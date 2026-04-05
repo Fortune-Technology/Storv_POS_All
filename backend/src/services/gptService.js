@@ -575,3 +575,52 @@ export const extractInvoiceData = async (buffer, mimetype) => {
     throw new Error(`Failed to extract invoice data: ${error.message}`);
   }
 };
+
+// ─── MULTI-PAGE EXPORT ────────────────────────────────────────────────────────
+
+/**
+ * Extract and merge data from multiple files that are pages of the same invoice.
+ * - Generates display pages for all files in parallel
+ * - Extracts invoice data from each file, then merges:
+ *     • Vendor header taken from the first successful extraction
+ *     • All line items concatenated (no dedup — user reviews in UI)
+ * Returns { data: { vendor, lineItems }, pages: string[] }
+ */
+export const extractMultiplePages = async (files) => {
+  // Generate display pages for every file in parallel
+  const pagesResults = await Promise.all(
+    files.map(({ buffer, mimetype }) => generateDisplayPages(buffer, mimetype).catch(() => []))
+  );
+  const combinedPages = pagesResults.flat();
+
+  // Extract invoice data from each file sequentially to avoid rate-limit bursts
+  const extractions = [];
+  for (const { buffer, mimetype } of files) {
+    try {
+      const result = await extractInvoiceData(buffer, mimetype);
+      extractions.push(result.data);
+      console.log(`  📄 Page extracted: ${result.data.lineItems?.length ?? 0} items`);
+    } catch (err) {
+      console.error("  ⚠️ Page extraction failed:", err.message);
+    }
+  }
+
+  if (extractions.length === 0) {
+    throw new Error("All page extractions failed — no data could be read from the uploaded files");
+  }
+
+  // Merge: vendor header from first file; all line items concatenated
+  const merged = {
+    vendor: { ...extractions[0].vendor },
+    lineItems: extractions.flatMap(e => e.lineItems || []),
+  };
+
+  // Sum numeric totals across pages (totalInvoiceAmount stays from first since it's the invoice total)
+  if (extractions.length > 1) {
+    merged.vendor.totalCasesReceived = extractions.reduce((s, e) => s + (e.vendor?.totalCasesReceived || 0), 0);
+    merged.vendor.totalUnitsReceived = extractions.reduce((s, e) => s + (e.vendor?.totalUnitsReceived || 0), 0);
+  }
+
+  console.log(`✅ Multi-page merge: ${extractions.length} pages → ${merged.lineItems.length} total line items`);
+  return { data: merged, pages: combinedPages };
+};

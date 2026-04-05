@@ -1,89 +1,123 @@
 /**
- * StoreveuLogo — official brand logo component.
- * Uses the exact paths from the Storeveu SVG brand files.
+ * StoreveuLogo — matches the exact SVG brand files (600×200 viewBox, 3:1 ratio).
  *
  * Props:
- *   height     {number}  rendered height in px (width scales proportionally). Default 40.
- *   darkMode   {boolean} true = white wordmark on dark bg, false = dark wordmark on light bg. Default true.
- *   showTagline {boolean} show "POINT OF SALE" tagline. Default false.
- *   iconOnly   {boolean} render only the icon square, no wordmark. Default false.
+ *   height      {number}  rendered height in px; width scales 3:1 automatically. Default 40.
+ *   darkMode    {boolean} true = light text / dark icon bg; false = dark text / light icon bg. Default false.
+ *   showTagline {boolean} show "POINT OF SALE" tagline below wordmark. Default false.
+ *   iconOnly    {boolean} render only the blue sprout icon square (200×200). Default false.
  */
 import React from 'react';
 
-export default function StoreveuLogo({ height = 40, darkMode = true, showTagline = false, iconOnly = false }) {
+export default function StoreveuLogo({
+  height      = 40,
+  darkMode    = false,
+  showTagline = false,
+  iconOnly    = false,
+}) {
+
+  /* ── Icon-only: 200×200 blue square (from storevue_icon.svg) ─────────── */
   if (iconOnly) {
-    const size = height;
     return (
-      <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100" height="100" rx="23" fill={darkMode ? '#1a1f38' : '#eaecf5'} />
-        {/* stem */}
-        <line x1="50" y1="79" x2="50" y2="44" stroke={darkMode ? '#7b95e0' : '#3d56b5'} strokeWidth="4" strokeLinecap="round" />
-        {/* left leaf */}
-        <path d="M50 63 C50 63 32 56 28 44 C24 32 34 26 42 34 C45 38 50 46 50 46" fill={darkMode ? '#7b95e0' : '#3d56b5'} opacity={darkMode ? 0.65 : 0.65} />
-        {/* right leaf */}
-        <path d="M50 56 C50 56 68 48 72 36 C76 24 66 18 58 26 C55 30 50 38 50 38" fill={darkMode ? '#a0b4ea' : '#3d56b5'} />
-        {/* soil dots */}
-        <circle cx="41" cy="83" r="3" fill={darkMode ? '#7b95e0' : '#3d56b5'} opacity="0.35" />
-        <circle cx="50" cy="86" r="3" fill={darkMode ? '#7b95e0' : '#3d56b5'} opacity="0.35" />
-        <circle cx="59" cy="83" r="3" fill={darkMode ? '#7b95e0' : '#3d56b5'} opacity="0.35" />
+      <svg
+        width={height}
+        height={height}
+        viewBox="0 0 200 200"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ display: 'block', flexShrink: 0 }}
+      >
+        <rect width="200" height="200" rx="46" fill="#3d56b5" />
+        <line x1="100" y1="158" x2="100" y2="82"
+          stroke="#ffffff" strokeWidth="8" strokeLinecap="round" />
+        <path d="M100 126 C100 126 62 110 54 86 C46 62 68 48 88 68 C94 76 100 90 100 90"
+          fill="#ffffff" opacity="0.7" />
+        <path d="M100 110 C100 110 138 92 146 68 C154 44 132 30 112 50 C106 58 100 72 100 72"
+          fill="#ffffff" />
+        <circle cx="80"  cy="167" r="5.5" fill="#ffffff" opacity="0.35" />
+        <circle cx="100" cy="171" r="5.5" fill="#ffffff" opacity="0.35" />
+        <circle cx="120" cy="167" r="5.5" fill="#ffffff" opacity="0.35" />
       </svg>
     );
   }
 
-  // Horizontal logo — viewBox 560 × (showTagline ? 160 : 130)
-  const vbH = showTagline ? 160 : 130;
-  const width = Math.round(height * 560 / vbH);
-  const storeColor = darkMode ? '#e8eaf6' : '#1a1f38';
-  const vueColor  = darkMode ? '#7b95e0' : '#3d56b5';
-  const iconBg    = darkMode ? '#1a1f38' : '#eaecf5';
-  const stemColor = darkMode ? '#7b95e0' : '#3d56b5';
-  const leafR     = darkMode ? '#a0b4ea' : '#3d56b5';
-  const tagColor  = darkMode ? '#4a5580' : '#b0b8cc';
+  /* ── Horizontal logo: 600×200 viewBox (3:1) — no background rect ─────── */
+  // Extend viewBox height to 230 when tagline is shown (tagline baseline at y=155).
+  const vbW = 600;
+  const vbH = showTagline ? 230 : 200;
+  const width = Math.round(height * (vbW / vbH));
+
+  // Exact colours from storevue_logo_dark.svg / storevue_logo_light.svg
+  const iconBg   = darkMode ? '#1a1f38' : '#eaecf5';
+  const stem     = darkMode ? '#7b95e0' : '#3d56b5';
+  const leafAlt  = darkMode ? '#a0b4ea' : '#3d56b5';
+  const storeClr = darkMode ? '#e8eaf6' : '#1a1f38';
+  const vueClr   = darkMode ? '#7b95e0' : '#3d56b5';
+  const tagClr   = darkMode ? '#232b4a' : '#b0b8cc';
 
   return (
-    <svg width={width} height={height} viewBox={`0 0 560 ${vbH}`} fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
-      {/* Icon square */}
-      <rect x="0" y="20" width="100" height="100" rx="24" fill={iconBg} />
-      {/* stem */}
-      <line x1="50" y1="108" x2="50" y2="48" stroke={stemColor} strokeWidth="4" strokeLinecap="round" />
-      {/* left leaf */}
-      <path d="M50 80 C50 80 24 70 18 52 C12 34 28 24 40 38 C44 44 50 54 50 54" fill={stemColor} opacity="0.65" />
-      {/* right leaf */}
-      <path d="M50 70 C50 70 76 58 82 40 C88 22 72 12 60 26 C56 32 50 42 50 42" fill={leafR} />
-      {/* soil dots */}
-      <circle cx="36" cy="114" r="3.5" fill={stemColor} opacity="0.35" />
-      <circle cx="50" cy="117" r="3.5" fill={stemColor} opacity="0.35" />
-      <circle cx="64" cy="114" r="3.5" fill={stemColor} opacity="0.35" />
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${vbW} ${vbH}`}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      {/* Icon square — exact coords from brand file */}
+      <rect x="40" y="40" width="100" height="100" rx="24" fill={iconBg} />
 
-      {/* Wordmark */}
+      {/* Stem */}
+      <line x1="90" y1="128" x2="90" y2="68"
+        stroke={stem} strokeWidth="4" strokeLinecap="round" />
+
+      {/* Left leaf */}
+      <path
+        d="M90 100 C90 100 64 90 58 72 C52 54 68 44 80 58 C84 64 90 74 90 74"
+        fill={stem} opacity="0.65"
+      />
+
+      {/* Right leaf */}
+      <path
+        d="M90 90 C90 90 116 78 122 60 C128 42 112 32 100 46 C96 52 90 62 90 62"
+        fill={leafAlt}
+      />
+
+      {/* Soil dots */}
+      <circle cx="76"  cy="134" r="3.5" fill={stem} opacity="0.35" />
+      <circle cx="90"  cy="137" r="3.5" fill={stem} opacity="0.35" />
+      <circle cx="104" cy="134" r="3.5" fill={stem} opacity="0.35" />
+
+      {/* "store" wordmark */}
       <text
-        x="120" y="100"
+        x="162" y="118"
         fontFamily="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
-        fontWeight="300"
-        fontSize="80"
-        letterSpacing="-3"
-        fill={storeColor}
+        fontWeight="400"
+        fontSize="84"
+        letterSpacing="0"
+        fill={storeClr}
       >store</text>
+      {/* "vue" wordmark — italic */}
       <text
-        x="382" y="100"
+        x="394" y="118"
         fontFamily="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
-        fontWeight="300"
+        fontWeight="400"
         fontStyle="italic"
-        fontSize="80"
-        letterSpacing="-3"
-        fill={vueColor}
+        fontSize="84"
+        letterSpacing="0"
+        fill={vueClr}
       >vue</text>
 
-      {/* Tagline */}
+      {/* Optional tagline */}
       {showTagline && (
         <text
-          x="121" y="135"
+          x="163" y="155"
           fontFamily="'Helvetica Neue', Helvetica, Arial, sans-serif"
           fontWeight="300"
-          fontSize="14"
+          fontSize="13"
           letterSpacing="6"
-          fill={tagColor}
-        >POINT  OF  SALE</text>
+          fill={tagClr}
+        >one piece</text>
       )}
     </svg>
   );

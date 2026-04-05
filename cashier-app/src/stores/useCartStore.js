@@ -128,6 +128,34 @@ export const useCartStore = create((set, get) => ({
     set({ items: promoItems, promoResults });
   },
 
+  addLotteryItem: ({ lotteryType, amount, gameId, gameName, notes }) => {
+    // lotteryType: 'sale' | 'payout'
+    // Sale = positive amount (customer pays), Payout = negative (we pay customer)
+    const amt = lotteryType === 'payout' ? -Math.abs(Number(amount)) : Math.abs(Number(amount));
+    const item = {
+      lineId:          nanoid(8),
+      isLottery:       true,
+      lotteryType,
+      gameId:          gameId || null,
+      name:            lotteryType === 'payout'
+                         ? `Lottery Payout${notes ? ' — ' + notes : ''}`
+                         : `🎟️ ${gameName || 'Lottery'}`,
+      qty:             1,
+      unitPrice:       amt,
+      effectivePrice:  amt,
+      lineTotal:       amt,
+      taxable:         false,
+      ebtEligible:     false,
+      depositAmount:   null,
+      depositTotal:    0,
+      discountEligible: false,
+      discountType:    null,
+      discountValue:   null,
+      promoAdjustment: null,
+    };
+    set(s => ({ items: [...s.items, item] }));
+  },
+
   removeItem: (lineId) => {
     set(s => {
       const rawItems = s.items.filter(i => i.lineId !== lineId);

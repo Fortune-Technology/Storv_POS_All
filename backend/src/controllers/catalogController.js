@@ -571,9 +571,23 @@ export const searchMasterProducts = async (req, res) => {
     }
 
     // Exact UPC match first (fastest, for barcode scanner)
-    if (/^\d{7,14}$/.test(query)) {
+    // Try all common UPC variants so storage format differences don't cause misses.
+    // e.g. scanner emits "082928223365" (12-digit) → also try 14-digit padded, etc.
+    if (/^\d{6,14}$/.test(query)) {
+      const stripped = query.replace(/^0+/, '') || '0';
+      const upcVariants = [...new Set([
+        query,
+        stripped,
+        stripped.padStart(12, '0'),
+        stripped.padStart(13, '0'),
+        stripped.padStart(14, '0'),
+        ...(query.length === 14 ? [query.slice(-12), query.slice(-13)] : []),
+        ...(query.length === 13 && query[0] === '0' ? [query.slice(1)] : []),
+        ...(query.length === 12 ? ['0' + query] : []),
+      ])].filter(v => v.length >= 6);
+
       const exact = await prisma.masterProduct.findFirst({
-        where: { orgId, upc: query, deleted: false },
+        where: { orgId, deleted: false, upc: { in: upcVariants } },
         include: {
           department: { select: { id: true, name: true, code: true, taxClass: true, ageRequired: true } },
           vendor:     { select: { id: true, name: true } },
@@ -583,13 +597,23 @@ export const searchMasterProducts = async (req, res) => {
       if (exact) return res.json({ success: true, data: [exact], pagination: { page: 1, limit: 1, total: 1, pages: 1 } });
     }
 
+    // Build variant list for fallback text search too (if query is all digits)
+    const isDigitQuery = /^\d{6,14}$/.test(query);
+    const digitVariants = isDigitQuery ? (() => {
+      const stripped = query.replace(/^0+/, '') || '0';
+      return [...new Set([query, stripped, stripped.padStart(12, '0'), stripped.padStart(13, '0'), stripped.padStart(14, '0')])].filter(v => v.length >= 6);
+    })() : null;
+
     // Full-text / fuzzy search — PostgreSQL ILIKE
     const where = {
       orgId,
       deleted: false,
       OR: [
         { name:     { contains: query, mode: 'insensitive' } },
-        { upc:      { contains: query } },
+        ...(isDigitQuery && digitVariants
+          ? [{ upc: { in: digitVariants } }]
+          : [{ upc: { contains: query } }]
+        ),
         { sku:      { contains: query, mode: 'insensitive' } },
         { itemCode: { contains: query, mode: 'insensitive' } },
         { brand:    { contains: query, mode: 'insensitive' } },
@@ -950,20 +974,28 @@ export const adjustStoreStock = async (req, res) => {
     const currentQty = parseFloat(existing?.quantityOnHand ?? 0);
     const newQty = currentQty + parseFloat(adjustment);
 
+    // Allow negative inventory (stores that don't actively track stock).
+    // inStock stays true if it was already set and we're receiving goods (positive adjustment).
+    // Only flip inStock to false if there's truly nothing and adjustment was negative.
+    const positivReceive = parseFloat(adjustment) > 0;
     const updated = await prisma.storeProduct.upsert({
       where: { storeId_masterProductId: { storeId, masterProductId: parseInt(masterProductId) } },
       update: {
-        quantityOnHand: newQty,
+        quantityOnHand:  newQty,
         lastStockUpdate: new Date(),
-        inStock: newQty > 0,
+        lastReceivedAt:  positivReceive ? new Date() : undefined,
+        posSyncSource:   reason?.includes('Invoice') ? 'invoice' : 'manual',
+        inStock:         newQty > 0 ? true : (existing?.inStock ?? false),
       },
       create: {
         storeId,
         orgId,
-        masterProductId: parseInt(masterProductId),
-        quantityOnHand: newQty,
-        lastStockUpdate: new Date(),
-        inStock: newQty > 0,
+        masterProductId:  parseInt(masterProductId),
+        quantityOnHand:   newQty,
+        lastStockUpdate:  new Date(),
+        lastReceivedAt:   positivReceive ? new Date() : undefined,
+        posSyncSource:    reason?.includes('Invoice') ? 'invoice' : 'manual',
+        inStock:          newQty > 0,
       },
     });
 
