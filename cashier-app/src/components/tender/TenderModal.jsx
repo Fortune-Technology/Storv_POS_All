@@ -26,9 +26,12 @@ import { useCartStore, selectTotals } from '../../stores/useCartStore.js';
 import { useSyncStore }  from '../../stores/useSyncStore.js';
 import { useAuthStore }  from '../../stores/useAuthStore.js';
 import { submitTransaction } from '../../api/pos.js';
+import * as posApi from '../../api/pos.js';
 import { fmt$, fmtDate, fmtTime, fmtTxNumber } from '../../utils/formatters.js';
 import { getSmartCashPresets, applyRounding } from '../../utils/cashPresets.js';
 import { nanoid } from 'nanoid';
+import { useHardware, loadHardwareConfig } from '../../hooks/useHardware.js';
+import { useStationStore } from '../../stores/useStationStore.js';
 
 // ── Method definitions ────────────────────────────────────────────────────────
 const METHODS = [
@@ -58,6 +61,7 @@ const s = {
     display: 'flex', flexDirection: 'column',
     maxHeight: '94vh', overflow: 'hidden',
     boxShadow: '0 32px 80px rgba(0,0,0,.65)',
+    position: 'relative',
   }),
   hdr: {
     padding: '0.875rem 1.25rem',
@@ -146,10 +150,15 @@ export default function TenderModal({
     : METHODS;
   const cashier = useAuthStore(s => s.cashier);
   const { isOnline, enqueue } = useSyncStore();
+  const station = useStationStore(s => s.station);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [splits,  setSplits]  = useState([]);
   const [method,  setMethod]  = useState(initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'));
+  const [payStatus, setPayStatus] = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
+  const [payResult, setPayResult] = useState(null);
+  const hw = loadHardwareConfig();
+  const hasPAX = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);
   // amount = raw digit string. "2694" → $26.94  (phone-terminal style)
   const [amount,  setAmount]  = useState(initCashAmount ? numberToDigits(initCashAmount) : '');
   const [note,    setNote]    = useState('');
@@ -213,6 +222,37 @@ export default function TenderModal({
 
   const complete = async () => {
     if (!canComplete || saving) return;
+
+    if (method === 'card' && hasPAX && payStatus !== 'approved') {
+      // Start PAX payment flow
+      const invoiceNum = Date.now().toString();
+      setPayStatus('waiting');
+      try {
+        const result = await posApi.paxSale({
+          amount: totals.grandTotal,
+          invoiceNumber: invoiceNum,
+          edcType: '02',  // debit default
+          stationId: station?.id,
+        });
+        if (result.approved) {
+          setPayStatus('approved');
+          setPayResult(result.data);
+          // Continue with normal submit — don't return, fall through
+        } else {
+          setPayStatus('declined');
+          setPayResult(result.data);
+          return; // stop here on declined
+        }
+      } catch (err) {
+        setPayStatus('error');
+        setPayResult({ message: err.message });
+        return;
+      }
+    }
+    // Reset PAX status after successful submit
+    setPayStatus(null);
+    setPayResult(null);
+
     setSaving(true);
 
     const finalLines = [...splits.map(({ method: m, label, amount: a }) => ({ method: m, label, amount: a }))];
@@ -554,6 +594,7 @@ export default function TenderModal({
                       cursor: 'pointer', flexShrink: 0, transition: 'all .12s',
                     }}>
                       <Icon size={12} />{m.label}
+                      {hasPAX && m.id === 'card' && <span style={{ fontSize: '0.6rem', background: '#1e3a5f', color: '#60a5fa', borderRadius: 4, padding: '1px 5px', marginLeft: 4, fontWeight: 700 }}>PAX</span>}
                     </button>
                   );
                 })}
@@ -687,6 +728,84 @@ export default function TenderModal({
             }
           </button>
         </div>
+
+        {/* PAX Terminal Payment Overlay */}
+        {payStatus && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 100,
+            background: 'rgba(11,13,20,0.97)', borderRadius: 'inherit',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '2rem', textAlign: 'center',
+          }}>
+            {payStatus === 'waiting' && (
+              <>
+                <div style={{ fontSize: '4rem', marginBottom: '1rem', animation: 'pulse 1.5s ease-in-out infinite' }}>💳</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 8 }}>
+                  Waiting for Customer
+                </div>
+                <div style={{ color: '#6b7280', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '2rem' }}>
+                  Please tap, insert, or swipe card<br />on the payment terminal
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#4b5563', fontSize: '0.8rem' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', animation: 'blink 1s step-end infinite' }} />
+                  Processing on terminal…
+                </div>
+                <button
+                  onClick={() => { setPayStatus(null); setPayResult(null); }}
+                  style={{ marginTop: '2rem', padding: '8px 20px', borderRadius: 8, border: '1px solid rgba(239,68,68,.3)', background: 'transparent', color: '#f87171', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+
+            {payStatus === 'approved' && (
+              <>
+                <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>✅</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4ade80', marginBottom: 6 }}>Payment Approved</div>
+                {payResult?.authCode && <div style={{ color: '#6b7280', fontSize: '0.8rem', marginBottom: 4 }}>Auth: {payResult.authCode}</div>}
+                {payResult?.cardType && <div style={{ color: '#6b7280', fontSize: '0.8rem', marginBottom: 4 }}>{payResult.cardType} ****{payResult.lastFour}</div>}
+                <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: 8 }}>Completing transaction…</div>
+              </>
+            )}
+
+            {payStatus === 'declined' && (
+              <>
+                <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>❌</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Payment Declined</div>
+                <div style={{ color: '#6b7280', fontSize: '0.87rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                  {payResult?.message || 'The card was declined. Please try another card or payment method.'}
+                </div>
+                <button onClick={() => { setPayStatus(null); setPayResult(null); }} style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
+                  Try Again
+                </button>
+              </>
+            )}
+
+            {payStatus === 'error' && (
+              <>
+                <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>⚠️</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Terminal Error</div>
+                <div style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                  {payResult?.message || 'Could not reach the payment terminal. Check network connection.'}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setPayStatus(null); setPayResult(null); }} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', background: 'transparent', color: '#94a3b8', fontSize: '0.87rem', cursor: 'pointer' }}>
+                    Use Cash Instead
+                  </button>
+                  <button onClick={() => { setPayStatus(null); }} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>
+                    Retry
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <style>{`
+          @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+          @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        `}</style>
 
       </div>
     </div>

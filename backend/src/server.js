@@ -24,6 +24,7 @@ import catalogRoutes     from './routes/catalogRoutes.js';
 import posTerminalRoutes from './routes/posTerminalRoutes.js';
 import reportsRoutes     from './routes/reportsRoutes.js';
 import lotteryRoutes     from './routes/lotteryRoutes.js';
+import paymentRoutes     from './routes/paymentRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
@@ -74,6 +75,7 @@ app.use('/api/catalog',       catalogRoutes);
 app.use('/api/pos-terminal', posTerminalRoutes);
 app.use('/api/reports',      reportsRoutes);
 app.use('/api/lottery',      lotteryRoutes);
+app.use('/api/payment',      paymentRoutes);
 app.use('/api',              apiRoutes);
 
 // Health check

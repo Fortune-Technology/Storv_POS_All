@@ -56,15 +56,19 @@ A lightweight, offline-first Progressive Web App designed for the retail checkou
 
 ## 🛣️ Roadmap & Future Work
 
-### ✅ Completed (Q1 2026)
-- **PostgreSQL Migration:** Moved core data from MongoDB to PostgreSQL for performance and relational integrity.
+### ✅ Completed (Q1–Q2 2026)
+- **Lottery Module:** Complete scratch-ticket management (sales, payouts, EOD scans, commission reports).
+- **Public Marketing Site:** Responsive 5-page site with interactive UI and centralized navigation.
+- **PostgreSQL Migration & Sync:** Moved core data to PostgreSQL and stabilized schema sync via `npx prisma db push`.
 - **Multi-Terminal API:** Built the backend infrastructure for the native PWA Cashier.
+- **Service Fee Engine:** Native management of delivery fees and service charges.
 - **Employee Reporting:** Added sub-module for per-cashier sales performance.
 - **100-Product Seed:** Complete baseline catalog for testing and development.
 
-### ⏳ In Progress (Q2 2026)
+### ⏳ In Progress (Q3 2026)
 - **Offline Batch Sync:** Finalizing the conflict-resolution logic for transactions taken during internet outages.
 - **Print Service:** Integration with Star Micronics and EPSON thermal printers for receipt generation.
+- **Inventory Variance:** "Theoretical vs. Actual" stock level reporting from invoice data.
 
 ### 🔮 Planned (Q3 2026)
 - **eComm Integration:** Syncing the PostgreSQL catalog to a customer-facing online shop.

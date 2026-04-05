@@ -23,6 +23,7 @@ import {
   getPosBranding,
   getPOSConfig,
   savePOSConfig,
+  printNetworkReceipt,
 } from '../controllers/posTerminalController.js';
 import {
   registerStation,
@@ -71,6 +72,9 @@ router.get('/branding', ...guard, getPosBranding);
 // POS layout config
 router.get('/config',  ...guard, getPOSConfig);
 router.put('/config',  ...guard, savePOSConfig);
+
+// Network printer proxy — forwards base64 ESC/POS data to TCP socket
+router.post('/print-network', ...guard, printNetworkReceipt);
 
 // Station management
 router.post('/station-register', ...guard, registerStation);

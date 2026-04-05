@@ -1,245 +1,710 @@
 /**
  * StationSetupScreen
- * One-time setup run by a manager on first boot of this register.
- * Steps: 1) Manager email/password login → 2) Pick store → 3) Name this register
- * Result is saved to useStationStore (persists forever in localStorage).
+ * Multi-step wizard: Manager login → Store → Register Name → Hardware → Done
  */
 
-import React, { useState } from 'react';
-import { Monitor, ChevronRight, Check, Loader } from 'lucide-react';
-import StoreveuLogo from '../components/StoreveuLogo.jsx';
-import { useStationStore } from '../stores/useStationStore.js';
+import React, { useState, useCallback } from 'react';
+import {
+  Monitor, ChevronRight, Check, Loader, Printer, Scale,
+  CreditCard, Tag, Package, Wifi, WifiOff, CheckCircle2,
+  AlertCircle, RefreshCw, ChevronDown, ChevronUp, SkipForward,
+  Settings, Zap, TestTube,
+} from 'lucide-react';
+import StoreveuLogo      from '../components/StoreveuLogo.jsx';
+import { useStationStore }  from '../stores/useStationStore.js';
 import { loginWithPassword, registerStation } from '../api/pos.js';
 import api from '../api/client.js';
 
-const field = {
-  width: '100%', boxSizing: 'border-box',
-  background: 'rgba(255,255,255,.06)',
-  border: '1px solid rgba(255,255,255,.12)',
-  borderRadius: 10, color: '#f1f5f9',
-  padding: '0.85rem 1rem', fontSize: '1rem',
-  outline: 'none',
+// ── Helpers ────────────────────────────────────────────────────────────────
+const HW_KEY = 'storv_hardware_config';
+const saveHW = (cfg) => localStorage.setItem(HW_KEY, JSON.stringify(cfg));
+
+const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
+const PAPER_WIDTHS = ['58mm', '80mm'];
+
+// ── Style helpers ──────────────────────────────────────────────────────────
+const S = {
+  wrap:  { minHeight: '100vh', background: '#0b0d14', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' },
+  card:  { width: '100%', maxWidth: 580, background: '#13161e', border: '1px solid rgba(255,255,255,.07)', borderRadius: 20, padding: '2rem', marginTop: '1rem', marginBottom: '2rem' },
+  field: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, color: '#e8eaf0', padding: '0.8rem 1rem', fontSize: '0.95rem', outline: 'none', transition: 'border-color .15s' },
+  select: { width: '100%', boxSizing: 'border-box', background: '#1a1d27', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, color: '#e8eaf0', padding: '0.8rem 1rem', fontSize: '0.95rem', outline: 'none', cursor: 'pointer' },
+  label: { display: 'block', color: '#6b7280', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 5 },
+  row:   { display: 'grid', gap: 10 },
+  btn:   (active, color = '#3d56b5') => ({
+    padding: '0.85rem 1.25rem', borderRadius: 10, border: 'none', cursor: active ? 'pointer' : 'not-allowed',
+    background: active ? color : 'rgba(255,255,255,.05)', color: active ? '#fff' : '#4b5563',
+    fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    transition: 'background .15s', opacity: active ? 1 : 0.6,
+  }),
+  hwSection: (open) => ({
+    border: `1px solid ${open ? 'rgba(61,86,181,.4)' : 'rgba(255,255,255,.06)'}`,
+    borderRadius: 14, marginBottom: 10, overflow: 'hidden',
+    background: open ? 'rgba(61,86,181,.04)' : 'rgba(255,255,255,.02)',
+    transition: 'border-color .2s',
+  }),
+  hwHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', cursor: 'pointer', userSelect: 'none' },
+  testBtn: (status) => ({
+    padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)',
+    background: status === 'ok' ? 'rgba(22,163,74,.15)' : status === 'err' ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.06)',
+    color: status === 'ok' ? '#4ade80' : status === 'err' ? '#f87171' : '#94a3b8',
+    fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+    whiteSpace: 'nowrap',
+  }),
+  statusDot: (status) => ({
+    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+    background: status === 'ok' ? '#4ade80' : status === 'err' ? '#f87171' : status === 'testing' ? '#f59e0b' : '#374151',
+  }),
 };
 
-const btn = (active) => ({
-  width: '100%', padding: '0.9rem',
-  background: active ? '#3d56b5' : 'rgba(255,255,255,.06)',
-  color: active ? '#0f1117' : '#475569',
-  border: 'none', borderRadius: 10,
-  fontWeight: 800, fontSize: '1rem',
-  cursor: active ? 'pointer' : 'not-allowed',
-  transition: 'background .15s',
-});
+// ── Section wrapper component ──────────────────────────────────────────────
+function HWSection({ icon: Icon, title, status, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={S.hwSection(open)}>
+      <div style={S.hwHeader} onClick={() => setOpen(o => !o)}>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(61,86,181,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon size={16} color="#7b95e0" />
+        </div>
+        <span style={{ flex: 1, fontWeight: 700, color: '#e8eaf0', fontSize: '0.92rem' }}>{title}</span>
+        <div style={S.statusDot(status)} />
+        <span style={{ fontSize: '0.72rem', color: status === 'ok' ? '#4ade80' : status === 'err' ? '#f87171' : '#4b5563', marginRight: 6 }}>
+          {status === 'ok' ? 'Configured' : status === 'err' ? 'Error' : 'Optional'}
+        </span>
+        {open ? <ChevronUp size={14} color="#4b5563" /> : <ChevronDown size={14} color="#4b5563" />}
+      </div>
+      {open && <div style={{ padding: '0 16px 16px' }}>{children}</div>}
+    </div>
+  );
+}
 
+// ── Field + label combo ────────────────────────────────────────────────────
+function Field({ label, children, half }) {
+  return (
+    <div style={{ ...(half ? {} : {}) }}>
+      <label style={S.label}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function TestButton({ onClick, status, loading, label }) {
+  return (
+    <button onClick={onClick} disabled={loading} style={S.testBtn(status)}>
+      {loading ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <TestTube size={12} />}
+      {loading ? 'Testing…' : label || 'Test'}
+    </button>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 export default function StationSetupScreen() {
   const setStation = useStationStore(s => s.setStation);
 
-  const [step,          setStep]          = useState(1);
-  const [email,         setEmail]         = useState('');
-  const [password,      setPassword]      = useState('');
-  const [managerToken,  setManagerToken]  = useState('');
-  const [stores,        setStores]        = useState([]);
-  const [storeId,       setStoreId]       = useState('');
-  const [stationName,   setStationName]   = useState('Register 1');
-  const [loading,       setLoading]       = useState(false);
-  const [error,         setError]         = useState('');
+  // ── wizard state ──────────────────────────────────────────────────────
+  const [step,         setStep]         = useState(1);  // 1-5
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
 
-  /* ── Step 1: manager login ── */
+  // Step 1 — login
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [managerToken, setManagerToken] = useState('');
+
+  // Step 2 — store
+  const [stores,       setStores]       = useState([]);
+  const [storeId,      setStoreId]      = useState('');
+
+  // Step 3 — register name
+  const [stationName,  setStationName]  = useState('Register 1');
+  const [registeredStation, setRegisteredStation] = useState(null);
+
+  // Step 4 — hardware
+  const [hw, setHW] = useState({
+    receiptPrinter: { type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
+    labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
+    scale:          { type: 'none', baud: 9600, portLabel: '' },
+    paxTerminal:    { enabled: false, model: 'A35', ip: '', port: 10009 },
+    cashDrawer:     { type: 'none' },
+  });
+
+  // Test statuses per device
+  const [testStatus, setTestStatus] = useState({});
+  const [testLoading, setTestLoading] = useState({});
+
+  // Detected devices lists
+  const [detectedPrinters,    setDetectedPrinters]    = useState([]);
+  const [detectedLabelPrinters, setDetectedLabelPrinters] = useState([]);
+  const [detectingPrinters,   setDetectingPrinters]   = useState(false);
+
+  const setTest = (key, status) => setTestStatus(p => ({ ...p, [key]: status }));
+  const setTestLoad = (key, val) => setTestLoading(p => ({ ...p, [key]: val }));
+  const updHW = (section, fields) => setHW(p => ({ ...p, [section]: { ...p[section], ...fields } }));
+
+  // ── Step 1: Manager login ─────────────────────────────────────────────
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true); setError('');
     try {
       const data  = await loginWithPassword(email, password);
       const user  = data.user || data;
-      const role  = user.role;
-      if (!['manager', 'owner', 'admin', 'superadmin'].includes(role)) {
-        throw new Error('A manager or owner account is required to set up a register.');
+      if (!['manager', 'owner', 'admin', 'superadmin'].includes(user.role)) {
+        throw new Error('A manager or owner account is required.');
       }
       const token = user.token;
       setManagerToken(token);
-
-      // Fetch stores with the manager's token
-      const res    = await api.get('/stores', { headers: { Authorization: `Bearer ${token}` } });
-      const list   = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      const res   = await api.get('/stores', { headers: { Authorization: `Bearer ${token}` } });
+      const list  = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
       setStores(list);
-
-      if (list.length === 1) {
-        setStoreId(list[0].id || list[0]._id);
-        setStep(3);
-      } else {
-        setStep(2);
-      }
+      if (list.length === 1) { setStoreId(list[0].id); setStep(3); }
+      else setStep(2);
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  /* ── Step 3: register station ── */
+  // ── Step 3: Register station ──────────────────────────────────────────
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!stationName.trim()) { setError('Please name this register.'); return; }
     setLoading(true); setError('');
     try {
-      const result = await registerStation(
-        { storeId, name: stationName.trim() },
-        managerToken,
-      );
-      setStation(result); // persists to localStorage, triggers App re-render
+      const result = await registerStation({ storeId, name: stationName.trim() }, managerToken);
+      setRegisteredStation(result);
+      setStep(4);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to register station. Try again.');
+      setError(err.response?.data?.error || 'Failed to register station.');
+    } finally { setLoading(false); }
+  };
+
+  // ── Detect QZ Tray printers ───────────────────────────────────────────
+  const detectQZPrinters = async (forLabel = false) => {
+    setDetectingPrinters(true);
+    try {
+      if (typeof window.qz === 'undefined') {
+        alert('QZ Tray is not running. Please start QZ Tray on this computer first.\n\nDownload: https://qz.io');
+        return;
+      }
+      const q = window.qz;
+      if (!q.websocket.isActive()) {
+        await q.websocket.connect({ retries: 1, delay: 1 });
+        q.security.setCertificatePromise((res) => res(''));
+        q.security.setSignaturePromise(() => Promise.resolve(''));
+      }
+      const printers = await q.printers.find();
+      const list = (Array.isArray(printers) ? printers : [printers]).filter(Boolean);
+      if (forLabel) setDetectedLabelPrinters(list);
+      else setDetectedPrinters(list);
+    } catch (err) {
+      alert('Could not connect to QZ Tray: ' + err.message);
     } finally {
-      setLoading(false);
+      setDetectingPrinters(false);
     }
   };
 
-  const wrap = {
-    minHeight: '100vh', background: '#0f1117',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: '2rem',
+  // ── Test receipt printer ──────────────────────────────────────────────
+  const testReceiptPrinter = async () => {
+    const p = hw.receiptPrinter;
+    setTestLoad('receipt', true); setTest('receipt', null);
+    try {
+      if (p.type === 'network') {
+        await api.post('/pos-terminal/print-network', {
+          ip: p.ip, port: p.port,
+          data: btoa('\x1B\x40\x1B\x61\x01TEST PRINT\nReceipt printer OK!\n\n\n\x1D\x56\x00'),
+        });
+      } else if (p.type === 'qz' && p.name) {
+        const q = window.qz;
+        if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
+        const cfg = q.configs.create(p.name);
+        await q.print(cfg, ['\x1B\x40\x1B\x61\x01TEST PRINT\nReceipt printer OK!\n\n\n\x1D\x56\x00']);
+      }
+      setTest('receipt', 'ok');
+    } catch (err) {
+      setTest('receipt', 'err');
+      alert('Print test failed: ' + err.message);
+    } finally { setTestLoad('receipt', false); }
   };
-  const card = {
-    width: '100%', maxWidth: 460,
-    background: '#161922', border: '1px solid rgba(255,255,255,.08)',
-    borderRadius: 20, padding: '2.5rem',
+
+  // ── Test cash drawer ──────────────────────────────────────────────────
+  const testCashDrawer = async () => {
+    const p = hw.receiptPrinter;
+    if (hw.cashDrawer.type === 'none') return;
+    setTestLoad('drawer', true);
+    try {
+      if (p.type === 'qz' && p.name) {
+        const q = window.qz;
+        if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
+        const cfg = q.configs.create(p.name);
+        await q.print(cfg, ['\x1B\x70\x00\x19\xFA']); // drawer kick command
+        setTest('drawer', 'ok');
+      }
+    } catch (err) {
+      setTest('drawer', 'err');
+    } finally { setTestLoad('drawer', false); }
   };
+
+  // ── Test PAX terminal ─────────────────────────────────────────────────
+  const testPAX = async () => {
+    const p = hw.paxTerminal;
+    if (!p.ip) { alert('Enter the PAX terminal IP address first.'); return; }
+    setTestLoad('pax', true); setTest('pax', null);
+    try {
+      const res = await api.post('/payment/pax/test', { ip: p.ip, port: p.port });
+      if (res.data?.success) setTest('pax', 'ok');
+      else { setTest('pax', 'err'); alert('PAX not reachable: ' + (res.data?.error || 'Unknown error')); }
+    } catch (err) {
+      setTest('pax', 'err');
+      alert('PAX test failed: ' + err.message);
+    } finally { setTestLoad('pax', false); }
+  };
+
+  // ── Test label printer ────────────────────────────────────────────────
+  const testLabelPrinter = async () => {
+    const p = hw.labelPrinter;
+    setTestLoad('label', true); setTest('label', null);
+    try {
+      const zpl = '^XA^CF0,40^FO30,30^FDTEST LABEL^FS^CF0,25^FO30,80^FDLabel printer OK!^FS^XZ';
+      if (p.type === 'zebra_zpl' && p.name) {
+        const q = window.qz;
+        if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
+        const cfg = q.configs.create(p.name);
+        await q.print(cfg, [{ type: 'raw', format: 'plain', data: zpl }]);
+        setTest('label', 'ok');
+      }
+    } catch (err) {
+      setTest('label', 'err');
+      alert('Label test failed: ' + err.message);
+    } finally { setTestLoad('label', false); }
+  };
+
+  // ── Complete setup ────────────────────────────────────────────────────
+  const handleComplete = async () => {
+    saveHW(hw);
+    // Optionally sync to backend
+    try {
+      if (registeredStation?.id) {
+        await api.post('/payment/hardware', {
+          stationId: registeredStation.id,
+          hardwareConfig: hw,
+        }, { headers: { 'x-store-id': storeId, Authorization: `Bearer ${managerToken}` } });
+      }
+    } catch {} // non-fatal
+    setStation(registeredStation);
+  };
+
+  // ── Step indicator ────────────────────────────────────────────────────
+  const STEPS = ['Login', 'Store', 'Name', 'Hardware', 'Done'];
+  const totalSteps = STEPS.length;
 
   return (
-    <div style={wrap}>
-      <div style={card}>
+    <div style={S.wrap}>
+      <div style={S.card}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '2rem' }}>
-          <StoreveuLogo iconOnly={true} height={44} darkMode={true} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.75rem' }}>
+          <StoreveuLogo iconOnly={true} height={40} darkMode={true} />
           <div>
-            <div style={{ color: '#7b95e0', fontWeight: 900, fontSize: '1.1rem' }}>Storeveu POS</div>
-            <div style={{ color: '#64748b', fontSize: '0.78rem' }}>Register Setup</div>
+            <div style={{ color: '#7b95e0', fontWeight: 900, fontSize: '1rem' }}>Storeveu POS</div>
+            <div style={{ color: '#4b5563', fontSize: '0.75rem' }}>Register Setup — Step {step} of {totalSteps}</div>
           </div>
-          {/* Step indicator */}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            {[1,2,3].map(n => (
-              <div key={n} style={{
-                width: 8, height: 8, borderRadius: '50%',
-                background: step >= n ? '#3d56b5' : 'rgba(255,255,255,.12)',
-                transition: 'background .2s',
+          {/* Progress dots */}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
+            {STEPS.map((_, i) => (
+              <div key={i} style={{
+                width: step > i + 1 ? 10 : step === i + 1 ? 12 : 8,
+                height: step > i + 1 ? 10 : step === i + 1 ? 12 : 8,
+                borderRadius: '50%',
+                background: step > i + 1 ? '#4ade80' : step === i + 1 ? '#3d56b5' : 'rgba(255,255,255,.1)',
+                transition: 'all .2s',
               }} />
             ))}
           </div>
         </div>
 
-        {/* Error banner */}
+        {/* Progress bar */}
+        <div style={{ height: 3, background: 'rgba(255,255,255,.06)', borderRadius: 3, marginBottom: '1.75rem' }}>
+          <div style={{ height: '100%', width: `${((step - 1) / (totalSteps - 1)) * 100}%`, background: '#3d56b5', borderRadius: 3, transition: 'width .3s' }} />
+        </div>
+
+        {/* Error */}
         {error && (
-          <div style={{
-            background: 'rgba(224,63,63,.1)', border: '1px solid rgba(224,63,63,.3)',
-            borderRadius: 10, padding: '0.75rem 1rem',
-            color: '#f87171', fontSize: '0.85rem', marginBottom: '1.25rem',
-          }}>
-            {error}
+          <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 10, padding: '0.75rem 1rem', color: '#f87171', fontSize: '0.84rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertCircle size={14} /> {error}
           </div>
         )}
 
-        {/* ── Step 1: Manager login ── */}
+        {/* ── STEP 1: Login ── */}
         {step === 1 && (
           <form onSubmit={handleLogin}>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-              Sign in with a <strong style={{ color: '#f1f5f9' }}>manager or owner</strong> account
-              to register this terminal. You only need to do this once.
-            </p>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 6 }}>Manager Sign-In</div>
+              <div style={{ color: '#6b7280', fontSize: '0.84rem', lineHeight: 1.6 }}>Sign in with a <strong style={{ color: '#94a3b8' }}>manager or owner</strong> account to register this terminal. You only need to do this once.</div>
+            </div>
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
-                EMAIL
-              </label>
-              <input
-                type="email" required autoFocus
-                value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="manager@store.com"
-                style={field}
-              />
+              <label style={S.label}>Email</label>
+              <input type="email" required autoFocus value={email} onChange={e => setEmail(e.target.value)} placeholder="manager@store.com" style={S.field} />
             </div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
-                PASSWORD
-              </label>
-              <input
-                type="password" required
-                value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                style={field}
-              />
+              <label style={S.label}>Password</label>
+              <input type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={S.field} />
             </div>
-            <button type="submit" disabled={loading} style={btn(!loading && email && password)}>
-              {loading ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <>Continue <ChevronRight size={16} /></>}
+            <button type="submit" disabled={loading || !email || !password} style={{ ...S.btn(!loading && !!email && !!password), width: '100%' }}>
+              {loading ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <>Continue <ChevronRight size={15} /></>}
             </button>
           </form>
         )}
 
-        {/* ── Step 2: Store picker ── */}
+        {/* ── STEP 2: Store ── */}
         {step === 2 && (
           <div>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
-              Which store is this register in?
-            </p>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 6 }}>Select Store</div>
+            <div style={{ color: '#6b7280', fontSize: '0.84rem', marginBottom: '1.25rem' }}>Which store location is this register in?</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1.5rem' }}>
               {stores.map(s => {
-                const id = s.id || s._id;
-                const active = storeId === id;
+                const id = s.id || s._id; const active = storeId === id;
                 return (
                   <button key={id} onClick={() => setStoreId(id)} style={{
-                    padding: '1rem', borderRadius: 10, textAlign: 'left',
-                    background: active ? 'rgba(122,193,67,.12)' : 'rgba(255,255,255,.04)',
-                    border: `2px solid ${active ? '#3d56b5' : 'rgba(255,255,255,.1)'}`,
-                    color: active ? '#3d56b5' : '#f1f5f9',
-                    cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '1rem 1.25rem', borderRadius: 12, textAlign: 'left',
+                    background: active ? 'rgba(61,86,181,.12)' : 'rgba(255,255,255,.04)',
+                    border: `2px solid ${active ? '#3d56b5' : 'rgba(255,255,255,.08)'}`,
+                    color: '#e8eaf0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     transition: 'border-color .15s',
                   }}>
-                    {s.name}
-                    {active && <Check size={16} />}
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{s.name}</div>
+                      {s.address && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: 2 }}>{s.address}</div>}
+                    </div>
+                    {active && <Check size={16} color="#4ade80" />}
                   </button>
                 );
               })}
             </div>
-            <button
-              onClick={() => { setError(''); setStep(3); }}
-              disabled={!storeId}
-              style={btn(!!storeId)}
-            >
-              Continue <ChevronRight size={16} />
+            <button onClick={() => { setError(''); setStep(3); }} disabled={!storeId} style={{ ...S.btn(!!storeId), width: '100%' }}>
+              Continue <ChevronRight size={15} />
             </button>
           </div>
         )}
 
-        {/* ── Step 3: Name the register ── */}
+        {/* ── STEP 3: Register Name ── */}
         {step === 3 && (
           <form onSubmit={handleRegister}>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
-              Give this register a name so cashiers know which till they're on.
-            </p>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 6 }}>Name This Register</div>
+            <div style={{ color: '#6b7280', fontSize: '0.84rem', marginBottom: '1.25rem', lineHeight: 1.6 }}>Give this terminal a name so cashiers know which register they're on.</div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
-                REGISTER NAME
-              </label>
-              <input
-                type="text" required autoFocus maxLength={30}
-                value={stationName}
-                onChange={e => setStationName(e.target.value)}
-                placeholder="Register 1"
-                style={field}
-              />
-              <p style={{ color: '#475569', fontSize: '0.72rem', marginTop: 6 }}>
-                e.g. "Register 1", "Express Lane", "Self-Checkout"
-              </p>
+              <label style={S.label}>Register Name</label>
+              <input type="text" required autoFocus maxLength={30} value={stationName} onChange={e => setStationName(e.target.value)} placeholder="Register 1" style={S.field} />
+              <div style={{ color: '#4b5563', fontSize: '0.71rem', marginTop: 5 }}>e.g. "Register 1", "Express Lane", "Self-Checkout"</div>
             </div>
-            <button type="submit" disabled={loading || !stationName.trim()} style={btn(!loading && !!stationName.trim())}>
-              {loading
-                ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                : 'Set Up Register'}
+            <button type="submit" disabled={loading || !stationName.trim()} style={{ ...S.btn(!loading && !!stationName.trim()), width: '100%' }}>
+              {loading ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <>Register Terminal <ChevronRight size={15} /></>}
             </button>
           </form>
         )}
 
+        {/* ── STEP 4: Hardware Setup ── */}
+        {step === 4 && (
+          <div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 4 }}>Hardware Setup</div>
+            <div style={{ color: '#6b7280', fontSize: '0.83rem', marginBottom: '1.25rem', lineHeight: 1.6 }}>Configure the peripherals connected to this register. All sections are optional — click any section to expand it.</div>
+
+            {/* ── Receipt Printer ── */}
+            <HWSection icon={Printer} title="Receipt Printer" status={hw.receiptPrinter.type !== 'none' ? (testStatus.receipt || null) : null}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <Field label="Connection Type">
+                  <select value={hw.receiptPrinter.type} onChange={e => updHW('receiptPrinter', { type: e.target.value })} style={S.select}>
+                    <option value="none">None / Skip</option>
+                    <option value="qz">USB via QZ Tray (recommended)</option>
+                    <option value="network">Network / LAN (TCP)</option>
+                  </select>
+                </Field>
+
+                {hw.receiptPrinter.type === 'qz' && (
+                  <>
+                    <Field label="Printer Name">
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <select
+                          value={hw.receiptPrinter.name}
+                          onChange={e => updHW('receiptPrinter', { name: e.target.value })}
+                          style={{ ...S.select, flex: 1 }}
+                        >
+                          <option value="">-- Select printer --</option>
+                          {detectedPrinters.map(p => <option key={p} value={p}>{p}</option>)}
+                          {hw.receiptPrinter.name && !detectedPrinters.includes(hw.receiptPrinter.name) && (
+                            <option value={hw.receiptPrinter.name}>{hw.receiptPrinter.name}</option>
+                          )}
+                        </select>
+                        <button onClick={() => detectQZPrinters(false)} disabled={detectingPrinters} style={S.testBtn(null)} title="Auto-detect QZ printers">
+                          {detectingPrinters ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Detect
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Enter printer name manually (if not detected)">
+                      <input value={hw.receiptPrinter.name} onChange={e => updHW('receiptPrinter', { name: e.target.value })} placeholder="e.g. EPSON TM-T88VII" style={S.field} />
+                    </Field>
+                  </>
+                )}
+
+                {hw.receiptPrinter.type === 'network' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+                    <Field label="Printer IP Address">
+                      <input value={hw.receiptPrinter.ip} onChange={e => updHW('receiptPrinter', { ip: e.target.value })} placeholder="192.168.1.100" style={S.field} />
+                    </Field>
+                    <Field label="Port">
+                      <input type="number" value={hw.receiptPrinter.port} onChange={e => updHW('receiptPrinter', { port: Number(e.target.value) })} placeholder="9100" style={{ ...S.field, width: 90 }} />
+                    </Field>
+                  </div>
+                )}
+
+                {hw.receiptPrinter.type !== 'none' && (
+                  <Field label="Paper Width">
+                    <select value={hw.receiptPrinter.width} onChange={e => updHW('receiptPrinter', { width: e.target.value })} style={S.select}>
+                      {PAPER_WIDTHS.map(w => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                  </Field>
+                )}
+
+                {hw.receiptPrinter.type !== 'none' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <TestButton onClick={testReceiptPrinter} status={testStatus.receipt} loading={testLoading.receipt} label="Print Test Page" />
+                  </div>
+                )}
+              </div>
+            </HWSection>
+
+            {/* ── Cash Drawer ── */}
+            <HWSection icon={Package} title="Cash Drawer" status={hw.cashDrawer.type !== 'none' ? (testStatus.drawer || null) : null}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <Field label="Connection Type">
+                  <select value={hw.cashDrawer.type} onChange={e => updHW('cashDrawer', { type: e.target.value })} style={S.select}>
+                    <option value="none">None / Skip</option>
+                    <option value="printer">Through Receipt Printer (RJ-11 port)</option>
+                  </select>
+                </Field>
+                {hw.cashDrawer.type === 'printer' && (
+                  <>
+                    <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8' }}>
+                      ℹ️ Cash drawer will be triggered through your receipt printer. Make sure the receipt printer is configured above.
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <TestButton onClick={testCashDrawer} status={testStatus.drawer} loading={testLoading.drawer} label="Test Open Drawer" />
+                    </div>
+                  </>
+                )}
+              </div>
+            </HWSection>
+
+            {/* ── Scale ── */}
+            <HWSection icon={Scale} title="Weighing Scale" status={hw.scale.type !== 'none' ? 'ok' : null}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <Field label="Scale Brand / Type">
+                  <select value={hw.scale.type} onChange={e => updHW('scale', { type: e.target.value })} style={S.select}>
+                    <option value="none">None / Skip</option>
+                    <option value="cas">CAS (SW-20, PD-II, etc.)</option>
+                    <option value="mettler">Mettler Toledo</option>
+                    <option value="avery">Avery Berkel</option>
+                    <option value="digi">Digi</option>
+                    <option value="generic">Generic RS-232</option>
+                  </select>
+                </Field>
+                {hw.scale.type !== 'none' && (
+                  <>
+                    <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                      ℹ️ Connect scale via USB-to-Serial adapter. Chrome will prompt you to select the COM port when you first weigh a product. The port selection is remembered for future sessions.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
+                      <Field label="Baud Rate">
+                        <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} style={S.select}>
+                          {BAUD_RATES.map(b => <option key={b} value={b}>{b} {b === 9600 ? '(most common)' : ''}</option>)}
+                        </select>
+                      </Field>
+                      <div style={{ paddingBottom: 2 }}>
+                        <button
+                          onClick={async () => {
+                            updHW('scale', { type: hw.scale.type });
+                            setTest('scale', 'ok');
+                          }}
+                          style={S.testBtn(testStatus.scale)}
+                        >
+                          <Check size={12} /> Saved
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(22,163,74,.06)', border: '1px solid rgba(22,163,74,.15)', borderRadius: 8, padding: '8px 12px', fontSize: '0.76rem', color: '#6b7280' }}>
+                      💡 Scale will be connected in the POS screen when you weigh the first product. The browser will ask permission to access the serial port.
+                    </div>
+                  </>
+                )}
+              </div>
+            </HWSection>
+
+            {/* ── PAX Terminal ── */}
+            <HWSection icon={CreditCard} title="PAX Payment Terminal (A30 / A35)" status={hw.paxTerminal.enabled ? (testStatus.pax || null) : null}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', background: 'rgba(255,255,255,.03)', borderRadius: 10, border: '1px solid rgba(255,255,255,.07)' }}>
+                  <input type="checkbox" checked={hw.paxTerminal.enabled} onChange={e => updHW('paxTerminal', { enabled: e.target.checked })} style={{ width: 16, height: 16, accentColor: '#3d56b5' }} />
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#e8eaf0', fontSize: '0.87rem' }}>Enable PAX Terminal</div>
+                    <div style={{ color: '#6b7280', fontSize: '0.74rem' }}>Semi-integrated card processing — card data never touches your POS</div>
+                  </div>
+                </label>
+
+                {hw.paxTerminal.enabled && (
+                  <>
+                    <Field label="Terminal Model">
+                      <select value={hw.paxTerminal.model} onChange={e => updHW('paxTerminal', { model: e.target.value })} style={S.select}>
+                        <option value="A30">PAX A30 (compact)</option>
+                        <option value="A35">PAX A35 (countertop with customer screen)</option>
+                        <option value="A80">PAX A80</option>
+                        <option value="S300">PAX S300</option>
+                      </select>
+                    </Field>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
+                      <Field label="Terminal IP Address">
+                        <input
+                          value={hw.paxTerminal.ip}
+                          onChange={e => updHW('paxTerminal', { ip: e.target.value })}
+                          placeholder="192.168.1.50"
+                          style={S.field}
+                        />
+                      </Field>
+                      <Field label="Port">
+                        <input
+                          type="number"
+                          value={hw.paxTerminal.port}
+                          onChange={e => updHW('paxTerminal', { port: Number(e.target.value) })}
+                          placeholder="10009"
+                          style={S.field}
+                        />
+                      </Field>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '10px 12px', fontSize: '0.77rem', color: '#6b7280', lineHeight: 1.6 }}>
+                      💡 Find the PAX terminal IP in: <strong style={{ color: '#94a3b8' }}>Settings → Ethernet → IP Address</strong> on the terminal screen. Assign a static IP in your router for reliability.
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <TestButton onClick={testPAX} status={testStatus.pax} loading={testLoading.pax} label="Test Connection" />
+                    </div>
+                    {testStatus.pax === 'ok' && (
+                      <div style={{ color: '#4ade80', fontSize: '0.78rem', textAlign: 'right' }}>✓ PAX terminal is reachable</div>
+                    )}
+                    {testStatus.pax === 'err' && (
+                      <div style={{ color: '#f87171', fontSize: '0.78rem', textAlign: 'right' }}>✗ Cannot reach terminal — check IP and network</div>
+                    )}
+                  </>
+                )}
+              </div>
+            </HWSection>
+
+            {/* ── Label Printer ── */}
+            <HWSection icon={Tag} title="Label Printer (Optional)" status={hw.labelPrinter.type !== 'none' ? (testStatus.label || null) : null}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <Field label="Label Printer Type">
+                  <select value={hw.labelPrinter.type} onChange={e => updHW('labelPrinter', { type: e.target.value })} style={S.select}>
+                    <option value="none">None / Skip</option>
+                    <option value="zebra_zpl">Zebra (ZPL) — USB via QZ Tray</option>
+                    <option value="zebra_net">Zebra (ZPL) — Network TCP</option>
+                    <option value="dymo">Dymo LabelWriter</option>
+                  </select>
+                </Field>
+
+                {(hw.labelPrinter.type === 'zebra_zpl' || hw.labelPrinter.type === 'dymo') && (
+                  <>
+                    <Field label="Printer Name">
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <select value={hw.labelPrinter.name} onChange={e => updHW('labelPrinter', { name: e.target.value })} style={{ ...S.select, flex: 1 }}>
+                          <option value="">-- Select printer --</option>
+                          {detectedLabelPrinters.map(p => <option key={p} value={p}>{p}</option>)}
+                          {hw.labelPrinter.name && !detectedLabelPrinters.includes(hw.labelPrinter.name) && (
+                            <option value={hw.labelPrinter.name}>{hw.labelPrinter.name}</option>
+                          )}
+                        </select>
+                        <button onClick={() => detectQZPrinters(true)} disabled={detectingPrinters} style={S.testBtn(null)}>
+                          {detectingPrinters ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Detect
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Enter printer name manually">
+                      <input value={hw.labelPrinter.name} onChange={e => updHW('labelPrinter', { name: e.target.value })} placeholder="e.g. ZDesigner GX420d" style={S.field} />
+                    </Field>
+                  </>
+                )}
+
+                {hw.labelPrinter.type === 'zebra_net' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
+                    <Field label="Printer IP Address">
+                      <input value={hw.labelPrinter.ip} onChange={e => updHW('labelPrinter', { ip: e.target.value })} placeholder="192.168.1.51" style={S.field} />
+                    </Field>
+                    <Field label="Port">
+                      <input type="number" value={hw.labelPrinter.port} onChange={e => updHW('labelPrinter', { port: Number(e.target.value) })} placeholder="9100" style={S.field} />
+                    </Field>
+                  </div>
+                )}
+
+                {hw.labelPrinter.type !== 'none' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <TestButton onClick={testLabelPrinter} status={testStatus.label} loading={testLoading.label} label="Print Test Label" />
+                  </div>
+                )}
+              </div>
+            </HWSection>
+
+            {/* Continue button */}
+            <div style={{ display: 'flex', gap: 10, marginTop: '1.5rem' }}>
+              <button onClick={() => setStep(5)} style={{ ...S.btn(true, '#3d56b5'), flex: 1 }}>
+                <Zap size={15} /> Complete Setup
+              </button>
+            </div>
+            <button onClick={() => setStep(5)} style={{ background: 'none', border: 'none', color: '#4b5563', fontSize: '0.78rem', cursor: 'pointer', marginTop: 8, width: '100%', textAlign: 'center', padding: '4px 0' }}>
+              <SkipForward size={11} style={{ marginRight: 4 }} />Skip hardware setup for now
+            </button>
+          </div>
+        )}
+
+        {/* ── STEP 5: Done ── */}
+        {step === 5 && (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(74,222,128,.12)', border: '2px solid rgba(74,222,128,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+              <CheckCircle2 size={36} color="#4ade80" />
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 8 }}>
+              {registeredStation?.name || stationName} is Ready!
+            </div>
+            <div style={{ color: '#6b7280', fontSize: '0.87rem', lineHeight: 1.7, marginBottom: '1.75rem' }}>
+              Your register has been configured. Here's a summary of what's set up:
+            </div>
+
+            {/* Hardware summary */}
+            <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 14, padding: '1rem', marginBottom: '1.5rem', textAlign: 'left' }}>
+              {[
+                { label: 'Receipt Printer', value: hw.receiptPrinter.type === 'none' ? 'Not configured' : hw.receiptPrinter.type === 'network' ? `Network ${hw.receiptPrinter.ip}:${hw.receiptPrinter.port}` : (hw.receiptPrinter.name || 'QZ Tray'), icon: Printer },
+                { label: 'Cash Drawer',    value: hw.cashDrawer.type === 'none' ? 'Not configured' : 'Via receipt printer', icon: Package },
+                { label: 'Scale',          value: hw.scale.type === 'none' ? 'Not configured' : hw.scale.type.toUpperCase() + ' — ' + hw.scale.baud + ' baud', icon: Scale },
+                { label: 'PAX Terminal',   value: hw.paxTerminal.enabled ? `${hw.paxTerminal.model} @ ${hw.paxTerminal.ip}:${hw.paxTerminal.port}` : 'Not configured', icon: CreditCard },
+                { label: 'Label Printer',  value: hw.labelPrinter.type === 'none' ? 'Not configured' : (hw.labelPrinter.name || hw.labelPrinter.ip || hw.labelPrinter.type), icon: Tag },
+              ].map(({ label, value, icon: Icon }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                  <Icon size={14} color="#4b5563" />
+                  <span style={{ color: '#6b7280', fontSize: '0.8rem', flex: 1 }}>{label}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600 }}>{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={handleComplete} style={{ ...S.btn(true, '#16a34a'), width: '100%', fontSize: '1rem', padding: '1rem' }}>
+              <Zap size={16} /> Open POS
+            </button>
+
+            <button onClick={() => setStep(4)} style={{ background: 'none', border: 'none', color: '#4b5563', fontSize: '0.78rem', cursor: 'pointer', marginTop: 10 }}>
+              ← Back to hardware setup
+            </button>
+          </div>
+        )}
+
       </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        input[type=number]::-webkit-inner-spin-button { opacity: 0.3; }
+        select option { background: #1a1d27; color: #e8eaf0; }
+      `}</style>
     </div>
   );
 }

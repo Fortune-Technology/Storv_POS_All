@@ -39,7 +39,7 @@ import CashDrawerModal         from '../components/modals/CashDrawerModal.jsx';
 import LotteryModal        from '../components/modals/LotteryModal.jsx';
 import LotteryShiftModal   from '../components/modals/LotteryShiftModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
-import { getLotteryBoxes } from '../api/pos.js';
+import { getLotteryBoxes, getPosBranding } from '../api/pos.js';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -47,11 +47,13 @@ import { useCatalogSync }    from '../hooks/useCatalogSync.js';
 import { useBranding }       from '../hooks/useBranding.js';
 import { useOnlineStatus }   from '../hooks/useOnlineStatus.js';
 import { usePOSConfig }      from '../hooks/usePOSConfig.js';
+import { useHardware }       from '../hooks/useHardware.js';
 import { useCartStore, selectTotals } from '../stores/useCartStore.js';
 import { useManagerStore }   from '../stores/useManagerStore.js';
 import { useShiftStore }     from '../stores/useShiftStore.js';
 import { useStationStore }   from '../stores/useStationStore.js';
 import { useSyncStore }      from '../stores/useSyncStore.js';
+import { useAuthStore }      from '../stores/useAuthStore.js';
 import { db, searchProducts, getActivePromotions } from '../db/dexie.js';
 import { evaluatePromotions }  from '../utils/promoEngine.js';
 import { fmt$ }              from '../utils/formatters.js';
@@ -80,6 +82,10 @@ export default function POSScreen() {
   const { lookup }     = useProductLookup();
   const { manualSync } = useCatalogSync();
   const posConfig      = usePOSConfig();
+  const cashier        = useAuthStore(s => s.cashier);
+
+  // ── Hardware (receipt printer, cash drawer) ──────────────────────────────
+  const { printReceipt, openDrawer, hasReceiptPrinter, hasCashDrawer } = useHardware();
 
   // ── Shift / Cash Drawer ─────────────────────────────────────────────────
   const storeId = useStationStore(s => s.station?.storeId);
@@ -96,11 +102,16 @@ export default function POSScreen() {
     resetSession:    resetLotterySession,
   } = useLotteryStore();
 
+  // Store branding — used for receipt header
+  const [storeBranding, setStoreBranding] = useState({});
+
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
   useEffect(() => {
     if (!storeId) return;
     loadActiveShift(storeId).then(() => setShiftChecked(true));
+    // Load branding for receipt header
+    getPosBranding(storeId).then(b => setStoreBranding(b || {})).catch(() => {});
   }, [storeId]); // eslint-disable-line
 
   // Auto-open shift modal when: check is done AND no active shift
@@ -1040,7 +1051,60 @@ export default function POSScreen() {
           cashRounding={posConfig.cashRounding || 'none'}
           lotteryCashOnly={posConfig.lottery?.cashOnly || false}
           onClose={closeTender}
-          onComplete={(tx) => setLastCompletedTx(tx)}
+          onComplete={(tx) => {
+            setLastCompletedTx(tx);
+
+            // ── Auto-open cash drawer on cash payment ──────────────────────
+            const hasCashTender = tx.tenderLines?.some(t => t.method === 'cash');
+            if (hasCashTender && hasCashDrawer) {
+              openDrawer().catch(() => {});
+            }
+
+            // ── Auto-print receipt if printer is configured ────────────────
+            if (hasReceiptPrinter) {
+              const allItems = [
+                ...(tx.lineItems || []).map(i => ({
+                  name:       i.name,
+                  qty:        i.qty,
+                  unitPrice:  i.unitPrice,
+                  lineTotal:  i.lineTotal,
+                  discountAmount: i.discountAmount || 0,
+                })),
+                ...(tx.lotteryItems || []).map(i => ({
+                  name:        i.notes || (i.type === 'payout' ? 'Lottery Payout' : 'Lottery Sale'),
+                  isLottery:   true,
+                  lotteryType: i.type,
+                  lineTotal:   i.type === 'payout' ? -(i.amount || 0) : (i.amount || 0),
+                })),
+              ];
+
+              // Pick the primary tender line for display
+              const primaryTender = tx.tenderLines?.[0] || {};
+              const totalTendered = tx.tenderLines?.reduce((s, t) => s + (t.amount || 0), 0) || tx.grandTotal;
+
+              printReceipt({
+                storeName:      storeBranding.storeName    || storeBranding.name || '',
+                storeAddress:   storeBranding.storeAddress || storeBranding.address || '',
+                storePhone:     storeBranding.storePhone   || storeBranding.phone || '',
+                storeTaxId:     storeBranding.taxId        || '',
+                footerMessage:  storeBranding.receiptFooter || 'Thank you! Please come again.',
+                cashierName:    cashier?.name || cashier?.email || 'Cashier',
+                invoiceNumber:  tx.txNumber,
+                date:           tx.offlineCreatedAt || Date.now(),
+                items:          allItems,
+                subtotal:       tx.subtotal,
+                totalTax:       tx.taxTotal,
+                totalDeposit:   tx.depositTotal,
+                total:          tx.grandTotal,
+                tenderMethod:   primaryTender.method?.replace('_', ' ') || '',
+                amountTendered: totalTendered,
+                changeDue:      tx.changeGiven || 0,
+                authCode:       tx.authCode,
+                cardType:       tx.cardType,
+                lastFour:       tx.lastFour,
+              }).catch(() => {});
+            }
+          }}
         />
       )}
 

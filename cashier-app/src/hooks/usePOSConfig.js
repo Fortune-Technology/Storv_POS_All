@@ -30,6 +30,35 @@ export const DEFAULT_POS_CONFIG = {
     scanRequiredAtShiftEnd: false,
   },
   quickTender: ['card', 'cash', 'ebt'],
+  hardware: {
+    receiptPrinter: {
+      type:   'none',       // 'qz' | 'network' | 'none'
+      name:   '',           // QZ printer name
+      ip:     '',           // For network printers
+      port:   9100,
+      width:  '80mm',       // '58mm' | '80mm'
+    },
+    labelPrinter: {
+      type:   'none',       // 'zebra_zpl' | 'dymo' | 'none'
+      name:   '',
+      ip:     '',
+      port:   9100,
+    },
+    scale: {
+      type:      'none',    // 'cas' | 'mettler' | 'avery' | 'generic' | 'none'
+      baud:      9600,
+      portLabel: '',        // display label
+    },
+    paxTerminal: {
+      enabled: false,
+      model:   'A35',       // 'A30' | 'A35'
+      ip:      '',
+      port:    10009,
+    },
+    cashDrawer: {
+      type:    'none',      // 'printer' | 'none'
+    },
+  },
 };
 
 export function usePOSConfig() {
@@ -45,6 +74,15 @@ export function usePOSConfig() {
         shortcuts: {
           ...DEFAULT_POS_CONFIG.shortcuts,
           ...(r.data.shortcuts || {}),
+        },
+        hardware: {
+          ...DEFAULT_POS_CONFIG.hardware,
+          ...(r.data.hardware || {}),
+          receiptPrinter: { ...DEFAULT_POS_CONFIG.hardware.receiptPrinter, ...(r.data.hardware?.receiptPrinter || {}) },
+          labelPrinter:   { ...DEFAULT_POS_CONFIG.hardware.labelPrinter,   ...(r.data.hardware?.labelPrinter   || {}) },
+          scale:          { ...DEFAULT_POS_CONFIG.hardware.scale,          ...(r.data.hardware?.scale          || {}) },
+          paxTerminal:    { ...DEFAULT_POS_CONFIG.hardware.paxTerminal,    ...(r.data.hardware?.paxTerminal    || {}) },
+          cashDrawer:     { ...DEFAULT_POS_CONFIG.hardware.cashDrawer,     ...(r.data.hardware?.cashDrawer     || {}) },
         },
       }))
       .catch(() => {}); // silently use defaults

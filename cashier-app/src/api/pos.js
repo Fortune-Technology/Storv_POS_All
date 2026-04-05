@@ -141,3 +141,15 @@ export const getLotteryShiftReport = (shiftId) =>
 
 export const saveLotteryShiftReport = (data) =>
   api.post('/lottery/shift-reports', data).then(r => r.data);
+
+// ── Hardware & Payment ─────────────────────────────────────────────────────
+export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);
+export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
+export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
+export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);
+
+export const saveHardwareConfig = (stationId, hardwareConfig, storeId) =>
+  api.post('/payment/hardware', { stationId, hardwareConfig }, { headers: { 'x-store-id': storeId } }).then(r => r.data);
+
+export const getHardwareConfig = (stationId, storeId) =>
+  api.get(`/payment/hardware/${stationId}`, { headers: { 'x-store-id': storeId } }).then(r => r.data);

@@ -261,6 +261,47 @@ export const getTransaction = async (req, res) => {
   }
 };
 
+// ── POST /api/pos-terminal/print-network ──────────────────────────────────
+// Proxy: receives base64-encoded ESC/POS data and forwards it to a TCP printer.
+// Body: { ip: string, port: number, data: string (base64) }
+export const printNetworkReceipt = async (req, res) => {
+  const { ip, port, data } = req.body;
+  if (!ip || !port || !data) {
+    return res.status(400).json({ error: 'ip, port, and data are required' });
+  }
+  try {
+    const net = await import('net');
+    const buf = Buffer.from(data, 'base64');
+    await new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error('Print timeout — printer unreachable'));
+      }, 6000);
+
+      socket.connect(Number(port), ip, () => {
+        socket.write(buf, () => {
+          socket.end();
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      socket.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    const code = err.code;
+    if (code === 'ECONNREFUSED')  return res.status(503).json({ error: `Printer refused connection at ${ip}:${port}` });
+    if (code === 'ETIMEDOUT')     return res.status(503).json({ error: `Printer timed out at ${ip}:${port}` });
+    if (code === 'ENETUNREACH')   return res.status(503).json({ error: `Network unreachable — check IP ${ip}` });
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // ── GET /api/pos-terminal/branding ────────────────────────────────────────
 export const getPosBranding = async (req, res) => {
   try {

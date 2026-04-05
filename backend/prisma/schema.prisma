@@ -455,9 +455,10 @@ model Station {
   storeId     String
   name        String    // "Register 1", "Express Lane"
   token       String    @unique  // long-lived station token — stored in POS localStorage
-  lastSeenAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  lastSeenAt     DateTime?
+  hardwareConfig Json?     // Stores peripheral config: receipt printer, scale, PAX, label printer
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([orgId, storeId])
   @@map("stations")
