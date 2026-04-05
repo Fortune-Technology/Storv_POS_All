@@ -1,13 +1,14 @@
 /**
  * useHardware.js
  * Unified hardware state hook. Reads hardware config from localStorage
- * (saved during station setup) and provides print/drawer/PAX methods.
+ * (saved during station setup) and provides print/drawer/PAX/scale methods.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useStationStore } from '../stores/useStationStore.js';
 import { printReceiptQZ, printReceiptNetwork, kickCashDrawer } from '../services/printerService.js';
 import { connectQZ, isQZConnected } from '../services/qzService.js';
+import { useScale } from './useScale.js';
 import * as posApi from '../api/pos.js';
 
 const HW_STORAGE_KEY = 'storv_hardware_config';
@@ -23,13 +24,28 @@ export const saveHardwareConfigLocally = (config) => {
   localStorage.setItem(HW_STORAGE_KEY, JSON.stringify(config));
 };
 
-export function useHardware() {
+export function useHardware({ onBarcode } = {}) {
   const station = useStationStore(s => s.station);
   const hw      = loadHardwareConfig();
 
-  const [printing, setPrinting] = useState(false);
+  const [printing,  setPrinting]  = useState(false);
   const [payStatus, setPayStatus] = useState(null); // null|'waiting'|'approved'|'declined'|'error'
   const [payResult, setPayResult] = useState(null);
+
+  // ── Scale / Magellan integration ─────────────────────────────────────────
+  const scale = useScale({ onBarcode });
+
+  // Auto-connect scale on mount if configured
+  useEffect(() => {
+    if (!hw?.scale || hw.scale.type === 'none') return;
+    // Attempt to connect to previously-granted port silently
+    scale.getGrantedPorts().then(ports => {
+      if (ports.length > 0) {
+        scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Print receipt ────────────────────────────────────────────────────────
   const printReceipt = useCallback(async (receiptData) => {
@@ -94,15 +110,19 @@ export function useHardware() {
     setPayResult(null);
   }, []);
 
-  const hasPAX           = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);
+  const hasPAX            = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);
   const hasReceiptPrinter = !!(hw?.receiptPrinter?.type && hw.receiptPrinter.type !== 'none');
-  const hasCashDrawer    = !!(hw?.cashDrawer?.type && hw.cashDrawer.type !== 'none');
+  const hasCashDrawer     = !!(hw?.cashDrawer?.type && hw.cashDrawer.type !== 'none');
+  const hasScale          = !!(hw?.scale?.type && hw.scale.type !== 'none');
+  const hasLabelPrinter   = !!(hw?.labelPrinter?.type && hw.labelPrinter.type !== 'none');
 
   return {
     hw,
     printing, payStatus, payResult,
     printReceipt, openDrawer,
     processCardPayment, cancelPayment,
-    hasPAX, hasReceiptPrinter, hasCashDrawer,
+    hasPAX, hasReceiptPrinter, hasCashDrawer, hasScale, hasLabelPrinter,
+    // Scale / Magellan
+    scale,
   };
 }

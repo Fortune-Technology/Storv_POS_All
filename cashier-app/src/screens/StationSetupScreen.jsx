@@ -22,6 +22,16 @@ const saveHW = (cfg) => localStorage.setItem(HW_KEY, JSON.stringify(cfg));
 const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 const PAPER_WIDTHS = ['58mm', '80mm'];
 
+// Default baud rate per scale brand
+const SCALE_BAUD_DEFAULTS = {
+  cas:       9600,
+  mettler:   9600,
+  avery:     9600,
+  digi:      9600,
+  datalogic: 9600,
+  generic:   9600,
+};
+
 // ── Style helpers ──────────────────────────────────────────────────────────
 const S = {
   wrap:  { minHeight: '100vh', background: '#0b0d14', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' },
@@ -132,9 +142,16 @@ export default function StationSetupScreen() {
   const [testLoading, setTestLoading] = useState({});
 
   // Detected devices lists
-  const [detectedPrinters,    setDetectedPrinters]    = useState([]);
+  const [detectedPrinters,      setDetectedPrinters]      = useState([]);
   const [detectedLabelPrinters, setDetectedLabelPrinters] = useState([]);
-  const [detectingPrinters,   setDetectingPrinters]   = useState(false);
+  const [detectingPrinters,     setDetectingPrinters]     = useState(false);
+
+  // Scale port detection
+  const [detectedPorts,    setDetectedPorts]    = useState([]); // { label, port|name }
+  const [detectingPorts,   setDetectingPorts]   = useState(false);
+  const [scaleTestWeight,  setScaleTestWeight]  = useState(null);
+  const [scaleTesting,     setScaleTestingState] = useState(false);
+  const scaleReaderCleanup = React.useRef(null);
 
   const setTest = (key, status) => setTestStatus(p => ({ ...p, [key]: status }));
   const setTestLoad = (key, val) => setTestLoading(p => ({ ...p, [key]: val }));
@@ -198,6 +215,108 @@ export default function StationSetupScreen() {
       alert('Could not connect to QZ Tray: ' + err.message);
     } finally {
       setDetectingPrinters(false);
+    }
+  };
+
+  // ── Detect serial ports for scale ────────────────────────────────────
+  const detectScalePorts = async () => {
+    setDetectingPorts(true);
+    setDetectedPorts([]);
+    const found = [];
+
+    // Method 1: QZ Tray serial port list
+    try {
+      if (window.qz?.websocket?.isActive()) {
+        const qzPorts = await window.qz.serial.findPorts();
+        const list = (Array.isArray(qzPorts) ? qzPorts : [qzPorts]).filter(Boolean);
+        list.forEach(name => found.push({ label: name, source: 'qz', name }));
+      }
+    } catch {}
+
+    // Method 2: Web Serial API — already-granted ports
+    if ('serial' in navigator) {
+      try {
+        const ports = await navigator.serial.getPorts();
+        ports.forEach((port, i) => {
+          const info = port.getInfo?.() ?? {};
+          let label = `Serial Port ${i + 1}`;
+          if (info.usbVendorId === 0x05F9 || info.usbVendorId === 0x04B4) {
+            label = `Datalogic Magellan (Port ${i + 1})`;
+          } else if (info.usbVendorId) {
+            label = `USB Serial Port ${i + 1} (VID:${info.usbVendorId.toString(16).toUpperCase()})`;
+          }
+          // Avoid duplicates from QZ
+          if (!found.some(f => f.label === label)) {
+            found.push({ label, source: 'webserial', port });
+          }
+        });
+      } catch {}
+    }
+
+    if (found.length > 0) {
+      setDetectedPorts(found);
+      // Auto-select first port
+      if (!hw.scale.portLabel) {
+        updHW('scale', { portLabel: found[0].label, portSource: found[0].source, portName: found[0].name || '' });
+      }
+    } else {
+      // No previously-granted ports — offer to open picker
+      setDetectedPorts([{ label: '+ Click to select port…', source: 'picker' }]);
+    }
+
+    setDetectingPorts(false);
+  };
+
+  // ── Test scale connection — read live weight for 4 seconds ───────────
+  const testScaleConnection = async () => {
+    if (!('serial' in navigator)) {
+      alert('Web Serial API not supported. Use Chrome or Edge.');
+      return;
+    }
+    setScaleTestingState(true);
+    setScaleTestWeight(null);
+    let port;
+    let reader;
+    try {
+      const granted = await navigator.serial.getPorts();
+      port = granted[0];
+      if (!port) {
+        port = await navigator.serial.requestPort({
+          filters: [{ usbVendorId: 0x05F9 }, { usbVendorId: 0x04B4 }],
+        });
+      }
+      if (!port) { setScaleTestingState(false); return; }
+
+      await port.open({ baudRate: hw.scale.baud || 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+      reader = port.readable.getReader();
+
+      let buffer = '';
+      const timeout = setTimeout(() => reader.cancel(), 5000);
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += new TextDecoder().decode(value);
+        const lines = buffer.split(/[\r\n]+/);
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const m = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|g\b|G\b|oz|OZ)/);
+          if (m) {
+            setScaleTestWeight(`${parseFloat(m[1].replace(/\s/g,''))} ${m[2].toLowerCase()}`);
+            clearTimeout(timeout);
+            reader.cancel();
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError' && err.name !== 'NotSelectedError' && !scaleTestWeight) {
+        setScaleTestWeight('no signal');
+      }
+    } finally {
+      try { reader?.releaseLock(); } catch {}
+      try { await port?.close(); } catch {}
+      setScaleTestingState(false);
     }
   };
 
@@ -493,44 +612,139 @@ export default function StationSetupScreen() {
             </HWSection>
 
             {/* ── Scale ── */}
-            <HWSection icon={Scale} title="Weighing Scale" status={hw.scale.type !== 'none' ? 'ok' : null}>
+            <HWSection icon={Scale} title="Weighing Scale" status={hw.scale.type !== 'none' ? (testStatus.scale || null) : null}>
               <div style={{ display: 'grid', gap: 10 }}>
-                <Field label="Scale Brand / Type">
-                  <select value={hw.scale.type} onChange={e => updHW('scale', { type: e.target.value })} style={S.select}>
+
+                <Field label="Scale Brand / Model">
+                  <select
+                    value={hw.scale.type}
+                    onChange={e => {
+                      const t = e.target.value;
+                      updHW('scale', { type: t, baud: SCALE_BAUD_DEFAULTS[t] ?? 9600 });
+                      setDetectedPorts([]);
+                      setScaleTestWeight(null);
+                    }}
+                    style={S.select}
+                  >
                     <option value="none">None / Skip</option>
+                    <option value="datalogic">Datalogic Magellan 9800i (Scanner + Scale)</option>
                     <option value="cas">CAS (SW-20, PD-II, etc.)</option>
                     <option value="mettler">Mettler Toledo</option>
                     <option value="avery">Avery Berkel</option>
                     <option value="digi">Digi</option>
-                    <option value="generic">Generic RS-232</option>
+                    <option value="generic">Generic RS-232 / USB-Serial</option>
                   </select>
                 </Field>
+
+                {/* Datalogic info card */}
+                {hw.scale.type === 'datalogic' && (
+                  <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.25)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7 }}>
+                    <div style={{ fontWeight: 700, color: '#7b95e0', marginBottom: 4 }}>⚡ Datalogic Magellan 9800i — Combo Unit</div>
+                    <div>Supports <strong style={{ color: '#e8eaf0' }}>barcode scanning AND weight</strong> over the same USB cable.</div>
+                    <div style={{ marginTop: 4, color: '#6b7280' }}>
+                      Make sure the unit is in <strong style={{ color: '#94a3b8' }}>USB-COM mode</strong> (not HID-only).
+                      On the Magellan: <em>Program → Interface → USB-COM</em>.
+                    </div>
+                  </div>
+                )}
+
                 {hw.scale.type !== 'none' && (
                   <>
-                    <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                      ℹ️ Connect scale via USB-to-Serial adapter. Chrome will prompt you to select the COM port when you first weigh a product. The port selection is remembered for future sessions.
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
-                      <Field label="Baud Rate">
-                        <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} style={S.select}>
-                          {BAUD_RATES.map(b => <option key={b} value={b}>{b} {b === 9600 ? '(most common)' : ''}</option>)}
-                        </select>
-                      </Field>
-                      <div style={{ paddingBottom: 2 }}>
-                        <button
-                          onClick={async () => {
-                            updHW('scale', { type: hw.scale.type });
-                            setTest('scale', 'ok');
+                    {/* Port selection */}
+                    <Field label="Serial Port">
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <select
+                          value={hw.scale.portLabel || ''}
+                          onChange={e => {
+                            const chosen = detectedPorts.find(p => p.label === e.target.value);
+                            if (chosen?.source === 'picker') {
+                              // Trigger native port picker
+                              navigator.serial?.requestPort({
+                                filters: [{ usbVendorId: 0x05F9 }, { usbVendorId: 0x04B4 }],
+                              }).then(port => {
+                                const info = port.getInfo?.() ?? {};
+                                const label = info.usbVendorId === 0x05F9 || info.usbVendorId === 0x04B4
+                                  ? 'Datalogic Magellan'
+                                  : 'USB Serial Port';
+                                const newEntry = { label, source: 'webserial', port };
+                                setDetectedPorts(prev => [...prev.filter(p => p.source !== 'picker'), newEntry]);
+                                updHW('scale', { portLabel: label });
+                              }).catch(() => {});
+                            } else if (chosen) {
+                              updHW('scale', { portLabel: chosen.label, portSource: chosen.source, portName: chosen.name || '' });
+                            }
                           }}
-                          style={S.testBtn(testStatus.scale)}
+                          style={{ ...S.select, flex: 1 }}
                         >
-                          <Check size={12} /> Saved
+                          <option value="">-- Select port --</option>
+                          {detectedPorts.map(p => (
+                            <option key={p.label} value={p.label}>{p.label}</option>
+                          ))}
+                          {hw.scale.portLabel && !detectedPorts.find(p => p.label === hw.scale.portLabel) && (
+                            <option value={hw.scale.portLabel}>{hw.scale.portLabel} (saved)</option>
+                          )}
+                        </select>
+                        <button
+                          onClick={detectScalePorts}
+                          disabled={detectingPorts}
+                          style={S.testBtn(detectedPorts.length > 0 ? 'ok' : null)}
+                          title="Auto-detect connected serial ports"
+                        >
+                          {detectingPorts
+                            ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                            : <RefreshCw size={13} />}
+                          {detectingPorts ? 'Detecting…' : 'Detect'}
                         </button>
                       </div>
+                      {detectedPorts.length === 0 && (
+                        <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
+                          Click <strong style={{ color: '#94a3b8' }}>Detect</strong> to auto-find connected scale ports
+                        </div>
+                      )}
+                    </Field>
+
+                    {/* Baud rate */}
+                    <Field label="Baud Rate">
+                      <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} style={S.select}>
+                        {BAUD_RATES.map(b => (
+                          <option key={b} value={b}>{b}{b === 9600 ? ' (most common)' : ''}</option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    {/* Test weight button + live reading */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {scaleTestWeight && (
+                          <div style={{
+                            background: scaleTestWeight === 'no signal' ? 'rgba(239,68,68,.1)' : 'rgba(22,163,74,.1)',
+                            border: `1px solid ${scaleTestWeight === 'no signal' ? 'rgba(239,68,68,.25)' : 'rgba(22,163,74,.25)'}`,
+                            borderRadius: 8, padding: '6px 12px',
+                            fontSize: '1rem', fontWeight: 700,
+                            color: scaleTestWeight === 'no signal' ? '#f87171' : '#4ade80',
+                            letterSpacing: '0.05em',
+                          }}>
+                            {scaleTestWeight === 'no signal' ? '✗ No weight signal received' : `⚖️ ${scaleTestWeight}`}
+                          </div>
+                        )}
+                      </div>
+                      <TestButton
+                        onClick={() => { setScaleTestWeight(null); testScaleConnection(); setTest('scale', null); }}
+                        status={scaleTestWeight && scaleTestWeight !== 'no signal' ? 'ok' : scaleTestWeight === 'no signal' ? 'err' : testStatus.scale}
+                        loading={scaleTesting}
+                        label="Test Weight"
+                      />
                     </div>
-                    <div style={{ background: 'rgba(22,163,74,.06)', border: '1px solid rgba(22,163,74,.15)', borderRadius: 8, padding: '8px 12px', fontSize: '0.76rem', color: '#6b7280' }}>
-                      💡 Scale will be connected in the POS screen when you weigh the first product. The browser will ask permission to access the serial port.
-                    </div>
+
+                    {scaleTesting && (
+                      <div style={{ fontSize: '0.75rem', color: '#6b7280', textAlign: 'right' }}>
+                        Place something on the scale… (listening 5s)
+                      </div>
+                    )}
+
+                    {testStatus.scale === 'ok' && !scaleTesting && (
+                      <div style={{ color: '#4ade80', fontSize: '0.76rem', textAlign: 'right' }}>✓ Scale configured successfully</div>
+                    )}
                   </>
                 )}
               </div>
@@ -676,7 +890,7 @@ export default function StationSetupScreen() {
               {[
                 { label: 'Receipt Printer', value: hw.receiptPrinter.type === 'none' ? 'Not configured' : hw.receiptPrinter.type === 'network' ? `Network ${hw.receiptPrinter.ip}:${hw.receiptPrinter.port}` : (hw.receiptPrinter.name || 'QZ Tray'), icon: Printer },
                 { label: 'Cash Drawer',    value: hw.cashDrawer.type === 'none' ? 'Not configured' : 'Via receipt printer', icon: Package },
-                { label: 'Scale',          value: hw.scale.type === 'none' ? 'Not configured' : hw.scale.type.toUpperCase() + ' — ' + hw.scale.baud + ' baud', icon: Scale },
+                { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`, icon: Scale },
                 { label: 'PAX Terminal',   value: hw.paxTerminal.enabled ? `${hw.paxTerminal.model} @ ${hw.paxTerminal.ip}:${hw.paxTerminal.port}` : 'Not configured', icon: CreditCard },
                 { label: 'Label Printer',  value: hw.labelPrinter.type === 'none' ? 'Not configured' : (hw.labelPrinter.name || hw.labelPrinter.ip || hw.labelPrinter.type), icon: Tag },
               ].map(({ label, value, icon: Icon }) => (
