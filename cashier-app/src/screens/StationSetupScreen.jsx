@@ -19,8 +19,61 @@ import api from '../api/client.js';
 const HW_KEY = 'storv_hardware_config';
 const saveHW = (cfg) => localStorage.setItem(HW_KEY, JSON.stringify(cfg));
 
-const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
+const BAUD_RATES   = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 const PAPER_WIDTHS = ['58mm', '80mm'];
+
+/* ── Known receipt printer models ────────────────────────────────────────────
+   type: 'network' → LAN/TCP, shows IP input
+   type: 'qz'     → USB via QZ Tray, shows printer name detect
+   port: default TCP port (always 9100 for receipt printers)
+   tip:  how to find the IP address for that model
+──────────────────────────────────────────────────────────────────────────── */
+const PRINTER_MODELS = [
+  // ── SII (Seiko) ───────────────────────────────────────────────────────────
+  { id: 'sii_rpf10',      label: 'SII RP-F10 / RP-G10',          type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold the FEED button while turning the printer ON. Release after 3 sec — IP address prints on the ticket.' },
+  { id: 'sii_rpd10',      label: 'SII RP-D10',                    type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on to print a self-test page showing the IP address.' },
+  { id: 'sii_rpf10usb',   label: 'SII RP-F10 (USB)',              type: 'qz',      port: null, width: '80mm', tip: '' },
+
+  // ── EPSON ─────────────────────────────────────────────────────────────────
+  { id: 'epson_t88vi',    label: 'EPSON TM-T88VI',                type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on. The self-test prints IP on page 2.' },
+  { id: 'epson_t88vii',   label: 'EPSON TM-T88VII',               type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on. IP prints on self-test page.' },
+  { id: 'epson_t88v',     label: 'EPSON TM-T88V',                 type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on. IP prints on self-test page.' },
+  { id: 'epson_t20iii',   label: 'EPSON TM-T20III',               type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on to print IP address.' },
+  { id: 'epson_t82iii',   label: 'EPSON TM-T82III',               type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on to print IP address.' },
+  { id: 'epson_m30ii',    label: 'EPSON TM-m30II',                type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED + POWER simultaneously, release when LED flashes.' },
+  { id: 'epson_t88vi_usb', label: 'EPSON TM-T88VI (USB)',         type: 'qz',      port: null, width: '80mm', tip: '' },
+
+  // ── Star Micronics ────────────────────────────────────────────────────────
+  { id: 'star_tsp143lan', label: 'Star TSP143 (LAN)',              type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED button for 5 seconds while powered on. IP prints on test ticket.' },
+  { id: 'star_tsp654',    label: 'Star TSP654',                    type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED button for 5 seconds while powered on.' },
+  { id: 'star_tsp143usb', label: 'Star TSP143 (USB)',              type: 'qz',      port: null, width: '80mm', tip: '' },
+
+  // ── Bixolon ───────────────────────────────────────────────────────────────
+  { id: 'bixolon_350iii', label: 'Bixolon SRP-350III (LAN)',       type: 'network', port: 9100, width: '80mm',
+    tip: 'Power on while holding FEED. IP address is on the self-test printout.' },
+  { id: 'bixolon_350usb', label: 'Bixolon SRP-350III (USB)',       type: 'qz',      port: null, width: '80mm', tip: '' },
+
+  // ── Citizen ───────────────────────────────────────────────────────────────
+  { id: 'citizen_ct_s310', label: 'Citizen CT-S310II (LAN)',       type: 'network', port: 9100, width: '80mm',
+    tip: 'Hold FEED while powering on to print network config.' },
+
+  // ── Generic ───────────────────────────────────────────────────────────────
+  { id: 'other_80_lan',   label: 'Other 80mm Printer (LAN/Network)', type: 'network', port: 9100, width: '80mm',
+    tip: 'Check your printer manual or router DHCP list to find the IP. Port is almost always 9100.' },
+  { id: 'other_58_lan',   label: 'Other 58mm Printer (LAN/Network)', type: 'network', port: 9100, width: '58mm',
+    tip: 'Check your printer manual or router DHCP list to find the IP. Port is almost always 9100.' },
+  { id: 'other_usb',      label: 'Other USB Printer (via QZ Tray)',  type: 'qz',     port: null, width: '80mm', tip: '' },
+];
 
 // Default baud rate per scale brand
 const SCALE_BAUD_DEFAULTS = {
@@ -130,7 +183,7 @@ export default function StationSetupScreen() {
 
   // Step 4 — hardware
   const [hw, setHW] = useState({
-    receiptPrinter: { type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
+    receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
     scale:          { type: 'none', baud: 9600, portLabel: '' },
     paxTerminal:    { enabled: false, model: 'A35', ip: '', port: 10009 },
@@ -528,63 +581,138 @@ export default function StationSetupScreen() {
             {/* ── Receipt Printer ── */}
             <HWSection icon={Printer} title="Receipt Printer" status={hw.receiptPrinter.type !== 'none' ? (testStatus.receipt || null) : null}>
               <div style={{ display: 'grid', gap: 10 }}>
-                <Field label="Connection Type">
-                  <select value={hw.receiptPrinter.type} onChange={e => updHW('receiptPrinter', { type: e.target.value })} style={S.select}>
-                    <option value="none">None / Skip</option>
-                    <option value="qz">USB via QZ Tray (recommended)</option>
-                    <option value="network">Network / LAN (TCP)</option>
+
+                {/* Step 1: Pick the model */}
+                <Field label="Printer Model">
+                  <select
+                    value={hw.receiptPrinter.model || ''}
+                    onChange={e => {
+                      const modelId = e.target.value;
+                      if (!modelId) {
+                        updHW('receiptPrinter', { model: '', type: 'none', port: 9100, width: '80mm', ip: '', name: '' });
+                        return;
+                      }
+                      const m = PRINTER_MODELS.find(p => p.id === modelId);
+                      if (m) {
+                        updHW('receiptPrinter', {
+                          model: m.id,
+                          type:  m.type,
+                          port:  m.port ?? 9100,
+                          width: m.width,
+                        });
+                      }
+                    }}
+                    style={S.select}
+                  >
+                    <option value="">— None / Skip —</option>
+                    <optgroup label="SII (Seiko)">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('sii')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="EPSON">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('epson')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Star Micronics">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('star')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Bixolon">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('bixolon')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Citizen">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('citizen')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Other">
+                      {PRINTER_MODELS.filter(p => p.id.startsWith('other')).map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </optgroup>
                   </select>
                 </Field>
 
-                {hw.receiptPrinter.type === 'qz' && (
-                  <>
-                    <Field label="Printer Name">
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <select
-                          value={hw.receiptPrinter.name}
-                          onChange={e => updHW('receiptPrinter', { name: e.target.value })}
-                          style={{ ...S.select, flex: 1 }}
-                        >
-                          <option value="">-- Select printer --</option>
-                          {detectedPrinters.map(p => <option key={p} value={p}>{p}</option>)}
-                          {hw.receiptPrinter.name && !detectedPrinters.includes(hw.receiptPrinter.name) && (
-                            <option value={hw.receiptPrinter.name}>{hw.receiptPrinter.name}</option>
-                          )}
-                        </select>
-                        <button onClick={() => detectQZPrinters(false)} disabled={detectingPrinters} style={S.testBtn(null)} title="Auto-detect QZ printers">
-                          {detectingPrinters ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Detect
-                        </button>
-                      </div>
-                    </Field>
-                    <Field label="Enter printer name manually (if not detected)">
-                      <input value={hw.receiptPrinter.name} onChange={e => updHW('receiptPrinter', { name: e.target.value })} placeholder="e.g. EPSON TM-T88VII" style={S.field} />
-                    </Field>
-                  </>
-                )}
+                {/* IP tip for this model */}
+                {hw.receiptPrinter.model && (() => {
+                  const m = PRINTER_MODELS.find(p => p.id === hw.receiptPrinter.model);
+                  return m?.tip ? (
+                    <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                      <span style={{ color: '#7b95e0', fontWeight: 700 }}>💡 How to find IP: </span>{m.tip}
+                    </div>
+                  ) : null;
+                })()}
 
+                {/* Network: IP + port */}
                 {hw.receiptPrinter.type === 'network' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
                     <Field label="Printer IP Address">
-                      <input value={hw.receiptPrinter.ip} onChange={e => updHW('receiptPrinter', { ip: e.target.value })} placeholder="192.168.1.100" style={S.field} />
+                      <input
+                        value={hw.receiptPrinter.ip}
+                        onChange={e => updHW('receiptPrinter', { ip: e.target.value })}
+                        placeholder="192.168.1.100"
+                        style={S.field}
+                        autoFocus
+                      />
                     </Field>
                     <Field label="Port">
-                      <input type="number" value={hw.receiptPrinter.port} onChange={e => updHW('receiptPrinter', { port: Number(e.target.value) })} placeholder="9100" style={{ ...S.field, width: 90 }} />
+                      <input
+                        type="number"
+                        value={hw.receiptPrinter.port || 9100}
+                        onChange={e => updHW('receiptPrinter', { port: Number(e.target.value) })}
+                        style={S.field}
+                      />
                     </Field>
                   </div>
                 )}
 
-                {hw.receiptPrinter.type !== 'none' && (
-                  <Field label="Paper Width">
-                    <select value={hw.receiptPrinter.width} onChange={e => updHW('receiptPrinter', { width: e.target.value })} style={S.select}>
-                      {PAPER_WIDTHS.map(w => <option key={w} value={w}>{w}</option>)}
-                    </select>
+                {/* USB / QZ Tray: detect + dropdown */}
+                {hw.receiptPrinter.type === 'qz' && (
+                  <Field label="USB Printer Name">
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select
+                        value={hw.receiptPrinter.name}
+                        onChange={e => updHW('receiptPrinter', { name: e.target.value })}
+                        style={{ ...S.select, flex: 1 }}
+                      >
+                        <option value="">— Click Detect to find printers —</option>
+                        {detectedPrinters.map(p => <option key={p} value={p}>{p}</option>)}
+                        {hw.receiptPrinter.name && !detectedPrinters.includes(hw.receiptPrinter.name) && (
+                          <option value={hw.receiptPrinter.name}>{hw.receiptPrinter.name}</option>
+                        )}
+                      </select>
+                      <button onClick={() => detectQZPrinters(false)} disabled={detectingPrinters} style={S.testBtn(null)} title="Auto-detect via QZ Tray">
+                        {detectingPrinters ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Detect
+                      </button>
+                    </div>
+                    {detectedPrinters.length === 0 && (
+                      <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
+                        Make sure <strong style={{ color: '#94a3b8' }}>QZ Tray</strong> is running on this computer before clicking Detect.
+                      </div>
+                    )}
                   </Field>
                 )}
 
-                {hw.receiptPrinter.type !== 'none' && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <TestButton onClick={testReceiptPrinter} status={testStatus.receipt} loading={testLoading.receipt} label="Print Test Page" />
-                  </div>
+                {/* Paper width + test */}
+                {hw.receiptPrinter.type !== 'none' && hw.receiptPrinter.model && (
+                  <>
+                    <Field label="Paper Width">
+                      <select value={hw.receiptPrinter.width || '80mm'} onChange={e => updHW('receiptPrinter', { width: e.target.value })} style={S.select}>
+                        {PAPER_WIDTHS.map(w => <option key={w} value={w}>{w}</option>)}
+                      </select>
+                    </Field>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <TestButton onClick={testReceiptPrinter} status={testStatus.receipt} loading={testLoading.receipt} label="Print Test Receipt" />
+                    </div>
+                    {testStatus.receipt === 'ok' && (
+                      <div style={{ color: '#4ade80', fontSize: '0.76rem', textAlign: 'right' }}>✓ Printer connected and working</div>
+                    )}
+                  </>
                 )}
               </div>
             </HWSection>
@@ -888,7 +1016,12 @@ export default function StationSetupScreen() {
             {/* Hardware summary */}
             <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 14, padding: '1rem', marginBottom: '1.5rem', textAlign: 'left' }}>
               {[
-                { label: 'Receipt Printer', value: hw.receiptPrinter.type === 'none' ? 'Not configured' : hw.receiptPrinter.type === 'network' ? `Network ${hw.receiptPrinter.ip}:${hw.receiptPrinter.port}` : (hw.receiptPrinter.name || 'QZ Tray'), icon: Printer },
+                { label: 'Receipt Printer', value: !hw.receiptPrinter.model ? 'Not configured' : (() => {
+                    const m = PRINTER_MODELS.find(p => p.id === hw.receiptPrinter.model);
+                    const modelLabel = m?.label || hw.receiptPrinter.model;
+                    if (hw.receiptPrinter.type === 'network') return `${modelLabel} — ${hw.receiptPrinter.ip || 'IP not set'}:${hw.receiptPrinter.port || 9100}`;
+                    return `${modelLabel} — ${hw.receiptPrinter.name || 'USB/QZ Tray'}`;
+                  })(), icon: Printer },
                 { label: 'Cash Drawer',    value: hw.cashDrawer.type === 'none' ? 'Not configured' : 'Via receipt printer', icon: Package },
                 { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`, icon: Scale },
                 { label: 'PAX Terminal',   value: hw.paxTerminal.enabled ? `${hw.paxTerminal.model} @ ${hw.paxTerminal.ip}:${hw.paxTerminal.port}` : 'Not configured', icon: CreditCard },
