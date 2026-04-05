@@ -30,10 +30,10 @@ router.post('/', protect, async (req, res, next) => {
       },
     });
 
-    // Bind the creating user to this new org
+    // Bind the creating user to this new org as owner
     await prisma.user.update({
       where: { id: req.user.id },
-      data:  { orgId: org.id },
+      data:  { orgId: org.id, role: 'owner' },
     });
 
     res.status(201).json(org);
@@ -118,6 +118,32 @@ router.put('/me/plan', protect, requireTenant, authorize('superadmin', 'admin', 
 
     res.json(updated);
   } catch (err) {
+    next(err);
+  }
+});
+
+/* ── DELETE /api/tenants/me  — owner deletes their own org ──────────────── */
+router.delete('/me', protect, requireTenant, authorize('superadmin', 'owner'), async (req, res, next) => {
+  try {
+    const { confirmName } = req.body;
+
+    const org = await prisma.organization.findUnique({ where: { id: req.orgId } });
+    if (!org) return res.status(404).json({ error: 'Organisation not found.' });
+
+    // Require the user to confirm by typing the org name exactly
+    if (!confirmName || confirmName.trim() !== org.name.trim()) {
+      return res.status(400).json({ error: 'Organisation name does not match. Deletion cancelled.' });
+    }
+
+    // Soft-delete the org
+    await prisma.organization.update({
+      where: { id: req.orgId },
+      data:  { isActive: false, deactivatedAt: new Date() },
+    });
+
+    res.json({ message: 'Organisation deleted successfully.' });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Organisation not found.' });
     next(err);
   }
 });

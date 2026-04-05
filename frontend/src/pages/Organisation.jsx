@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import './analytics.css';
 import {
   Building2, Save, Loader, AlertCircle, RefreshCw,
   Receipt, CreditCard, Globe, Clock, DollarSign, Gift,
   CheckCircle2, Store, Layers, Zap, X, ArrowRight,
-  Users, ShieldCheck, TrendingUp, Phone,
+  Users, ShieldCheck, TrendingUp, Phone, Trash2,
 } from 'lucide-react';
-import { getMyTenant, updateMyTenant, getStoreBillingSummary, updateTenantPlan } from '../services/api';
+import { getMyTenant, updateMyTenant, getStoreBillingSummary, updateTenantPlan, deleteMyTenant } from '../services/api';
 import { toast } from 'react-toastify';
 
 /* ── Plan definitions ────────────────────────────────────────────────────── */
@@ -388,6 +389,7 @@ function BillingRow({ store, isLast }) {
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function Organisation() {
+  const navigate = useNavigate();
   const [tenant,    setTenant]    = useState(null);
   const [billing,   setBilling]   = useState(null);
   const [loading,   setLoading]   = useState(true);
@@ -395,6 +397,11 @@ export default function Organisation() {
   const [error,     setError]     = useState(null);
   const [showPlan,  setShowPlan]  = useState(false);
   const [formErrors, setFormErrors] = useState({});
+
+  // Delete org state
+  const [showDeleteModal,  setShowDeleteModal]  = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleting,          setDeleting]          = useState(false);
 
   // Editable fields
   const [name,           setName]           = useState('');
@@ -448,6 +455,23 @@ export default function Organisation() {
       toast.error(e.response?.data?.error || 'Save failed.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* ── Delete org ─────────────────────────────────────────────────────────── */
+  const handleDeleteOrg = async () => {
+    if (!deleteConfirmName) return;
+    setDeleting(true);
+    try {
+      await deleteMyTenant(deleteConfirmName);
+      toast.success('Organisation deleted.');
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      navigate('/login', { replace: true });
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Could not delete organisation.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -756,6 +780,47 @@ export default function Organisation() {
                   : <><Save size={16} />Save changes</>}
               </button>
             </div>
+
+            {/* ── Danger Zone ─────────────────────────────────────────────── */}
+            <SectionCard icon={<Trash2 size={18} color="#ef4444" />} title="Danger Zone">
+              <div style={{
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 'var(--radius-md)',
+                padding: '1.25rem 1.5rem',
+                background: 'rgba(239,68,68,0.04)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem',
+                flexWrap: 'wrap',
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+                    Delete Organisation
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Permanently deactivate this organisation. This action cannot be undone.
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setDeleteConfirmName(''); setShowDeleteModal(true); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    padding: '0.6rem 1.1rem',
+                    background: 'rgba(239,68,68,0.1)',
+                    color: '#ef4444',
+                    border: '1px solid rgba(239,68,68,0.35)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Trash2 size={14} /> Delete Organisation
+                </button>
+              </div>
+            </SectionCard>
           </>
         ) : (
           /* No tenant yet */
@@ -778,6 +843,97 @@ export default function Organisation() {
           onClose={() => setShowPlan(false)}
           onChanged={(updated) => setTenant(updated)}
         />
+      )}
+
+      {/* Delete org confirmation modal */}
+      {showDeleteModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          <div className="glass-card" style={{
+            width: '100%', maxWidth: '460px', padding: '2rem',
+            background: 'var(--bg-primary)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: '8px',
+                  background: 'rgba(239,68,68,0.12)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Trash2 size={18} color="#ef4444" />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Delete Organisation</h3>
+              </div>
+              <button onClick={() => setShowDeleteModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Warning */}
+            <div style={{
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.25)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '0.875rem 1rem',
+              marginBottom: '1.25rem',
+              fontSize: '0.875rem',
+              color: '#ef4444',
+              lineHeight: 1.5,
+            }}>
+              <strong>Warning:</strong> This will permanently deactivate your organisation, all stores, and all associated data. This action cannot be undone.
+            </div>
+
+            {/* Confirm name input */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+                Type <strong style={{ color: 'var(--text-primary)' }}>{tenant?.name}</strong> to confirm:
+              </label>
+              <input
+                className="form-input"
+                placeholder={tenant?.name}
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                autoFocus
+                style={{ borderColor: deleteConfirmName && deleteConfirmName !== tenant?.name ? 'var(--error)' : undefined }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="btn"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteOrg}
+                disabled={deleting || deleteConfirmName !== tenant?.name}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.6rem 1.25rem',
+                  background: deleteConfirmName === tenant?.name ? '#ef4444' : 'rgba(239,68,68,0.3)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: deleteConfirmName === tenant?.name && !deleting ? 'pointer' : 'not-allowed',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  transition: 'background 0.2s',
+                }}
+              >
+                {deleting ? <><Loader size={14} className="animate-spin" />Deleting…</> : <><Trash2 size={14} />Delete Organisation</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
