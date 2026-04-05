@@ -32,7 +32,7 @@ export const useAuthStore = create((set) => ({
       set({ cashier, loading: false });
       return cashier;
     } catch (err) {
-      const msg = err.response?.data?.error || 'Invalid PIN';
+      const msg = err.response?.data?.error || err.message || 'Incorrect PIN. Please try again.';
       set({ loading: false, error: msg });
       throw new Error(msg);
     }

@@ -22,7 +22,7 @@ router.use(protect);
 router.get('/', getTenantUsers);
 
 // Invite / manage — admin and above only
-router.post('/invite', authorize('superadmin', 'admin', 'manager'), inviteUser);
+router.post('/invite', authorize('superadmin', 'owner', 'admin', 'manager'), inviteUser);
 router.put('/:id/role',  authorize('superadmin', 'admin'), updateUserRole);
 router.delete('/:id',    authorize('superadmin', 'admin'), removeUser);
 

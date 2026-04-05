@@ -3,12 +3,18 @@ import Sidebar from '../components/Sidebar';
 import './analytics.css';
 import {
   Users, UserPlus, X, Loader, AlertCircle,
-  RefreshCw, Shield, ChevronDown, Trash2, Copy, Eye, EyeOff, Store,
+  RefreshCw, Shield, ChevronDown, Trash2, Eye, EyeOff, Store, ArrowLeft,
 } from 'lucide-react';
 import { getTenantUsers, inviteUser, updateUserRole, removeUser, getStores, setCashierPin, removeCashierPin } from '../services/api';
 import { toast } from 'react-toastify';
 
-/* ── Role config (viewer removed) ───────────────────────────────────────── */
+/* ── Validation helpers ──────────────────────────────────────────────────── */
+const validateEmail    = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const validatePhone    = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone.replace(/\s/g, ''));
+const validatePassword = (pw)    => pw.length >= 8 && /\d/.test(pw);
+const validatePin      = (pin)   => !pin || /^\d{4,6}$/.test(pin);
+
+/* ── Role config ─────────────────────────────────────────────────────────── */
 const ROLES = [
   { value: 'admin',   label: 'Admin',   color: '#f97316', bg: 'rgba(249,115,22,0.12)',  multiStore: true  },
   { value: 'manager', label: 'Manager', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  multiStore: true  },
@@ -46,15 +52,10 @@ function Initials({ name }) {
 }
 
 /* ── Store assignment input ──────────────────────────────────────────────── */
-/**
- * For cashiers → single <select> (exactly 1 store required)
- * For managers/admins → multi-checkbox list (1 or more, or 0 = all stores)
- */
 function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
   const isMulti = ROLES.find(r => r.value === role)?.multiStore ?? false;
 
   if (!isMulti) {
-    // Cashier: single store required
     return (
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">
@@ -78,7 +79,6 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
     );
   }
 
-  // Manager / Admin: multi-select checkboxes
   const toggle = (id) => {
     setStoreIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -132,50 +132,99 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
   );
 }
 
-/* ── Invite Modal ────────────────────────────────────────────────────────── */
+/* ── Invite Modal (2-step) ───────────────────────────────────────────────── */
 function InviteModal({ stores, onClose, onInvited }) {
-  const [form,    setForm]    = useState({ name: '', email: '', phone: '', role: 'cashier' });
-  const [storeIds, setStoreIds] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [created, setCreated] = useState(null);
-  const [showPw,  setShowPw]  = useState(false);
+  const [step,            setStep]            = useState(1);
+  const [form,            setForm]            = useState({ firstName: '', lastName: '', email: '', phone: '', role: 'cashier' });
+  const [storeIds,        setStoreIds]        = useState([]);
+  const [password,        setPassword]        = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pin,             setPin]             = useState('');
+  const [showPw,          setShowPw]          = useState(false);
+  const [showConfirmPw,   setShowConfirmPw]   = useState(false);
+  const [showPin,         setShowPin]         = useState(false);
+  const [loading,         setLoading]         = useState(false);
+  const [created,         setCreated]         = useState(null);
+  const [errors,          setErrors]          = useState({});
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }));
+    setErrors(e => ({ ...e, [k]: undefined }));
+  };
 
-  // Reset store selection when role changes
   const handleRoleChange = (role) => {
     set('role', role);
     setStoreIds([]);
   };
 
+  /* ── Step 1 validation ── */
+  const validateStep1 = () => {
+    const errs = {};
+    if (!form.firstName.trim())          errs.firstName = 'First name is required.';
+    if (!form.lastName.trim())           errs.lastName  = 'Last name is required.';
+    if (!form.email.trim())              errs.email     = 'Email is required.';
+    else if (!validateEmail(form.email)) errs.email     = 'Enter a valid email address.';
+    if (form.phone && !validatePhone(form.phone)) errs.phone = 'Enter a valid phone number (7–15 digits).';
+    if (form.role === 'cashier' && storeIds.length !== 1) errs.storeIds = 'Cashiers must be assigned to exactly one store.';
+    return errs;
+  };
+
+  const handleNext = () => {
+    const errs = validateStep1();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return;
+    }
+    setErrors({});
+    setStep(2);
+  };
+
+  /* ── Step 2 validation ── */
+  const validateStep2 = () => {
+    const errs = {};
+    if (!password)                       errs.password        = 'Password is required.';
+    else if (!validatePassword(password)) errs.password       = 'Password must be at least 8 characters and include a number.';
+    if (!confirmPassword)                 errs.confirmPassword = 'Please confirm the password.';
+    else if (password !== confirmPassword) errs.confirmPassword = 'Passwords do not match.';
+    const pinRequired = ['cashier', 'manager', 'staff'].includes(form.role);
+    if (pinRequired && !pin)              errs.pin = 'PIN is required for this role.';
+    else if (pin && !validatePin(pin))    errs.pin = 'PIN must be 4–6 digits.';
+    return errs;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (form.role === 'cashier' && storeIds.length !== 1) {
-      toast.error('Cashiers must be assigned to exactly one store.');
+    const errs = validateStep2();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
       return;
     }
     setLoading(true);
     try {
       const result = await inviteUser({
-        name:    form.name.trim(),
-        email:   form.email.trim(),
-        phone:   form.phone.trim() || undefined,
-        role:    form.role,
+        firstName: form.firstName.trim(),
+        lastName:  form.lastName.trim(),
+        email:     form.email.trim(),
+        phone:     form.phone.trim() || undefined,
+        role:      form.role,
         storeIds,
+        password,
+        pin:       pin || undefined,
       });
       setCreated(result);
       onInvited(result.user);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Could not invite user.');
+      toast.error(err.response?.data?.error || 'Could not create user.');
     } finally {
       setLoading(false);
     }
   };
 
-  const copyPw = () => {
-    navigator.clipboard?.writeText(created.tempPassword);
-    toast.success('Temporary password copied!');
-  };
+  const fieldError = (key) => errors[key] ? (
+    <span style={{ fontSize: '0.72rem', color: 'var(--error)', marginTop: '0.2rem', display: 'block' }}>
+      {errors[key]}
+    </span>
+  ) : null;
 
   return (
     <div style={{
@@ -187,33 +236,116 @@ function InviteModal({ stores, onClose, onInvited }) {
     >
       <div style={{
         background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)',
-        padding: '2rem', width: '100%', maxWidth: '460px',
+        padding: '2rem', width: '100%', maxWidth: '480px',
         boxShadow: 'var(--shadow-lg)', animation: 'fadeIn 0.2s ease',
-        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        maxHeight: '92vh', display: 'flex', flexDirection: 'column',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
-            <UserPlus size={18} style={{ marginRight: '0.5rem', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-            Invite user
-          </h3>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {step === 2 && !created && (
+              <button
+                onClick={() => { setStep(1); setErrors({}); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
+                title="Back to step 1"
+              >
+                <ArrowLeft size={18} />
+              </button>
+            )}
+            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+              <UserPlus size={18} style={{ marginRight: '0.5rem', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
+              {created ? 'User created' : step === 1 ? 'Invite user — Basic info' : 'Invite user — Password & PIN'}
+            </h3>
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
             <X size={20} />
           </button>
         </div>
 
-        {!created ? (
-          <form onSubmit={handleSubmit} style={{ overflowY: 'auto', flex: 1 }}>
-            {[
-              { key: 'name',  label: 'Full name',  type: 'text',  placeholder: 'Jane Smith',       required: true  },
-              { key: 'email', label: 'Email',       type: 'email', placeholder: 'jane@company.com', required: true  },
-              { key: 'phone', label: 'Phone',       type: 'tel',   placeholder: '+1 555 000 0000',  required: false },
-            ].map(({ key, label, type, placeholder, required }) => (
-              <div className="form-group" key={key} style={{ marginBottom: '0.875rem' }}>
-                <label className="form-label">{label}{required && <span style={{ color: 'var(--error)' }}> *</span>}</label>
-                <input type={type} className="form-input" placeholder={placeholder} required={required}
-                  value={form[key]} onChange={(e) => set(key, e.target.value)} />
-              </div>
+        {/* Step indicator */}
+        {!created && (
+          <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.5rem' }}>
+            {[1, 2].map(s => (
+              <div key={s} style={{
+                flex: 1, height: 3, borderRadius: 99,
+                background: s <= step ? 'var(--accent-primary)' : 'var(--border-color)',
+                transition: 'background 0.25s',
+              }} />
             ))}
+          </div>
+        )}
+
+        {/* ── Success card ── */}
+        {created ? (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(122,193,67,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+              <UserPlus size={24} color="var(--accent-primary)" />
+            </div>
+            <p style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+              {created.user.name || `${form.firstName} ${form.lastName}`} added!
+            </p>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1.75rem' }}>
+              The user can now sign in with their email and password.
+            </p>
+            <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: '0.875rem 1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>Email</div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{created.user.email}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.6rem', marginBottom: '0.2rem' }}>Role</div>
+              <div>{roleBadge(created.user.role)}</div>
+            </div>
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={onClose}>Done</button>
+          </div>
+
+        /* ── Step 1: Basic info ── */
+        ) : step === 1 ? (
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {/* First + Last name row */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.875rem' }}>
+              <div className="form-group" style={{ flex: 1, margin: 0 }}>
+                <label className="form-label">First name <span style={{ color: 'var(--error)' }}>*</span></label>
+                <input
+                  type="text" className="form-input" placeholder="Jane"
+                  value={form.firstName}
+                  onChange={e => set('firstName', e.target.value)}
+                  style={{ borderColor: errors.firstName ? 'var(--error)' : undefined }}
+                />
+                {fieldError('firstName')}
+              </div>
+              <div className="form-group" style={{ flex: 1, margin: 0 }}>
+                <label className="form-label">Last name <span style={{ color: 'var(--error)' }}>*</span></label>
+                <input
+                  type="text" className="form-input" placeholder="Smith"
+                  value={form.lastName}
+                  onChange={e => set('lastName', e.target.value)}
+                  style={{ borderColor: errors.lastName ? 'var(--error)' : undefined }}
+                />
+                {fieldError('lastName')}
+              </div>
+            </div>
+
+            {/* Email */}
+            <div className="form-group" style={{ marginBottom: '0.875rem' }}>
+              <label className="form-label">Email <span style={{ color: 'var(--error)' }}>*</span></label>
+              <input
+                type="email" className="form-input" placeholder="jane@company.com"
+                value={form.email}
+                onChange={e => set('email', e.target.value)}
+                style={{ borderColor: errors.email ? 'var(--error)' : undefined }}
+              />
+              {fieldError('email')}
+            </div>
+
+            {/* Phone */}
+            <div className="form-group" style={{ marginBottom: '0.875rem' }}>
+              <label className="form-label">Phone <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                type="tel" className="form-input" placeholder="+1 555 000 0000"
+                value={form.phone}
+                onChange={e => set('phone', e.target.value)}
+                style={{ borderColor: errors.phone ? 'var(--error)' : undefined }}
+              />
+              {fieldError('phone')}
+            </div>
 
             {/* Role */}
             <div className="form-group" style={{ marginBottom: '0.875rem' }}>
@@ -227,7 +359,7 @@ function InviteModal({ stores, onClose, onInvited }) {
                       flex: 1, padding: '0.6rem 0.5rem',
                       border: `1.5px solid ${form.role === r.value ? r.color : 'var(--border-color)'}`,
                       borderRadius: 'var(--radius-md)',
-                      background: form.role === r.value ? `${r.bg}` : 'var(--bg-tertiary)',
+                      background: form.role === r.value ? r.bg : 'var(--bg-tertiary)',
                       color: form.role === r.value ? r.color : 'var(--text-muted)',
                       fontWeight: form.role === r.value ? 700 : 500,
                       fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s',
@@ -248,47 +380,97 @@ function InviteModal({ stores, onClose, onInvited }) {
               <StoreAssignment
                 role={form.role}
                 storeIds={storeIds}
-                setStoreIds={setStoreIds}
+                setStoreIds={(val) => { setStoreIds(val); setErrors(e => ({ ...e, storeIds: undefined })); }}
                 stores={stores}
               />
+              {fieldError('storeIds')}
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '0.875rem' }} disabled={loading}>
-              {loading ? <Loader size={16} className="animate-spin" /> : 'Send invite'}
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+              onClick={handleNext}
+            >
+              Next: Set Password &amp; PIN →
             </button>
-          </form>
+          </div>
+
+        /* ── Step 2: Password & PIN ── */
         ) : (
           /* Success — show temp password */
           <div style={{ textAlign: 'center' }}>
             <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--brand-12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
               <UserPlus size={24} color="var(--accent-primary)" />
             </div>
-            <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
-              {created.user.name} added!
-            </p>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-              Share these credentials securely. The user should change their password on first login.
-            </p>
 
-            <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: '1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Email</div>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>{created.user.email}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Temporary password</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <code style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.95rem', color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
-                  {showPw ? created.tempPassword : '••••••••'}
-                </code>
-                <button onClick={() => setShowPw(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem' }}>
-                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-                <button onClick={copyPw} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '0.25rem' }}>
-                  <Copy size={16} />
+            {/* Confirm Password */}
+            <div className="form-group" style={{ marginBottom: '0.875rem' }}>
+              <label className="form-label">Confirm password <span style={{ color: 'var(--error)' }}>*</span></label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showConfirmPw ? 'text' : 'password'}
+                  className="form-input"
+                  placeholder="Re-enter password"
+                  value={confirmPassword}
+                  onChange={e => { setConfirmPassword(e.target.value); setErrors(er => ({ ...er, confirmPassword: undefined })); }}
+                  style={{ paddingRight: '2.5rem', borderColor: errors.confirmPassword ? 'var(--error)' : undefined }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPw(v => !v)}
+                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.2rem', display: 'flex' }}
+                >
+                  {showConfirmPw ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
+              {fieldError('confirmPassword')}
             </div>
 
-            <button className="btn btn-primary" style={{ width: '100%' }} onClick={onClose}>Done</button>
-          </div>
+            {/* PIN */}
+            <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+              <label className="form-label">
+                Register &amp; Clock-in PIN (4–6 digits)
+                {['cashier', 'manager', 'staff'].includes(form.role)
+                  ? <span style={{ color: 'var(--error)' }}> *</span>
+                  : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}> (optional for admin)</span>
+                }
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPin ? 'text' : 'password'}
+                  inputMode="numeric"
+                  pattern="[0-9]{4,6}"
+                  maxLength={6}
+                  className="form-input"
+                  placeholder="e.g. 1357"
+                  value={pin}
+                  onChange={e => { setPin(e.target.value.replace(/\D/g, '')); setErrors(er => ({ ...er, pin: undefined })); }}
+                  style={{ paddingRight: '2.5rem', letterSpacing: pin ? '0.25em' : undefined, borderColor: errors.pin ? 'var(--error)' : undefined }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin(v => !v)}
+                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.2rem', display: 'flex' }}
+                >
+                  {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {fieldError('pin')}
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'block' }}>
+                This PIN is used both to sign in to the register and to clock in/out
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.875rem' }}
+              disabled={loading}
+            >
+              {loading ? <Loader size={16} className="animate-spin" /> : 'Create User'}
+            </button>
+          </form>
         )}
       </div>
     </div>
@@ -401,6 +583,9 @@ export default function UserManagement() {
     });
   };
 
+  // Backwards-compatible display name
+  const displayName = (u) => u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || '?';
+
   return (
     <div className="layout-container">
       <Sidebar />
@@ -489,6 +674,7 @@ export default function UserManagement() {
                     const isFixed  = FIXED_ROLES.includes(u.role);
                     const updating = updatingId === u.id;
                     const removing = removingId === u.id;
+                    const uName    = displayName(u);
 
                     return (
                       <tr key={u.id}
@@ -499,10 +685,10 @@ export default function UserManagement() {
                         {/* User */}
                         <td style={{ padding: '0.875rem 0.75rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <Initials name={u.name} />
+                            <Initials name={uName} />
                             <div>
                               <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
-                                {u.name}{isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>(you)</span>}
+                                {uName}{isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>(you)</span>}
                               </div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.email}</div>
                             </div>
@@ -550,8 +736,8 @@ export default function UserManagement() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                             {['cashier', 'staff', 'manager'].includes(u.role) && (
                               <button
-                                onClick={() => { setPinModal({ userId: u.id, userName: u.name }); setPinValue(''); setPinError(''); }}
-                                title="Set POS PIN"
+                                onClick={() => { setPinModal({ userId: u.id, userName: uName }); setPinValue(''); setPinError(''); }}
+                                title="Set PIN"
                                 style={{
                                   background: 'var(--brand-10)', border: '1px solid var(--brand-30)',
                                   color: 'var(--accent-primary)', cursor: 'pointer',
@@ -562,12 +748,12 @@ export default function UserManagement() {
                                 onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-20)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'var(--brand-10)'}
                               >
-                                PIN
+                                Set PIN
                               </button>
                             )}
                             {!isFixed && !isSelf && (
                               <button
-                                onClick={() => handleRemove(u.id, u.name)}
+                                onClick={() => handleRemove(u.id, uName)}
                                 disabled={removing}
                                 title="Remove from organisation"
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', borderRadius: '6px', transition: 'color 0.15s' }}
@@ -597,7 +783,7 @@ export default function UserManagement() {
         />
       )}
 
-      {/* PIN Modal */}
+      {/* PIN Modal — Change PIN for existing user */}
       {pinModal && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
@@ -610,10 +796,10 @@ export default function UserManagement() {
             borderRadius: 16, padding: '2rem', width: '100%', maxWidth: 380,
           }}>
             <h3 style={{ color: '#f1f5f9', fontWeight: 800, fontSize: '1.1rem', margin: '0 0 4px' }}>
-              Set POS PIN
+              Set PIN
             </h3>
             <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0 0 1.5rem' }}>
-              {pinModal.userName} will use this PIN to sign in at the register.
+              {pinModal.userName} will use this PIN to sign in at the register and to clock in/out.
             </p>
 
             {pinError && (

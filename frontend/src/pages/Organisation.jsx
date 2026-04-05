@@ -306,6 +306,9 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
   );
 }
 
+/* ── Validation helpers ──────────────────────────────────────────────────── */
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim());
+
 /* ── Shared helpers ───────────────────────────────────────────────────────── */
 const TIMEZONES = [
   { label: 'Eastern  (ET)',  value: 'America/New_York'    },
@@ -391,6 +394,7 @@ export default function Organisation() {
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState(null);
   const [showPlan,  setShowPlan]  = useState(false);
+  const [formErrors, setFormErrors] = useState({});
 
   // Editable fields
   const [name,           setName]           = useState('');
@@ -426,6 +430,11 @@ export default function Organisation() {
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async () => {
+    if (billingEmail && !validateEmail(billingEmail)) {
+      setFormErrors(prev => ({ ...prev, billingEmail: 'Please enter a valid email address' }));
+      return;
+    }
+    setFormErrors(prev => ({ ...prev, billingEmail: '' }));
     setSaving(true);
     try {
       const updated = await updateMyTenant({
@@ -622,7 +631,22 @@ export default function Organisation() {
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label">Billing email</label>
-                  <input type="email" className="form-input" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)} placeholder="billing@company.com" />
+                  <input
+                    type="email"
+                    className="form-input"
+                    style={{ borderColor: formErrors.billingEmail ? 'var(--error)' : undefined }}
+                    value={billingEmail}
+                    onChange={(e) => setBillingEmail(e.target.value)}
+                    onBlur={() => {
+                      if (billingEmail && !validateEmail(billingEmail)) {
+                        setFormErrors(prev => ({ ...prev, billingEmail: 'Please enter a valid email address' }));
+                      } else {
+                        setFormErrors(prev => ({ ...prev, billingEmail: '' }));
+                      }
+                    }}
+                    placeholder="billing@company.com"
+                  />
+                  {formErrors.billingEmail && <p style={{ color: 'var(--error)', fontSize: '0.75rem', margin: '0.25rem 0 0' }}>{formErrors.billingEmail}</p>}
                 </div>
               </div>
             </SectionCard>

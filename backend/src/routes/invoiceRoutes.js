@@ -15,14 +15,24 @@ import { protect, authorize } from '../middleware/auth.js';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+// Absolute path — resolves correctly regardless of where Node is started from.
+// Resolves to <repo-root>/backend/uploads
+const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '../../uploads');
 
 const router = express.Router();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = './uploads';
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
+    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     cb(null, `${uuidv4()}-${file.originalname}`);

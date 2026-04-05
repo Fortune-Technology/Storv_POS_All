@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import './analytics.css';
 import {
   Store, Plus, X, Loader, AlertCircle, RefreshCw,
   MapPin, Clock, Pencil, PowerOff, Eye, EyeOff, Save,
-  Monitor, DollarSign, Zap, CheckCircle2, Radio, Palette,
+  Monitor, DollarSign, Zap, CheckCircle2, Radio,
 } from 'lucide-react';
 import { getStores, createStore, updateStore, deactivateStore } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
@@ -393,7 +392,6 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
 function StoreCard({ store, onEdit, onDeactivate }) {
   const [removing, setRemoving] = useState(false);
   const { activeStoreId, switchStore } = useStore();
-  const navigate = useNavigate();
   const isActive = store.id === activeStoreId;
 
   const tzLabel = TIMEZONES.find(t => t.value === store.timezone)?.label || store.timezone;

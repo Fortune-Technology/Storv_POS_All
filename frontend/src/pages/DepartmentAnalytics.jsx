@@ -6,7 +6,6 @@ import {
 import { Store, TrendingUp, BarChart2, RefreshCw, AlertCircle } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import { getDepartmentSales, getDepartmentComparison } from '../services/api';
-import { toast } from 'react-toastify';
 import './analytics.css';
 
 /* ─── Constants ─── */
@@ -86,7 +85,6 @@ export default function DepartmentAnalytics() {
     } catch (e) {
       const msg = e.response?.data?.error || e.message;
       setError(msg);
-      toast.error(msg);
     } finally {
       setLoading(false);
     }

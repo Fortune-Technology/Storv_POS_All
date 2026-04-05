@@ -21,6 +21,8 @@ const TIMEZONES = [
 const toSlug = (str) =>
   str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim());
+
 /* ── Step indicator ─────────────────────────────────────────────────────── */
 function StepDots({ current, total }) {
   return (
@@ -63,6 +65,7 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const [step,    setStep]    = useState(0);
   const [loading, setLoading] = useState(false);
+  const [errors,  setErrors]  = useState({});
 
   // Step 0 — org
   const [orgName,   setOrgName]   = useState('');
@@ -90,6 +93,11 @@ export default function Onboarding() {
   const handleOrgNext = async (e) => {
     e.preventDefault();
     if (!orgName.trim()) return;
+    if (billing && !validateEmail(billing)) {
+      setErrors(prev => ({ ...prev, billing: 'Please enter a valid email address' }));
+      return;
+    }
+    setErrors(prev => ({ ...prev, billing: '' }));
     setLoading(true);
     try {
       const tenant = await createTenant({
@@ -220,10 +228,19 @@ export default function Onboarding() {
         <input
           type="email"
           className="form-input"
+          style={{ borderColor: errors.billing ? 'var(--error)' : undefined }}
           placeholder="billing@yourcompany.com"
           value={billing}
           onChange={(e) => setBilling(e.target.value)}
+          onBlur={() => {
+            if (billing && !validateEmail(billing)) {
+              setErrors(prev => ({ ...prev, billing: 'Please enter a valid email address' }));
+            } else {
+              setErrors(prev => ({ ...prev, billing: '' }));
+            }
+          }}
         />
+        {errors.billing && <p style={{ color: 'var(--error)', fontSize: '0.75rem', margin: '0.25rem 0 0' }}>{errors.billing}</p>}
       </Field>
 
       <button

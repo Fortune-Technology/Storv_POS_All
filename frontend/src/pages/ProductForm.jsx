@@ -251,20 +251,37 @@ function DeptManager({ departments, onClose, onRefresh }) {
 // Inline Vendor Manager
 // ─────────────────────────────────────────────────────────────────────────────
 
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim());
+const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
+
 function VendorManager({ vendors, onClose, onRefresh }) {
   const [list, setList] = useState(vendors);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [vendorErrors, setVendorErrors] = useState({});
 
   const startEdit = (v) => {
     setEditing(v.id || 'new');
+    setVendorErrors({});
     setForm({ name:v.name??'', code:v.code??'', contactName:v.contactName??'',
       email:v.email??'', phone:v.phone??'', terms:v.terms??'', accountNo:v.accountNo??'', active:v.active??true });
   };
 
   const save = async () => {
     if (!form.name) { toast.error('Vendor name required'); return; }
+    const newErrors = {};
+    if (form.email && !validateEmail(form.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    if (form.phone && !validatePhone(form.phone)) {
+      newErrors.phone = 'Please enter a valid phone number (e.g. +1 555 000 0000)';
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setVendorErrors(newErrors);
+      return;
+    }
+    setVendorErrors({});
     setSaving(true);
     try {
       const res = editing === 'new'
@@ -325,8 +342,42 @@ function VendorManager({ vendors, onClose, onRefresh }) {
             {editing ? (
               <>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem' }}>
-                  {[['Vendor Name *','name','span 2'],['Short Code','code',''],['Contact','contactName',''],
-                    ['Email','email',''],['Phone','phone',''],['Terms','terms','Net 30'],['Account #','accountNo','']].map(([label,key,col])=>(
+                  {[['Vendor Name *','name','span 2'],['Short Code','code',''],['Contact','contactName','']].map(([label,key,col])=>(
+                    <div key={key} style={{ gridColumn: col||'span 1' }}>
+                      <label style={lbl}>{label}</label>
+                      <input className="form-input" style={{ width:'100%' }} value={form[key]??''}
+                        onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} />
+                    </div>
+                  ))}
+                  <div style={{ gridColumn:'span 1' }}>
+                    <label style={lbl}>Email</label>
+                    <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.email ? 'var(--error)' : undefined }}
+                      value={form.email??''}
+                      onChange={e=>setForm(f=>({...f,email:e.target.value}))}
+                      onBlur={()=>{
+                        if (form.email && !validateEmail(form.email)) {
+                          setVendorErrors(prev=>({...prev, email:'Please enter a valid email address'}));
+                        } else {
+                          setVendorErrors(prev=>({...prev, email:''}));
+                        }
+                      }} />
+                    {vendorErrors.email && <p style={{ color:'var(--error)', fontSize:'0.7rem', margin:'0.2rem 0 0' }}>{vendorErrors.email}</p>}
+                  </div>
+                  <div style={{ gridColumn:'span 1' }}>
+                    <label style={lbl}>Phone</label>
+                    <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.phone ? 'var(--error)' : undefined }}
+                      value={form.phone??''}
+                      onChange={e=>setForm(f=>({...f,phone:e.target.value}))}
+                      onBlur={()=>{
+                        if (form.phone && !validatePhone(form.phone)) {
+                          setVendorErrors(prev=>({...prev, phone:'Please enter a valid phone number (e.g. +1 555 000 0000)'}));
+                        } else {
+                          setVendorErrors(prev=>({...prev, phone:''}));
+                        }
+                      }} />
+                    {vendorErrors.phone && <p style={{ color:'var(--error)', fontSize:'0.7rem', margin:'0.2rem 0 0' }}>{vendorErrors.phone}</p>}
+                  </div>
+                  {[['Terms','terms','Net 30'],['Account #','accountNo','']].map(([label,key,col])=>(
                     <div key={key} style={{ gridColumn: col||'span 1' }}>
                       <label style={lbl}>{label}</label>
                       <input className="form-input" style={{ width:'100%' }} value={form[key]??''}

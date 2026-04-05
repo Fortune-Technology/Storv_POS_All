@@ -47,9 +47,9 @@ export default function PinLoginScreen() {
     if (p.length < 4 || loading) return;
     try {
       await pinLogin(p, station?.stationToken);
-      // App.jsx will re-render to POSScreen automatically
-    } catch {
+    } catch (err) {
       triggerShake();
+      // error is stored in useAuthStore and displayed by the error block below
     }
   }, [pinLogin, loading, station]);
 

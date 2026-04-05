@@ -5,16 +5,45 @@ import { signup } from '../services/api';
 import { toast } from 'react-toastify';
 import StoreveuLogo from '../components/StoreveuLogo';
 
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim());
+const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
+
 const Signup = () => {
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' });
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const handleBlur = (field) => {
+    if (field === 'email' && formData.email && !validateEmail(formData.email)) {
+      setErrors(prev => ({ ...prev, email: 'Please enter a valid email address' }));
+    } else if (field === 'email') {
+      setErrors(prev => ({ ...prev, email: '' }));
+    }
+    if (field === 'phone' && formData.phone && !validatePhone(formData.phone)) {
+      setErrors(prev => ({ ...prev, phone: 'Please enter a valid phone number (e.g. +1 555 000 0000)' }));
+    } else if (field === 'phone') {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const newErrors = {};
+    if (formData.email && !validateEmail(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    if (formData.phone && !validatePhone(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number (e.g. +1 555 000 0000)';
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
     setLoading(true);
     try {
-      const { data } = await signup(formData);
+      const name = `${formData.firstName.trim()} ${formData.lastName.trim()}`.trim();
+      const { data } = await signup({ ...formData, name });
       localStorage.setItem('user', JSON.stringify(data));
       toast.success("Account created! Let's set up your organisation.");
       navigate('/onboarding');
@@ -42,19 +71,36 @@ const Signup = () => {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Full Name</label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><UserIcon size={18} /></span>
-              <input 
-                type="text" 
-                className="form-input" 
-                style={{ paddingLeft: '3rem' }} 
-                placeholder="John Doe"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-              />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">First Name</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><UserIcon size={18} /></span>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ paddingLeft: '3rem' }}
+                  placeholder="John"
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Last Name</label>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><UserIcon size={18} /></span>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ paddingLeft: '3rem' }}
+                  placeholder="Doe"
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                  required
+                />
+              </div>
             </div>
           </div>
 
@@ -62,32 +108,36 @@ const Signup = () => {
             <label className="form-label">Email Address</label>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><Mail size={18} /></span>
-              <input 
-                type="email" 
-                className="form-input" 
-                style={{ paddingLeft: '3rem' }} 
+              <input
+                type="email"
+                className="form-input"
+                style={{ paddingLeft: '3rem', borderColor: errors.email ? 'var(--error)' : undefined }}
                 placeholder="name@company.com"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onBlur={() => handleBlur('email')}
                 required
               />
             </div>
+            {errors.email && <p style={{ color: 'var(--error)', fontSize: '0.75rem', margin: '0.25rem 0 0' }}>{errors.email}</p>}
           </div>
 
           <div className="form-group">
             <label className="form-label">Phone Number</label>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><Phone size={18} /></span>
-              <input 
-                type="tel" 
-                className="form-input" 
-                style={{ paddingLeft: '3rem' }} 
+              <input
+                type="tel"
+                className="form-input"
+                style={{ paddingLeft: '3rem', borderColor: errors.phone ? 'var(--error)' : undefined }}
                 placeholder="+1 (234) 567 890"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onBlur={() => handleBlur('phone')}
                 required
               />
             </div>
+            {errors.phone && <p style={{ color: 'var(--error)', fontSize: '0.75rem', margin: '0.25rem 0 0' }}>{errors.phone}</p>}
           </div>
 
           <div className="form-group">

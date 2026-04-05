@@ -255,7 +255,6 @@ export default function SalesAnalytics() {
     } catch (e) {
       const msg = e.response?.data?.error || e.message;
       setError(msg);
-      toast.error(msg);
     } finally {
       setLoading(false);
     }

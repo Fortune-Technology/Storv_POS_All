@@ -25,6 +25,7 @@ export const getTenantUsers = async (req, res, next) => {
         email: true,
         phone: true,
         role: true,
+        posPin: true,
         createdAt: true,
         stores: {
           select: {
@@ -35,10 +36,12 @@ export const getTenantUsers = async (req, res, next) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Flatten store list + add _id alias for frontend compat
+    // Flatten store list + add _id alias for frontend compat + hasPIN flag
     const result = users.map(u => ({
       ...u,
       _id:    u.id,
+      hasPIN: !!u.posPin,
+      posPin: undefined, // never expose the hash
       stores: u.stores.map(us => ({ ...us.store, _id: us.store.id })),
     }));
 
@@ -69,10 +72,21 @@ export const inviteUser = async (req, res, next) => {
       });
     }
 
-    const { name, email, phone, role, storeIds } = req.body;
+    const { firstName, lastName, name, email, phone, role, storeIds, password, pin } = req.body;
 
-    if (!name || !email) {
+    // Require either firstName+lastName or legacy name, plus email
+    if ((!firstName && !lastName && !name) || !email) {
       return res.status(400).json({ error: 'Name and email are required.' });
+    }
+
+    // Email format validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address format.' });
+    }
+
+    // Phone format validation (if provided)
+    if (phone && !/^\+?[\d\s\-\(\)]{7,15}$/.test(phone.replace(/\s/g, ''))) {
+      return res.status(400).json({ error: 'Invalid phone number format.' });
     }
 
     const effectiveRole = role || 'cashier';
@@ -90,24 +104,37 @@ export const inviteUser = async (req, res, next) => {
       return res.status(400).json({ error: 'A user with this email already exists.' });
     }
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '!A1';
-    const hashed = await bcrypt.hash(tempPassword, 12);
+    // Build full name — prefer split fields, fall back to legacy combined name
+    const nameFull = firstName && lastName
+      ? `${firstName.trim()} ${lastName.trim()}`
+      : (name || '').trim();
+
+    // Password: use provided password or generate a temp one
+    const tempPassword = password ? null : (Math.random().toString(36).slice(-8) + '!A1');
+    const hashed = await bcrypt.hash(password || tempPassword, 12);
+
+    // PIN: hash if provided and valid
+    let posPin = null;
+    if (pin && /^\d{4,6}$/.test(pin)) {
+      posPin = await bcrypt.hash(pin, 12);
+    }
 
     const user = await prisma.user.create({
       data: {
-        name:     name.trim(),
+        name:     nameFull,
         email:    email.toLowerCase().trim(),
         phone:    phone || null,
         password: hashed,
+        posPin,
         role:     effectiveRole,
         orgId:    req.orgId,
-        stores: storeList.length > 0
+        stores:   storeList.length > 0
           ? { create: storeList.map(sid => ({ storeId: sid })) }
           : undefined,
       },
     });
 
-    res.status(201).json({
+    const responseBody = {
       user: {
         id:        user.id,
         _id:       user.id,
@@ -115,10 +142,17 @@ export const inviteUser = async (req, res, next) => {
         email:     user.email,
         role:      user.role,
         orgId:     user.orgId,
+        hasPIN:    !!user.posPin,
         createdAt: user.createdAt,
       },
-      tempPassword, // Share manually until email integration is live
-    });
+    };
+
+    // Only include tempPassword in response if the caller did NOT supply a password
+    if (tempPassword) {
+      responseBody.tempPassword = tempPassword;
+    }
+
+    res.status(201).json(responseBody);
   } catch (err) {
     next(err);
   }

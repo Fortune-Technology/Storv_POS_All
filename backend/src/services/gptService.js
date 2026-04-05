@@ -19,6 +19,10 @@ import { fromBuffer } from "pdf2pic";
 import fs from "fs/promises";
 import dotenv from "dotenv";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
 dotenv.config();
 
@@ -425,7 +429,7 @@ const generateDisplayPages = async (buffer, mimetype) => {
   let tempDir = null;
   try {
     if (mimetype === "application/pdf") {
-      tempDir = path.join("./uploads/temp", `preview_${Date.now()}`);
+      tempDir = path.join(__dirname, "../../uploads/temp", `preview_${Date.now()}`);
       await fs.mkdir(tempDir, { recursive: true });
 
       const convert = fromBuffer(buffer, {

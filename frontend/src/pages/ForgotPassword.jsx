@@ -5,13 +5,28 @@ import { forgotPassword } from '../services/api';
 import { toast } from 'react-toastify';
 import StoreveuLogo from '../components/StoreveuLogo';
 
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim());
+
 const ForgotPassword = () => {
   const [email, setEmail] = useState('');
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  const handleEmailBlur = () => {
+    if (email && !validateEmail(email)) {
+      setErrors({ email: 'Please enter a valid email address' });
+    } else {
+      setErrors({});
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (email && !validateEmail(email)) {
+      setErrors({ email: 'Please enter a valid email address' });
+      return;
+    }
     setLoading(true);
     try {
       await forgotPassword(email);
@@ -57,16 +72,18 @@ const ForgotPassword = () => {
             <label className="form-label">Email Address</label>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><Mail size={18} /></span>
-              <input 
-                type="email" 
-                className="form-input" 
-                style={{ paddingLeft: '3rem' }} 
+              <input
+                type="email"
+                className="form-input"
+                style={{ paddingLeft: '3rem', borderColor: errors.email ? 'var(--error)' : undefined }}
                 placeholder="name@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onBlur={handleEmailBlur}
                 required
               />
             </div>
+            {errors.email && <p style={{ color: 'var(--error)', fontSize: '0.75rem', margin: '0.25rem 0 0' }}>{errors.email}</p>}
           </div>
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '1rem', marginTop: '1rem' }} disabled={loading}>

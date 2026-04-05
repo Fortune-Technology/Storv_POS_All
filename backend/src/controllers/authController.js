@@ -20,16 +20,20 @@ export const signup = async (req, res, next) => {
 
     const hashed = await bcrypt.hash(password, 12);
 
+    const orgId = req.body.orgId ?? req.body.tenantId ?? 'default';
+
+    // First user in this org becomes the owner; all subsequent users are staff.
+    const existingCount = await prisma.user.count({ where: { orgId } });
+    const role = existingCount === 0 ? 'owner' : 'staff';
+
     const user = await prisma.user.create({
       data: {
         name,
         email,
         phone,
         password: hashed,
-        // orgId is required — signup without org creates a pending account
-        // The org can be created / linked separately via the onboarding flow.
-        // orgId is required — signup without org points to the default seeded organization.
-        orgId: req.body.orgId ?? req.body.tenantId ?? 'default',
+        orgId,
+        role,
       },
     });
 

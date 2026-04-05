@@ -9,13 +9,13 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'FF POS',
-        short_name: 'FF POS',
-        description: 'FutureFoods Point of Sale Terminal',
+        name: 'StoreVeu POS',
+        short_name: 'StoreVeu',
+        description: 'StoreVeu Point of Sale Terminal',
         start_url: '/',
         display: 'standalone',
         background_color: '#0f1117',
-        theme_color: '#7ac143',
+        theme_color: '#3d56b5',
         orientation: 'landscape',
         icons: [
           { src: 'icon.svg',     sizes: 'any',         type: 'image/svg+xml', purpose: 'any maskable' },
