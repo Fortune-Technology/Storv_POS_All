@@ -398,10 +398,29 @@ function InviteModal({ stores, onClose, onInvited }) {
 
         /* ── Step 2: Password & PIN ── */
         ) : (
-          /* Success — show temp password */
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--brand-12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <UserPlus size={24} color="var(--accent-primary)" />
+          <form onSubmit={handleSubmit} style={{ overflowY: 'auto', flex: 1 }}>
+            {/* Password */}
+            <div className="form-group" style={{ marginBottom: '0.875rem' }}>
+              <label className="form-label">Password <span style={{ color: 'var(--error)' }}>*</span></label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  className="form-input"
+                  placeholder="Min. 8 characters + 1 number"
+                  value={password}
+                  autoFocus
+                  onChange={e => { setPassword(e.target.value); setErrors(er => ({ ...er, password: undefined })); }}
+                  style={{ paddingRight: '2.5rem', borderColor: errors.password ? 'var(--error)' : undefined }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(v => !v)}
+                  style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.2rem', display: 'flex' }}
+                >
+                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {fieldError('password')}
             </div>
 
             {/* Confirm Password */}
@@ -458,7 +477,7 @@ function InviteModal({ stores, onClose, onInvited }) {
               </div>
               {fieldError('pin')}
               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem', display: 'block' }}>
-                This PIN is used both to sign in to the register and to clock in/out
+                Used both to sign in to the register and to clock in/out
               </span>
             </div>
 
