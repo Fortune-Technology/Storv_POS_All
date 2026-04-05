@@ -1,24 +1,29 @@
-name: Deploy Fortune POS Platform
+name: Deploy Storv POS
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "cashier-app/**"
+      - ".github/workflows/deploy.yml"
 
 concurrency:
-  group: deploy-ft-main
+  group: deploy-storv-pos-main
   cancel-in-progress: true
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Update repo
         shell: bash
         run: |
           set -e
-          cd /var/www/Fortune_POS_Platform
+          cd /var/www/Storv_POS_All
           git fetch origin
           git reset --hard origin/main
 
@@ -28,14 +33,19 @@ jobs:
           set -e
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/backend
-          nvm use 20
+          cd /var/www/Storv_POS_All/backend
           npm install
-          npx prisma db push
-          npm run db:seed -- default || true
-          pm2 restart fortuneTech-backend
+          npx prisma generate
+          npx prisma migrate deploy
+          pm2 restart storv-pos-backend
           pm2 save
+
+      - name: Verify backend is running
+        shell: bash
+        run: |
+          sleep 5
+          curl -f http://localhost:5002/health || exit 1
+          echo "✅ Backend is healthy"
 
       - name: Deploy frontend
         shell: bash
@@ -43,27 +53,46 @@ jobs:
           set -e
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/frontend
-          nvm use 20
+          cd /var/www/Storv_POS_All/frontend
+          rm -rf dist
           npm install
           npm run build
-          rm -rf /var/www/dashboard/*
-          cp -r dist/* /var/www/dashboard/
+          sudo systemctl reload nginx
 
-      - name: Deploy POS
+      - name: Deploy cashier-app
         shell: bash
         run: |
           set -e
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/cashier-app
-          nvm use 20
+          cd /var/www/Storv_POS_All/cashier-app
+          rm -rf dist
           npm install
           npm run build
-          rm -rf /var/www/pos/*
-          cp -r dist/* /var/www/pos/
+          sudo systemctl reload nginx
 
-      - name: Reload nginx
-        run: sudo systemctl reload nginx
+      - name: Verify deployments
+        shell: bash
+        run: |
+          set -e
+          echo "Checking all services..."
+          curl -f https://api-pos.thefortunetech.com/health && echo "✅ API is up"
+          curl -f https://dashboard.thefortunetech.com && echo "✅ Dashboard is up"
+          curl -f https://pos.thefortunetech.com && echo "✅ POS is up"
+          pm2 list
+
+      - name: Notify success
+        if: success()
+        shell: bash
+        run: |
+          echo "🚀 Storv POS deployed successfully!"
+          echo "Backend:    https://api-pos.thefortunetech.com"
+          echo "Dashboard:  https://dashboard.thefortunetech.com"
+          echo "POS:        https://pos.thefortunetech.com"
+
+      - name: Notify failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "❌ Deployment failed! Check logs above."
+          pm2 logs storv-pos-backend --lines 50 --nostream
