@@ -6,6 +6,17 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+// Absolute upload directory — resolves to <repo-root>/backend/uploads
+// regardless of where Node is started from (PM2, systemd, Docker, etc.)
+const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '../../uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/postgres.js';
 import { parseFile, streamProcessFile, getFileType } from '../utils/fileProcessor.js';
@@ -54,11 +65,7 @@ router.use(authorize('admin', 'store'));
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadDir = process.env.UPLOAD_DIR || './uploads';
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
+        cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
         cb(null, `${uuidv4()}-${file.originalname}`);
@@ -179,8 +186,7 @@ router.post('/transform', async (req, res, next) => {
 
         const transformId = uuidv4();
         const timestamp   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const outputDir   = process.env.UPLOAD_DIR || './uploads';
-        const outputPath  = path.join(outputDir, `export_${timestamp}_${transformId}.csv`);
+        const outputPath  = path.join(UPLOAD_DIR, `export_${timestamp}_${transformId}.csv`);
 
         await prisma.transform.create({
             data: { transformId, uploadId, outputPath, outputFormat: 'csv', vendorId, status: 'processing' },
