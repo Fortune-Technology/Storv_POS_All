@@ -3,10 +3,8 @@
  * GET /api/reports/employees?storeId=&from=&to=
  */
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { Users, Clock, ShoppingCart, DollarSign, RefreshCw, AlertCircle } from 'lucide-react';
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 function fmt$(n) {
   return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36,9 +34,9 @@ export default function EmployeeReports() {
     setLoading(true);
     setError('');
     try {
-      const res = await axios.get(`${API}/reports/employees`, {
+      // Use central api service which handles baseURL and auth headers automatically
+      const res = await api.get('/reports/employees', {
         params: { storeId, from, to },
-        headers: { Authorization: `Bearer ${user?.token}` },
       });
       setData(res.data);
     } catch (err) {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/apis',
   timeout: 8000,
 });
 
@@ -12,7 +12,7 @@ api.interceptors.request.use(cfg => {
     try {
       const { token } = JSON.parse(raw);
       if (token) cfg.headers.Authorization = `Bearer ${token}`;
-    } catch {}
+    } catch { }
   }
   return cfg;
 });
