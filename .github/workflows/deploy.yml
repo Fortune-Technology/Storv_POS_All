@@ -1,12 +1,17 @@
-name: Deploy Fortune POS Platform
+name: Deploy Storv POS
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "cashier-app/**"
+      - ".github/workflows/deploy.yml"
 
 concurrency:
-  group: deploy-ft-main
+  group: deploy-storv-pos-main
   cancel-in-progress: true
 
 jobs:
@@ -18,98 +23,76 @@ jobs:
         shell: bash
         run: |
           set -e
-          cd /var/www/Fortune_POS_Platform
+          cd /var/www/Storv_POS_All
           git fetch origin
           git reset --hard origin/main
 
-      # ---------------- BACKEND ----------------
       - name: Deploy backend
         shell: bash
         run: |
           set -e
-
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/backend
-          nvm use 20
-
-          echo "📦 Installing dependencies..."
+          cd /var/www/Storv_POS_All/backend
           npm install
-
-          echo "🗄️ Running Prisma..."
           npx prisma generate
-          npx prisma db push
-
-          echo "🌱 Seeding (safe)..."
-          npm run seed || true
-
-          echo "🔥 Killing rogue processes on port 5001..."
-          fuser -k 5001/tcp || true
-
-          echo "🚀 Restarting backend with PM2..."
-          pm2 delete ft-backend || true
-          pm2 start src/server.js --name ft-backend
+          npx prisma migrate deploy
+          pm2 restart storv-pos-backend
           pm2 save
 
-          echo "⏳ Waiting for server..."
+      - name: Verify backend is running
+        shell: bash
+        run: |
           sleep 5
+          curl -f http://localhost:5002/health || exit 1
+          echo "✅ Backend is healthy"
 
-          echo "🧪 Health check..."
-          curl -f http://localhost:5001/health
-
-      # ---------------- DASHBOARD ----------------
-      - name: Deploy dashboard frontend
+      - name: Deploy frontend
         shell: bash
         run: |
           set -e
-
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/frontend
-          nvm use 20
-
-          echo "📦 Installing frontend deps..."
-          npm install
-
-          echo "🏗️ Building dashboard..."
+          cd /var/www/Storv_POS_All/frontend
           rm -rf dist
-          npm run build
-
-          echo "📂 Deploying dashboard..."
-          rm -rf /var/www/dashboard/*
-          cp -r dist/* /var/www/dashboard/
-
-      # ---------------- POS ----------------
-      - name: Deploy POS app
-        shell: bash
-        run: |
-          set -e
-
-          export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-          cd /var/www/Fortune_POS_Platform/cashier-app
-          nvm use 20
-
-          echo "📦 Installing POS deps..."
           npm install
-
-          echo "🏗️ Building POS..."
-          rm -rf dist
           npm run build
-
-          echo "📂 Deploying POS..."
-          rm -rf /var/www/pos/*
-          cp -r dist/* /var/www/pos/
-
-      # ---------------- NGINX ----------------
-      - name: Reload nginx
-        run: |
-          echo "🔄 Reloading nginx..."
           sudo systemctl reload nginx
 
-      # ---------------- SUCCESS ----------------
-      - name: Deployment complete
-        run: echo "✅ Fortune POS deployed successfully!"
+      - name: Deploy cashier-app
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd /var/www/Storv_POS_All/cashier-app
+          rm -rf dist
+          npm install
+          npm run build
+          sudo systemctl reload nginx
+
+      - name: Verify deployments
+        shell: bash
+        run: |
+          set -e
+          echo "Checking all services..."
+          curl -f https://api-pos.thefortunetech.com/health && echo "✅ API is up"
+          curl -f https://dashboard.thefortunetech.com && echo "✅ Dashboard is up"
+          curl -f https://pos.thefortunetech.com && echo "✅ POS is up"
+          pm2 list
+
+      - name: Notify success
+        if: success()
+        shell: bash
+        run: |
+          echo "🚀 Storv POS deployed successfully!"
+          echo "Backend:    https://api-pos.thefortunetech.com"
+          echo "Dashboard:  https://dashboard.thefortunetech.com"
+          echo "POS:        https://pos.thefortunetech.com"
+
+      - name: Notify failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "❌ Deployment failed! Check logs above."
+          pm2 logs storv-pos-backend --lines 50 --nostream
