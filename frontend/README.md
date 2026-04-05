@@ -66,7 +66,13 @@ A side-by-side review panel that uses Azure Intelligence and GPT-4o-mini to extr
 ### 4. Sales Predictions
 Uses Holt-Winters Triple Exponential Smoothing to forecast future sales based on historical trends, seasonal patterns, and day-of-week factors.
 
-### 5. Employee Reports
+### 5. Lottery & Compliance
+A high-integrity management system for scratch-ticket inventory, box activation, and automated EOD reconciliation.
+
+### 6. Public Marketing Site
+A high-performance promotional site with landing pages and product feature deep-dives, optimized for SEO.
+
+### 7. Employee Reports
 Comprehensive sales performance analytics per staff member, linked to the native POS transaction logs.
 
 ---

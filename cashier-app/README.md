@@ -112,6 +112,7 @@ The `dist/` folder will contain the production-ready PWA with a generated servic
 - **Smart Deposits:** Automatically calculates Maine-specific bottle deposits based on product size.
 - **EBT Support:** Flags eligible items and separates EBT vs Non-EBT totals.
 - **PIN Security:** Rapid cashier switching without full credential entry.
+- **Lottery Integration:** Unified sale/payout modal with qty-based pricing and automated EOD box reconciliation.
 - **Branded UI:** Dynamically pulls store logos and theme colors from the portal.
 
 ---

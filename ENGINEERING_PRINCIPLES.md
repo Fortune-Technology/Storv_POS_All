@@ -17,7 +17,14 @@
 - ✅ Minimal complexity in each function
 - ✅ Avoided over-engineering
 
-### 3. **SOLID Principles**
+### 3. **PostgreSQL & Prisma 5 (Standardized ORM)**
+
+- ✅ Type-safe database queries via Prisma
+- ✅ Automated schema synchronization with `npx prisma db push`
+- ✅ PostgreSQL 16 for all relational data (Catalog, Transactions, Identity)
+- ✅ Relation-heavy logic (Multi-tenant scoping) handled natively by DB constraints
+
+### 4. **SOLID Principles**
 
 #### Single Responsibility
 
@@ -92,14 +99,13 @@
 - ✅ Role-based access control
 - ✅ Input validation with Joi
 - ✅ Rate limiting implemented
-- ✅ CORS configuration
-- ✅ Helmet for security headers
-- ✅ SQL injection prevention (MongoDB parameterized queries)
+- ✅ SQL injection prevention (Prisma prepared statements)
+- ✅ XSS prevention in CSR rendering
 
 ### 11. **Scalability First**
 
-- ✅ MongoDB indexing for performance
-- ✅ Pagination implemented
+- ✅ **PostgreSQL indexing** on UPC, orgId, and storeId for sub-10ms lookups
+- ✅ Pagination implemented for large catalogs and transaction histories
 - ✅ Async/await for non-blocking operations
 - ✅ Stateless JWT authentication (horizontal scaling ready)
 - ✅ S3 for file storage (scalable)
@@ -142,9 +148,9 @@
 
 ## ⚡ Performance Optimizations
 
-- ✅ MongoDB indexes on frequently queried fields
-- ✅ Pagination for large datasets
-- ✅ Lazy loading for images
+- ✅ **PostgreSQL indexes** on frequently queried fields (upc, storeId)
+- ✅ Pagination for large catalog datasets (Master/Store products)
+- ✅ Lazy loading for dashboard charts and images
 - ✅ Debounce for search inputs
 - ✅ Throttle for scroll events
 - ✅ React.memo for expensive components (can be added)

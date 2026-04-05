@@ -17,6 +17,7 @@ The backend REST API for the Future Foods business portal and POS terminal syste
 | **bcryptjs** | Password and PIN hashing |
 | **Multer** | File upload handling |
 | **Open-Meteo API** | Weather data syncing |
+| **FareCalculationService**| Delivery pricing source-of-truth |
 
 ---
 
@@ -76,6 +77,8 @@ backend/
 | POST | `/products` | Add new product to catalog |
 | PUT | `/products/:id`| Update product details |
 | GET | `/tax-rules` | Fetch Maine/configured taxes |
+| GET/POST | `/fees` | Service fee management |
+| GET/POST | `/deposits` | Container deposit mappings |
 
 ### POS Terminal (`/api/pos-terminal`) 🔒
 Used by the **Cashier App**.

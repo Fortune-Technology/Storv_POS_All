@@ -37,6 +37,7 @@ A modern, cloud-first retail management system for independent convenience, groc
 | Layer | Technology |
 |-------|-----------|
 | Portal Frontend | React 19, Vite 7, React Router v6, Redux Toolkit |
+| Marketing Site | React 19, Lucide, Framer Motion (animations) |
 | Cashier Terminal | React 18, Vite 5, Zustand, Dexie.js (IndexedDB), PWA |
 | Charts | Recharts (portal), Pure SVG (cashier/lottery) |
 | Icons | Lucide React |
@@ -239,8 +240,11 @@ VITE_API_URL="http://localhost:5000/api"
 
 ## 5. Frontend Pages & Routes
 
-| Route | Page | Description |
-|-------|------|-------------|
+| `/` | Home.jsx | Marketing Home |
+| `/about` | About.jsx | About Storv |
+| `/features` | Features.jsx | Product features |
+| `/pricing` | Pricing.jsx | Subscription plans |
+| `/contact` | Contact.jsx | Get in touch |
 | `/login` | Login.jsx | JWT login |
 | `/signup` | Signup.jsx | New org registration |
 | `/portal/dashboard` | Dashboard.jsx | KPI overview |
@@ -265,6 +269,8 @@ VITE_API_URL="http://localhost:5000/api"
 | `/portal/stores` | StoreManagement.jsx | Store management |
 | `/portal/users` | UserManagement.jsx | User management |
 | `/portal/lottery` | **Lottery.jsx** | 🎰 Full lottery management |
+| `/portal/fees` | **FeesMappings.jsx** | 💰 Service fee management |
+| `/portal/deposits` | **DepositMapPage.jsx** | 🧴 Deposit mapping |
 | `/portal/bulk-import` | BulkImport.jsx | Bulk product import |
 | `/portal/ecomm` | EcommIntegration.jsx | eCommerce sync |
 
@@ -751,6 +757,21 @@ npx prisma db push
 ---
 
 ## 14. Changelog
+
+### April 2026 — Marketing Site & UX Overhaul
+
+#### Marketing Site
+- Added complete multi-page public marketing site (`/`, `/about`, `/features`, `/pricing`, `/contact`).
+- Responsive interactive design with Framer Motion animations.
+- Centralized `Link` navigation for zero-reload browsing.
+
+#### New Portal Modules
+- **Fees & Mappings:** New module for managing service fees and delivery charges.
+- **Deposit Mapping:** Advanced tool for mapping container deposits across multi-state operations.
+
+#### Performance & Sync
+- **PostgreSQL Stability:** Synchronized Prisma schema with PostgreSQL; switched to `npx prisma db push` as the primary sync method.
+- **Delivery Standardisation:** Implemented `FareCalculationService` as single source of truth for all pricing.
 
 ### April 2026 — Lottery Module (Full Build)
 

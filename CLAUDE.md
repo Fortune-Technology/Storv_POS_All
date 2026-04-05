@@ -55,16 +55,19 @@
 | `backend/src/middleware/scopeToTenant.js` | `req.orgId`, `req.storeId` injection |
 | `backend/src/controllers/lotteryController.js` | Full lottery module logic |
 | `backend/src/controllers/posTerminalController.js` | Cashier app API (creates transactions, handles lottery items) |
+| `backend/src/controllers/feeMappingController.js` | Service fees and delivery charges |
 | `backend/src/controllers/catalogController.js` | Product catalog CRUD |
 | `backend/src/controllers/salesController.js` | Analytics + Holt-Winters predictions |
 
 ### Portal (frontend/)
 | File | Purpose |
 |------|---------|
-| `frontend/src/App.jsx` | All route definitions — add new pages here |
+| `frontend/src/App.jsx` | All route (portal + marketing) definitions |
 | `frontend/src/components/Sidebar.jsx` | Nav links — add new pages here |
 | `frontend/src/services/api.js` | Single source of truth for ALL API calls |
-| `frontend/src/pages/Lottery.jsx` | Full lottery management (7 tabs) |
+| `frontend/src/pages/marketing/` | Public site: Home, About, Features, Pricing, Contact |
+| `frontend/src/pages/Lottery.jsx` | Full lottery management (8 tabs) |
+| `frontend/src/pages/FeesMappings.jsx` | Service fees and tax mapping |
 | `frontend/src/pages/POSSettings.jsx` | Per-station POS config (saved to IndexedDB) |
 | `frontend/src/pages/ProductCatalog.jsx` | Native PG catalog management |
 
@@ -321,10 +324,18 @@ npm run dev:cashier
 
 ## 📦 Recent Feature Additions (April 2026)
 
+### Marketing Site & UX (April 2026)
+- Complete 5-page public site with Framer Motion animations.
+- Centralized `Link` navigation implementation for all marketing pages.
+- `FeesMappings.jsx` module added for service fee management.
+- `DepositMapPage.jsx` for cross-store deposit rules.
+- PostgreSQL schema sync stabilized via `npx prisma db push`.
+- Standardized delivery pricing via `FareCalculationService`.
+
 ### Lottery Module (Full)
 Complete scratch-ticket lottery management system:
 
-**Portal (`frontend/src/pages/Lottery.jsx`)** — 7 tabs:
+**Portal (`frontend/src/pages/Lottery.jsx`)** — 8 tabs:
 1. **Overview** — KPI cards (monthly sales, payouts, net, commission, active boxes)
 2. **Games** — Game catalog with state/province badge, global game management
 3. **Inventory** — Box receiving, inventory tracking, receive orders
