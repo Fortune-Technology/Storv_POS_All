@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import logoImg from '../assets/future-foods-logo.jpg';
+import StoreveuLogo from './StoreveuLogo';
 import {
   Radio,
   Users,
@@ -22,6 +22,11 @@ import {
   Tv2,
   Receipt,
   Clock,
+  Layers,
+  Truck,
+  Tag,
+  Upload,
+  Ticket,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -36,18 +41,29 @@ const menuGroups = [
     ],
   },
   {
+    label: 'Lottery',
+    items: [
+      { name: 'Lottery',  icon: <Ticket size={13} />,  path: '/portal/lottery' },
+    ],
+  },
+  {
     label: 'Catalog',
     items: [
-      { name: 'Products',    icon: <Package size={13} />,      path: '/portal/catalog' },
+      { name: 'Products',    icon: <Package size={13} />,  path: '/portal/catalog' },
+      { name: 'Departments', icon: <Layers size={13} />,   path: '/portal/departments' },
+      { name: 'Vendors',     icon: <Truck size={13} />,    path: '/portal/vendors' },
+      { name: 'Promotions',  icon: <Tag size={13} />,      path: '/portal/promotions' },
+      { name: 'Bulk Import',      icon: <Upload size={13} />,    path: '/portal/import' },
+      { name: 'Inventory Count', icon: <BarChart2 size={13} />, path: '/portal/inventory-count' },
     ],
   },
   {
     label: 'Analytics',
     items: [
-      { name: 'Sales',       icon: <BarChart2 size={13} />,    path: '/portal/sales' },
-      { name: 'Departments', icon: <PieChart size={13} />,     path: '/portal/departments' },
-      { name: 'Products',    icon: <ShoppingCart size={13} />, path: '/portal/products-analytics' },
-      { name: 'Predictions', icon: <TrendingUp size={13} />,   path: '/portal/predictions' },
+      { name: 'Sales',          icon: <BarChart2 size={13} />,    path: '/portal/sales' },
+      { name: 'Dept Analytics', icon: <PieChart size={13} />,     path: '/portal/departments-analytics' },
+      { name: 'Products',       icon: <ShoppingCart size={13} />, path: '/portal/products-analytics' },
+      { name: 'Predictions',    icon: <TrendingUp size={13} />,   path: '/portal/predictions' },
     ],
   },
   {
@@ -132,8 +148,8 @@ const Sidebar = () => {
         </button>
 
         {/* Logo */}
-        <div style={{ padding: '0 0.75rem 0.875rem', display: 'flex', justifyContent: 'center' }}>
-          <img src={logoImg} alt="FutureFoods Logo" style={{ maxWidth: '100%', height: 'auto' }} />
+        <div style={{ padding: '0.5rem 0.5rem 0.75rem', display: 'flex', justifyContent: 'center' }}>
+          <StoreveuLogo height={70} darkMode={false} />
         </div>
 
         {/* ── Store Switcher ───────────────────────────────────────────── */}

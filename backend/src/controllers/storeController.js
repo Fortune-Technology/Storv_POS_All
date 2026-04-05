@@ -28,7 +28,6 @@ const calcStoreMonthly = (registers = 1) => {
 const ALLOWED_FIELDS = [
   'name', 'address', 'latitude', 'longitude', 'timezone',
   'stationCount', 'monthlyRatePerStation', 'pos',
-  'itRetailStoreId', 'itRetailTenantId',
 ];
 
 // Strip POS credentials from the response and add _id alias for frontend compat

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User as UserIcon, Phone, UserPlus, ChevronRight, Loader } from 'lucide-react';
 import { signup } from '../services/api';
 import { toast } from 'react-toastify';
-import logoImg from '../assets/future-foods-logo.jpg';
+import StoreveuLogo from '../components/StoreveuLogo';
 
 const Signup = () => {
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' });
@@ -32,7 +32,9 @@ const Signup = () => {
           <Link to="/" style={{ display: 'inline-block', marginBottom: '1.5rem', color: 'var(--accent-primary)', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>
             ← Back to Home
           </Link>
-          <img src={logoImg} alt="FutureFoods Logo" style={{ display: 'block', margin: '0 auto 1rem', maxWidth: '100%', height: 'auto', maxHeight: '80px' }} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
+            <StoreveuLogo height={44} darkMode={true} showTagline={true} />
+          </div>
           <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
             Create Account
           </h1>

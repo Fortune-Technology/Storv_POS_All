@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut } from 'lucide-react';
+import StoreveuLogo from '../StoreveuLogo.jsx';
 import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { useSyncStore }    from '../../stores/useSyncStore.js';
@@ -85,9 +86,12 @@ export default function StatusBar({ onRefresh }) {
     }}>
 
       {/* Brand / Store name */}
-      <span style={{ color: 'var(--green)', fontWeight: 900, letterSpacing: '0.03em', fontSize: '0.8rem', flexShrink: 0 }}>
-        {station?.storeName || 'FF POS'}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <StoreveuLogo iconOnly={true} height={28} darkMode={true} />
+        <span style={{ color: 'var(--text-primary)', fontWeight: 700, letterSpacing: '0.03em', fontSize: '0.8rem' }}>
+          {station?.storeName || 'Storeveu POS'}
+        </span>
+      </div>
       {station?.stationName && (
         <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem', fontWeight: 600, flexShrink: 0 }}>
           {station.stationName}

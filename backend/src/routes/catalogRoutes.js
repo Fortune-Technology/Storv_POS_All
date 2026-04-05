@@ -26,9 +26,13 @@ import {
   updateDepositRule,
   // Vendors
   getVendors,
+  getVendor,
   createVendor,
   updateVendor,
   deleteVendor,
+  getVendorProducts,
+  getVendorPayouts,
+  getVendorStats,
   // Rebate Programs
   getRebatePrograms,
   createRebateProgram,
@@ -50,7 +54,15 @@ import {
   createPromotion,
   updatePromotion,
   deletePromotion,
+  evaluatePromotions,
 } from '../controllers/catalogController.js';
+import {
+  previewImport,
+  commitImport,
+  getImportTemplate,
+  getImportHistory,
+  getImportJob,
+} from '../controllers/importController.js';
 
 const router = express.Router();
 
@@ -77,10 +89,14 @@ router.post('/deposit-rules',      authorize('superadmin', 'admin', 'owner'), cr
 router.put('/deposit-rules/:id',   authorize('superadmin', 'admin', 'owner'), updateDepositRule);
 
 // ─── Vendors ─────────────────────────────────────────────
-router.get('/vendors',             authorize('superadmin', 'admin', 'owner', 'manager', 'store'), getVendors);
-router.post('/vendors',            authorize('superadmin', 'admin', 'owner', 'manager'), createVendor);
-router.put('/vendors/:id',         authorize('superadmin', 'admin', 'owner', 'manager'), updateVendor);
-router.delete('/vendors/:id',      authorize('superadmin', 'admin', 'owner'), deleteVendor);
+router.get('/vendors',                    authorize('superadmin', 'admin', 'owner', 'manager', 'store'), getVendors);
+router.post('/vendors',                   authorize('superadmin', 'admin', 'owner', 'manager'), createVendor);
+router.get('/vendors/:id',                authorize('superadmin', 'admin', 'owner', 'manager'), getVendor);
+router.put('/vendors/:id',                authorize('superadmin', 'admin', 'owner', 'manager'), updateVendor);
+router.delete('/vendors/:id',             authorize('superadmin', 'admin', 'owner'), deleteVendor);
+router.get('/vendors/:id/products',       authorize('superadmin', 'admin', 'owner', 'manager'), getVendorProducts);
+router.get('/vendors/:id/payouts',        authorize('superadmin', 'admin', 'owner', 'manager'), getVendorPayouts);
+router.get('/vendors/:id/stats',          authorize('superadmin', 'admin', 'owner', 'manager'), getVendorStats);
 
 // ─── Rebate Programs ─────────────────────────────────────
 router.get('/rebates',             authorize('superadmin', 'admin', 'owner', 'manager'), getRebatePrograms);
@@ -109,5 +125,14 @@ router.get('/promotions',          authorize('superadmin', 'admin', 'owner', 'ma
 router.post('/promotions',         authorize('superadmin', 'admin', 'owner', 'manager'), createPromotion);
 router.put('/promotions/:id',      authorize('superadmin', 'admin', 'owner', 'manager'), updatePromotion);
 router.delete('/promotions/:id',   authorize('superadmin', 'admin', 'owner'), deletePromotion);
+router.post('/promotions/evaluate', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier'), evaluatePromotions);
+
+// ─── Import ───────────────────────────────────────────────────
+// Preview requires manager+; commit requires manager+; templates are public (no auth needed for template download)
+router.post('/import/preview',        authorize('superadmin','admin','owner','manager'), previewImport);
+router.post('/import/commit',         authorize('superadmin','admin','owner','manager'), commitImport);
+router.get('/import/template/:type',  authorize('superadmin','admin','owner','manager'), getImportTemplate);
+router.get('/import/history',         authorize('superadmin','admin','owner','manager'), getImportHistory);
+router.get('/import/history/:id',     authorize('superadmin','admin','owner','manager'), getImportJob);
 
 export default router;

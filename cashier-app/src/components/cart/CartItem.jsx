@@ -1,5 +1,5 @@
 import React from 'react';
-import { Minus, Plus, Trash2, Tag } from 'lucide-react';
+import { Minus, Plus, Trash2, Tag, Zap } from 'lucide-react';
 import { fmt$ } from '../../utils/formatters.js';
 import { useCartStore } from '../../stores/useCartStore.js';
 
@@ -7,12 +7,79 @@ export default function CartItem({ item, selected, onSelect }) {
   const updateQty  = useCartStore(s => s.updateQty);
   const removeItem = useCartStore(s => s.removeItem);
 
+  // ── Lottery items — special render (no qty controls) ──────────────────────
+  if (item.isLottery) {
+    const isSale   = item.lotteryType === 'sale';
+    const color    = isSale ? '#16a34a' : '#f59e0b';
+    const bgColor  = isSale ? 'rgba(22,163,74,0.08)' : 'rgba(245,158,11,0.08)';
+    const border   = isSale ? 'rgba(22,163,74,0.25)' : 'rgba(245,158,11,0.25)';
+
+    return (
+      <div
+        onClick={() => onSelect(item.lineId)}
+        style={{
+          padding: '0.5rem 0.75rem',
+          borderRadius: 'var(--r-md)',
+          background: selected ? bgColor : 'transparent',
+          border: `1px solid ${selected ? border : 'transparent'}`,
+          cursor: 'pointer',
+          transition: 'background .1s, border-color .1s',
+          marginBottom: 3,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: '1rem', flexShrink: 0 }}>{isSale ? '🎟️' : '💰'}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: '0.85rem', fontWeight: 600,
+              color: 'var(--text-primary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {item.name}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 1 }}>
+              {isSale ? 'Lottery Sale · No Tax' : 'Lottery Payout · Cash Out'}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <div style={{
+            fontSize: '0.95rem', fontWeight: 700,
+            color: isSale ? 'var(--green)' : 'var(--amber)',
+          }}>
+            {isSale ? '+' : ''}{fmt$(item.lineTotal)}
+          </div>
+          {selected && (
+            <button
+              onClick={e => { e.stopPropagation(); removeItem(item.lineId); }}
+              title="Remove"
+              style={{
+                width: 28, height: 28, borderRadius: 6,
+                background: 'var(--red-dim)', color: 'var(--red)',
+                border: '1px solid rgba(224,63,63,.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const hasDiscount   = item.discountType && item.discountValue > 0;
   const discountLabel = hasDiscount
     ? item.discountType === 'percent'
       ? `${item.discountValue}% OFF`
       : `-${fmt$(item.discountValue)}`
     : null;
+
+  const hasPromo    = !!item.promoAdjustment;
+  const promoLabel  = hasPromo ? (item.promoAdjustment?.badgeLabel || 'PROMO') : null;
+  const promoColor  = item.promoAdjustment?.badgeColor || '#10b981';
 
   return (
     <div
@@ -94,6 +161,18 @@ export default function CartItem({ item, selected, onSelect }) {
                 display: 'flex', alignItems: 'center', gap: 3,
               }}>
                 <Tag size={8} /> {discountLabel}
+              </span>
+            )}
+
+            {hasPromo && (
+              <span style={{
+                fontSize: '0.58rem', fontWeight: 800, padding: '1px 5px',
+                borderRadius: 4, background: promoColor + '22',
+                color: promoColor, letterSpacing: '0.04em',
+                display: 'flex', alignItems: 'center', gap: 3,
+                border: `1px solid ${promoColor}44`,
+              }}>
+                <Zap size={7} /> {promoLabel}
               </span>
             )}
 

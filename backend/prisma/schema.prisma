@@ -65,6 +65,7 @@ model Department {
   // Display
   sortOrder       Int       @default(0)
   color           String?   // hex color for POS UI
+  showInPOS       Boolean   @default(true)  // whether dept appears as category filter in POS
   active          Boolean   @default(true)
 
   createdAt       DateTime  @default(now())
@@ -287,9 +288,6 @@ model MasterProduct {
   ecomDescription     String?       // SEO-friendly description
   ecomTags            String[]      // searchable tags
 
-  // POS sync fields (IT Retail / MarktPOS)
-  itRetailUpc         String?       // UPC as stored in IT Retail
-  itRetailPlu         String?       // PLU in IT Retail
   posLastSyncAt       DateTime?     // last time synced from/to POS
 
   // Status
@@ -518,10 +516,6 @@ model User {
 
   role                String       @default("staff") // "superadmin" | "admin" | "manager" | "staff"
 
-  // MarktPOS / IT Retail credentials (stored encrypted at app layer)
-  marktPOSUsername    String?
-  marktPOSPassword    String?
-
   // Default store location (used for weather, etc.)
   storeLatitude       Float?
   storeLongitude      Float?
@@ -577,14 +571,10 @@ model Store {
   monthlyRatePerStation Decimal?     @db.Decimal(10, 2)
 
   // POS integration credentials — stored as JSONB so we can support
-  // multiple POS systems (IT Retail, Square, MarktPOS…) without schema changes.
+  // multiple POS systems without schema changes.
   // Shape: { type, username, password, storeCode, chainCode, locationId,
   //          merchantId, restaurantGuid, apiKey }
   pos                   Json?
-
-  // IT Retail / MarktPOS identifiers
-  itRetailStoreId       String?
-  itRetailTenantId      String?
 
   isActive              Boolean      @default(true)
   branding              Json?        @default("{}")
@@ -953,6 +943,88 @@ model DepositMap {
 }
 
 // ─────────────────────────────────────────────────
+// SHIFT
+// Cash drawer open/close session per register per day.
+// ─────────────────────────────────────────────────
+model Shift {
+  id                   String       @id @default(cuid())
+  orgId                String
+  storeId              String
+  stationId            String?      // which register
+  cashierId            String       // who opened
+  closedById           String?      // who closed
+
+  status               String       @default("open")  // "open" | "closed"
+  openedAt             DateTime     @default(now())
+  closedAt             DateTime?
+
+  // Opening count
+  openingAmount        Decimal      @db.Decimal(10, 4)
+  openingDenominations Json?        // { "100": 2, "20": 5, "1": 3, "0.25": 8, ... }
+  openingNote          String?
+
+  // Closing count (filled in when shift is closed)
+  closingAmount        Decimal?     @db.Decimal(10, 4)
+  closingDenominations Json?
+  closingNote          String?
+
+  // Calculated at close
+  expectedAmount       Decimal?     @db.Decimal(10, 4)
+  variance             Decimal?     @db.Decimal(10, 4)  // closingAmount - expectedAmount
+  cashSales            Decimal?     @db.Decimal(10, 4)
+  cashRefunds          Decimal?     @db.Decimal(10, 4)
+  cashDropsTotal       Decimal?     @db.Decimal(10, 4)
+  payoutsTotal         Decimal?     @db.Decimal(10, 4)
+
+  drops                CashDrop[]
+  payouts              CashPayout[]
+
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([orgId, storeId, openedAt])
+  @@map("shifts")
+}
+
+// ─────────────────────────────────────────────────
+// CASH DROP  (mid-shift safe drop)
+// ─────────────────────────────────────────────────
+model CashDrop {
+  id          String   @id @default(cuid())
+  orgId       String
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  amount      Decimal  @db.Decimal(10, 4)
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, shiftId])
+  @@map("cash_drops")
+}
+
+// ─────────────────────────────────────────────────
+// CASH PAYOUT  (paid out to vendor / driver)
+// ─────────────────────────────────────────────────
+model CashPayout {
+  id          String   @id @default(cuid())
+  orgId       String
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  amount      Decimal  @db.Decimal(10, 4)
+  recipient   String?  // vendor name / free-text recipient
+  vendorId    Int?     // optional FK to Vendor
+  payoutType  String?  // 'expense' | 'merchandise'
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, shiftId])
+  @@map("cash_payouts")
+}
+
+// ─────────────────────────────────────────────────
 // CLOCK EVENT
 // Employee clock in / clock out records.
 // Identified by PIN without requiring a full JWT session.
@@ -972,3 +1044,217 @@ model ClockEvent {
   @@index([orgId, storeId, createdAt])
   @@map("clock_events")
 }
+
+// ─────────────────────────────────────────────────
+// IMPORT JOB
+// Tracks every bulk import operation for history,
+// partial-success reporting, and error audit.
+// ─────────────────────────────────────────────────
+model ImportJob {
+  id           Int       @id @default(autoincrement())
+  orgId        String
+  storeId      String?   // null = org-wide import
+
+  type         String    // "products" | "departments" | "vendors" | "promotions" | "deposits" | "invoice_costs"
+  fileName     String
+  fileSize     Int?      // bytes
+
+  totalRows    Int       @default(0)
+  successRows  Int       @default(0)
+  failedRows   Int       @default(0)
+  skippedRows  Int       @default(0)   // duplicates skipped per strategy
+
+  status       String    @default("pending")
+  // "pending" | "validating" | "importing" | "done" | "failed"
+
+  // [{ row, field, message, value, type: "error"|"warning" }]
+  errors       Json      @default("[]")
+
+  // Options snapshot — what settings were used
+  options      Json      @default("{}")
+
+  createdBy    String    // User.id
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@index([orgId, type, createdAt])
+  @@index([orgId, status])
+  @@map("import_jobs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOTTERY MODULE
+// Manages scratch-ticket inventory, sales, payouts, and
+// per-shift reconciliation.
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// LOTTERY GAME
+// A game type (e.g. "$1 Lucky", "$5 Big Winner").
+// Defines ticket price, commission rate, and tickets per box.
+// ─────────────────────────────────────────────────
+model LotteryGame {
+  id             String   @id @default(cuid())
+  orgId          String
+  storeId        String
+
+  name           String            // "$1 Scratch", "$5 Big Winner"
+  gameName       String?           // Optional display name override
+  gameNumber     String?           // State lottery game # for inventory orders
+  ticketPrice    Decimal  @db.Decimal(10, 2)
+  ticketsPerBox  Int      @default(300)
+  active         Boolean  @default(true)
+  deleted        Boolean  @default(false)
+
+  // State/province this game belongs to (e.g. "ON", "BC", "AB", "QC")
+  // Set at admin level; stores filter games by their state
+  state          String?
+  isGlobal       Boolean  @default(false)  // true = admin-managed, visible to all stores in that state
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  boxes          LotteryBox[]
+
+  @@index([orgId, storeId])
+  @@map("lottery_games")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY BOX
+// A physical pack/roll of scratch tickets.
+// Moves through: inventory → active → depleted → settled.
+// ─────────────────────────────────────────────────
+model LotteryBox {
+  id            String      @id @default(cuid())
+  orgId         String
+  storeId       String
+  gameId        String
+  game          LotteryGame @relation(fields: [gameId], references: [id])
+
+  boxNumber     String?           // Physical serial / pack number
+  slotNumber    Int?              // Physical slot in the lottery machine (1–32)
+  totalTickets  Int
+  ticketPrice   Decimal     @db.Decimal(10, 2)
+  totalValue    Decimal     @db.Decimal(10, 2)  // totalTickets × ticketPrice
+
+  // Lifecycle
+  status        String      @default("inventory")  // inventory | active | depleted | settled
+  activatedAt   DateTime?
+  depletedAt    DateTime?
+
+  // Ticket tracking
+  startTicket          String?
+  currentTicket        String?
+  lastShiftEndTicket   String?   // ticket # scanned at end of last shift (for next-shift calculation)
+  lastShiftStartTicket String?   // ticket # at the start of the current/last shift
+
+  // Running totals (updated on each LotteryTransaction)
+  ticketsSold   Int         @default(0)
+  salesAmount   Decimal     @default(0) @db.Decimal(10, 2)
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([gameId])
+  @@map("lottery_boxes")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY TRANSACTION
+// Individual lottery sale or payout during a shift.
+// amount is always positive; type signals direction.
+// ─────────────────────────────────────────────────
+model LotteryTransaction {
+  id               String   @id @default(cuid())
+  orgId            String
+  storeId          String
+  shiftId          String?  // FK to Shift (not enforced; Shift may be from POS terminal)
+  cashierId        String?
+  stationId        String?
+
+  type             String   // "sale" | "payout"
+  amount           Decimal  @db.Decimal(10, 2)  // always positive
+  ticketCount      Int?     // number of tickets sold
+
+  gameId           String?
+  boxId            String?
+  notes            String?
+
+  posTransactionId String?  // links to parent cart transaction when recorded together
+
+  createdAt        DateTime @default(now())
+
+  @@index([orgId, storeId, shiftId])
+  @@index([orgId, storeId, createdAt])
+  @@map("lottery_transactions")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY SHIFT REPORT
+// End-of-shift lottery reconciliation (one per shift).
+// Cashier enters machine cash + digital totals,
+// app validates against recorded transactions.
+// ─────────────────────────────────────────────────
+model LotteryShiftReport {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String
+  shiftId         String   @unique
+
+  // Cashier-entered values (from physical lottery machine)
+  machineAmount   Decimal? @db.Decimal(10, 2)  // cash on lottery machine printout
+  digitalAmount   Decimal? @db.Decimal(10, 2)  // digital/online lottery sales
+  scannedTickets  Json?                          // [{gameId, gameName, count, amount}]
+  scannedAmount   Decimal? @db.Decimal(10, 2)   // sum of scanned ticket amounts
+
+  // Per-box scan data — [{boxId, gameId, gameName, slotNumber, startTicket, endTicket, ticketsSold, amount}]
+  boxScans        Json?
+
+  // Computed from LotteryTransactions
+  totalSales      Decimal? @db.Decimal(10, 2)
+  totalPayouts    Decimal? @db.Decimal(10, 2)
+  netAmount       Decimal? @db.Decimal(10, 2)   // totalSales - totalPayouts
+  variance        Decimal? @db.Decimal(10, 2)   // (machineAmount+digitalAmount) - netAmount
+
+  notes           String?
+  closedById      String?
+  closedAt        DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("lottery_shift_reports")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY SETTINGS
+// Store-level lottery configuration.
+// Commission is managed here, not at individual game level.
+// ─────────────────────────────────────────────────
+model LotterySettings {
+  id                    String   @id @default(cuid())
+  orgId                 String
+  storeId               String   @unique
+
+  enabled               Boolean  @default(true)
+  cashOnly              Boolean  @default(false)   // restrict lottery transactions to cash
+
+  // Store's province/state — determines which games are visible
+  state                 String?                    // e.g. "ON", "BC", "AB"
+
+  // Commission — store-level rate applied to all lottery sales
+  commissionRate        Decimal? @db.Decimal(5, 4) // e.g. 0.0540 = 5.4%
+
+  // Shift-end ticket scan mandate
+  scanRequiredAtShiftEnd Boolean @default(false)   // if true, cashier must scan before closing shift
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("lottery_settings")
+}
+

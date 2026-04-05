@@ -14,6 +14,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
+  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -56,6 +57,10 @@ export default function ActionBar({
   onPriceCheck, onHold, onReprint, onNoSale,
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
+  onLottery,
+  // Cash drawer / shift
+  onOpenShift, onCloseShift, onCashDrop, onPayout,
+  shiftOpen = false,
   enabledShortcuts = {},
   // enabledShortcuts shape:
   //   { priceCheck, hold, reprint, noSale, discount, refund, voidTx, endOfDay }
@@ -162,6 +167,29 @@ export default function ActionBar({
           {show('endOfDay') && (
             <ACT icon={BarChart2} label="End of Day" onClick={mgr('End of Day', onEndOfDay)} />
           )}
+          {/* Close shift — manager only, only when shift is open */}
+          {shiftOpen && (
+            <ACT icon={LockKeyhole} label="Close Shift" onClick={onCloseShift} color="var(--red)" locked={!valid} />
+          )}
+          <Divider />
+        </>
+      )}
+
+      {/* Cash Drawer actions — available when shift is open */}
+      {shiftOpen && (
+        <>
+          <ACT icon={ArrowDownCircle} label="Cash Drop" onClick={onCashDrop} color="var(--amber)" />
+          <ACT icon={ArrowUpCircle}   label="Paid Out"  onClick={onPayout}   color="#a855f7" />
+          <Divider />
+          <ACT icon={Ticket} label="Lottery" onClick={onLottery} color="var(--green)" />
+          <Divider />
+        </>
+      )}
+
+      {/* Open shift button — shown when no shift is open */}
+      {!shiftOpen && (
+        <>
+          <ACT icon={UnlockKeyhole} label="Open Shift" onClick={onOpenShift} color="var(--green)" />
           <Divider />
         </>
       )}

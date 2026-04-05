@@ -133,9 +133,13 @@ input:focus, select:focus { border-color: var(--green); }
   90%       { transform: translateX(3px); }
 }
 
-/* Print styles — receipt */
+/* Print styles — receipt + shift report */
 @media print {
   body { background: #fff; color: #000; font-family: 'Courier New', monospace; }
   .no-print { display: none !important; }
   .receipt-print { display: block !important; }
+  /* When printing a shift report, show only the printable div */
+  .shift-report-print { display: block !important; }
+  /* Hide everything else when a shift report is present */
+  body:has(.shift-report-print) > *:not(:has(.shift-report-print)) { display: none !important; }
 }

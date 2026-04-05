@@ -66,7 +66,7 @@ const Contact = () => {
             <div className="contact-info-col">
               <h1 className="contact-title">Book a <span className="text-gradient">Personalized</span> Demo</h1>
               <p className="contact-subtitle">
-                See how FutureFoods can transform your store. Our retail experts will give you a full tour of the platform tailored to your specific business needs.
+                See how Storeveu can transform your store. Our retail experts will give you a full tour of the platform tailored to your specific business needs.
               </p>
 
               <div className="contact-method-list">

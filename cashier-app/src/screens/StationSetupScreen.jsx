@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 import { Monitor, ChevronRight, Check, Loader } from 'lucide-react';
+import StoreveuLogo from '../components/StoreveuLogo.jsx';
 import { useStationStore } from '../stores/useStationStore.js';
 import { loginWithPassword, registerStation } from '../api/pos.js';
 import api from '../api/client.js';
@@ -22,7 +23,7 @@ const field = {
 
 const btn = (active) => ({
   width: '100%', padding: '0.9rem',
-  background: active ? '#7ac143' : 'rgba(255,255,255,.06)',
+  background: active ? '#3d56b5' : 'rgba(255,255,255,.06)',
   color: active ? '#0f1117' : '#475569',
   border: 'none', borderRadius: 10,
   fontWeight: 800, fontSize: '1rem',
@@ -110,15 +111,9 @@ export default function StationSetupScreen() {
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '2rem' }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'rgba(122,193,67,.15)', border: '1px solid rgba(122,193,67,.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Monitor size={22} color="#7ac143" />
-          </div>
+          <StoreveuLogo iconOnly={true} height={44} darkMode={true} />
           <div>
-            <div style={{ color: '#7ac143', fontWeight: 900, fontSize: '1.1rem' }}>FF POS</div>
+            <div style={{ color: '#7b95e0', fontWeight: 900, fontSize: '1.1rem' }}>Storeveu POS</div>
             <div style={{ color: '#64748b', fontSize: '0.78rem' }}>Register Setup</div>
           </div>
           {/* Step indicator */}
@@ -126,7 +121,7 @@ export default function StationSetupScreen() {
             {[1,2,3].map(n => (
               <div key={n} style={{
                 width: 8, height: 8, borderRadius: '50%',
-                background: step >= n ? '#7ac143' : 'rgba(255,255,255,.12)',
+                background: step >= n ? '#3d56b5' : 'rgba(255,255,255,.12)',
                 transition: 'background .2s',
               }} />
             ))}
@@ -193,8 +188,8 @@ export default function StationSetupScreen() {
                   <button key={id} onClick={() => setStoreId(id)} style={{
                     padding: '1rem', borderRadius: 10, textAlign: 'left',
                     background: active ? 'rgba(122,193,67,.12)' : 'rgba(255,255,255,.04)',
-                    border: `2px solid ${active ? '#7ac143' : 'rgba(255,255,255,.1)'}`,
-                    color: active ? '#7ac143' : '#f1f5f9',
+                    border: `2px solid ${active ? '#3d56b5' : 'rgba(255,255,255,.1)'}`,
+                    color: active ? '#3d56b5' : '#f1f5f9',
                     cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     transition: 'border-color .15s',

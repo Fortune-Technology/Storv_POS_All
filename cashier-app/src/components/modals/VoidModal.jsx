@@ -1,131 +1,179 @@
 /**
- * VoidModal — Manager-only. Look up a transaction by number and void it.
+ * VoidModal — Confirms voiding the current (un-tendered) transaction.
+ * Shows the items currently rung up, asks for an optional reason, then clears the cart.
  */
-import React, { useState, useEffect } from 'react';
-import { X, Ban, Search, AlertTriangle, Check } from 'lucide-react';
-import { listTransactions, voidTransaction as apiVoid } from '../../api/pos.js';
+import React, { useState } from 'react';
+import { X, Ban, AlertTriangle, Check } from 'lucide-react';
 import { fmt$ } from '../../utils/formatters.js';
-import { useAuthStore } from '../../stores/useAuthStore.js';
 
-const BACKDROP = { position:'fixed', inset:0, zIndex:210, background:'rgba(0,0,0,.75)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' };
+const BACKDROP = {
+  position: 'fixed', inset: 0, zIndex: 210,
+  background: 'rgba(0,0,0,.75)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: '1rem',
+};
 
-export default function VoidModal({ onClose, onVoided }) {
-  const cashier = useAuthStore(s => s.cashier);
-  const storeId = cashier?.storeId;
-  const today   = new Date().toISOString().split('T')[0];
+export default function VoidModal({ onClose, items = [], totals = {}, onConfirm }) {
+  const [note, setNote]   = useState('');
+  const [done, setDone]   = useState(false);
 
-  const [txs,     setTxs]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selected,setSelected]= useState(null);
-  const [note,    setNote]    = useState('');
-  const [saving,  setSaving]  = useState(false);
-  const [done,    setDone]    = useState(false);
-  const [search,  setSearch]  = useState('');
-
-  useEffect(() => {
-    listTransactions({ storeId, date: today, status: 'complete', limit: 50 })
-      .then(r => setTxs(r.transactions || []))
-      .catch(() => setTxs([]))
-      .finally(() => setLoading(false));
-  }, [storeId, today]);
-
-  const visible = txs.filter(t =>
-    !search || t.txNumber?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const doVoid = async () => {
-    if (!selected || saving) return;
-    setSaving(true);
-    try {
-      await apiVoid(selected.id, note);
-      setDone(true);
-      setTimeout(() => { onVoided?.(); onClose(); }, 1200);
-    } catch (e) {
-      alert(e.response?.data?.error || 'Failed to void transaction');
-      setSaving(false);
-    }
+  const doVoid = () => {
+    setDone(true);
+    setTimeout(() => {
+      onConfirm?.(note);
+      onClose();
+    }, 800);
   };
+
+  const grandTotal = totals.grandTotal ?? 0;
 
   return (
     <div style={BACKDROP}>
-      <div style={{ width:'100%', maxWidth:560, maxHeight:'90vh', background:'var(--bg-panel)', borderRadius:20, border:'1px solid rgba(224,63,63,.3)', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 32px 80px rgba(0,0,0,.65)' }}>
+      <div style={{
+        width: '100%', maxWidth: 480,
+        background: 'var(--bg-panel)', borderRadius: 20,
+        border: '1px solid rgba(224,63,63,.35)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+        boxShadow: '0 32px 80px rgba(0,0,0,.65)',
+      }}>
+
         {/* Header */}
-        <div style={{ padding:'1rem 1.25rem', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(224,63,63,.06)', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div style={{
+          padding: '1rem 1.25rem',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: 'rgba(224,63,63,.06)', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Ban size={16} color="var(--red)" />
-            <span style={{ fontWeight:800, fontSize:'0.95rem', color:'var(--red)' }}>Void Transaction</span>
+            <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--red)' }}>
+              Void Current Transaction
+            </span>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}><X size={16} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 6, display: 'flex' }}>
+            <X size={16} />
+          </button>
         </div>
 
         {done ? (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12 }}>
-            <div style={{ width:52, height:52, borderRadius:'50%', background:'rgba(224,63,63,.12)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          /* ── Success state ── */
+          <div style={{
+            padding: '3rem',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 12,
+          }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: '50%',
+              background: 'rgba(224,63,63,.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
               <Check size={24} color="var(--red)" />
             </div>
-            <div style={{ fontWeight:700, color:'var(--red)' }}>Transaction Voided</div>
-          </div>
-        ) : selected ? (
-          /* Confirm void */
-          <div style={{ flex:1, padding:'1.25rem', display:'flex', flexDirection:'column', gap:12 }}>
-            <div style={{ background:'rgba(224,63,63,.06)', border:'1px solid rgba(224,63,63,.2)', borderRadius:12, padding:'1rem' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                <span style={{ fontWeight:800 }}>{selected.txNumber}</span>
-                <span style={{ fontWeight:900, fontSize:'1.1rem', color:'var(--green)' }}>{fmt$(selected.grandTotal)}</span>
-              </div>
-              <div style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>
-                {selected.cashierName} · {(selected.lineItems || []).length} items · {(selected.tenderLines || []).map(l => l.method).join(' + ')}
-              </div>
-            </div>
-
-            <div style={{ background:'rgba(245,158,11,.06)', border:'1px solid rgba(245,158,11,.2)', borderRadius:8, padding:'0.75rem', display:'flex', gap:8 }}>
-              <AlertTriangle size={15} color="var(--amber)" style={{ flexShrink:0, marginTop:1 }} />
-              <span style={{ fontSize:'0.78rem', color:'var(--amber)', fontWeight:600 }}>This action cannot be undone. The transaction will be marked as voided.</span>
-            </div>
-
-            <input
-              value={note} onChange={e => setNote(e.target.value)}
-              placeholder="Reason for void (optional)…"
-              style={{ width:'100%', padding:'0.75rem', background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text-primary)', fontSize:'0.875rem', boxSizing:'border-box' }}
-            />
-
-            <div style={{ display:'flex', gap:8, marginTop:'auto' }}>
-              <button onClick={() => setSelected(null)} style={{ flex:1, padding:'0.875rem', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, color:'var(--text-secondary)', fontWeight:700, cursor:'pointer' }}>
-                ← Back
-              </button>
-              <button onClick={doVoid} disabled={saving} style={{ flex:2, padding:'0.875rem', background:saving?'var(--bg-input)':'var(--red)', border:'none', borderRadius:10, color:saving?'var(--text-muted)':'#fff', fontWeight:800, cursor:saving?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                <Ban size={16} /> {saving ? 'Voiding…' : 'Void Transaction'}
-              </button>
-            </div>
+            <div style={{ fontWeight: 700, color: 'var(--red)' }}>Transaction Voided</div>
           </div>
         ) : (
-          /* Select transaction */
-          <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-            <div style={{ padding:'0.75rem 1.25rem', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:8, padding:'0 0.75rem' }}>
-                <Search size={14} color="var(--text-muted)" />
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by TX#…"
-                  style={{ flex:1, background:'none', border:'none', color:'var(--text-primary)', fontSize:'0.875rem', padding:'0.5rem 0', outline:'none' }} />
-              </div>
-            </div>
-            <div style={{ flex:1, overflowY:'auto' }}>
-              {loading ? (
-                <div style={{ padding:'2rem', textAlign:'center', color:'var(--text-muted)' }}>Loading…</div>
-              ) : visible.length === 0 ? (
-                <div style={{ padding:'2rem', textAlign:'center', color:'var(--text-muted)', fontSize:'0.875rem' }}>No voidable transactions today</div>
-              ) : visible.map(tx => (
-                <div key={tx.id} onClick={() => setSelected(tx)}
-                  style={{ padding:'0.875rem 1.25rem', borderBottom:'1px solid var(--border)', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}
-                  onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,.03)'}
-                  onMouseLeave={e => e.currentTarget.style.background='transparent'}
-                >
-                  <div>
-                    <div style={{ fontWeight:800, fontSize:'0.88rem' }}>{tx.txNumber}</div>
-                    <div style={{ fontSize:'0.72rem', color:'var(--text-muted)' }}>{tx.cashierName} · {(tx.lineItems||[]).length} items</div>
+          <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+            {/* Current cart items */}
+            <div style={{
+              background: 'rgba(224,63,63,.04)',
+              border: '1px solid rgba(224,63,63,.15)',
+              borderRadius: 12, overflow: 'hidden',
+            }}>
+              <div style={{
+                maxHeight: 220, overflowY: 'auto',
+              }}>
+                {items.length === 0 ? (
+                  <div style={{ padding: '1.25rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                    No items in cart
                   </div>
-                  <span style={{ fontWeight:900, color:'var(--green)' }}>{fmt$(tx.grandTotal)}</span>
+                ) : items.map((item, i) => (
+                  <div key={item.lineId} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '0.55rem 1rem',
+                    borderBottom: i < items.length - 1 ? '1px solid rgba(224,63,63,.1)' : 'none',
+                  }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                      {item.qty > 1 ? `${item.qty}× ` : ''}{item.name}
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      {fmt$(item.lineTotal ?? item.unitPrice * item.qty)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {items.length > 0 && (
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.65rem 1rem',
+                  borderTop: '1px solid rgba(224,63,63,.2)',
+                  background: 'rgba(224,63,63,.06)',
+                }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {items.length} item{items.length !== 1 ? 's' : ''} — TOTAL
+                  </span>
+                  <span style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--red)' }}>
+                    {fmt$(grandTotal)}
+                  </span>
                 </div>
-              ))}
+              )}
+            </div>
+
+            {/* Warning */}
+            <div style={{
+              background: 'rgba(245,158,11,.06)',
+              border: '1px solid rgba(245,158,11,.2)',
+              borderRadius: 8, padding: '0.75rem',
+              display: 'flex', gap: 8,
+            }}>
+              <AlertTriangle size={15} color="var(--amber)" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: '0.78rem', color: 'var(--amber)', fontWeight: 600 }}>
+                All items will be removed from the register. This cannot be undone.
+              </span>
+            </div>
+
+            {/* Reason */}
+            <input
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Reason for void (optional)…"
+              autoFocus
+              style={{
+                width: '100%', padding: '0.75rem',
+                background: 'var(--bg-input)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text-primary)',
+                fontSize: '0.875rem', boxSizing: 'border-box', outline: 'none',
+              }}
+            />
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={onClose}
+                style={{
+                  flex: 1, padding: '0.875rem',
+                  background: 'var(--bg-card)', border: '1px solid var(--border)',
+                  borderRadius: 10, color: 'var(--text-secondary)',
+                  fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={doVoid}
+                disabled={items.length === 0}
+                style={{
+                  flex: 2, padding: '0.875rem',
+                  background: items.length === 0 ? 'var(--bg-input)' : 'var(--red)',
+                  border: 'none', borderRadius: 10,
+                  color: items.length === 0 ? 'var(--text-muted)' : '#fff',
+                  fontWeight: 800, cursor: items.length === 0 ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                <Ban size={16} /> Void Transaction
+              </button>
             </div>
           </div>
         )}

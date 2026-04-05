@@ -22,13 +22,8 @@ const TIMEZONES = [
   { label: 'Hawaii   (HI)',  value: 'Pacific/Honolulu'    },
 ];
 
-/**
- * One POS per store.
- * IT Retail and MarktPOS are the same system — unified under 'itretail'.
- */
 const POS_OPTIONS = [
   { value: 'none',       label: 'No POS connected',         color: 'var(--text-muted)'   },
-  { value: 'itretail',   label: 'IT Retail / MarktPOS',     color: '#7ac143'              },
   { value: 'square',     label: 'Square',                   color: '#3b82f6'              },
   { value: 'clover',     label: 'Clover',                   color: '#f97316'              },
   { value: 'toast',      label: 'Toast',                    color: '#e30613'              },
@@ -88,12 +83,6 @@ function PosCredentials({ posType, pos, setPos }) {
   );
 
   const fields = {
-    itretail: [
-      { key: 'username',  label: 'Username',            type: 'text',     hint: null },
-      { key: 'password',  label: 'Password',            type: 'password', hint: null },
-      { key: 'storeCode', label: 'IT Retail Store Code', type: 'text',    hint: "IT Retail's ID for this store in their system" },
-      { key: 'chainCode', label: 'IT Retail Chain Code', type: 'text',    hint: "IT Retail's ID for your company/chain in their system" },
-    ],
     square: [
       { key: 'locationId', label: 'Location ID', type: 'text'     },
       { key: 'apiKey',     label: 'API Key',     type: 'password' },
@@ -158,8 +147,8 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
       type:           s?.pos?.type           || 'none',
       username:       s?.pos?.username       || s?.marktPOSUsername  || '',
       password:       '',  // never pre-fill passwords
-      storeCode:      s?.pos?.storeCode      || s?.itRetailStoreId   || '',
-      chainCode:      s?.pos?.chainCode      || s?.itRetailTenantId  || '',
+      storeCode:      s?.pos?.storeCode      || '',
+      chainCode:      s?.pos?.chainCode      || '',
       locationId:     s?.pos?.locationId     || '',
       merchantId:     s?.pos?.merchantId     || '',
       restaurantGuid: s?.pos?.restaurantGuid || '',
@@ -345,7 +334,7 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
           {section === 'pos' && (
             <>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                One POS system per store. IT Retail and MarktPOS are the same platform — select <strong>IT Retail / MarktPOS</strong>.
+                Select your store's POS system type.
               </p>
 
               {/* POS selector tiles */}

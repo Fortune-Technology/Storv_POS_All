@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="600" height="200" viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;1,300&amp;display=swap');
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="200" fill="#f5f6fa" rx="20"/>
+
+  <!-- Sprout Icon -->
+  <rect x="40" y="40" width="100" height="100" rx="24" fill="#eaecf5"/>
+  <!-- stem -->
+  <line x1="90" y1="128" x2="90" y2="68" stroke="#3d56b5" stroke-width="4" stroke-linecap="round"/>
+  <!-- left leaf -->
+  <path d="M90 100 C90 100 64 90 58 72 C52 54 68 44 80 58 C84 64 90 74 90 74" fill="#3d56b5" opacity="0.65"/>
+  <!-- right leaf -->
+  <path d="M90 90 C90 90 116 78 122 60 C128 42 112 32 100 46 C96 52 90 62 90 62" fill="#3d56b5"/>
+  <!-- soil dots -->
+  <circle cx="76" cy="134" r="3.5" fill="#3d56b5" opacity="0.3"/>
+  <circle cx="90" cy="137" r="3.5" fill="#3d56b5" opacity="0.3"/>
+  <circle cx="104" cy="134" r="3.5" fill="#3d56b5" opacity="0.3"/>
+
+  <!-- Wordmark: store -->
+  <text x="162" y="118"
+    font-family="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-size="72"
+    letter-spacing="-3"
+    fill="#1a1f38">store</text>
+
+  <!-- Wordmark: vue italic -->
+  <text x="394" y="118"
+    font-family="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-style="italic"
+    font-size="72"
+    letter-spacing="-3"
+    fill="#3d56b5">vue</text>
+
+  <!-- Tagline -->
+  <text x="163" y="150"
+    font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-size="13"
+    letter-spacing="6"
+    fill="#b0b8cc">POINT  OF  SALE</text>
+</svg>

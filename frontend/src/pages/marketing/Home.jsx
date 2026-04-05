@@ -71,7 +71,7 @@ const Home = () => {
     {
       icon: <Users size={32} />,
       title: 'Customer Loyalty',
-      desc: 'Manage points and rewards synchronized directly with your IT Retail POS.',
+      desc: 'Manage points and rewards synchronized directly with your POS.',
       path: '/features#loyalty'
     },
     {
@@ -96,7 +96,7 @@ const Home = () => {
                 The POS System That <span className="text-gradient">Thinks</span> Like You Do
               </h1>
               <p className="hero-subtitle">
-                FutureFoods combines AI-powered automation with deep retail analytics to help you manage inventory, boost sales, and simplify your daily operations.
+                Storeveu combines AI-powered automation with deep retail analytics to help you manage inventory, boost sales, and simplify your daily operations.
               </p>
               <div className="hero-actions">
                 <MarketingButton href="/contact" size="lg">Book a Free Demo</MarketingButton>
@@ -109,7 +109,7 @@ const Home = () => {
             </div>
             <div className="hero-visual">
               <div className="mockup-container">
-                <img src={heroMockup} alt="FutureFoods Dashboard Mockup" className="hero-mockup" />
+                <img src={heroMockup} alt="Storeveu Dashboard Mockup" className="hero-mockup" />
                 <div className="stats-bubble floating-1">
                   <BarChart3 size={18} />
                   <span>+24% Sales Target</span>
@@ -127,7 +127,7 @@ const Home = () => {
       {/* Problem Section */}
       <MarketingSection 
         title="Stop Fighting Your Software" 
-        subtitle="Traditional POS systems are just cash registers. FutureFoods is a complete business partner."
+        subtitle="Traditional POS systems are just cash registers. Storeveu is a complete business partner."
         bgVariant="white"
       >
         <div className="problem-grid">
@@ -144,7 +144,7 @@ const Home = () => {
             <div className="arrow-right">→</div>
           </div>
           <div className="problem-card new">
-            <h4>FutureFoods</h4>
+            <h4>Storeveu</h4>
             <ul>
               <li>AI scans invoices in seconds</li>
               <li>Real-time sync every 60 seconds</li>
@@ -219,7 +219,7 @@ const Home = () => {
       {/* Testimonials Teaser */}
       <MarketingSection 
         title="Success Stories" 
-        subtitle="Why retail owners are switching to FutureFoods."
+        subtitle="Why retail owners are switching to Storeveu."
         bgVariant="light"
       >
         <div className="testimonial-teaser-grid">
@@ -235,7 +235,7 @@ const Home = () => {
           </div>
           <div className="teaser-card">
             <div className="stars">★★★★★</div>
-            <p>"Finally a system that speaks to IT Retail perfectly. The real-time hub is addictive."</p>
+            <p>"Finally a system that speaks to our POS perfectly. The real-time hub is addictive."</p>
             <div className="author">— Mike R., Food Market Owner</div>
           </div>
         </div>

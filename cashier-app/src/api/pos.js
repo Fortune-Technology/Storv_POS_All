@@ -59,6 +59,12 @@ export const searchCustomers = (query, storeId) =>
 export const getPOSConfig = (storeId) =>
   api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
 
+export const getDepartmentsForPOS = () =>
+  api.get('/catalog/departments').then(r => {
+    const d = r.data;
+    return Array.isArray(d) ? d : (d?.data ?? d?.departments ?? []);
+  });
+
 // ── Transaction list & actions ─────────────────────────────────────────────
 export const listTransactions = (params) =>
   api.get('/pos-terminal/transactions', { params }).then(r => r.data);
@@ -69,6 +75,10 @@ export const voidTransaction = (id, note) =>
 export const createRefund = (id, body) =>
   api.post(`/pos-terminal/transactions/${id}/refund`, body).then(r => r.data);
 
+// No-receipt refund — no parent transaction required
+export const createOpenRefund = (body) =>
+  api.post('/pos-terminal/transactions/open-refund', body).then(r => r.data);
+
 export const getEndOfDayReport = (storeId, date) =>
   api.get('/pos-terminal/reports/end-of-day', { params: { storeId, date } }).then(r => r.data);
 
@@ -77,3 +87,57 @@ export const clockInOut = (pin, type, storeId, stationToken) =>
   api.post('/pos-terminal/clock', { pin, type, storeId }, {
     headers: { 'X-Station-Token': stationToken },
   }).then(r => r.data);
+
+// ── Vendors (for paid-out dropdown) ──────────────────────────────────────
+export const getVendors = () =>
+  api.get('/pos-terminal/vendors').then(r => {
+    const d = r.data;
+    return Array.isArray(d) ? d : (d?.data ?? d?.vendors ?? []);
+  });
+
+// ── Shift / Cash Drawer ───────────────────────────────────────────────────
+export const getActiveShift = (storeId) =>
+  api.get('/pos-terminal/shift/active', { params: { storeId } }).then(r => r.data);
+
+export const openShift = (body) =>
+  api.post('/pos-terminal/shift/open', body).then(r => r.data);
+
+export const closeShift = (shiftId, body) =>
+  api.post(`/pos-terminal/shift/${shiftId}/close`, body).then(r => r.data);
+
+export const addCashDrop = (shiftId, body) =>
+  api.post(`/pos-terminal/shift/${shiftId}/drop`, body).then(r => r.data);
+
+export const addPayout = (shiftId, body) =>
+  api.post(`/pos-terminal/shift/${shiftId}/payout`, body).then(r => r.data);
+
+export const getShiftReport = (shiftId) =>
+  api.get(`/pos-terminal/shift/${shiftId}/report`).then(r => r.data);
+
+export const listShifts = (params) =>
+  api.get('/pos-terminal/shifts', { params }).then(r => r.data);
+
+export const getActivePromotionsForPOS = () =>
+  api.get('/catalog/promotions', { params: { active: 'true' } }).then(r => {
+    const d = r.data;
+    return Array.isArray(d) ? d : (d?.data ?? []);
+  });
+
+// ── Lottery ───────────────────────────────────────────────────────────────────
+export const getLotteryGames = (storeId) =>
+  api.get('/lottery/games', { params: { storeId } }).then(r => r.data);
+
+export const getLotteryBoxes = (params) =>
+  api.get('/lottery/boxes', { params }).then(r => r.data);
+
+export const createLotteryTransaction = (tx) =>
+  api.post('/lottery/transactions', tx).then(r => r.data);
+
+export const bulkCreateLotteryTransactions = (transactions, shiftId) =>
+  api.post('/lottery/transactions/bulk', { transactions, shiftId }).then(r => r.data);
+
+export const getLotteryShiftReport = (shiftId) =>
+  api.get(`/lottery/shift-reports/${shiftId}`).then(r => r.data);
+
+export const saveLotteryShiftReport = (data) =>
+  api.post('/lottery/shift-reports', data).then(r => r.data);

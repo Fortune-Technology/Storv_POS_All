@@ -20,6 +20,16 @@ export default function CartTotals({ totals, itemCount }) {
         />
       )}
 
+      {totals.promoSaving > 0 && (
+        <Row
+          label="Promo Savings"
+          value={`-${fmt$(totals.promoSaving)}`}
+          valueColor="#10b981"
+          labelStyle={{ color: '#10b981', fontWeight: 600 }}
+          note="Auto-applied"
+        />
+      )}
+
       {ebtTotal > 0 && (
         <Row
           label="EBT Eligible"

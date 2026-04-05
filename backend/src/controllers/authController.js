@@ -73,7 +73,6 @@ export const login = async (req, res, next) => {
       role:             user.role,
       orgId:            user.orgId,
       tenantId:         user.orgId, // legacy alias used by Onboarding page
-      marktPOSUsername: user.marktPOSUsername,
       token: generateToken(user.id, { name: user.name, email: user.email, role: user.role }),
     });
   } catch (error) {

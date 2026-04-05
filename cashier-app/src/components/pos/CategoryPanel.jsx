@@ -26,7 +26,7 @@ function ProductTile({ product, onAdd, size = 'md' }) {
       onMouseUp={() => setPressed(false)}
       onMouseLeave={() => setPressed(false)}
       onTouchStart={() => setPressed(true)}
-      onTouchEnd={() => { setPressed(false); onAdd(product); }}
+      onTouchEnd={(e) => { e.preventDefault(); setPressed(false); onAdd(product); }}
       onClick={() => onAdd(product)}
       style={{
         height: h, borderRadius: 10, padding: '8px 10px',
@@ -98,11 +98,24 @@ export default function CategoryPanel({ onAddProduct, config = {} }) {
   const [quickItems,    setQuickItems]    = useState([]);
   const [loadingCat,    setLoadingCat]    = useState(false);
 
-  // Load departments + quick items on mount
+  // Load departments + quick items on mount; filter hidden + showInPOS:false departments
   useEffect(() => {
-    if (showDepts) getDepartments().then(setDepartments);
+    if (showDepts) {
+      getDepartments().then(all => {
+        const hidden = config.hiddenDepartments || [];
+        const visible = all.filter(d => {
+          const name = typeof d === 'string' ? d : (d.name || d.id || String(d));
+          // Filter out manually hidden by name
+          if (hidden.includes(name)) return false;
+          // Filter out departments marked showInPOS=false
+          if (typeof d === 'object' && d.showInPOS === false) return false;
+          return true;
+        });
+        setDepartments(visible);
+      });
+    }
     if (showQuick) getFrequentProducts(12).then(setQuickItems);
-  }, [showDepts, showQuick]);
+  }, [showDepts, showQuick, config.hiddenDepartments]);
 
   const selectDept = useCallback(async (deptId) => {
     if (deptId === activeDeptId) { setActiveDeptId(null); setCategoryItems([]); return; }

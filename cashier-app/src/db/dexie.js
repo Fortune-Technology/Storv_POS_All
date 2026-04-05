@@ -27,6 +27,33 @@ db.version(2).stores({
   scanFrequency:     'productId, count, lastAt',
 });
 
+// Version 3: dedicated departments table so showInPOS + sortOrder are available in POS
+db.version(3).stores({
+  products:          '++id, upc, orgId, storeId, departmentId, updatedAt, active',
+  taxRules:          '++id, orgId, storeId',
+  depositRules:      '++id, orgId',
+  txQueue:           '++localId, status, createdAt, storeId, txNumber',
+  txHistory:         'id, txNumber, storeId, cashierId, createdAt',
+  syncMeta:          'key',
+  heldTransactions:  '++id, storeId, heldAt',
+  scanFrequency:     'productId, count, lastAt',
+  departments:       'id, orgId, active, sortOrder',
+});
+
+// Version 4: promotions sync
+db.version(4).stores({
+  products:          '++id, upc, orgId, storeId, departmentId, updatedAt, active',
+  taxRules:          '++id, orgId, storeId',
+  depositRules:      '++id, orgId',
+  txQueue:           '++localId, status, createdAt, storeId, txNumber',
+  txHistory:         'id, txNumber, storeId, cashierId, createdAt',
+  syncMeta:          'key',
+  heldTransactions:  '++id, storeId, heldAt',
+  scanFrequency:     'productId, count, lastAt',
+  departments:       'id, orgId, active, sortOrder',
+  promotions:        'id, orgId, active, promoType',
+});
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 export async function getLastSync(key) {
@@ -109,12 +136,23 @@ export async function getFrequentProducts(limit = 12) {
   return products.sort((a, b) => (idxMap[a.id] ?? 999) - (idxMap[b.id] ?? 999)).slice(0, limit);
 }
 
+export async function upsertDepartments(depts) {
+  await db.departments.bulkPut(depts);
+}
+
 export async function getDepartments() {
+  // Prefer the dedicated departments table (includes showInPOS, sortOrder, active)
+  const stored = await db.departments
+    .filter(d => d.active !== false)
+    .sortBy('sortOrder');
+  if (stored.length > 0) return stored;
+
+  // Fallback: derive from product rows (no showInPOS — used before first sync)
   const products = await db.products.filter(p => p.active !== false).toArray();
   const map = new Map();
   for (const p of products) {
     if (p.departmentId && p.departmentName && !map.has(p.departmentId)) {
-      map.set(p.departmentId, { id: p.departmentId, name: p.departmentName });
+      map.set(p.departmentId, { id: p.departmentId, name: p.departmentName, showInPOS: true });
     }
   }
   return [...map.values()];
@@ -126,4 +164,18 @@ export async function getProductsByDepartment(departmentId, limit = 60) {
     .filter(p => p.active !== false)
     .limit(limit)
     .toArray();
+}
+
+export async function upsertPromotions(promos) {
+  await db.promotions.bulkPut(promos);
+}
+
+export async function getActivePromotions() {
+  const now = Date.now();
+  return db.promotions.filter(p => {
+    if (!p.active) return false;
+    if (p.startDate && new Date(p.startDate).getTime() > now) return false;
+    if (p.endDate   && new Date(p.endDate).getTime()   < now) return false;
+    return true;
+  }).toArray();
 }

@@ -22,18 +22,21 @@ import {
 import Sidebar from '../components/Sidebar';
 import {
   queueInvoice,
+  queueMultipageInvoice,
   getInvoiceDrafts,
   getInvoiceHistory,
   confirmInvoice,
   deleteInvoiceDraft,
   saveInvoiceDraft,
-  searchPOSProducts,
-  updatePOSProductDetails,
-  createPOSProduct,
-  getPOSTaxesFees,
-  fetchPOSDepartments,
-  getPOSVendors,
+  searchCatalogProducts,
+  updateCatalogProduct,
+  createCatalogProduct,
+  getCatalogTaxRules,
+  getCatalogDepositRules,
+  getCatalogDepartments,
+  getCatalogVendors,
   clearInvoicePOSCache,
+  adjustStoreStock,
 } from '../services/api';
 import { toast } from 'react-toastify';
 
@@ -69,9 +72,17 @@ function toDateInput(val) {
   return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
 }
 
-// Safely extract id/name from IT Retail objects (field names vary by endpoint)
 function posId(obj)   { return obj?.id   ?? obj?.posId ?? obj?._id  ?? ''; }
 function posName(obj) { return obj?.name ?? obj?.description        ?? ''; }
+
+/** Strip spaces, pad with leading zeros to 14 digits. */
+function normalizeUPC(raw) {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return String(raw).trim();
+  if (digits.length > 14) return digits.slice(-14);
+  return digits.padStart(14, '0');
+}
 
 const MAPPING_BADGE = {
   matched:   { color: '#10b981', label: 'Matched'   },
@@ -288,25 +299,34 @@ function ReviewPanel({
     if (!readOnly) {
       setPosLoading(true);
       Promise.allSettled([
-        fetchPOSDepartments(),
-        getPOSVendors(),
-        getPOSTaxesFees(),
-      ]).then(([dR, vR, tfR]) => {
-        // Departments → { success, departments: [...] }
+        getCatalogDepartments(),
+        getCatalogVendors(),
+        getCatalogTaxRules(),
+        getCatalogDepositRules(),
+      ]).then(([dR, vR, trR, drR]) => {
+        // Departments
         if (dR.status === 'fulfilled') {
-          const d = dR.value?.data;
-          setDepartments(d?.departments || (Array.isArray(d) ? d : []));
+          const d = dR.value;
+          setDepartments(Array.isArray(d) ? d : (d?.data || []));
         }
-        // Vendors → array directly (filter deleted)
+        // Vendors
         if (vR.status === 'fulfilled') {
-          const v = vR.value?.data;
-          setVendors(Array.isArray(v) ? v.filter(x => !x.deleted) : (v?.vendors || []));
+          const v = vR.value;
+          setVendors(Array.isArray(v) ? v.filter(x => !x.deleted) : (v?.data || []));
         }
-        // Taxes + Fees → { success, taxes: [...], fees: [...] }
-        if (tfR.status === 'fulfilled') {
-          const tf = tfR.value?.data;
-          setTaxes(tf?.taxes || []);
-          setFees(tf?.fees   || []);
+        // Tax rules
+        if (trR.status === 'fulfilled') {
+          const tr = trR.value;
+          setTaxes(Array.isArray(tr) ? tr : (tr?.data || []));
+        }
+        // Deposit rules → normalise depositAmount → amount for fee card
+        if (drR.status === 'fulfilled') {
+          const dr = drR.value;
+          const rules = Array.isArray(dr) ? dr : (dr?.data || []);
+          setFees(rules.map(r => ({
+            ...r,
+            amount: r.depositAmount != null ? Number(r.depositAmount) : null,
+          })));
         }
       }).catch(console.error).finally(() => setPosLoading(false));
     }
@@ -547,47 +567,125 @@ function ReviewPanel({
                   <div key={i} style={{ border: `1px solid ${item.mappingStatus === 'unmatched' ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`, borderRadius: '10px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
 
                     {/* Summary row — click to expand */}
-                    <div onClick={() => toggle(i)} style={{ padding: '0.75rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: `${mb.color}22`, color: mb.color, textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {mb.label}
-                      </span>
-                      {item.confidence && MAPPING_CONF[item.confidence] && (
-                        <span style={{ fontSize: '0.58rem', fontWeight: 800, padding: '2px 5px', borderRadius: '3px', background: MAPPING_CONF[item.confidence].bg, color: MAPPING_CONF[item.confidence].color, flexShrink: 0 }}>
-                          {item.confidence.toUpperCase()}
-                        </span>
-                      )}
-                      {item.matchTier && <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', flexShrink: 0 }}>{TIER_LABEL[item.matchTier] || item.matchTier}</span>}
-                      <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.description || '—'}</span>
-                      <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexShrink: 0 }}>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>×{item.quantity}</span>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{fmt(item.totalAmount)}</span>
-                        {margin !== null && (
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 5px', borderRadius: '4px',
-                            background: margin >= 30 ? 'rgba(16,185,129,0.12)' : margin >= 15 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)',
-                            color:      margin >= 30 ? '#10b981' : margin >= 15 ? '#f59e0b' : '#ef4444' }}>
-                            {margin.toFixed(0)}%
+                    <div onClick={() => toggle(i)} style={{ padding: '0.65rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
+
+                      {/* ── Status dot + tier pill ── */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        {/* Pulsing ring for unmatched */}
+                        <div style={{ position: 'relative', width: 10, height: 10, flexShrink: 0 }}>
+                          <div style={{
+                            width: 10, height: 10, borderRadius: '50%',
+                            background: mb.color,
+                            boxShadow: item.mappingStatus === 'unmatched' ? `0 0 0 2px ${mb.color}44` : 'none',
+                          }} title={mb.label} />
+                        </div>
+                        {item.matchTier && (
+                          <span style={{
+                            fontSize: '0.52rem', fontWeight: 800, letterSpacing: '0.4px',
+                            color: 'var(--text-muted)', textTransform: 'uppercase', lineHeight: 1,
+                          }}>
+                            {TIER_LABEL[item.matchTier] || item.matchTier}
                           </span>
                         )}
+                      </div>
+
+                      {/* ── Description ── */}
+                      <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: isMatched ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isMatched ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {item.description || '—'}
+                      </span>
+
+                      {/* ── Right cluster ── */}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+
+                        {/* ×qty */}
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500, minWidth: 20, textAlign: 'right' }}>
+                          ×{item.quantity ?? 1}
+                        </span>
+
+                        {/* Separator */}
+                        <span style={{ color: 'var(--border-color)', fontSize: '0.7rem' }}>·</span>
+
+                        {/* Case total */}
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: 52, textAlign: 'right' }}>
+                          {fmt(item.totalAmount)}
+                        </span>
+
+                        {/* Retail price */}
+                        {retail > 0 && (
+                          <>
+                            <span style={{ color: 'var(--border-color)', fontSize: '0.7rem' }}>·</span>
+                            <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600, minWidth: 40, textAlign: 'right' }} title="Retail price">
+                              ${retail.toFixed(2)}↑
+                            </span>
+                          </>
+                        )}
+
+                        {/* ── Margin number ── */}
+                        {margin !== null ? (
+                          <span style={{
+                            fontSize: '0.72rem', fontWeight: 700, minWidth: 34, textAlign: 'right',
+                            color: margin >= 30 ? '#10b981' : margin >= 15 ? '#f59e0b' : '#ef4444',
+                          }} title="Gross margin">
+                            {margin.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', minWidth: 34, textAlign: 'right', opacity: 0.4 }}>—%</span>
+                        )}
+
+                        {/* ── Match accuracy bar (5 segments) ── */}
+                        {(() => {
+                          // Map tier → filled bars out of 5
+                          const TIER_BARS = { upc: 5, vendorMap: 4, sku: 4, fuzzy: 3, ai: 2, manual: 5 };
+                          const filled = item.mappingStatus === 'unmatched'
+                            ? 0
+                            : (TIER_BARS[item.matchTier] ?? (item.confidence === 'high' ? 4 : item.confidence === 'medium' ? 3 : 2));
+                          const barColor = filled >= 4 ? '#10b981' : filled >= 3 ? '#818cf8' : filled >= 2 ? '#f59e0b' : '#ef4444';
+                          // Bar heights grow from left → right for filled, flat for empty
+                          const heights = [5, 7, 9, 11, 13];
+                          return (
+                            <div
+                              title={item.mappingStatus === 'unmatched' ? 'Not matched' : `Match accuracy: ${filled}/5 (${item.matchTier || item.confidence || ''})`}
+                              style={{ display: 'flex', gap: '2px', alignItems: 'flex-end', padding: '0 1px' }}
+                            >
+                              {heights.map((h, si) => (
+                                <div
+                                  key={si}
+                                  style={{
+                                    width: 4,
+                                    height: si < filled ? h : 5,
+                                    borderRadius: 2,
+                                    background: si < filled ? barColor : 'var(--bg-tertiary)',
+                                    opacity: si < filled ? 0.55 + (si / 5) * 0.45 : 0.35,
+                                    transition: 'height 0.2s, background 0.2s',
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Link / New buttons (unmatched) or re-link icon (matched) */}
                         {!readOnly && item.mappingStatus === 'unmatched' ? (
-                          <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', gap: '3px' }} onClick={e => e.stopPropagation()}>
                             <button onClick={() => onOpenSearch(i, 'search')}
-                              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.7rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                              <Search size={11} /> Link
+                              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '5px', padding: '3px 7px', cursor: 'pointer', fontSize: '0.67rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                              <Search size={10} /> Link
                             </button>
                             <button onClick={() => onOpenSearch(i, 'create')}
-                              style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.7rem', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                              <PlusCircle size={11} /> New
+                              style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '5px', padding: '3px 7px', cursor: 'pointer', fontSize: '0.67rem', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                              <PlusCircle size={10} /> New
                             </button>
                           </div>
                         ) : (
                           !readOnly && (
-                            <button onClick={e => { e.stopPropagation(); onOpenSearch(i, 'search'); }} title="Re-link to a different POS product"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px', display: 'flex' }}>
-                              <Search size={13} />
+                            <button onClick={e => { e.stopPropagation(); onOpenSearch(i, 'search'); }} title="Re-link to a different product"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px', display: 'flex', opacity: 0.5 }}>
+                              <Search size={12} />
                             </button>
                           )
                         )}
-                        {isExp ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />}
+
+                        {isExp ? <ChevronUp size={13} color="var(--text-muted)" /> : <ChevronDown size={13} color="var(--text-muted)" />}
                       </div>
                     </div>
 
@@ -637,7 +735,7 @@ function ReviewPanel({
                             {!readOnly && item.mappingStatus === 'unmatched' && (
                               <div style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.22)', borderRadius: '8px', padding: '0.65rem 0.875rem', marginBottom: '0.1rem' }}>
                                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>⚠ Not linked to a POS product</div>
-                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>This item won&apos;t be pushed to IT Retail on Confirm &amp; Sync until linked.</div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>This item won&apos;t be synced until linked to a product.</div>
                                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                   <button onClick={() => onOpenSearch(i, 'search')}
                                     style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
@@ -645,7 +743,7 @@ function ReviewPanel({
                                   </button>
                                   <button onClick={() => onOpenSearch(i, 'create')}
                                     style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
-                                    <PlusCircle size={13} /> Create New in IT Retail
+                                    <PlusCircle size={13} /> Create New Product
                                   </button>
                                 </div>
                               </div>
@@ -663,12 +761,20 @@ function ReviewPanel({
                                 <input style={inpStyle(readOnly)} value={item.upc || ''} readOnly={readOnly} onChange={e => onItemChange(i, 'upc', e.target.value)} /></div>
                             </div>
 
-                            {/* Pack + Vendor Item Code */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem' }}>
+                            {/* Pack + Qty + Vendor Item Code */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem' }}>
                               <div><label style={lbl}>Pack (Units / Case)</label>
                                 <input style={inpStyle(readOnly)} type="number" min="1" step="1" value={item.packUnits || ''} readOnly={readOnly}
                                   onChange={e => onItemChange(i, 'packUnits', e.target.value)}
                                   onWheel={e => e.target.blur()} /></div>
+                              <div>
+                                <label style={lbl}>Qty (Cases) <span style={{ color: '#f59e0b' }}>✎</span></label>
+                                <input style={inpStyle(readOnly)} type="number" min="0" step="1"
+                                  value={item.quantity ?? ''}
+                                  readOnly={readOnly}
+                                  onChange={e => onItemChange(i, 'quantity', e.target.value)}
+                                  onWheel={e => e.target.blur()} />
+                              </div>
                               <div><label style={lbl}>Vendor Item Code</label>
                                 <input style={inpStyle(readOnly)} value={item.cert_code || item.originalItemCode || ''} readOnly={readOnly} onChange={e => onItemChange(i, 'cert_code', e.target.value)} placeholder="cert_code / SKU" /></div>
                             </div>
@@ -693,6 +799,41 @@ function ReviewPanel({
                                 /></div>
                             </div>
 
+                            {/* Case Deposit */}
+                            {(() => {
+                              const caseDepVal  = item.caseDeposit ?? item.depositAmount ?? '';
+                              const packN       = parseFloat(item.packUnits) || 1;
+                              const caseDepN    = parseFloat(caseDepVal);
+                              const unitDep     = !isNaN(caseDepN) && caseDepN > 0 ? (caseDepN / packN).toFixed(4) : null;
+                              return (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem' }}>
+                                  <div>
+                                    <label style={lbl}>
+                                      Case Deposit ($)
+                                      {item.depositAmount > 0 && !item.caseDeposit && (
+                                        <span style={{ color: '#06b6d4', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}> — from invoice</span>
+                                      )}
+                                    </label>
+                                    <PriceInput
+                                      style={inpStyle(readOnly)}
+                                      value={caseDepVal}
+                                      readOnly={readOnly}
+                                      onChange={v => onItemChange(i, 'caseDeposit', v)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label style={lbl}>Unit Deposit (auto)</label>
+                                    <input
+                                      style={{ ...inpStyle(true), color: unitDep ? '#06b6d4' : 'var(--text-muted)' }}
+                                      value={unitDep ? `$${unitDep}` : '÷ pack'}
+                                      readOnly
+                                      title="Case Deposit ÷ Pack"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             {/* Department */}
                             <div>
                               <label style={lbl}>
@@ -705,173 +846,51 @@ function ReviewPanel({
                               </select>
                             </div>
 
-                            {/* Deposit / Bottle Fees */}
-                            <div>
-                              <label style={lbl}>
-                                Deposit / Bottle Fee
-                                {item.packUnits && fees.length > 0 && (
-                                  <span style={{ color: '#818cf8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-                                    {' '}— pack: {item.packUnits}
-                                  </span>
-                                )}
-                              </label>
-
-                              {/* Invoice deposit calculation hint */}
-                              {(() => {
-                                const dep  = parseFloat(item.depositAmount);
-                                const pack = parseFloat(item.packUnits);
-                                if (!dep || dep === 0) return null;
-                                const perUnit = pack > 0 ? dep / pack : null;
-                                return (
-                                  <div style={{
-                                    display: 'flex', alignItems: 'center', gap: '0.5rem',
-                                    background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
-                                    borderRadius: '6px', padding: '5px 10px', marginBottom: '0.5rem',
-                                    flexWrap: 'wrap', fontSize: '0.75rem',
-                                  }}>
-                                    <span style={{ color: '#10b981', fontWeight: 700, flexShrink: 0 }}>📄 From Invoice</span>
-                                    <span style={{ color: 'var(--text-secondary)' }}>
-                                      Total deposit: <strong style={{ color: 'var(--text-primary)' }}>${dep.toFixed(2)}</strong>
-                                    </span>
-                                    {pack > 0 && (
-                                      <>
-                                        <span style={{ color: 'var(--text-muted)' }}>÷ {pack} pack</span>
-                                        <span style={{ color: '#10b981', fontWeight: 700 }}>
-                                          = ${perUnit.toFixed(4)} / unit
-                                        </span>
-                                        {perUnit && (
-                                          <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>
-                                            — select the fee closest to this value below
-                                          </span>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-
-                              {fees.length > 0 ? (
-                                /* Fee API available — selectable cards */
-                                <>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                    {(() => {
-                                      // Calculate invoice deposit per unit to highlight the closest fee
-                                      const dep    = parseFloat(item.depositAmount);
-                                      const pack   = parseFloat(item.packUnits) || 1;
-                                      const perUnit = dep > 0 ? dep / pack : null;
-                                      return fees.map(f => {
-                                        const id        = String(posId(f));
-                                        const checked   = hasItemId(item, 'feesId', id);
-                                        const amt       = f.amount != null ? Number(f.amount) : null;
-                                        const fpack     = f.pack   != null ? Number(f.pack)   : null;
-                                        const packMatch = fpack != null && item.packUnits != null
-                                          && String(fpack) === String(item.packUnits);
-                                        // Closest amount match: within 1 cent of invoice-calculated per-unit deposit
-                                        const amtMatch  = perUnit != null && amt != null
-                                          && Math.abs(amt - perUnit) < 0.015;
-                                        const highlight = packMatch || amtMatch;
-                                        return (
-                                          <label key={id} style={{
-                                            display: 'flex', flexDirection: 'column', gap: '1px',
-                                            cursor: readOnly ? 'default' : 'pointer',
-                                            background: checked ? 'rgba(99,102,241,0.15)' : highlight ? 'rgba(16,185,129,0.07)' : 'var(--bg-primary)',
-                                            border: `1px solid ${checked ? 'var(--accent-primary)' : highlight ? 'rgba(16,185,129,0.4)' : 'var(--border-color)'}`,
-                                            borderRadius: '6px', padding: '5px 9px', minWidth: '70px',
-                                          }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}>
-                                              <input type="checkbox" checked={checked} disabled={readOnly}
-                                                onChange={() => !readOnly && toggleItemId(i, 'feesId', id)}
-                                                style={{ width: '11px', height: '11px', flexShrink: 0 }} />
-                                              <span style={{ fontWeight: checked ? 700 : 400, whiteSpace: 'nowrap' }}>{posName(f)}</span>
-                                            </div>
-                                            {amt != null && (
-                                              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: checked ? 'var(--accent-primary)' : '#10b981', paddingLeft: '15px' }}>
-                                                ${amt.toFixed(2)}{fpack != null ? ` / ${fpack}-pk` : ''}
-                                              </div>
-                                            )}
-                                            {highlight && !checked && (
-                                              <div style={{ fontSize: '0.62rem', color: '#10b981', paddingLeft: '15px' }}>
-                                                {amtMatch ? '✓ matches invoice' : '✓ matches pack'}
-                                              </div>
-                                            )}
-                                          </label>
-                                        );
-                                      });
-                                    })()}
-                                  </div>
-                                  {(() => {
-                                    const sel   = fees.filter(f => hasItemId(item, 'feesId', String(posId(f))));
-                                    const total = sel.reduce((s, f) => s + (f.amount != null ? Number(f.amount) : 0), 0);
-                                    const qty   = parseFloat(item.quantity || 0);
-                                    return sel.length > 0 ? (
-                                      <div style={{ marginTop: '0.35rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                        Fee total: <strong style={{ color: 'var(--text-primary)' }}>${total.toFixed(2)}</strong>
-                                        {qty > 0 && <> · {qty} cases = <strong style={{ color: '#10b981' }}>${(total * qty).toFixed(2)}</strong> deposit</>}
-                                      </div>
-                                    ) : null;
-                                  })()}
-                                </>
-                              ) : (
-                                /* Fee API not yet available — manual ID entry */
-                                <>
-                                  <input
-                                    style={inpStyle(readOnly)}
-                                    value={item.feesId || ''}
-                                    readOnly={readOnly}
-                                    onChange={e => onItemChange(i, 'feesId', e.target.value)}
-                                    placeholder="Enter fee ID(s), comma-separated e.g. 3,7"
-                                  />
-                                  <div style={{ marginTop: '3px', fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '3px', fontWeight: 700, flexShrink: 0 }}>PENDING</span>
-                                    Deposit fee API not yet confirmed with POS provider — enter fee ID manually for now
-                                  </div>
-                                </>
-                              )}
-                            </div>
-
-                            {/* Taxes */}
-                            {taxes.length > 0 && (
+                            {/* Deposit Rule (catalog) */}
+                            {fees.length > 0 && (
                               <div>
-                                <label style={lbl}>Taxes</label>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                  {taxes.map(t => {
-                                    const id = String(posId(t));
-                                    const checked = hasItemId(item, 'taxesId', id);
+                                <label style={lbl}>Deposit Rule</label>
+                                <select style={{ ...inpStyle(readOnly), appearance: 'none' }}
+                                  value={item.feesId || ''}
+                                  disabled={readOnly}
+                                  onChange={e => onItemChange(i, 'feesId', e.target.value)}>
+                                  <option value="">— No deposit rule —</option>
+                                  {fees.map(f => {
+                                    const id  = String(posId(f));
+                                    const amt = f.amount != null ? ` · $${Number(f.amount).toFixed(2)}/unit` : '';
                                     return (
-                                      <label key={id} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: readOnly ? 'default' : 'pointer',
-                                        background: checked ? 'rgba(245,158,11,0.15)' : 'var(--bg-primary)',
-                                        border: `1px solid ${checked ? '#f59e0b' : 'var(--border-color)'}`,
-                                        borderRadius: '5px', padding: '3px 7px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                                        <input type="checkbox" checked={checked} disabled={readOnly} onChange={() => !readOnly && toggleItemId(i, 'taxesId', id)} style={{ width: '11px', height: '11px' }} />
-                                        {posName(t)}{t.rate != null ? ` (${t.rate}%)` : ''}
-                                      </label>
+                                      <option key={id} value={id}>{posName(f)}{amt}</option>
                                     );
                                   })}
-                                </div>
+                                </select>
                               </div>
                             )}
+
+                            {/* Tax Rule */}
+                            <div>
+                              <label style={lbl}>Tax Rule</label>
+                              <select style={{ ...inpStyle(readOnly), appearance: 'none' }}
+                                value={item.taxesId || ''}
+                                disabled={readOnly}
+                                onChange={e => onItemChange(i, 'taxesId', e.target.value)}>
+                                <option value="">— No tax —</option>
+                                {taxes.map(t => (
+                                  <option key={String(posId(t))} value={String(posId(t))}>
+                                    {posName(t)}{t.rate != null ? ` (${t.rate}%)` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Per-item action bar */}
-                        {!readOnly && (
-                          <div style={{ padding: '0.65rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-secondary)' }}>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              💡 Field edits are tracked in draft — use buttons to push directly to IT Retail
-                            </span>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              {isMatched && (item.linkedProductId || item.posProductId) ? (
-                                <button onClick={() => handleItemUpdatePOS(i, item)} disabled={isPosUpd} className="btn btn-primary btn-sm"
-                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                                  {isPosUpd ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Updating…</> : <><RefreshCw size={12} /> Update in POS</>}
-                                </button>
-                              ) : (
-                                <button onClick={() => handleItemCreatePOS(i, item)} disabled={isPosCreate} className="btn btn-primary btn-sm"
-                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', background: '#7c3aed', borderColor: '#7c3aed' }}>
-                                  {isPosCreate ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Creating…</> : <><PlusCircle size={12} /> Create in POS</>}
-                                </button>
-                              )}
-                            </div>
+                        {/* Per-item create action (only for unmatched) */}
+                        {!readOnly && !isMatched && (
+                          <div style={{ padding: '0.5rem 1rem', display: 'flex', justifyContent: 'flex-end', background: 'var(--bg-secondary)' }}>
+                            <button onClick={() => handleItemCreatePOS(i, item)} disabled={isPosCreate} className="btn btn-primary btn-sm"
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', background: '#7c3aed', borderColor: '#7c3aed' }}>
+                              {isPosCreate ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Creating…</> : <><PlusCircle size={12} /> Create in Catalog</>}
+                            </button>
                           </div>
                         )}
                       </div>
@@ -880,10 +899,123 @@ function ReviewPanel({
                 );
               })}
             </div>
+
+            {/* ── Line Items Total ── */}
+            {(() => {
+              const lineTotal    = lineItems.reduce((s, it) => s + (parseFloat(it.totalAmount || (parseFloat(it.caseCost||0) * parseFloat(it.quantity||0))) || 0), 0);
+              const invoiceTotal = parseFloat((editData || invoice).totalInvoiceAmount) || 0;
+              const diff         = lineTotal - invoiceTotal;
+              const matched      = lineItems.filter(it => it.mappingStatus === 'matched' || it.mappingStatus === 'manual').length;
+              return (
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', marginTop: '0.25rem' }}>
+                  <div style={{ flex: 1, display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Line Items Total:</span>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${lineTotal.toFixed(2)}</span>
+                    </div>
+                    {invoiceTotal > 0 && (
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Invoice Total:</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${invoiceTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {invoiceTotal > 0 && Math.abs(diff) > 0.01 && (
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Difference:</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: Math.abs(diff) > 1 ? '#ef4444' : '#f59e0b' }}>
+                          {diff > 0 ? '+' : ''}{diff.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    {invoiceTotal > 0 && Math.abs(diff) <= 0.01 && (
+                      <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>✓ Totals match</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {matched}/{lineItems.length} matched
+                  </div>
+                </div>
+              );
+            })()}
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MultiPageModal — Ask user whether multiple dropped files are the same invoice
+// ─────────────────────────────────────────────────────────────────────────────
+function MultiPageModal({ files, onConfirm, onClose }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400 }} />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '16px',
+        zIndex: 401, width: 'min(480px, 92vw)', padding: '2rem',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+      }}>
+        {/* Icon + title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <FileText size={22} color="var(--accent-primary)" />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>Multiple Files Detected</h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+              {files.length} files selected
+            </p>
+          </div>
+        </div>
+
+        {/* File list */}
+        <div style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10,
+          padding: '0.75rem 1rem', marginBottom: '1.25rem',
+          display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: 140, overflowY: 'auto',
+        }}>
+          {files.map((f, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem' }}>
+              <FileText size={13} color="var(--text-muted)" />
+              <span style={{ color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.name}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Question */}
+        <p style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+          Are these pages of the <span style={{ color: 'var(--accent-primary)' }}>same invoice</span>?
+        </p>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+          Choose <strong>Yes</strong> to scan all {files.length} pages together as one invoice — great for multi-page delivery receipts.<br />
+          Choose <strong>No</strong> to process each file as its own separate invoice.
+        </p>
+
+        {/* Action buttons */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <button
+            onClick={() => onConfirm(false)}
+            className="btn btn-secondary"
+            style={{ padding: '0.875rem', borderRadius: 10, fontWeight: 600, fontSize: '0.875rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+          >
+            <span>No — Separate</span>
+            <span style={{ fontSize: '0.68rem', fontWeight: 400, opacity: 0.7 }}>{files.length} invoices</span>
+          </button>
+          <button
+            onClick={() => onConfirm(true)}
+            className="btn btn-primary"
+            style={{ padding: '0.875rem', borderRadius: 10, fontWeight: 700, fontSize: '0.875rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+          >
+            <span>✓ Yes — Same Invoice</span>
+            <span style={{ fontSize: '0.68rem', fontWeight: 400, opacity: 0.85 }}>{files.length} pages → 1 invoice</span>
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1001,13 +1133,14 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
                   onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
                 >
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '4px' }}>{p.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '4px' }}>{p.name || p.description}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                    {p.upc         && <span>UPC: {p.upc}</span>}
-                    {p.retailPrice != null && <span>Retail: ${p.retailPrice}</span>}
-                    {p.costPrice   != null && <span>Cost: ${p.costPrice}</span>}
-                    {p.pack        && <span>Pack: {p.pack}</span>}
-                    {p.sku         && <span>SKU: {p.sku}</span>}
+                    {p.upc && <span>UPC: {p.upc}</span>}
+                    {(p.defaultRetailPrice ?? p.retailPrice) != null && <span>Retail: ${Number(p.defaultRetailPrice ?? p.retailPrice).toFixed(2)}</span>}
+                    {(p.defaultCostPrice   ?? p.costPrice)   != null && <span>Cost: ${Number(p.defaultCostPrice   ?? p.costPrice).toFixed(2)}</span>}
+                    {(p.casePacks || p.unitsPerPack || p.pack) && <span>Pack: {p.casePacks || p.unitsPerPack || p.pack}</span>}
+                    {(p.sku || p.itemCode) && <span>SKU: {p.sku || p.itemCode}</span>}
+                    {p.brand && <span style={{ color: 'var(--text-secondary)' }}>{p.brand}</span>}
                   </div>
                 </div>
               ))}
@@ -1025,7 +1158,7 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
               {!modal.isLoading && modal.results.length === 0 && !modal.query && (
                 <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
                   <Search size={36} style={{ opacity: 0.15, marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
-                  <p style={{ fontSize: '0.875rem' }}>Type to search IT Retail products</p>
+                  <p style={{ fontSize: '0.875rem' }}>Type to search catalog products</p>
                 </div>
               )}
             </>
@@ -1092,8 +1225,8 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
                 style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.9rem', padding: '0.75rem', marginTop: '0.25rem' }}
               >
                 {isCreating
-                  ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Creating in IT Retail…</>
-                  : <><PlusCircle size={16} /> Create Product in IT Retail</>}
+                  ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Creating product…</>
+                  : <><PlusCircle size={16} /> Create Product</>}
               </button>
             </div>
           )}
@@ -1117,6 +1250,7 @@ const InvoiceImport = () => {
   const [filter,        setFilter]        = useState('all');
   const [searchModal,       setSearchModal]       = useState({ isOpen: false, itemIdx: null, query: '', results: [], isLoading: false, tab: 'search', itemData: null });
   const [isRefreshingPOS,   setIsRefreshingPOS]   = useState(false);
+  const [multiPageModal,    setMultiPageModal]    = useState(null); // null | { files: File[] }
   const pollRef = useRef(null);
 
   const selectedInvoice = invoices.find(inv => inv.id === selectedId) || null;
@@ -1151,26 +1285,56 @@ const InvoiceImport = () => {
     }
   }, [invoices, loadInvoices]);
 
-  const onDrop = useCallback(async (acceptedFiles) => {
-    if (!acceptedFiles.length) return;
+  // uploadFiles — core upload logic; multipage=true sends all files as one invoice
+  const uploadFiles = useCallback(async (files, multipage) => {
     setIsUploading(true);
-    for (const file of acceptedFiles) {
-      const stubId = `stub-${Date.now()}-${Math.random()}`;
-      setInvoices(prev => [{ id: stubId, fileName: file.name, status: 'processing', uploadedAt: new Date().toISOString() }, ...prev]);
+    if (multipage) {
+      // All files → one combined invoice
+      const stubId  = `stub-${Date.now()}-${Math.random()}`;
+      const names   = files.map(f => f.name).join(', ');
+      setInvoices(prev => [{ id: stubId, fileName: names, status: 'processing', uploadedAt: new Date().toISOString() }, ...prev]);
       try {
         const fd = new FormData();
-        fd.append('invoices', file);
-        const { data } = await queueInvoice(fd);
+        files.forEach(f => fd.append('invoices', f));
+        const { data } = await queueMultipageInvoice(fd);
         const real = data.invoices?.[0];
         if (real) setInvoices(prev => prev.map(inv => inv.id === stubId ? real : inv));
+        toast.info(`${files.length}-page invoice queued — AI reading all pages together`);
       } catch {
-        setInvoices(prev => prev.filter(inv => inv._id !== stubId));
-        toast.error(`Failed to queue ${file.name}`);
+        setInvoices(prev => prev.filter(inv => inv.id !== stubId));
+        toast.error('Failed to queue multi-page invoice');
       }
+    } else {
+      // Each file → its own invoice
+      for (const file of files) {
+        const stubId = `stub-${Date.now()}-${Math.random()}`;
+        setInvoices(prev => [{ id: stubId, fileName: file.name, status: 'processing', uploadedAt: new Date().toISOString() }, ...prev]);
+        try {
+          const fd = new FormData();
+          fd.append('invoices', file);
+          const { data } = await queueInvoice(fd);
+          const real = data.invoices?.[0];
+          if (real) setInvoices(prev => prev.map(inv => inv.id === stubId ? real : inv));
+        } catch {
+          setInvoices(prev => prev.filter(inv => inv.id !== stubId));
+          toast.error(`Failed to queue ${file.name}`);
+        }
+      }
+      toast.info(`${files.length} invoice${files.length > 1 ? 's' : ''} queued — AI processing in background`);
     }
     setIsUploading(false);
-    toast.info(`${acceptedFiles.length} invoice${acceptedFiles.length > 1 ? 's' : ''} queued — AI processing in background`);
   }, []);
+
+  const onDrop = useCallback(async (acceptedFiles) => {
+    if (!acceptedFiles.length) return;
+    if (acceptedFiles.length > 1) {
+      // Multiple files — ask user whether they're pages of the same invoice
+      setMultiPageModal({ files: acceptedFiles });
+      return;
+    }
+    // Single file — upload immediately
+    await uploadFiles(acceptedFiles, false);
+  }, [uploadFiles]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { 'image/*': ['.png', '.jpg', '.jpeg'], 'application/pdf': ['.pdf'] }, multiple: true,
@@ -1196,7 +1360,8 @@ const InvoiceImport = () => {
   const handleItemChange = (itemIdx, field, value) => {
     setEditData(prev => {
       const items = [...prev.lineItems];
-      const item  = { ...items[itemIdx], [field]: value };
+      const val   = field === 'upc' ? normalizeUPC(value) : value;
+      const item  = { ...items[itemIdx], [field]: val };
       if (['caseCost', 'packUnits'].includes(field)) {
         const cc = parseFloat(field === 'caseCost' ? value : item.caseCost) || 0;
         const pk = parseFloat(field === 'packUnits' ? value : item.packUnits) || 1;
@@ -1244,7 +1409,7 @@ const InvoiceImport = () => {
         driverName: editData.driverName, salesRepName: editData.salesRepName, loadNumber: editData.loadNumber,
       });
 
-      // Step 2 — bulk-push all matched items to IT Retail
+      // Step 2 — bulk-push all matched items to catalog
       const matchedItems = editData.lineItems.filter(
         item => (item.mappingStatus === 'matched' || item.mappingStatus === 'manual')
           && (item.linkedProductId || item.posProductId)
@@ -1252,40 +1417,57 @@ const InvoiceImport = () => {
 
       if (matchedItems.length > 0) {
         const posResults = await Promise.allSettled(
-          matchedItems.map(item =>
-            updatePOSProductDetails(item.linkedProductId || item.posProductId, {
-              description:  item.description,
-              upc:          item.upc,
-              pack:         item.packUnits,
-              case_cost:    item.caseCost,
-              cost:         item.unitCost,
-              normal_price: item.suggestedRetailPrice,
-              departmentId: item.departmentId,
-              vendorId:     item.vendorId,
-              cert_code:    item.cert_code || item.originalItemCode,
-              fees:         item.feesId  || '',
-              taxes:        item.taxesId || '',
-              size:         item.containerSize || item.size || '',
-            })
-          )
+          matchedItems.map(item => {
+            const catalogFields = {};
+            if (item.description)          catalogFields.name               = item.description;
+            if (item.upc)                  catalogFields.upc                = item.upc;
+            if (item.packUnits)            catalogFields.casePacks          = parseInt(item.packUnits) || undefined;
+            if (item.caseCost)             catalogFields.defaultCasePrice   = Number(item.caseCost)   || undefined;
+            if (item.unitCost)             catalogFields.defaultCostPrice   = Number(item.unitCost)   || undefined;
+            if (item.suggestedRetailPrice) catalogFields.defaultRetailPrice = Number(item.suggestedRetailPrice) || undefined;
+            if (item.departmentId)         catalogFields.departmentId       = parseInt(item.departmentId) || undefined;
+            if (item.vendorId)             catalogFields.vendorId           = parseInt(item.vendorId)     || undefined;
+            if (item.cert_code || item.originalItemCode) catalogFields.itemCode = item.cert_code || item.originalItemCode;
+            // Map selected deposit rule ID → depositRuleId
+            if (item.feesId) {
+              const ruleId = parseInt(String(item.feesId).split(',')[0]);
+              if (!isNaN(ruleId)) catalogFields.depositRuleId = ruleId;
+            }
+            return updateCatalogProduct(item.linkedProductId || item.posProductId, catalogFields);
+          })
         );
 
         const succeeded = posResults.filter(r => r.status === 'fulfilled').length;
         const failed    = posResults.filter(r => r.status === 'rejected').length;
-        const isDevMode = posResults.some(r => r.status === 'fulfilled' && r.value?.data?.testingMode);
         const unmatched = editData.lineItems.length - matchedItems.length;
 
-        if (isDevMode) {
-          toast.info(`🔧 Dev mode: invoice synced · ${succeeded} POS updates simulated${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
-        } else if (failed > 0) {
-          toast.warning(`⚠ Invoice synced · ${succeeded} products updated in POS · ${failed} failed${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
+        if (failed > 0) {
+          toast.warning(`⚠ Invoice synced · ${succeeded} products updated · ${failed} failed${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
         } else {
-          toast.success(`✅ Invoice synced · ${succeeded} products updated in IT Retail${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
+          toast.success(`✅ Invoice synced · ${succeeded} products updated in catalog${unmatched > 0 ? ` · ${unmatched} unmatched skipped` : ''}`);
         }
       } else {
         // No matched items — just confirm
         const unmatched = editData.lineItems.filter(it => it.mappingStatus === 'unmatched').length;
         toast.success(`✅ ${editData.vendorName || editData.fileName} synced${unmatched > 0 ? ` · ${unmatched} unmatched items skipped` : ''}`);
+      }
+
+      // Step 3 — update inventory counts for received items
+      const inventoryResults = await Promise.allSettled(
+        matchedItems
+          .filter(item => parseFloat(item.quantity) > 0)
+          .map(item =>
+            adjustStoreStock({
+              masterProductId: parseInt(item.linkedProductId || item.posProductId),
+              adjustment:      parseFloat(item.quantity) || 0,
+              reason:          `Invoice #${editData.invoiceNumber || editData.id} — ${editData.vendorName || 'Invoice import'}`,
+            })
+          )
+      );
+      const invOk   = inventoryResults.filter(r => r.status === 'fulfilled').length;
+      const invFail = inventoryResults.filter(r => r.status === 'rejected').length;
+      if (invOk > 0) {
+        toast.info(`📦 Inventory updated: +${invOk} product${invOk !== 1 ? 's' : ''}${invFail > 0 ? ` (${invFail} failed)` : ''}`);
       }
 
       closeReview();
@@ -1298,22 +1480,40 @@ const InvoiceImport = () => {
   };
 
   const handleUpdatePOS = async (posProductId, posFields) => {
-    const res = await updatePOSProductDetails(posProductId, posFields);
-    if (res.data?.testingMode) {
-      toast.info('🔧 Dev mode: POS update simulated — no real change made');
-    } else {
-      toast.success('✅ Product updated in IT Retail');
-    }
+    // Map legacy POS field names → catalog field names
+    const catalogFields = {
+      name:               posFields.description || posFields.name,
+      upc:                posFields.upc                          || undefined,
+      casePacks:          posFields.pack         ? parseInt(posFields.pack)                   : undefined,
+      defaultCasePrice:   posFields.case_cost    ? Number(posFields.case_cost)                : undefined,
+      defaultCostPrice:   posFields.cost         ? Number(posFields.cost)                     : undefined,
+      defaultRetailPrice: posFields.normal_price ? Number(posFields.normal_price)             : undefined,
+      departmentId:       posFields.departmentId ? parseInt(posFields.departmentId)           : undefined,
+      vendorId:           posFields.vendorId     ? parseInt(posFields.vendorId)               : undefined,
+      itemCode:           posFields.cert_code    || undefined,
+    };
+    // Remove undefined keys
+    Object.keys(catalogFields).forEach(k => catalogFields[k] === undefined && delete catalogFields[k]);
+    await updateCatalogProduct(posProductId, catalogFields);
+    toast.success('✅ Product updated in catalog');
   };
 
   const handleCreatePOS = async (posFields) => {
-    const res = await createPOSProduct(posFields);
-    if (res.data?.testingMode) {
-      toast.info('🔧 Dev mode: POS create simulated — no real product created');
-      return null;
-    }
-    toast.success('✅ Product created in IT Retail');
-    return res.data?.newProductId || null;
+    const pack = parseFloat(posFields.pack) || 1;
+    const caseCost = parseFloat(posFields.case_cost) || 0;
+    const res = await createCatalogProduct({
+      name:               posFields.description || posFields.name,
+      upc:                posFields.upc          || undefined,
+      casePacks:          pack,
+      defaultCasePrice:   caseCost               || undefined,
+      defaultCostPrice:   posFields.cost         ? Number(posFields.cost)         : (pack > 0 ? caseCost / pack : undefined),
+      defaultRetailPrice: posFields.normal_price ? Number(posFields.normal_price) : undefined,
+      departmentId:       posFields.departmentId ? parseInt(posFields.departmentId) : undefined,
+      vendorId:           posFields.vendorId     ? parseInt(posFields.vendorId)     : undefined,
+      itemCode:           posFields.cert_code    || undefined,
+    });
+    toast.success('✅ Product created in catalog');
+    return res?.data?.id != null ? String(res.data.id) : null;
   };
 
   // Called from SearchModal "Create New" tab — creates product in POS and links it to the line item
@@ -1321,21 +1521,17 @@ const InvoiceImport = () => {
     try {
       const pack     = parseFloat(formData.pack)      || 1;
       const caseCost = parseFloat(formData.case_cost) || 0;
-      const res = await createPOSProduct({
-        description:  formData.description,
-        upc:          formData.upc         || '',
-        pack,
-        case_cost:    caseCost,
-        cost:         pack > 0 ? caseCost / pack : 0,
-        normal_price: parseFloat(formData.normal_price) || 0,
-        cert_code:    formData.cert_code   || '',
+      const res = await createCatalogProduct({
+        name:               formData.description,
+        upc:                formData.upc       || undefined,
+        casePacks:          pack,
+        defaultCasePrice:   caseCost           || undefined,
+        defaultCostPrice:   pack > 0 ? caseCost / pack : undefined,
+        defaultRetailPrice: parseFloat(formData.normal_price) || undefined,
+        itemCode:           formData.cert_code || undefined,
       });
-      if (res.data?.testingMode) {
-        toast.info('🔧 Dev mode: product creation simulated — no real change made');
-        setSearchModal({ isOpen: false, itemIdx: null, query: '', results: [], isLoading: false, tab: 'search', itemData: null });
-        return;
-      }
-      const newId = res.data?.newProductId || null;
+      // catalog returns { success: true, data: product }
+      const newId = res?.data?.id != null ? String(res.data.id) : null;
       const idx   = searchModal.itemIdx;
       if (idx != null) {
         setEditData(prev => {
@@ -1352,7 +1548,7 @@ const InvoiceImport = () => {
           return { ...prev, lineItems: items };
         });
       }
-      toast.success('✅ Product created in IT Retail and linked to this invoice item');
+      toast.success('✅ Product created in catalog and linked to this invoice item');
       setSearchModal({ isOpen: false, itemIdx: null, query: '', results: [], isLoading: false, tab: 'search', itemData: null });
     } catch (err) {
       toast.error('Create failed: ' + (err.response?.data?.error || err.message));
@@ -1363,7 +1559,7 @@ const InvoiceImport = () => {
     setIsRefreshingPOS(true);
     try {
       await clearInvoicePOSCache();
-      toast.success('✅ POS cache cleared — next invoice upload will fetch the latest products & vendors from IT Retail');
+      toast.success('✅ POS product cache cleared');
     } catch (err) {
       toast.error('Failed to refresh: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -1387,8 +1583,10 @@ const InvoiceImport = () => {
   const handleSearch = async (query) => {
     setSearchModal(p => ({ ...p, query, isLoading: true }));
     try {
-      const { data } = await searchPOSProducts(query);
-      setSearchModal(p => ({ ...p, results: data.products || [], isLoading: false }));
+      const result = await searchCatalogProducts(query);
+      // catalog returns { success, data: [...] }
+      const products = Array.isArray(result) ? result : (result?.data || []);
+      setSearchModal(p => ({ ...p, results: products, isLoading: false }));
     } catch {
       setSearchModal(p => ({ ...p, isLoading: false }));
     }
@@ -1399,14 +1597,18 @@ const InvoiceImport = () => {
     setEditData(prev => {
       const items = [...prev.lineItems];
       const item  = { ...items[itemIdx] };
+      // Catalog fields: id, name, upc, defaultRetailPrice, casePacks/unitsPerPack, departmentId, vendorId
       item.description          = product.name;
-      item.upc                  = product.upc;
-      item.suggestedRetailPrice = product.retailPrice;
-      item.packUnits            = product.pack || 1;
+      item.upc                  = normalizeUPC(product.upc || item.upc || '');
+      item.suggestedRetailPrice = product.defaultRetailPrice != null ? Number(product.defaultRetailPrice) : (product.retailPrice || '');
+      item.packUnits            = product.casePacks || product.unitsPerPack || product.pack || 1;
       item.unitCost             = parseFloat(item.caseCost || item.netCost || 0) / (item.packUnits || 1);
       item.mappingStatus        = 'matched';
       item.confidence           = 'high';
-      item.linkedProductId      = product.posProductId;
+      item.matchTier            = 'manual';
+      item.linkedProductId      = String(product.id || product.posProductId || '');
+      item.departmentId         = product.departmentId != null ? String(product.departmentId) : (item.departmentId || '');
+      item.vendorId             = product.vendorId     != null ? String(product.vendorId)     : (item.vendorId     || '');
       items[itemIdx] = item;
       return { ...prev, lineItems: items };
     });
@@ -1442,7 +1644,7 @@ const InvoiceImport = () => {
               onClick={handleRefreshPOS}
               disabled={isRefreshingPOS}
               className="btn btn-secondary btn-sm"
-              title="Clear cached POS products — forces fresh fetch from IT Retail on next upload. Use after adding new vendors or products in IT Retail."
+              title="Clear cached POS products — forces a fresh fetch on next upload."
               style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}
             >
               {isRefreshingPOS
@@ -1464,7 +1666,7 @@ const InvoiceImport = () => {
             <div style={{ fontWeight: 600, marginBottom: '3px' }}>
               {isDragActive ? 'Drop to queue for AI processing' : isUploading ? 'Uploading…' : 'Drop invoices here or click to browse'}
             </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>PDF, PNG, JPG — instantly queued, AI processes in background</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>PDF (multi-page), PNG, JPG — instantly queued, AI extracts all pages in background</div>
           </div>
           {invoices.length > 0 && (
             <div style={{ display: 'flex', gap: '2rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', width: '100%', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -1543,6 +1745,18 @@ const InvoiceImport = () => {
           onSelect={handleSelectProduct}
           onCreateNew={handleCreateFromSearch}
           itemData={searchModal.itemData}
+        />
+      )}
+
+      {multiPageModal && (
+        <MultiPageModal
+          files={multiPageModal.files}
+          onConfirm={(isMultipage) => {
+            const { files } = multiPageModal;
+            setMultiPageModal(null);
+            uploadFiles(files, isMultipage);
+          }}
+          onClose={() => setMultiPageModal(null)}
         />
       )}
     </div>

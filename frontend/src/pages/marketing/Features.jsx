@@ -34,7 +34,7 @@ const Features = () => {
           <div className="features-hero-content">
             <h1 className="features-title">Enterprise Power, <span className="text-gradient">Simplified</span></h1>
             <p className="features-subtitle">
-              From AI-powered automation to predictive sales forecasting, FutureFoods provides the tools you need to stay ahead of the competition.
+              From AI-powered automation to predictive sales forecasting, Storeveu provides the tools you need to stay ahead of the competition.
             </p>
             <MarketingButton href="/contact" size="lg">Get Started Today</MarketingButton>
           </div>
@@ -176,12 +176,12 @@ const Features = () => {
           <div className="quick-f-card">
             <Database size={32} />
             <h4>POS Integration</h4>
-            <p>Direct sync with MarktPOS IT Retail via high-performance APIs.</p>
+            <p>Direct sync with your POS catalog via high-performance APIs.</p>
           </div>
           <div className="quick-f-card">
             <Search size={32} />
             <h4>UPC Lookup</h4>
-            <p>Search your entire local and IT Retail database from one search bar.</p>
+            <p>Search your entire product catalog from one search bar.</p>
           </div>
           <div className="quick-f-card">
             <Zap size={32} />
@@ -202,7 +202,6 @@ const Features = () => {
           <p className="integrations-label">WORKS SEAMLESSLY WITH</p>
           <div className="integrations-logos">
              {/* // TODO: add real integration logos */}
-             <div className="logo-placeholder">IT RETAIL</div>
              <div className="logo-placeholder">AZURE AI</div>
              <div className="logo-placeholder">GPT-4</div>
              <div className="logo-placeholder">SHOPIFY</div>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="600" height="200" viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background dark -->
+  <rect width="600" height="200" fill="#0f1120" rx="20"/>
+
+  <!-- Sprout Icon dark -->
+  <rect x="40" y="40" width="100" height="100" rx="24" fill="#1a1f38"/>
+  <line x1="90" y1="128" x2="90" y2="68" stroke="#7b95e0" stroke-width="4" stroke-linecap="round"/>
+  <path d="M90 100 C90 100 64 90 58 72 C52 54 68 44 80 58 C84 64 90 74 90 74" fill="#7b95e0" opacity="0.65"/>
+  <path d="M90 90 C90 90 116 78 122 60 C128 42 112 32 100 46 C96 52 90 62 90 62" fill="#a0b4ea"/>
+  <circle cx="76" cy="134" r="3.5" fill="#7b95e0" opacity="0.35"/>
+  <circle cx="90" cy="137" r="3.5" fill="#7b95e0" opacity="0.35"/>
+  <circle cx="104" cy="134" r="3.5" fill="#7b95e0" opacity="0.35"/>
+
+  <!-- Wordmark light -->
+  <text x="162" y="118"
+    font-family="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-size="72"
+    letter-spacing="-3"
+    fill="#e8eaf6">store</text>
+
+  <text x="394" y="118"
+    font-family="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-style="italic"
+    font-size="72"
+    letter-spacing="-3"
+    fill="#7b95e0">vue</text>
+
+  <text x="163" y="150"
+    font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-weight="300"
+    font-size="13"
+    letter-spacing="6"
+    fill="#232b4a">POINT  OF  SALE</text>
+</svg>

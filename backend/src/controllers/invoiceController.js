@@ -1,60 +1,28 @@
 import prisma from '../config/postgres.js';
 import * as gptService from '../services/gptService.js';
-import * as marktPOSService from '../services/marktPOSService.js';
+// extractMultiplePages is accessed via gptService.extractMultiplePages
 import {
   matchLineItems,
   saveConfirmedMappings,
   getPOSCache,
   setPOSCache,
   clearPOSCache,
+  loadCatalogProductsForMatching,
 } from '../services/matchingService.js';
 import fs from 'fs/promises';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: load store's POS credentials for background processing
-// ─────────────────────────────────────────────────────────────────────────────
-async function buildPOSUser(user, storeId) {
-  try {
-    if (!storeId) return user;
-    const store = await prisma.store.findUnique({
-      where: { id: storeId },
-      select: { pos: true },
-    });
-    const pos = store?.pos;
-    if (pos?.type === 'itretail' && pos.username && pos.password) {
-      return {
-        ...user,
-        marktPOSUsername: pos.username,
-        marktPOSPassword: pos.password,
-        _posStoreId: storeId,
-      };
-    }
-  } catch (err) {
-    console.warn('⚠️ Could not load store POS credentials:', err.message);
-  }
-  return user;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal: background processing (called after HTTP response is sent)
 // ─────────────────────────────────────────────────────────────────────────────
-async function processInvoiceBackground(invoiceId, file, user, storeId) {
+async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
   try {
-    const posUser = await buildPOSUser(user, storeId);
-
-    let posProducts = [];
-    try {
-      const cached = getPOSCache(user.id);
-      if (cached) {
-        posProducts = cached;
-      } else {
-        const { data } = await marktPOSService.fetchMarktPOSProducts(posUser);
-        posProducts = marktPOSService.extractProductArray(data).map(marktPOSService.normalizeProduct);
-        setPOSCache(user.id, posProducts);
-      }
-    } catch (err) {
-      console.warn('⚠️ Could not fetch POS products for matching:', err.message);
+    let posProducts = getPOSCache(user.id);
+    if (!posProducts || posProducts.length === 0) {
+      posProducts = await loadCatalogProductsForMatching(orgId);
+      if (posProducts.length > 0) setPOSCache(user.id, posProducts);
     }
+    posProducts = posProducts || [];
 
     const buffer = await fs.readFile(file.path);
     const result = await gptService.extractInvoiceData(buffer, file.mimetype);
@@ -131,13 +99,112 @@ export const queueUpload = async (req, res) => {
       stubs.push(stub);
 
       setImmediate(() =>
-        processInvoiceBackground(stub.id, file, req.user, req.storeId).catch(err =>
+        processInvoiceBackground(stub.id, file, req.user, req.storeId, req.orgId).catch(err =>
           console.error('Background processing error:', err)
         )
       );
     }
 
     res.json({ message: 'Queued for processing', invoices: stubs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal: background processing for multi-page invoices (multiple files = 1 invoice)
+// ─────────────────────────────────────────────────────────────────────────────
+async function processMultipageBackground(invoiceId, files, user, storeId, orgId) {
+  try {
+    let posProducts = getPOSCache(user.id);
+    if (!posProducts || posProducts.length === 0) {
+      posProducts = await loadCatalogProductsForMatching(orgId);
+      if (posProducts.length > 0) setPOSCache(user.id, posProducts);
+    }
+    posProducts = posProducts || [];
+
+    // Read all file buffers
+    const fileData = await Promise.all(
+      files.map(async (f) => ({ buffer: await fs.readFile(f.path), mimetype: f.mimetype }))
+    );
+
+    const { data, pages } = await gptService.extractMultiplePages(fileData);
+    const enrichedItems = await matchLineItems(data.lineItems, posProducts, data.vendor.vendorName);
+
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status:             'draft',
+        vendorName:         data.vendor.vendorName,
+        customerNumber:     data.vendor.customerNumber,
+        invoiceNumber:      data.vendor.invoiceNumber,
+        invoiceDate:        data.vendor.invoiceDate ? new Date(data.vendor.invoiceDate) : null,
+        paymentDueDate:     data.vendor.paymentDueDate ? new Date(data.vendor.paymentDueDate) : null,
+        paymentType:        data.vendor.paymentType,
+        checkNumber:        data.vendor.checkNumber,
+        totalInvoiceAmount: data.vendor.totalInvoiceAmount,
+        tax:                data.vendor.tax,
+        totalDiscount:      data.vendor.totalDiscount,
+        totalDeposit:       data.vendor.totalDeposit,
+        otherFees:          data.vendor.otherFees,
+        totalCasesReceived: data.vendor.totalCasesReceived,
+        totalUnitsReceived: data.vendor.totalUnitsReceived,
+        driverName:         data.vendor.driverName,
+        salesRepName:       data.vendor.salesRepName,
+        loadNumber:         data.vendor.loadNumber,
+        lineItems:          enrichedItems,
+        pages,
+        rawText:            JSON.stringify(data),
+        processingError:    null,
+      },
+    });
+
+    console.log(`✅ Multi-page invoice ${invoiceId} complete — ${enrichedItems.length} items from ${files.length} pages`);
+  } catch (err) {
+    console.error(`❌ Multi-page invoice ${invoiceId} failed:`, err.message);
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'failed', processingError: err.message },
+    });
+  } finally {
+    // Clean up all temp files
+    await Promise.all(files.map(f => fs.unlink(f.path).catch(() => {})));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Queue multiple files as ONE multi-page invoice
+// @route   POST /api/invoice/queue-multipage
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+export const queueMultipageUpload = async (req, res) => {
+  try {
+    const files = req.files;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const fileName = files.map(f => f.originalname).join(', ');
+
+    // Create ONE invoice stub for all pages
+    const stub = await prisma.invoice.create({
+      data: {
+        fileName,
+        fileType: 'multipage',
+        status:   'processing',
+        orgId:    req.orgId   ?? 'unknown',
+        storeId:  req.storeId ?? null,
+        userId:   req.user.id ?? null,
+      },
+    });
+
+    setImmediate(() =>
+      processMultipageBackground(stub.id, files, req.user, req.storeId, req.orgId).catch(err =>
+        console.error('Multi-page background processing error:', err)
+      )
+    );
+
+    res.json({ message: 'Multi-page invoice queued for processing', invoices: [stub] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -155,19 +222,12 @@ export const uploadInvoices = async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    let posProducts = [];
-    try {
-      const cached = getPOSCache(req.user.id);
-      if (cached) {
-        posProducts = cached;
-      } else {
-        const { data } = await marktPOSService.fetchMarktPOSProducts(req.user);
-        posProducts = marktPOSService.extractProductArray(data).map(marktPOSService.normalizeProduct);
-        setPOSCache(req.user.id, posProducts);
-      }
-    } catch (err) {
-      console.warn('⚠️ Could not fetch POS products for mapping:', err.message);
+    let posProducts = getPOSCache(req.user.id);
+    if (!posProducts || posProducts.length === 0) {
+      posProducts = await loadCatalogProductsForMatching(req.orgId);
+      if (posProducts.length > 0) setPOSCache(req.user.id, posProducts);
     }
+    posProducts = posProducts || [];
 
     const results = [];
 
@@ -325,7 +385,7 @@ export const confirmInvoice = async (req, res) => {
       },
     });
 
-    await saveConfirmedMappings(lineItems, vendorName);
+    await saveConfirmedMappings(lineItems, vendorName, req.orgId);
 
     res.json({ message: 'Invoice synchronized with system', invoice });
   } catch (error) {
@@ -399,7 +459,7 @@ export const clearInvoicePOSCache = async (req, res) => {
     clearPOSCache(req.user.id);
     res.json({
       success: true,
-      message: 'POS product cache cleared — next upload will fetch fresh data from IT Retail',
+      message: 'POS product cache cleared',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

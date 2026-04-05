@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { getCatalogSnapshot, getDepositRules, getTaxRules } from '../api/pos.js';
-import { db, getLastSync, setLastSync, upsertProducts } from '../db/dexie.js';
+import { getCatalogSnapshot, getDepositRules, getTaxRules, getDepartmentsForPOS, getActivePromotionsForPOS } from '../api/pos.js';
+import { db, getLastSync, setLastSync, upsertProducts, upsertDepartments, upsertPromotions } from '../db/dexie.js';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useSyncStore } from '../stores/useSyncStore.js';
 
@@ -42,10 +42,19 @@ export function useCatalogSync() {
         page++;
       }
 
-      // Sync deposit and tax rules
-      const [deposits, taxes] = await Promise.all([getDepositRules(), getTaxRules()]);
+      // Sync deposit rules, tax rules, and departments (always full refresh)
+      const [deposits, taxes, depts] = await Promise.all([
+        getDepositRules(),
+        getTaxRules(),
+        getDepartmentsForPOS(),
+      ]);
       if (deposits?.length) await db.depositRules.bulkPut(deposits);
       if (taxes?.length)    await db.taxRules.bulkPut(taxes);
+      if (depts?.length)    await upsertDepartments(depts);
+
+      // Sync promotions
+      const promos = await getActivePromotionsForPOS().catch(() => []);
+      if (promos?.length) await upsertPromotions(promos);
 
       const now = new Date().toISOString();
       await setLastSync('productsLastSync', now);

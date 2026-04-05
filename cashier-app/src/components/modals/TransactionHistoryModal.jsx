@@ -1,7 +1,7 @@
 /**
  * TransactionHistoryModal
  * Manager view of today's transactions.
- * Features: search by tx#, filter by status, click to view detail + reprint.
+ * Features: search by tx#, filter by status, click to view detail + print receipt.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, Printer, RotateCcw, ChevronRight, Ban, RefreshCw } from 'lucide-react';
@@ -10,10 +10,10 @@ import { fmt$ } from '../../utils/formatters.js';
 import { useAuthStore } from '../../stores/useAuthStore.js';
 
 const STATUS_COLOR = {
-  complete: 'var(--green)',
-  voided:   'var(--red)',
-  refund:   'var(--amber)',
-  suspended:'var(--text-muted)',
+  complete:  'var(--green)',
+  voided:    'var(--red)',
+  refund:    'var(--amber)',
+  suspended: 'var(--text-muted)',
 };
 
 const BACKDROP = { position:'fixed', inset:0, zIndex:210, background:'rgba(0,0,0,.75)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' };
@@ -30,7 +30,7 @@ function fmtDuration(ts) {
   return `${h}h ${min % 60}m ago`;
 }
 
-export default function TransactionHistoryModal({ onClose, onReprint }) {
+export default function TransactionHistoryModal({ onClose, onPrintTx }) {
   const cashier      = useAuthStore(s => s.cashier);
   const storeId      = cashier?.storeId;
   const today        = new Date().toISOString().split('T')[0];
@@ -67,6 +67,10 @@ export default function TransactionHistoryModal({ onClose, onReprint }) {
     if (t.status === 'voided')   acc.voided++;
     return acc;
   }, { sales: 0, refunds: 0, voided: 0 });
+
+  const handlePrint = (tx) => {
+    if (onPrintTx) onPrintTx(tx);
+  };
 
   return (
     <div style={BACKDROP}>
@@ -131,32 +135,60 @@ export default function TransactionHistoryModal({ onClose, onReprint }) {
           ) : visible.map(tx => (
             <div
               key={tx.id}
-              onClick={() => setDetail(tx)}
-              style={{ padding:'0.75rem 1.25rem', borderBottom:'1px solid var(--border)', cursor:'pointer', display:'flex', alignItems:'center', gap:12, transition:'background .1s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.03)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              style={{ padding:'0.75rem 1.25rem', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12 }}
             >
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
-                  <span style={{ fontWeight:800, fontSize:'0.88rem', color:'var(--text-primary)' }}>{tx.txNumber}</span>
-                  <span style={{ fontSize:'0.65rem', fontWeight:700, padding:'1px 6px', borderRadius:10, background:`${STATUS_COLOR[tx.status]}20`, color:STATUS_COLOR[tx.status] }}>
-                    {tx.status.toUpperCase()}
-                  </span>
-                  {tx.refundOf && <span style={{ fontSize:'0.62rem', color:'var(--text-muted)' }}>REFUND</span>}
+              {/* Clickable content area → opens detail */}
+              <div
+                onClick={() => setDetail(tx)}
+                style={{ flex:1, minWidth:0, cursor:'pointer', display:'flex', alignItems:'center', gap:12 }}
+                onMouseEnter={e => e.currentTarget.parentElement.style.background = 'rgba(255,255,255,.03)'}
+                onMouseLeave={e => e.currentTarget.parentElement.style.background = 'transparent'}
+              >
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
+                    <span style={{ fontWeight:800, fontSize:'0.88rem', color:'var(--text-primary)' }}>{tx.txNumber}</span>
+                    <span style={{ fontSize:'0.65rem', fontWeight:700, padding:'1px 6px', borderRadius:10, background:`${STATUS_COLOR[tx.status]}20`, color:STATUS_COLOR[tx.status] }}>
+                      {tx.status.toUpperCase()}
+                    </span>
+                    {tx.refundOf && <span style={{ fontSize:'0.62rem', color:'var(--text-muted)' }}>REFUND</span>}
+                  </div>
+                  <div style={{ fontSize:'0.72rem', color:'var(--text-muted)' }}>
+                    {tx.cashierName} · {fmtDuration(tx.createdAt)} · {(tx.lineItems || []).length} items
+                  </div>
                 </div>
-                <div style={{ fontSize:'0.72rem', color:'var(--text-muted)' }}>
-                  {tx.cashierName} · {fmtDuration(tx.createdAt)} · {(tx.lineItems || []).length} items
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <div style={{ fontWeight:900, fontSize:'1rem', color: tx.status === 'voided' ? 'var(--text-muted)' : tx.grandTotal < 0 ? 'var(--amber)' : 'var(--text-primary)', textDecoration: tx.status === 'voided' ? 'line-through' : 'none' }}>
+                    {tx.grandTotal < 0 ? '-' : ''}{fmt$(Math.abs(tx.grandTotal))}
+                  </div>
+                  <div style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>
+                    {(tx.tenderLines || []).map(l => l.method).join(' + ')}
+                  </div>
                 </div>
+                <ChevronRight size={14} color="var(--text-muted)" style={{ flexShrink:0 }} />
               </div>
-              <div style={{ textAlign:'right', flexShrink:0 }}>
-                <div style={{ fontWeight:900, fontSize:'1rem', color: tx.status === 'voided' ? 'var(--text-muted)' : tx.grandTotal < 0 ? 'var(--amber)' : 'var(--text-primary)', textDecoration: tx.status === 'voided' ? 'line-through' : 'none' }}>
-                  {tx.grandTotal < 0 ? '-' : ''}{fmt$(Math.abs(tx.grandTotal))}
-                </div>
-                <div style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>
-                  {(tx.tenderLines || []).map(l => l.method).join(' + ')}
-                </div>
-              </div>
-              <ChevronRight size={14} color="var(--text-muted)" style={{ flexShrink:0 }} />
+
+              {/* Print Receipt button — always visible on each row */}
+              {tx.status !== 'voided' && (
+                <button
+                  onClick={() => handlePrint(tx)}
+                  title="Print Receipt"
+                  style={{
+                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '0.35rem 0.75rem', borderRadius: 8,
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 700, fontSize: '0.72rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.1)'; e.currentTarget.style.borderColor = 'rgba(122,193,67,.35)'; e.currentTarget.style.color = 'var(--green)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-input)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                >
+                  <Printer size={12} /> Print
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -170,9 +202,18 @@ export default function TransactionHistoryModal({ onClose, onReprint }) {
                 <div style={{ fontSize:'0.72rem', color:'var(--text-muted)' }}>{detail.cashierName} · {new Date(detail.createdAt).toLocaleString()}</div>
               </div>
               <div style={{ display:'flex', gap:8 }}>
-                {onReprint && detail.status !== 'voided' && (
-                  <button onClick={() => { onReprint(detail); setDetail(null); onClose(); }} style={{ display:'flex', alignItems:'center', gap:6, padding:'0.5rem 1rem', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text-secondary)', fontWeight:700, fontSize:'0.82rem', cursor:'pointer' }}>
-                    <Printer size={14} /> Reprint
+                {detail.status !== 'voided' && (
+                  <button
+                    onClick={() => handlePrint(detail)}
+                    style={{
+                      display:'flex', alignItems:'center', gap:6,
+                      padding:'0.5rem 1rem',
+                      background:'var(--green)', border:'none',
+                      borderRadius:8, color:'#fff',
+                      fontWeight:700, fontSize:'0.82rem', cursor:'pointer',
+                    }}
+                  >
+                    <Printer size={14} /> Print Receipt
                   </button>
                 )}
                 <button onClick={() => setDetail(null)} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}>

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { createTenant, createStore } from '../services/api';
 import { toast } from 'react-toastify';
-import logoImg from '../assets/future-foods-logo.jpg';
+import StoreveuLogo from '../components/StoreveuLogo';
 
 const TIMEZONES = [
   { label: 'Eastern  (ET)',  value: 'America/New_York'   },
@@ -150,7 +150,7 @@ export default function Onboarding() {
         boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <img src={logoImg} alt="Logo" style={{ maxHeight: '56px', width: 'auto', marginBottom: '1rem' }} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}><StoreveuLogo height={40} darkMode={true} /></div>
         </div>
         <StepDots current={step} total={3} />
         {content}
@@ -184,7 +184,7 @@ export default function Onboarding() {
       <Field label="Organisation name" hint="required">
         <input
           className="form-input"
-          placeholder="e.g. Future Foods Inc."
+          placeholder="e.g. My Store Inc."
           value={orgName}
           onChange={(e) => setOrgName(e.target.value)}
           required
@@ -203,7 +203,7 @@ export default function Onboarding() {
           <input
             className="form-input"
             style={{ paddingLeft: '2.75rem' }}
-            placeholder="future-foods"
+            placeholder="my-store"
             value={slug}
             onChange={(e) => { setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setSlugEdited(true); }}
           />

@@ -22,7 +22,7 @@ const About = () => {
     {
       year: '2020',
       title: 'The Foundation',
-      desc: 'FutureFoods was founded by retail veterans who were tired of overly complex and outdated POS systems.'
+      desc: 'Storeveu was founded by retail veterans who were tired of overly complex and outdated POS systems.'
     },
     {
       year: '2021',
@@ -86,7 +86,7 @@ const About = () => {
           <div className="about-hero-content">
             <h1 className="about-title">We Built This Because We've Been in <span className="text-gradient">Your Shoes</span></h1>
             <p className="about-subtitle">
-              FutureFoods isn't just software. It's a mission to empower independent retailers with the same advanced technology used by global giants.
+              Storeveu isn't just software. It's a mission to empower independent retailers with the same advanced technology used by global giants.
             </p>
           </div>
         </div>
@@ -96,7 +96,7 @@ const About = () => {
       <MarketingSection bgVariant="white">
         <div className="about-story-grid">
           <div className="story-content">
-            <h2>The FutureFoods Story</h2>
+            <h2>The Storeveu Story</h2>
             <p>
               It started in the back office of a family-owned grocery store. We saw firsthand the stacks of paper invoices, the manual inventory counts, and the struggle to understand why sales were dipping.
             </p>
@@ -182,7 +182,7 @@ const About = () => {
         <div className="mkt-container">
           <div className="about-cta-card">
             <h2>Ready to be part of our next chapter?</h2>
-            <p>Join the 500+ retailers who are already thriving with FutureFoods.</p>
+            <p>Join the 500+ retailers who are already thriving with Storeveu.</p>
             <div className="about-cta-actions">
               <MarketingButton href="/contact" size="lg">Get Started Now</MarketingButton>
               <MarketingButton href="/pricing" variant="secondary" size="lg">See Our Plans</MarketingButton>

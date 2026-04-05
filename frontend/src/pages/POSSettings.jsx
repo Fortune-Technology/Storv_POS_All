@@ -19,10 +19,12 @@ const DEFAULT_BRANDING = { theme: 'dark', primaryColor: '#7ac143', logoText: '' 
 
 const DEFAULT_CONFIG = {
   layout: 'modern',
+  hiddenDepartments: [],
   showDepartments: true,
   showQuickAdd: true,
   numpadEnabled: true,
   customerLookup: true,
+  ageVerification: true,
   cashRounding: 'none',   // 'none' | '0.05'
   shortcuts: {
     priceCheck: true,
@@ -33,6 +35,11 @@ const DEFAULT_CONFIG = {
     refund: true,
     voidTx: true,
     endOfDay: true,
+  },
+  lottery: {
+    enabled:               true,
+    cashOnly:              false,
+    scanRequiredAtShiftEnd: false,
   },
   quickTender: ['card', 'cash', 'ebt'],
 };
@@ -426,6 +433,7 @@ export default function POSSettings() {
   const [loading,       setLoading]       = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [didSave,       setDidSave]       = useState(false);
+  const [departments,   setDepartments]   = useState([]);
 
   // Load stores, auto-select from ?store= param
   useEffect(() => {
@@ -473,6 +481,14 @@ export default function POSSettings() {
         setSavedBranding(DEFAULT_BRANDING);
       })
       .finally(() => setLoading(false));
+  }, [storeId]);
+
+  // Load departments for visibility control when store changes
+  useEffect(() => {
+    if (!storeId) return;
+    api.get('/catalog/departments', { params: { storeId } })
+      .then(res => setDepartments(Array.isArray(res.data) ? res.data : (res.data?.departments || [])))
+      .catch(() => setDepartments([]));
   }, [storeId]);
 
   const setField = (field, value) => setConfig(c => ({ ...c, [field]: value }));
@@ -663,6 +679,11 @@ export default function POSSettings() {
                   onChange={v => setField('customerLookup', v)}
                   label="Customer Lookup"
                 />
+                <Toggle
+                  checked={config.ageVerification !== false}
+                  onChange={v => setField('ageVerification', v)}
+                  label="Age Verification"
+                />
               </div>
 
               {/* Cash rounding option */}
@@ -706,6 +727,66 @@ export default function POSSettings() {
                 )}
               </div>
             </div>
+
+            {/* ── Section 2b: Department Visibility ── */}
+            {config.showDepartments && (
+              <div style={cardStyle}>
+                <span style={sectionLabel}>DEPARTMENT VISIBILITY</span>
+                <p style={{ fontSize: '0.78rem', color: '#475569', margin: '0 0 1rem' }}>
+                  Choose which departments appear in the POS. Hidden departments won't show as category filters.
+                </p>
+                {departments.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: '#475569', fontStyle: 'italic' }}>
+                    No departments found — sync your product catalog to populate departments.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {departments.map(dept => {
+                      const name = typeof dept === 'string' ? dept : (dept.name || dept.id || String(dept));
+                      const hidden = (config.hiddenDepartments || []).includes(name);
+                      return (
+                        <button
+                          key={name}
+                          onClick={() => {
+                            const current = config.hiddenDepartments || [];
+                            const next = hidden
+                              ? current.filter(d => d !== name)
+                              : [...current, name];
+                            setField('hiddenDepartments', next);
+                          }}
+                          style={{
+                            padding: '0.4rem 0.85rem',
+                            borderRadius: 20,
+                            border: hidden ? '1px solid rgba(224,63,63,.4)' : '1px solid #7ac143',
+                            background: hidden ? 'rgba(224,63,63,.08)' : 'rgba(122,193,67,.12)',
+                            color: hidden ? 'var(--red, #e03f3f)' : '#7ac143',
+                            fontSize: '0.78rem', fontWeight: 600,
+                            cursor: 'pointer', transition: 'all .15s',
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            textDecoration: hidden ? 'line-through' : 'none',
+                            opacity: hidden ? 0.7 : 1,
+                          }}
+                        >
+                          {hidden ? '✕' : '✓'} {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {(config.hiddenDepartments || []).length > 0 && (
+                  <button
+                    onClick={() => setField('hiddenDepartments', [])}
+                    style={{
+                      marginTop: 12, fontSize: '0.75rem', color: '#475569',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    Show all departments
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* ── Section 3: Action Bar Shortcuts ── */}
             <div style={cardStyle}>
@@ -790,6 +871,47 @@ export default function POSSettings() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ── Lottery Settings ────────────────────────────────────────────────── */}
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                🎟️ Lottery
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Enable Lottery Sales</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Show lottery buttons in the POS action bar</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.enabled ?? true}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, enabled: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Cash Only for Lottery</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>When cart has lottery items, only allow cash payment</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.cashOnly ?? false}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, cashOnly: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+
+                {/* Scan Required at Shift End */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 0', borderTop: '1px solid var(--border-light)', cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Require Ticket Scan at Shift End</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Cashier must scan all active boxes before closing a lottery shift</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.lottery?.scanRequiredAtShiftEnd ?? false}
+                    onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, scanRequiredAtShiftEnd: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
               </div>
             </div>
 

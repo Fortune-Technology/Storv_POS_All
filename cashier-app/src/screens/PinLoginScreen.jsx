@@ -125,8 +125,8 @@ export default function PinLoginScreen() {
 
       {/* Store + station identity */}
       <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-        <div style={{ color: 'var(--green)', fontWeight: 900, fontSize: '1.6rem', letterSpacing: '0.04em' }}>
-          {station?.storeName || 'FF POS'}
+        <div style={{ color: 'var(--text-primary)', fontWeight: 900, fontSize: '1.6rem', letterSpacing: '0.04em' }}>
+          {station?.storeName || 'Storeveu POS'}
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
           {station?.stationName || 'Register'}

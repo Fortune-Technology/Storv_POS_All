@@ -1,5 +1,4 @@
 import prisma from '../config/postgres.js';
-import { marktPOSRequest } from '../services/marktPOSService.js';
 
 // @desc    List all products
 // @route   GET /api/products
@@ -19,7 +18,7 @@ export const getProducts = async (req, res, next) => {
   }
 };
 
-// @desc    Update product price and sync to POS
+// @desc    Update product price in master catalog
 // @route   PUT /api/products/bulk-update
 // @access  Private
 export const bulkUpdatePrices = async (req, res, next) => {
@@ -35,21 +34,7 @@ export const bulkUpdatePrices = async (req, res, next) => {
           data:  { defaultRetailPrice: update.price },
         });
 
-        // Sync with POS
-        try {
-          const product = await prisma.masterProduct.findUnique({
-            where: { id: parseInt(update.id) },
-          });
-          if (product?.itRetailUpc) {
-            await marktPOSRequest('PUT', `products/${product.itRetailUpc}/price`, {
-              price: update.price,
-            });
-          }
-          results.push({ id: update.id, status: 'synced' });
-        } catch (syncError) {
-          console.error(`Sync error for product ${update.id}:`, syncError.message);
-          results.push({ id: update.id, status: 'sync_error', error: syncError.message });
-        }
+        results.push({ id: update.id, status: 'updated' });
       } catch (err) {
         results.push({ id: update.id, status: 'failed', error: err.message });
       }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import MarketingButton from './MarketingButton';
-import logoImg from '../../assets/future-foods-logo.jpg';
+import StoreveuLogo from '../StoreveuLogo';
 import './MarketingNavbar.css';
 
 const MarketingNavbar = () => {
@@ -36,7 +36,7 @@ const MarketingNavbar = () => {
     <nav className={`mkt-navbar ${isScrolled ? 'scrolled' : ''}`}>
       <div className="mkt-navbar-container">
         <Link to="/" className="mkt-navbar-logo" onClick={() => setIsMobileMenuOpen(false)}>
-          <img src={logoImg} alt="FutureFoods" />
+          <StoreveuLogo height={32} darkMode={true} />
         </Link>
 
         {/* Desktop Menu */}

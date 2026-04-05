@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { LogIn, Eye, EyeOff, Store, AlertCircle } from 'lucide-react';
+import StoreveuLogo from '../components/StoreveuLogo.jsx';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useNavigate } from 'react-router-dom';
 
@@ -49,21 +50,8 @@ export default function LoginScreen() {
         boxShadow: '0 24px 60px rgba(0,0,0,.5)',
       }}>
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 14,
-            background: 'var(--green-dim)', border: '2px solid var(--green-border)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 1rem',
-          }}>
-            <Store size={28} color="var(--green)" />
-          </div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-            Future Foods
-          </div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Point of Sale
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
+          <StoreveuLogo height={44} darkMode={true} showTagline={true} />
         </div>
 
         {/* Backend offline warning */}

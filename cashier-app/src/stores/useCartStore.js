@@ -7,13 +7,58 @@ import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 import { round2 } from '../utils/taxCalc.js';
 import { db } from '../db/dexie.js';
+import { evaluatePromotions } from '../utils/promoEngine.js';
+
+// ── Inline promo evaluation — runs synchronously inside store actions ──────
+// Returns { items, promoResults } with adjustments baked in, no extra render.
+function withPromos(items, promotions) {
+  if (!promotions?.length || !items?.length) {
+    const cleaned = items.map(i => i.promoAdjustment ? calcLine({ ...i, promoAdjustment: null }) : i);
+    return { items: cleaned, promoResults: { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] } };
+  }
+  const cartItems = items.map(i => ({
+    lineId:           i.lineId,
+    productId:        i.productId,
+    departmentId:     i.departmentId || null,
+    qty:              i.qty,
+    unitPrice:        i.unitPrice,
+    discountEligible: i.discountEligible !== false,
+  }));
+  const results = evaluatePromotions(cartItems, promotions);
+  const adjs    = results.lineAdjustments || {};
+  const updated = items.map(item => {
+    const adj    = adjs[item.lineId] || null;
+    const prevId = item.promoAdjustment?.promoId ?? null;
+    const newId  = adj?.promoId ?? null;
+    const prevV  = item.promoAdjustment?.discountValue ?? null;
+    const newV   = adj?.discountValue ?? null;
+    if (prevId === newId && prevV === newV) return item; // unchanged — avoid extra render
+    return calcLine({ ...item, promoAdjustment: adj });
+  });
+  return { items: updated, promoResults: results };
+}
 
 const calcLine = (item) => {
-  const effectivePrice = item.discountType === 'percent'
+  // Manual discount applied by cashier/manager
+  const manualPrice = item.discountType === 'percent'
     ? round2(item.unitPrice * (1 - (item.discountValue || 0) / 100))
     : item.discountType === 'amount'
     ? round2(Math.max(0, item.unitPrice - (item.discountValue || 0)))
     : item.unitPrice;
+
+  // Promo discount auto-applied by promotion engine
+  const promoAdj = item.promoAdjustment;
+  const afterPromo = promoAdj
+    ? promoAdj.discountType === 'percent'
+      ? round2(manualPrice * (1 - (promoAdj.discountValue || 0) / 100))
+      : promoAdj.discountType === 'amount'
+      ? round2(Math.max(0, manualPrice - (promoAdj.discountValue || 0)))
+      : promoAdj.discountType === 'fixed'
+      ? round2(Math.max(0, promoAdj.discountValue || 0))
+      : manualPrice
+    : manualPrice;
+
+  const effectivePrice = afterPromo;
   return {
     ...item,
     effectivePrice,
@@ -39,86 +84,130 @@ export const useCartStore = create((set, get) => ({
   // Ages already verified this transaction (no re-check for same age threshold)
   verifiedAges: [],
 
+  // Active promotions + results
+  promotions:    [],   // raw promo records from IndexedDB
+  promoResults:  { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] },
+
   // ── Item management ─────────────────────────────────────────────────────
   addProduct: (product) => {
-    const items = get().items;
-    const idx   = items.findIndex(i => i.productId === (product.id ?? product.productId));
+    const { items, promotions } = get();
+    const idx = items.findIndex(i => i.productId === (product.id ?? product.productId));
+    let nextItems;
     if (idx >= 0) {
-      set({ items: items.map((item, i) => i === idx ? calcLine({ ...item, qty: item.qty + 1 }) : item) });
-      // Track scan frequency in Dexie (non-blocking)
-      db.scanFrequency.put({ productId: product.id ?? product.productId })
-        .catch(() => {});
-      return;
+      nextItems = items.map((item, i) => i === idx ? calcLine({ ...item, qty: item.qty + 1 }) : item);
+      db.scanFrequency.put({ productId: product.id ?? product.productId }).catch(() => {});
+    } else {
+      const newItem = calcLine({
+        lineId:           nanoid(8),
+        productId:        product.id ?? product.productId,
+        upc:              product.upc,
+        name:             product.name,
+        brand:            product.brand,
+        qty:              1,
+        unitPrice:        Number(product.retailPrice || 0),
+        taxable:          product.taxable ?? true,
+        taxClass:         product.taxClass || 'grocery',
+        ebtEligible:      product.ebtEligible || false,
+        ageRequired:      product.ageRequired || null,
+        depositAmount:    product.depositAmount || null,
+        depositRuleId:    product.depositRuleId || null,
+        departmentId:     product.departmentId || null,
+        discountEligible: product.discountEligible !== false,
+        priceOverridden:  false,
+        discountType:     null,
+        discountValue:    null,
+        promoAdjustment:  null,
+      });
+      nextItems = [...items, newItem];
+      db.scanFrequency.get(product.id).then(row => {
+        if (row) db.scanFrequency.update(product.id, { count: (row.count || 0) + 1, lastAt: Date.now() });
+        else     db.scanFrequency.put({ productId: product.id, count: 1, lastAt: Date.now() });
+      }).catch(() => {});
     }
-    const newItem = calcLine({
+    const { items: promoItems, promoResults } = withPromos(nextItems, promotions);
+    set({ items: promoItems, promoResults });
+  },
+
+  addLotteryItem: ({ lotteryType, amount, gameId, gameName, notes }) => {
+    // lotteryType: 'sale' | 'payout'
+    // Sale = positive amount (customer pays), Payout = negative (we pay customer)
+    const amt = lotteryType === 'payout' ? -Math.abs(Number(amount)) : Math.abs(Number(amount));
+    const item = {
       lineId:          nanoid(8),
-      productId:       product.id ?? product.productId,
-      upc:             product.upc,
-      name:            product.name,
-      brand:           product.brand,
+      isLottery:       true,
+      lotteryType,
+      gameId:          gameId || null,
+      name:            lotteryType === 'payout'
+                         ? `Lottery Payout${notes ? ' — ' + notes : ''}`
+                         : `🎟️ ${gameName || 'Lottery'}`,
       qty:             1,
-      unitPrice:       Number(product.retailPrice || 0),
-      taxable:         product.taxable ?? true,
-      taxClass:        product.taxClass || 'grocery',
-      ebtEligible:     product.ebtEligible || false,
-      ageRequired:     product.ageRequired || null,
-      depositAmount:   product.depositAmount || null,
-      depositRuleId:   product.depositRuleId || null,
-      priceOverridden: false,
+      unitPrice:       amt,
+      effectivePrice:  amt,
+      lineTotal:       amt,
+      taxable:         false,
+      ebtEligible:     false,
+      depositAmount:   null,
+      depositTotal:    0,
+      discountEligible: false,
       discountType:    null,
       discountValue:   null,
-    });
-    set({ items: [...items, newItem] });
-    // Track scan frequency
-    db.scanFrequency.get(product.id).then(row => {
-      if (row) {
-        db.scanFrequency.update(product.id, { count: (row.count || 0) + 1, lastAt: Date.now() });
-      } else {
-        db.scanFrequency.put({ productId: product.id, count: 1, lastAt: Date.now() });
-      }
-    }).catch(() => {});
+      promoAdjustment: null,
+    };
+    set(s => ({ items: [...s.items, item] }));
   },
 
   removeItem: (lineId) => {
-    set(s => ({
-      items:          s.items.filter(i => i.lineId !== lineId),
-      selectedLineId: s.selectedLineId === lineId ? null : s.selectedLineId,
-    }));
+    set(s => {
+      const rawItems = s.items.filter(i => i.lineId !== lineId);
+      const { items, promoResults } = withPromos(rawItems, s.promotions);
+      return {
+        items,
+        promoResults,
+        selectedLineId: s.selectedLineId === lineId ? null : s.selectedLineId,
+        verifiedAges:   items.length === 0 ? [] : s.verifiedAges,
+      };
+    });
   },
 
   updateQty: (lineId, qty) => {
     if (qty <= 0) { get().removeItem(lineId); return; }
-    set(s => ({ items: s.items.map(i => i.lineId === lineId ? calcLine({ ...i, qty }) : i) }));
+    set(s => {
+      const rawItems = s.items.map(i => i.lineId === lineId ? calcLine({ ...i, qty }) : i);
+      const { items, promoResults } = withPromos(rawItems, s.promotions);
+      return { items, promoResults };
+    });
   },
 
   overridePrice: (lineId, price) => {
-    set(s => ({
-      items: s.items.map(i =>
+    set(s => {
+      const rawItems = s.items.map(i =>
         i.lineId === lineId
           ? calcLine({ ...i, unitPrice: Number(price), priceOverridden: true, discountType: null, discountValue: null })
           : i
-      ),
-    }));
+      );
+      const { items, promoResults } = withPromos(rawItems, s.promotions);
+      return { items, promoResults };
+    });
   },
 
   applyLineDiscount: (lineId, type, value) => {
-    set(s => ({
-      items: s.items.map(i =>
-        i.lineId === lineId
-          ? calcLine({ ...i, discountType: type, discountValue: Number(value) })
-          : i
-      ),
-    }));
+    set(s => {
+      const rawItems = s.items.map(i =>
+        i.lineId === lineId ? calcLine({ ...i, discountType: type, discountValue: Number(value) }) : i
+      );
+      const { items, promoResults } = withPromos(rawItems, s.promotions);
+      return { items, promoResults };
+    });
   },
 
   removeLineDiscount: (lineId) => {
-    set(s => ({
-      items: s.items.map(i =>
-        i.lineId === lineId
-          ? calcLine({ ...i, discountType: null, discountValue: null })
-          : i
-      ),
-    }));
+    set(s => {
+      const rawItems = s.items.map(i =>
+        i.lineId === lineId ? calcLine({ ...i, discountType: null, discountValue: null }) : i
+      );
+      const { items, promoResults } = withPromos(rawItems, s.promotions);
+      return { items, promoResults };
+    });
   },
 
   applyOrderDiscount: (type, value) => set({ orderDiscount: { type, value: Number(value) } }),
@@ -134,6 +223,7 @@ export const useCartStore = create((set, get) => ({
     items: [], selectedLineId: null, scanMode: 'normal',
     pendingProduct: null, txNumber: null, flashState: null,
     orderDiscount: null, customer: null, verifiedAges: [],
+    promoResults: { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] },
   }),
 
   // ── Hold & Recall ──────────────────────────────────────────────────────
@@ -187,6 +277,32 @@ export const useCartStore = create((set, get) => ({
     }
   },
 
+  setPromotions: (promos) => {
+    set(s => {
+      const { items, promoResults } = withPromos(s.items, promos);
+      return { promotions: promos, items, promoResults };
+    });
+  },
+
+  applyPromoResults: (results) => {
+    set(s => {
+      const adjs = results.lineAdjustments || {};
+      const updatedItems = s.items.map(item => {
+        const adj = adjs[item.lineId] || null;
+        if (adj === item.promoAdjustment) return item; // no change
+        return calcLine({ ...item, promoAdjustment: adj });
+      });
+      return { items: updatedItems, promoResults: results };
+    });
+  },
+
+  clearPromoResults: () => {
+    set(s => ({
+      promoResults: { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] },
+      items: s.items.map(item => calcLine({ ...item, promoAdjustment: null })),
+    }));
+  },
+
   // ── Scan feedback ──────────────────────────────────────────────────────
   flash: (type) => {
     set({ flashState: type });
@@ -219,7 +335,19 @@ export function selectTotals(items, taxRules = [], orderDiscount = null) {
 
   const grandTotal = round2(subtotal - discountAmount + depositTotal + taxTotal);
 
-  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal };
+  // Promo savings already factored into item effectivePrices / lineTotals
+  // We compute separately for display in totals
+  const promoSaving = round2(items.reduce((s, item) => {
+    if (!item.promoAdjustment) return s;
+    const adj = item.promoAdjustment;
+    const reg = item.unitPrice * item.qty;
+    if (adj.discountType === 'percent') return s + round2(item.unitPrice * item.qty * adj.discountValue / 100);
+    if (adj.discountType === 'amount')  return s + round2(Math.min(adj.discountValue * item.qty, reg));
+    if (adj.discountType === 'fixed')   return s + round2(Math.max(0, reg - adj.discountValue * item.qty));
+    return s;
+  }, 0));
+
+  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving };
 }
 
 function matchTax(appliesTo, taxClass) {

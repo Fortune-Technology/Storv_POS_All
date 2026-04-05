@@ -131,13 +131,19 @@ function PrintableReceipt({ tx, totals, change, cashier }) {
 
 export default function TenderModal({
   onClose,
+  onComplete,              // optional: called with (completedTx) after transaction saves
   taxRules       = [],
   initMethod     = null,
   initCashAmount = null,   // numeric dollar amount from quick-cash buttons
   cashRounding   = 'none',
+  lotteryCashOnly = false,
 }) {
   const { items, clearCart } = useCartStore();
   const totals  = selectTotals(items, taxRules);
+  const hasLotteryItems  = items.some(i => i.isLottery);
+  const allowedMethods   = (lotteryCashOnly && hasLotteryItems)
+    ? METHODS.filter(m => m.id === 'cash')
+    : METHODS;
   const cashier = useAuthStore(s => s.cashier);
   const { isOnline, enqueue } = useSyncStore();
 
@@ -196,6 +202,7 @@ export default function TenderModal({
   const removeSplit = (id) => setSplits(prev => prev.filter(l => l.id !== id));
 
   const finish = (finalTx, cashChange) => {
+    onComplete?.(finalTx);           // notify POSScreen so it can reprint later
     if (cashChange > 0.005) {
       setCompletedTx(finalTx); setCompletedChg(cashChange); setScreen('change');
     } else {
@@ -217,7 +224,14 @@ export default function TenderModal({
 
     const payload = {
       localId: nanoid(), storeId, txNumber,
-      lineItems: items, tenderLines: finalLines,
+      lineItems: items.filter(i => !i.isLottery),
+      lotteryItems: items.filter(i => i.isLottery).map(i => ({
+        type:   i.lotteryType,
+        amount: Math.abs(i.lineTotal),
+        gameId: i.gameId || undefined,
+        notes:  i.name,
+      })),
+      tenderLines: finalLines,
       changeGiven: change,
       offlineCreatedAt: new Date().toISOString(),
       ...totals,
@@ -521,8 +535,13 @@ export default function TenderModal({
             {/* Method selector */}
             <div>
               <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>PAYMENT METHOD</div>
+              {lotteryCashOnly && hasLotteryItems && (
+                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🎟️ Lottery items — cash only
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {METHODS.map(m => {
+                {allowedMethods.map(m => {
                   const Icon = m.Icon; const active = method === m.id;
                   return (
                     <button key={m.id} onClick={() => switchMethod(m.id)} style={{

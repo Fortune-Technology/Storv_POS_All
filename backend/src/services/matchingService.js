@@ -28,6 +28,46 @@ export const clearPOSCache = (userId) => {
   posCache.delete(String(userId));
 };
 
+// ─── CATALOG PRODUCT LOADER ───────────────────────────────────────────────────
+
+/**
+ * Load catalog master products and normalise them for the matching engine.
+ * Called when the POS cache is empty (first upload after restart/TTL expiry).
+ * @param {string} orgId
+ * @returns {Array} normalised products
+ */
+export const loadCatalogProductsForMatching = async (orgId) => {
+  if (!orgId || orgId === 'unknown') return [];
+  try {
+    const products = await prisma.masterProduct.findMany({
+      where: { orgId, deleted: false },
+      select: {
+        id: true, name: true, upc: true,
+        sku: true, itemCode: true, plu: true,
+        defaultRetailPrice: true, defaultCostPrice: true,
+        casePacks: true, unitsPerPack: true, pack: true,
+        departmentId: true, vendorId: true,
+      },
+      take: 10000,
+    });
+    console.log(`📦 Loaded ${products.length} catalog products for matching (org: ${orgId})`);
+    return products.map(p => ({
+      posProductId: String(p.id),
+      name:         p.name,
+      upc:          p.upc        || '',
+      sku:          p.sku || p.itemCode || p.plu || '',
+      retailPrice:  p.defaultRetailPrice != null ? Number(p.defaultRetailPrice) : null,
+      costPrice:    p.defaultCostPrice   != null ? Number(p.defaultCostPrice)   : null,
+      pack:         p.casePacks || p.unitsPerPack || p.pack || 1,
+      departmentId: p.departmentId != null ? String(p.departmentId) : '',
+      vendorId:     p.vendorId    != null ? String(p.vendorId)      : '',
+    }));
+  } catch (err) {
+    console.error('❌ Failed to load catalog products for matching:', err.message);
+    return [];
+  }
+};
+
 // ─── UPC NORMALIZATION ────────────────────────────────────────────────────────
 
 const digitsOnly = (s) => String(s || '').replace(/\D/g, '');
@@ -477,7 +517,7 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
  * @param {Array}  lineItems   confirmed line items (with originalItemCode/originalVendorDescription)
  * @param {string} vendorName  invoice vendor name
  */
-export const saveConfirmedMappings = async (lineItems, vendorName) => {
+export const saveConfirmedMappings = async (lineItems, vendorName, orgId = 'unknown') => {
   if (!vendorName || !lineItems?.length) return;
 
   const operations = [];
@@ -542,7 +582,7 @@ export const saveConfirmedMappings = async (lineItems, vendorName) => {
         } else {
           await prisma.vendorProductMap.create({
             data: {
-              orgId:             'unknown',
+              orgId:             orgId || 'unknown',
               vendorName:        f.vendorName,
               vendorItemCode:    f.vendorItemCode || u.vendorItemCode || '',
               vendorDescription: u.vendorDescription,

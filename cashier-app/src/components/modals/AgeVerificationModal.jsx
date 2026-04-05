@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { ShieldAlert, CheckCircle, XCircle, CreditCard, Calendar } from 'lucide-react';
+import { ShieldAlert, CheckCircle, XCircle, CreditCard, Calendar, ShieldOff } from 'lucide-react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner.js';
 import { parseAAMVALicense, meetsAgeRequirement, looksLikeLicense } from '../../utils/pdf417Parser.js';
 import { useCartStore } from '../../stores/useCartStore.js';
+import { useManagerStore } from '../../stores/useManagerStore.js';
 
 export default function AgeVerificationModal() {
   const { pendingProduct, confirmAgeVerify, cancelAgeVerify } = useCartStore();
+  const requireManager = useManagerStore(s => s.requireManager);
   const required = pendingProduct?.ageRequired || 21;
 
   const [result,    setResult]    = useState(null); // 'pass' | 'fail'
@@ -140,15 +142,33 @@ export default function AgeVerificationModal() {
         {/* Footer */}
         <div style={{
           padding: '0 1.5rem 1.5rem',
-          display: 'flex', gap: 8,
+          display: 'flex', gap: 8, flexWrap: 'wrap',
         }}>
           {!showManual && result !== 'pass' && (
             <button onClick={() => setShowManual(true)} style={{
               flex: 1, padding: '0.75rem', borderRadius: 8,
               background: 'var(--bg-input)', color: 'var(--text-secondary)',
-              fontWeight: 600, fontSize: '0.85rem',
+              fontWeight: 600, fontSize: '0.85rem', minWidth: 100,
             }}>
               Manual Entry
+            </button>
+          )}
+          {result !== 'pass' && (
+            <button
+              onClick={() => requireManager('Age Verification Override', () => {
+                confirmAgeVerify();
+              })}
+              style={{
+                flex: 1, padding: '0.75rem', borderRadius: 8,
+                background: 'rgba(245,158,11,.1)', color: 'var(--amber)',
+                fontWeight: 700, fontSize: '0.85rem',
+                border: '1px solid rgba(245,158,11,.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                minWidth: 100,
+              }}
+            >
+              <ShieldOff size={14} />
+              Manager Override
             </button>
           )}
           <button onClick={cancelAgeVerify} style={{
@@ -156,6 +176,7 @@ export default function AgeVerificationModal() {
             background: 'var(--red-dim)', color: 'var(--red)',
             fontWeight: 700, fontSize: '0.85rem',
             border: '1px solid rgba(224,63,63,.3)',
+            minWidth: 100,
           }}>
             Decline Item
           </button>

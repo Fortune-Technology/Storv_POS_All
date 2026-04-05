@@ -71,6 +71,9 @@ export const uploadInvoices = (formData) => api.post('/invoice/upload', formData
 export const queueInvoice = (formData) => api.post('/invoice/queue', formData, {
   headers: { 'Content-Type': 'multipart/form-data' },
 });
+export const queueMultipageInvoice = (formData) => api.post('/invoice/queue-multipage', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+});
 export const confirmInvoice = (data) => api.post('/invoice/confirm', data);
 export const getInvoiceHistory = () => api.get('/invoice/history');
 export const getInvoiceDrafts = () => api.get('/invoice/drafts');
@@ -107,7 +110,7 @@ export const getFeeMappings = () => api.get('/fees-mappings');
 export const upsertFeeMapping = (mapping) => api.post('/fees-mappings', mapping);
 export const deleteFeeMapping = (id) => api.delete(`/fees-mappings/${id}`);
 
-// Sales Analytics (IT Retail)
+// Sales Analytics
 export const getSalesDaily = (params) => api.get('/sales/daily', { params }).then(r => r.data);
 export const getSalesWeekly = (params) => api.get('/sales/weekly', { params }).then(r => r.data);
 export const getSalesMonthly = (params) => api.get('/sales/monthly', { params }).then(r => r.data);
@@ -168,9 +171,13 @@ export const deleteCatalogDepartment= (id)     => api.delete(`/catalog/departmen
 
 // ── Catalog — Vendors ─────────────────────────────────────────────────────
 export const getCatalogVendors   = (params) => api.get('/catalog/vendors', { params }).then(r => r.data);
+export const getCatalogVendor    = (id)     => api.get(`/catalog/vendors/${id}`).then(r => r.data);
 export const createCatalogVendor = (data)   => api.post('/catalog/vendors', data).then(r => r.data);
 export const updateCatalogVendor = (id, d)  => api.put(`/catalog/vendors/${id}`, d).then(r => r.data);
 export const deleteCatalogVendor = (id)     => api.delete(`/catalog/vendors/${id}`).then(r => r.data);
+export const getVendorProducts   = (id, params) => api.get(`/catalog/vendors/${id}/products`, { params }).then(r => r.data);
+export const getVendorPayouts    = (id, params) => api.get(`/catalog/vendors/${id}/payouts`, { params }).then(r => r.data);
+export const getVendorStats      = (id)     => api.get(`/catalog/vendors/${id}/stats`).then(r => r.data);
 
 // ── Catalog — Tax Rules ───────────────────────────────────────────────────
 export const getCatalogTaxRules   = () => api.get('/catalog/tax-rules').then(r => r.data);
@@ -201,5 +208,50 @@ export const getCatalogPromotions    = (params) => api.get('/catalog/promotions'
 export const createCatalogPromotion  = (data)   => api.post('/catalog/promotions', data).then(r => r.data);
 export const updateCatalogPromotion  = (id, d)  => api.put(`/catalog/promotions/${id}`, d).then(r => r.data);
 export const deleteCatalogPromotion  = (id)     => api.delete(`/catalog/promotions/${id}`).then(r => r.data);
+export const evaluateCatalogPromotions = (items) => api.post('/catalog/promotions/evaluate', { items }).then(r => r.data);
+
+// ── Catalog — helper aliases ──────────────────────────────────────────────
+export const getMasterProducts = (params) => api.get('/catalog/products', { params }).then(r => r.data);
+export const getDepartments    = ()        => api.get('/catalog/departments').then(r => r.data);
+
+// ─── Bulk Import ─────────────────────────────────────────────────────────────
+export const previewImport = (formData) =>
+  api.post('/catalog/import/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+
+export const commitImport = (formData) =>
+  api.post('/catalog/import/commit', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+
+export const downloadImportTemplate = (type) =>
+  api.get(`/catalog/import/template/${type}`, { responseType: 'blob' }).then(r => r.data);
+
+export const getImportHistory = (params) =>
+  api.get('/catalog/import/history', { params }).then(r => r.data);
+
+// ── Lottery ───────────────────────────────────────────────────────────────────
+// Helper: controllers return either a plain value or { success, data } — unwrap both
+const lotteryUnwrap = (r) => r.data?.data ?? r.data;
+
+export const getLotteryGames          = (params) => api.get('/lottery/games', { params }).then(lotteryUnwrap);
+export const createLotteryGame        = (data)   => api.post('/lottery/games', data).then(lotteryUnwrap);
+export const updateLotteryGame        = (id, d)  => api.put(`/lottery/games/${id}`, d).then(lotteryUnwrap);
+export const deleteLotteryGame        = (id)     => api.delete(`/lottery/games/${id}`).then(lotteryUnwrap);
+
+export const getLotteryBoxes          = (params) => api.get('/lottery/boxes', { params }).then(lotteryUnwrap);
+export const receiveLotteryBoxOrder   = (data)   => api.post('/lottery/boxes/receive', data).then(lotteryUnwrap);
+export const activateLotteryBox       = (id, d)  => api.put(`/lottery/boxes/${id}/activate`, d).then(lotteryUnwrap);
+export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id}`, d).then(lotteryUnwrap);
+
+export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
+
+export const getLotteryShiftReports   = (params) => api.get('/lottery/shift-reports', { params }).then(lotteryUnwrap);
+export const getLotteryShiftReport    = (shiftId) => api.get(`/lottery/shift-reports/${shiftId}`).then(lotteryUnwrap);
+
+// These return plain objects (no success/data wrapper) — r.data is the object directly
+export const getLotteryDashboard      = (params) => api.get('/lottery/dashboard', { params }).then(r => r.data);
+export const getLotteryReport         = (params) => api.get('/lottery/report', { params }).then(r => r.data);
+export const getLotteryCommissionReport = (params) => api.get('/lottery/commission', { params }).then(r => r.data);
+
+export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
+export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
 
 export default api;
