@@ -72,8 +72,8 @@ const PLANS = [
     label:    'Enterprise',
     price:    'Custom',
     subPrice: 'contact us',
-    color:    '#7ac143',
-    bg:       'rgba(122,193,67,0.12)',
+    color:    'var(--accent-primary)',
+    bg:       'var(--brand-12)',
     maxStores: '∞',
     maxUsers:  '∞',
     features: [
@@ -106,7 +106,7 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
   const handleConfirm = async () => {
     if (selected === currentPlan) { onClose(); return; }
     if (selected === 'enterprise') {
-      toast.info('Please contact us at sales@futurefoods.com to set up an Enterprise plan.');
+      toast.info('Please contact us at sales@storeveu.com to set up an Enterprise plan.');
       onClose();
       return;
     }
@@ -257,7 +257,7 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
           <div style={{
             display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
             padding: '0.875rem 1rem', marginBottom: '1.25rem',
-            background: 'rgba(227,6,19,0.06)', border: '1px solid rgba(227,6,19,0.25)',
+            background: 'var(--error-bg)', border: '1px solid var(--error)',
             borderRadius: 'var(--radius-md)',
           }}>
             <AlertCircle size={16} style={{ color: 'var(--error)', flexShrink: 0, marginTop: '1px' }} />
@@ -272,7 +272,7 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.6rem',
             padding: '0.875rem 1rem', marginBottom: '1.25rem',
-            background: 'rgba(122,193,67,0.06)', border: '1px solid rgba(122,193,67,0.25)',
+            background: 'var(--brand-05)', border: '1px solid var(--brand-30)',
             borderRadius: 'var(--radius-md)',
           }}>
             <Phone size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
@@ -491,8 +491,8 @@ export default function Organisation() {
             {plan === 'trial' && trialDaysLeft !== null && (
               <div className="weather-setup-banner" style={{
                 marginBottom: '1.5rem',
-                borderColor: trialDaysLeft <= 3 ? 'rgba(227,6,19,0.4)' : 'rgba(245,158,11,0.4)',
-                background:  trialDaysLeft <= 3 ? 'rgba(227,6,19,0.06)' : 'rgba(245,158,11,0.06)',
+                borderColor: trialDaysLeft <= 3 ? 'var(--error)' : 'rgba(245,158,11,0.4)',
+                background:  trialDaysLeft <= 3 ? 'var(--error-bg)' : 'rgba(245,158,11,0.06)',
               }}>
                 <CreditCard size={15} style={{ color: trialDaysLeft <= 3 ? 'var(--error)' : '#f59e0b' }} />
                 <span style={{ color: trialDaysLeft <= 3 ? 'var(--error)' : '#f59e0b' }}>

@@ -12,7 +12,7 @@ import { toast } from 'react-toastify';
 const ROLES = [
   { value: 'admin',   label: 'Admin',   color: '#f97316', bg: 'rgba(249,115,22,0.12)',  multiStore: true  },
   { value: 'manager', label: 'Manager', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  multiStore: true  },
-  { value: 'cashier', label: 'Cashier', color: '#7ac143', bg: 'rgba(122,193,67,0.12)',  multiStore: false },
+  { value: 'cashier', label: 'Cashier', color: 'var(--accent-primary)', bg: 'var(--brand-12)',  multiStore: false },
 ];
 
 const FIXED_ROLES = ['owner', 'superadmin'];
@@ -35,7 +35,7 @@ function Initials({ name }) {
   return (
     <div style={{
       width: 36, height: 36, borderRadius: '50%',
-      background: 'rgba(122,193,67,0.18)', color: 'var(--accent-primary)',
+      background: 'var(--brand-20)', color: 'var(--accent-primary)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontWeight: 700, fontSize: '0.8rem', flexShrink: 0,
       textTransform: 'uppercase',
@@ -107,7 +107,7 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
                 display: 'flex', alignItems: 'center', gap: '0.6rem',
                 padding: '0.55rem 0.75rem', cursor: 'pointer',
                 borderBottom: i < stores.length - 1 ? '1px solid var(--border-color)' : 'none',
-                background: checked ? 'rgba(122,193,67,0.06)' : 'transparent',
+                background: checked ? 'var(--brand-05)' : 'transparent',
                 transition: 'background 0.12s',
               }}>
                 <input
@@ -260,7 +260,7 @@ function InviteModal({ stores, onClose, onInvited }) {
         ) : (
           /* Success — show temp password */
           <div style={{ textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(122,193,67,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--brand-12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
               <UserPlus size={24} color="var(--accent-primary)" />
             </div>
             <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
@@ -394,7 +394,7 @@ export default function UserManagement() {
     return ids.map((s, i) => {
       const store = stores.find(st => st.id === (s.id || s));
       return (
-        <span key={i} style={{ display: 'inline-block', background: 'rgba(122,193,67,0.1)', color: 'var(--accent-primary)', fontSize: '0.7rem', fontWeight: 600, padding: '0.1rem 0.45rem', borderRadius: '9999px', margin: '0.1rem 0.15rem' }}>
+        <span key={i} style={{ display: 'inline-block', background: 'var(--brand-10)', color: 'var(--accent-primary)', fontSize: '0.7rem', fontWeight: 600, padding: '0.1rem 0.45rem', borderRadius: '9999px', margin: '0.1rem 0.15rem' }}>
           {store?.name || '?'}
         </span>
       );
@@ -437,7 +437,7 @@ export default function UserManagement() {
         {/* Stats row */}
         <div className="analytics-stats-row" style={{ marginBottom: '1.75rem' }}>
           {[
-            { label: 'Total users', value: users.length,                                              color: '#7ac143', bg: 'rgba(122,193,67,0.12)' },
+            { label: 'Total users', value: users.length,                                              color: 'var(--accent-primary)', bg: 'var(--brand-12)' },
             { label: 'Admins',      value: users.filter(u => ['admin','owner'].includes(u.role)).length, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
             { label: 'Managers',    value: users.filter(u => u.role === 'manager').length,            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)'  },
             { label: 'Cashiers',    value: users.filter(u => u.role === 'cashier').length,            color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)'  },
@@ -553,14 +553,14 @@ export default function UserManagement() {
                                 onClick={() => { setPinModal({ userId: u.id, userName: u.name }); setPinValue(''); setPinError(''); }}
                                 title="Set POS PIN"
                                 style={{
-                                  background: 'rgba(122,193,67,0.1)', border: '1px solid rgba(122,193,67,0.25)',
+                                  background: 'var(--brand-10)', border: '1px solid var(--brand-30)',
                                   color: 'var(--accent-primary)', cursor: 'pointer',
                                   padding: '0.2rem 0.55rem', borderRadius: '6px',
                                   fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em',
                                   transition: 'background 0.15s',
                                 }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(122,193,67,0.22)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'rgba(122,193,67,0.1)'}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-20)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'var(--brand-10)'}
                               >
                                 PIN
                               </button>
@@ -654,7 +654,7 @@ export default function UserManagement() {
                 disabled={pinLoading || pinValue.length < 4}
                 style={{
                   flex: 1, padding: '0.8rem',
-                  background: pinValue.length >= 4 ? '#7ac143' : '#1e2130',
+                  background: pinValue.length >= 4 ? 'var(--accent-primary)' : '#1e2130',
                   color: pinValue.length >= 4 ? '#0f1117' : '#475569',
                   border: 'none', borderRadius: 10, fontWeight: 800,
                   fontSize: '0.9rem', cursor: pinValue.length >= 4 ? 'pointer' : 'not-allowed',

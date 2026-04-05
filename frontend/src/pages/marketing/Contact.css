@@ -1,16 +1,11 @@
-/**
- * Contact Page Marketing Styles
- */
+/** Contact Page Marketing Styles */
 
-.contact-page {
-  overflow-x: hidden;
-}
+.contact-page { overflow-x: hidden; }
 
 /* Contact Hero */
 .contact-hero {
   padding: 160px 1.5rem 80px;
-  background: radial-gradient(circle at top right, rgba(122, 193, 67, 0.08), transparent 40%),
-              radial-gradient(circle at bottom left, rgba(227, 6, 19, 0.05), transparent 40%);
+  background: var(--mkt-section-gradient);
 }
 
 .contact-grid {
@@ -20,19 +15,17 @@
   align-items: center;
 }
 
-
-
 .contact-title {
   font-size: 3rem;
   font-weight: 800;
   margin-bottom: 1.5rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .contact-subtitle {
   font-size: 1.25rem;
   line-height: 1.6;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   margin-bottom: 3.5rem;
 }
 
@@ -52,9 +45,9 @@
 .method-icon {
   width: 54px;
   height: 54px;
-  background: #ffffff;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-  color: var(--accent-primary, #7ac143);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-md);
+  color: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -65,12 +58,12 @@
 .method-item h4 {
   font-size: 1.15rem;
   margin-bottom: 0.25rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .method-item p {
   font-size: 1rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
@@ -80,7 +73,7 @@
   flex-direction: column;
   gap: 1rem;
   padding-top: 2rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--border-color);
 }
 
 .direct-item {
@@ -89,24 +82,24 @@
   gap: 12px;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .direct-item svg {
-  color: var(--accent-primary, #7ac143);
+  color: var(--accent-primary);
 }
 
-/* Contact Card Form */
+/* Contact Form Card */
 .contact-form-col {
   position: relative;
 }
 
 .contact-card, .success-card {
-  background: #ffffff;
+  background: var(--bg-secondary);
   padding: 3.5rem;
-  border-radius: 32px;
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-light);
 }
 
 .form-row {
@@ -125,30 +118,34 @@
 .form-group label {
   font-size: 0.875rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
-.form-group input, .form-group select, .form-group textarea {
+.form-group input,
+.form-group select,
+.form-group textarea {
   padding: 0.875rem 1rem;
-  background: var(--bg-tertiary, #f1f5f9);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
-  border-radius: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   font-size: 1rem;
   font-family: inherit;
   transition: all 0.2s ease;
   color: var(--text-primary);
 }
 
-.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
   outline: none;
-  border-color: var(--accent-primary, #7ac143);
-  box-shadow: 0 0 0 4px rgba(122, 193, 67, 0.1);
-  background: #ffffff;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px var(--brand-10);
+  background: var(--bg-secondary);
 }
 
 .form-group input.error {
-  border-color: var(--accent-secondary, #e30613);
-  background: rgba(227, 6, 19, 0.02);
+  border-color: var(--error);
+  background: var(--error-bg);
 }
 
 .submit-btn {
@@ -161,14 +158,14 @@
   text-align: center;
   margin-top: 1.5rem;
   font-size: 0.8rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
 }
 
-/* Success State Styles */
+/* Success State */
 .success-card {
   text-align: center;
   display: flex;
@@ -182,31 +179,29 @@
 
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.success-icon-container {
-  margin-bottom: 1rem;
-}
+.success-icon-container { margin-bottom: 1rem; }
 
 .success-circle {
-  color: var(--accent-primary, #7ac143);
+  color: var(--accent-primary);
   animation: scaleIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @keyframes scaleIn {
   from { transform: scale(0); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  to   { transform: scale(1); opacity: 1; }
 }
 
 .success-card h2 {
   font-size: 2.5rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .success-card p {
   font-size: 1.15rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   line-height: 1.6;
   max-width: 400px;
 }
@@ -214,8 +209,8 @@
 /* Proof Row */
 .contact-proof {
   padding: 4rem 1.5rem;
-  background: #ffffff;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-light);
 }
 
 .proof-grid {
@@ -231,13 +226,13 @@
   align-items: center;
   gap: 12px;
   font-weight: 700;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 .proof-item svg {
-  color: var(--accent-primary, #7ac143);
-  opacity: 0.6;
+  color: var(--accent-primary);
+  opacity: 0.7;
 }
 
 /* Responsive */
@@ -249,10 +244,10 @@
 }
 
 @media (max-width: 768px) {
-  .contact-hero { padding: 120px 1.5rem 60px; }
+  .contact-hero  { padding: 120px 1.5rem 60px; }
   .contact-title { font-size: 2.5rem; }
-  .contact-card, .success-card { padding: 2rem 1.5rem; border-radius: 20px; }
-  .form-row { grid-template-columns: 1fr; gap: 0; }
+  .contact-card, .success-card { padding: 2rem 1.5rem; border-radius: var(--radius-lg); }
+  .form-row      { grid-template-columns: 1fr; gap: 0; }
   .contact-direct { flex-direction: column; gap: 1rem; align-items: flex-start; padding-left: 1rem; }
-  .proof-grid { flex-direction: column; gap: 2rem; align-items: center; }
+  .proof-grid    { flex-direction: column; gap: 2rem; align-items: center; }
 }

@@ -64,7 +64,7 @@ const TAX_COLORS = {
 };
 
 const PRESET_COLORS = [
-  '#7ac143','#3b82f6','#8b5cf6','#ec4899',
+  'var(--accent-primary)','#3b82f6','#8b5cf6','#ec4899',
   '#f59e0b','#ef4444','#14b8a6','#f97316',
   '#64748b','#0ea5e9','#a78bfa','#fb7185',
 ];
@@ -73,7 +73,7 @@ const EMPTY_FORM = {
   name: '', code: '', description: '',
   ageRequired: '', ebtEligible: false,
   taxClass: '', bottleDeposit: false,
-  showInPOS: true, color: '#7ac143', active: true,
+  showInPOS: true, color: 'var(--accent-primary)', active: true,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,9 +99,9 @@ function Toggle({ checked, onChange, size = 'md' }) {
       onClick={e => { e.stopPropagation(); onChange(!checked); }}
       style={{
         width: w, height: h, borderRadius: r, flexShrink: 0,
-        background: checked ? 'var(--green, #7ac143)' : 'var(--bg-tertiary, #2a2a3a)',
+        background: checked ? 'var(--green, var(--accent-primary))' : 'var(--bg-tertiary, #2a2a3a)',
         position: 'relative', cursor: 'pointer',
-        border: `1px solid ${checked ? 'var(--green, #7ac143)' : 'var(--border-color, #3a3a4a)'}`,
+        border: `1px solid ${checked ? 'var(--green, var(--accent-primary))' : 'var(--border-color, #3a3a4a)'}`,
         transition: 'background .2s',
       }}
     >
@@ -128,7 +128,7 @@ function DeptForm({ dept, onSave, onClose, saving }) {
     taxClass:      dept.taxClass || '',
     bottleDeposit: dept.bottleDeposit ?? false,
     showInPOS:     dept.showInPOS ?? true,
-    color:         dept.color || '#7ac143',
+    color:         dept.color || 'var(--accent-primary)',
     active:        dept.active ?? true,
   } : { ...EMPTY_FORM });
 
@@ -165,7 +165,7 @@ function DeptForm({ dept, onSave, onClose, saving }) {
           background: 'var(--bg-secondary, #111827)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 8, height: 28, borderRadius: 4, background: form.color || '#7ac143' }} />
+            <div style={{ width: 8, height: 28, borderRadius: 4, background: form.color || 'var(--accent-primary)' }} />
             <div>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary, #e2e8f0)' }}>
                 {dept ? 'Edit Department' : 'New Department'}
@@ -258,7 +258,7 @@ function DeptForm({ dept, onSave, onClose, saving }) {
             {[
               { key: 'ebtEligible',   label: 'EBT / SNAP Eligible', desc: 'Products in this dept can be paid with EBT',  icon: Leaf,    color: '#10b981' },
               { key: 'bottleDeposit', label: 'Bottle Deposit',       desc: 'Auto-apply bottle deposit fees',              icon: Tag,     color: '#3b82f6' },
-              { key: 'showInPOS',     label: 'Show in POS',          desc: 'Display this dept as a category in the POS',  icon: Monitor, color: '#7ac143' },
+              { key: 'showInPOS',     label: 'Show in POS',          desc: 'Display this dept as a category in the POS',  icon: Monitor, color: 'var(--accent-primary)' },
             ].map(({ key, label, desc, icon: Icon, color }, idx, arr) => (
               <div key={key} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0',
@@ -288,7 +288,7 @@ function DeptForm({ dept, onSave, onClose, saving }) {
               background: 'var(--bg-tertiary, #1a1a2e)', cursor: 'pointer',
             }} onClick={() => set('active', !form.active)}>
               <Toggle checked={form.active} onChange={v => set('active', v)} />
-              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: form.active ? 'var(--green, #7ac143)' : 'var(--text-muted, #6b7280)' }}>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: form.active ? 'var(--green, var(--accent-primary))' : 'var(--text-muted, #6b7280)' }}>
                 {form.active ? 'Active' : 'Inactive'}
               </span>
             </div>
@@ -307,7 +307,7 @@ function DeptForm({ dept, onSave, onClose, saving }) {
           }}>Cancel</button>
           <button onClick={() => onSave(form)} disabled={saving || !form.name.trim()} style={{
             flex: 2, padding: '0.75rem', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.875rem',
-            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--green, #7ac143)',
+            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--green, var(--accent-primary))',
             color: saving || !form.name.trim() ? 'var(--text-muted, #6b7280)' : '#0f1117',
             cursor: saving || !form.name.trim() ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -342,10 +342,10 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
         alignItems: 'center',
         borderBottom: '1px solid var(--border-color, #1f2937)',
         opacity: isDragging ? 0.35 : dept.active ? 1 : 0.5,
-        background: isDragging ? 'rgba(122,193,67,.04)' : 'transparent',
+        background: isDragging ? 'var(--brand-05)' : 'transparent',
         cursor: 'default',
         transition: 'opacity .15s, background .1s',
-        outline: isTarget ? '2px dashed rgba(122,193,67,.4)' : 'none',
+        outline: isTarget ? '2px dashed var(--brand-30)' : 'none',
         outlineOffset: -2,
       }}
     >
@@ -395,7 +395,7 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
       {/* Show in POS toggle */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Toggle checked={dept.showInPOS !== false} onChange={v => onTogglePOS(dept, v)} size="sm" />
-        <span style={{ fontSize: '0.68rem', color: dept.showInPOS !== false ? 'var(--green, #7ac143)' : 'var(--text-muted, #6b7280)', fontWeight: 600 }}>
+        <span style={{ fontSize: '0.68rem', color: dept.showInPOS !== false ? 'var(--green, var(--accent-primary))' : 'var(--text-muted, #6b7280)', fontWeight: 600 }}>
           {dept.showInPOS !== false ? 'Yes' : 'No'}
         </span>
       </div>
@@ -409,8 +409,8 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
       <div>
         <span style={{
           fontSize: '0.68rem', fontWeight: 700, padding: '3px 8px', borderRadius: 4,
-          background: dept.active ? 'rgba(122,193,67,.12)' : 'rgba(100,116,139,.1)',
-          color: dept.active ? '#7ac143' : '#64748b',
+          background: dept.active ? 'var(--brand-12)' : 'rgba(100,116,139,.1)',
+          color: dept.active ? 'var(--accent-primary)' : '#64748b',
         }}>
           {dept.active ? 'Active' : 'Inactive'}
         </span>
@@ -422,7 +422,7 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
           padding: 6, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,.04)',
           cursor: 'pointer', color: 'var(--text-muted, #6b7280)', display: 'flex', alignItems: 'center',
         }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; e.currentTarget.style.color = '#7ac143'; }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--brand-12)'; e.currentTarget.style.color = 'var(--accent-primary)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'var(--text-muted, #6b7280)'; }}
         >
           <Edit2 size={13} />
@@ -594,8 +594,8 @@ export default function Departments() {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 11, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Layers size={20} color="#7ac143" />
+            <div style={{ width: 42, height: 42, borderRadius: 11, background: 'var(--brand-12)', border: '1px solid var(--brand-20)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Layers size={20} color="var(--accent-primary)" />
             </div>
             <div>
               <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>Departments</h1>
@@ -615,16 +615,16 @@ export default function Departments() {
             )}
             <button onClick={() => setShowInactive(v => !v)} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 0.875rem', borderRadius: 8, cursor: 'pointer',
-              border: `1px solid ${showInactive ? 'rgba(122,193,67,.3)' : 'var(--border-color, #2a2a3a)'}`,
-              background: showInactive ? 'rgba(122,193,67,.08)' : 'var(--bg-tertiary, #1a1a2e)',
-              color: showInactive ? '#7ac143' : 'var(--text-muted, #6b7280)', fontSize: '0.8rem', fontWeight: 600,
+              border: `1px solid ${showInactive ? 'var(--brand-30)' : 'var(--border-color, #2a2a3a)'}`,
+              background: showInactive ? 'var(--brand-08)' : 'var(--bg-tertiary, #1a1a2e)',
+              color: showInactive ? 'var(--accent-primary)' : 'var(--text-muted, #6b7280)', fontSize: '0.8rem', fontWeight: 600,
             }}>
               {showInactive ? <ToggleRight size={15} /> : <ToggleLeft size={15} />}
               {showInactive ? 'Showing All' : 'Show Inactive'}
             </button>
             <button onClick={() => setPanelDept(null)} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '0.55rem 1.1rem', borderRadius: 8, border: 'none',
-              background: '#7ac143', color: '#0f1117', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer',
+              background: 'var(--accent-primary)', color: '#0f1117', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer',
             }}>
               <Plus size={15} /> New Department
             </button>
@@ -634,7 +634,7 @@ export default function Departments() {
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: '1.5rem' }}>
           {[
-            { label: 'Total',          value: depts.length,                              color: '#7ac143', bg: 'rgba(122,193,67,.08)' },
+            { label: 'Total',          value: depts.length,                              color: 'var(--accent-primary)', bg: 'var(--brand-08)' },
             { label: 'Active',         value: depts.filter(d => d.active).length,        color: '#10b981', bg: 'rgba(16,185,129,.08)' },
             { label: 'Shown in POS',   value: depts.filter(d => d.showInPOS !== false && d.active).length, color: '#3b82f6', bg: 'rgba(59,130,246,.08)' },
             { label: 'Age Restricted', value: depts.filter(d => d.ageRequired).length,   color: '#f59e0b', bg: 'rgba(245,158,11,.08)' },

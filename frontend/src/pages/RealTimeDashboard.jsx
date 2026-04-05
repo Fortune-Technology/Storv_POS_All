@@ -74,7 +74,7 @@ function ForecastCard({ day }) {
   return (
     <div className="forecast-day">
       <div className="forecast-day-label">{label}</div>
-      <WeatherIcon name={day.icon || 'Cloud'} size={26} color="#7ac143" />
+      <WeatherIcon name={day.icon || 'Cloud'} size={26} color="var(--accent-primary)" />
       <div className="forecast-day-condition">{day.condition || '—'}</div>
       <div className="forecast-day-temps">
         <span style={{ color: tempColor(hi) }}>
@@ -178,7 +178,7 @@ export default function RealTimeDashboard() {
 
   const salesLabel = isToday ? 'Today' : 'Latest Day';
   const kpis = [
-    { label: `Net Sales — ${salesLabel}`,  value: fmt(netSales),   icon: <DollarSign size={20} />, color: '#7ac143', bg: 'rgba(122,193,67,0.12)' },
+    { label: `Net Sales — ${salesLabel}`,  value: fmt(netSales),   icon: <DollarSign size={20} />, color: 'var(--accent-primary)', bg: 'var(--brand-12)' },
     { label: 'Transactions',               value: fmtNum(txCount), icon: <ShoppingCart size={20} />, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     { label: 'Avg Transaction',            value: fmt(avgTx),      icon: <TrendingUp size={20} />, color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     { label: `Gross Sales — ${salesLabel}`, value: fmt(grossSales), icon: <Activity size={20} />,  color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -303,7 +303,7 @@ export default function RealTimeDashboard() {
             {/* Current Weather Hero */}
             <div className="weather-hero-card">
               <div className="weather-hero-icon">
-                <WeatherIcon name={currentW.icon || 'Cloud'} size={52} color="#7ac143" />
+                <WeatherIcon name={currentW.icon || 'Cloud'} size={52} color="var(--accent-primary)" />
               </div>
               <div className="weather-hero-temp" style={{ color: tempColor(currentW.temperature) }}>
                 {currentW.temperature != null ? Math.round(currentW.temperature) + '°F' : '—'}
@@ -348,7 +348,7 @@ export default function RealTimeDashboard() {
         {/* 14-Day Sales Trend */}
         <div className="analytics-chart-card" style={{ marginBottom: '1.75rem' }}>
           <div className="analytics-chart-title" style={{ marginBottom: '1.25rem' }}>
-            <Calendar size={16} style={{ color: '#7ac143' }} />
+            <Calendar size={16} style={{ color: 'var(--accent-primary)' }} />
             Last 14 Days — Net Sales
             <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 400 }}>
               Daily trend
@@ -365,8 +365,8 @@ export default function RealTimeDashboard() {
                 <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="rtSalesGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#7ac143" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#7ac143" stopOpacity={0.03} />
+                      <stop offset="5%"  stopColor="var(--accent-primary)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0.03} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
@@ -392,7 +392,7 @@ export default function RealTimeDashboard() {
                     yAxisId="left"
                     type="monotone"
                     dataKey="Net Sales"
-                    stroke="#7ac143"
+                    stroke="var(--accent-primary)"
                     strokeWidth={2}
                     fill="url(#rtSalesGrad)"
                     dot={false}
@@ -450,7 +450,7 @@ export default function RealTimeDashboard() {
                 { label: 'Discounts',    value: fmt(todaySales.TotalDiscounts),   color: '#ef4444' },
                 { label: 'Refunds',      value: fmt(todaySales.TotalRefunds),     color: '#f97316' },
                 { label: 'Tax Collected', value: fmt(todaySales.TotalTaxes),      color: '#f59e0b' },
-                { label: 'Total Collected', value: fmt(todaySales.TotalTotalCollected), color: '#7ac143' },
+                { label: 'Total Collected', value: fmt(todaySales.TotalTotalCollected), color: 'var(--accent-primary)' },
               ].map(item => (
                 <div key={item.label} className="analytics-stat-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.25rem' }}>
                   <span className="analytics-stat-label">{item.label}</span>

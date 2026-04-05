@@ -17,11 +17,12 @@ const Pricing = () => {
       monthlyPrice: 49,
       annualPrice: 39,
       features: [
-        'Live Dashboard (Daily updates)',
+        'Storv POS — Full Cashier App',
+        'Cash & Card Payment Support',
         'Basic Inventory Tracking',
-        'Standard POS Sync',
+        'AI Invoice Import (50 invoices/mo)',
         'Email Support',
-        'Up to 100 Invoices/mo'
+        'Single Location'
       ],
       cta: 'Start with Starter',
       variant: 'secondary'
@@ -32,12 +33,13 @@ const Pricing = () => {
       monthlyPrice: 99,
       annualPrice: 79,
       features: [
-        'everything in Starter, plus:',
+        'Everything in Starter, plus:',
         'AI Invoice Import (Unlimited)',
-        'Weather-Synced Dashboard',
-        'Sales Predictions (7-Day)',
-        'Priority Match Engine',
-        'Multi-Store Support (up to 3)'
+        'Lottery Module (full features)',
+        'Weather-Synced Live Dashboard',
+        '14-Day Sales Predictions',
+        'Multi-Store Support (up to 3)',
+        'Priority Support'
       ],
       cta: 'Go with Growth',
       variant: 'primary',
@@ -49,12 +51,12 @@ const Pricing = () => {
       monthlyPrice: 'Custom',
       annualPrice: 'Custom',
       features: [
-        'everything in Growth, plus:',
-        'Advanced Holt-Winters Predictions',
+        'Everything in Growth, plus:',
         'Unlimited Store Locations',
-        'Custom Vendor Mappings',
+        'Custom Hardware Configuration',
+        'Direct PAX Terminal Setup',
         'Dedicated Account Manager',
-        'On-site Training & Support'
+        'On-site Training & Onboarding'
       ],
       cta: 'Contact Sales',
       variant: 'secondary'
@@ -63,24 +65,24 @@ const Pricing = () => {
 
   const faqs = [
     {
-      q: 'How does the AI Invoice Import work?',
-      a: 'We use a hybrid OCR approach combining Microsoft Azure Document Intelligence for layout extraction and OpenAI GPT-4o-mini for logical data enrichment. This ensures we capture net costs, deposits, and line items with over 99% accuracy.'
+      q: 'How does direct card processing work?',
+      a: 'StoreVeu integrates directly with PAX payment terminals (A30, A35, A80) using the POSLINK protocol. This means your card payments go straight from the terminal to your processor — no StoreVeu markup, no middleman. You negotiate your own interchange rates.'
     },
     {
-      q: 'Can I use Storeveu with my existing POS system?',
-      a: 'Yes! Storeveu comes with Storv POS built in — a full-featured point of sale system designed specifically for your business. No third-party POS required.'
+      q: 'Does StoreVeu replace my existing POS?',
+      a: 'Yes. StoreVeu includes Storv POS — a full-featured cashier app that handles cash, card, EBT/SNAP, lottery, barcode scanning, age verification, and more. It runs in your browser on any Windows or Mac register.'
     },
     {
-      q: 'Is there a limit to how many stores I can manage?',
-      a: 'The Starter and Growth plans have flexible limits suitable for most operations. Our Enterprise plan supports unlimited store locations with global management features.'
+      q: 'Can I manage lottery through StoreVeu?',
+      a: 'Yes. The Lottery Module handles provincial/state game management, box activation, cashier shift scanning, variance reporting, and commission calculations — all built in, no extra cost on Growth and Enterprise plans.'
     },
     {
       q: 'Do you offer a free trial?',
-      a: 'Absolutely. We typically start with a personalized demo to set up your organization, followed by a 14-day free trial so you can see the real-world impact on your store data.'
+      a: 'We start with a personalized demo tailored to your store type. After that, we offer a 14-day free trial so you can see the real-world impact before committing.'
     },
     {
-      q: 'Is my data secure?',
-      a: 'Security is our priority. We use industry-standard encryption, multi-tenant isolation, and secure API protocols to ensure your business data is only accessible by authorized users.'
+      q: 'Is there a contract?',
+      a: 'No long-term contracts on Starter and Growth plans — month-to-month with no cancellation fee. Enterprise plans have flexible terms discussed directly with our team.'
     }
   ];
 
@@ -93,7 +95,7 @@ const Pricing = () => {
         <div className="mkt-container">
           <div className="pricing-hero-content">
             <h1 className="pricing-title">Simple, <span className="text-gradient">Transparent</span> Pricing</h1>
-            <p className="pricing-subtitle">No hidden fees. No commitments. Choose the plan that fits your business scale.</p>
+            <p className="pricing-subtitle">No hidden processing fees. No middleman markup. No long-term lock-in.</p>
             
             {/* Toggle */}
             <div className="pricing-toggle-container">
@@ -132,7 +134,6 @@ const Pricing = () => {
                     <span className="amount">{plan.annualPrice}</span>
                   )}
                 </div>
-                {/* // TODO: replace with real pricing from product team */}
               </div>
               
               <div className="card-features">
@@ -142,7 +143,6 @@ const Pricing = () => {
                     <li key={fi}><Check size={18} /> {f}</li>
                   ))}
                 </ul>
-                {/* // TODO: confirm these features exist — references in ProjectOverview.md */}
               </div>
 
               <div className="card-bottom">
@@ -175,7 +175,6 @@ const Pricing = () => {
               </div>
               <div className="faq-answer">
                 <p>{faq.a}</p>
-                {/* // TODO: confirm FAQ content with product team */}
               </div>
             </div>
           ))}
@@ -188,18 +187,18 @@ const Pricing = () => {
           <div className="trust-grid">
             <div className="trust-item">
               <ShieldCheck size={32} />
-              <h4>Secure Data</h4>
-              <p>Your business data is encrypted and isolated.</p>
+              <h4>Direct PAX Processing</h4>
+              <p>Card payments at interchange rates. No middleman. No markup.</p>
             </div>
             <div className="trust-item">
               <Zap size={32} />
-              <h4>Fast Setup</h4>
-              <p>Get up and running in less than 24 hours.</p>
+              <h4>No Lock-In</h4>
+              <p>Month-to-month plans. Export your data anytime.</p>
             </div>
             <div className="trust-item">
               <HelpCircle size={32} />
               <h4>24/7 Support</h4>
-              <p>We're here whenever your store is open.</p>
+              <p>Real people who've worked retail, whenever you need us.</p>
             </div>
           </div>
         </div>
@@ -208,9 +207,8 @@ const Pricing = () => {
       {/* Final CTA */}
       <section className="pricing-final-cta">
         <div className="mkt-container">
-          <h2>Still have questions?</h2>
-          <p>Our retail experts are ready to help you find the perfect solution.</p>
-          <MarketingButton href="/contact" variant="secondary" size="lg">Contact Our Team</MarketingButton>
+          <h2>Ready to see what you've been missing?</h2>
+          <MarketingButton href="/contact" variant="secondary" size="lg">Talk to Our Team</MarketingButton>
         </div>
       </section>
 

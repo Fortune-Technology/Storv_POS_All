@@ -1,12 +1,10 @@
-/**
- * Marketing Button Component Styles
- */
+/** Marketing Button Component Styles */
 
 .mkt-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md, 12px);
+  border-radius: var(--radius-md);
   padding: 0.75rem 1.5rem;
   font-weight: 600;
   cursor: pointer;
@@ -19,53 +17,39 @@
 
 /* Variants */
 .mkt-btn-primary {
-  background: var(--accent-gradient, linear-gradient(135deg, #7ac143 0%, #e30613 100%));
-  color: #ffffff;
-  box-shadow: 0 4px 15px rgba(122, 193, 67, 0.3);
+  background: var(--accent-gradient);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-brand);
 }
 
 .mkt-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(122, 193, 67, 0.4);
+  box-shadow: var(--shadow-brand-lg);
 }
 
 .mkt-btn-secondary {
-  background: var(--bg-secondary, #ffffff);
-  color: var(--text-primary, #0f172a);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .mkt-btn-secondary:hover {
-  border-color: var(--accent-primary, #7ac143);
-  background: var(--bg-tertiary, #f1f5f9);
+  border-color: var(--accent-primary);
+  background: var(--brand-pale);
 }
 
 .mkt-btn-ghost {
   background: transparent;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
 }
 
 .mkt-btn-ghost:hover {
-  background: rgba(122, 193, 67, 0.08);
-  color: var(--accent-primary, #7ac143);
+  background: var(--brand-08);
+  color: var(--accent-primary);
 }
 
 /* Sizes */
-.mkt-btn-sm {
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-}
-
-.mkt-btn-md {
-  padding: 0.75rem 1.5rem;
-}
-
-.mkt-btn-lg {
-  padding: 1rem 2rem;
-  font-size: 1.1rem;
-}
-
-.mkt-btn-xl {
-  padding: 1.25rem 2.5rem;
-  font-size: 1.25rem;
-}
+.mkt-btn-sm  { padding: 0.5rem 1rem;    font-size: 0.875rem; }
+.mkt-btn-md  { padding: 0.75rem 1.5rem; }
+.mkt-btn-lg  { padding: 1rem 2rem;      font-size: 1.1rem;  }
+.mkt-btn-xl  { padding: 1.25rem 2.5rem; font-size: 1.25rem; }

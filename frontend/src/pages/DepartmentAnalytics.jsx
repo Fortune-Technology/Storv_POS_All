@@ -11,7 +11,7 @@ import './analytics.css';
 
 /* ─── Constants ─── */
 const COLORS = [
-  '#7ac143', '#e30613', '#3b82f6', '#f8c01d', '#10b981',
+  'var(--accent-primary)', 'var(--error)', '#3b82f6', '#f8c01d', '#10b981',
   '#8b5cf6', '#ec4899', '#f97316', '#14b8a6', '#a855f7',
 ];
 
@@ -154,7 +154,7 @@ export default function DepartmentAnalytics() {
         {/* ── KPI Row ── */}
         <div className="analytics-stats-row">
           <div className="analytics-stat-card">
-            <div className="analytics-stat-icon" style={{ background: 'rgba(122, 193, 67, 0.15)', color: '#7ac143' }}>
+            <div className="analytics-stat-icon" style={{ background: 'var(--brand-15)', color: 'var(--accent-primary)' }}>
               <TrendingUp size={22} />
             </div>
             <div>

@@ -78,7 +78,7 @@ const CHART_TYPES = [
 
 /* ─── METRIC TOGGLES for master chart ─── */
 const METRICS = [
-  { key: 'NetSales',     label: 'Net Sales',      color: '#7ac143' },
+  { key: 'NetSales',     label: 'Net Sales',      color: 'var(--accent-primary)' },
   { key: 'GrossSales',   label: 'Gross Sales',    color: '#3b82f6' },
   { key: 'Transactions', label: 'Transactions',   color: '#8b5cf6' },
   { key: 'tempHigh',     label: 'Temp High',      color: '#ef4444' },
@@ -305,12 +305,12 @@ export default function SalesAnalytics() {
 
   /* ─── KPIs ─── */
   const kpis = [
-    { label: 'Total Gross Sales',  value: fmtCurrency(agg.TotalGrossSales),        icon: <DollarSign size={22} />,  iconBg: 'rgba(122,193,67,0.15)',  iconColor: '#7ac143' },
+    { label: 'Total Gross Sales',  value: fmtCurrency(agg.TotalGrossSales),        icon: <DollarSign size={22} />,  iconBg: 'var(--brand-15)',  iconColor: 'var(--accent-primary)' },
     { label: 'Total Net Sales',    value: fmtCurrency(agg.TotalNetSales),           icon: <TrendingUp size={22} />,  iconBg: 'rgba(59,130,246,0.15)',  iconColor: '#3b82f6' },
     { label: 'Total Transactions', value: fmtN(agg.TotalTransactionsCount),         icon: <ShoppingCart size={22} />,iconBg: 'rgba(139,92,246,0.15)', iconColor: '#8b5cf6' },
     { label: 'Avg Order Value',    value: fmtCurrency(avgOrderValue),               icon: <Wallet size={22} />,      iconBg: 'rgba(16,185,129,0.15)', iconColor: '#10b981' },
     { label: 'Total Discounts',    value: fmtCurrency(agg.TotalDiscounts),          icon: <Tag size={22} />,         iconBg: 'rgba(248,192,29,0.15)', iconColor: '#f8c01d' },
-    { label: 'Total Refunds',      value: fmtCurrency(agg.TotalRefunds),            icon: <ReceiptText size={22} />, iconBg: 'rgba(227,6,19,0.12)',   iconColor: 'var(--error)' },
+    { label: 'Total Refunds',      value: fmtCurrency(agg.TotalRefunds),            icon: <ReceiptText size={22} />, iconBg: 'var(--error)',   iconColor: 'var(--error)' },
     { label: 'Total Taxes',        value: fmtCurrency(agg.TotalTaxes),              icon: <DollarSign size={22} />,  iconBg: 'rgba(59,130,246,0.1)',  iconColor: '#3b82f6' },
     { label: 'Total Collected',    value: fmtCurrency(agg.TotalTotalCollected),     icon: <Wallet size={22} />,      iconBg: 'rgba(16,185,129,0.15)', iconColor: '#10b981' },
   ];
@@ -481,7 +481,7 @@ export default function SalesAnalytics() {
                     )}
                     {activeMetrics.has('NetSales') && (
                       <Area yAxisId="money" type="monotone" dataKey="NetSales"
-                        stroke="#7ac143" fill="rgba(122,193,67,0.1)" strokeWidth={2.5}
+                        stroke="var(--accent-primary)" fill="var(--brand-10)" strokeWidth={2.5}
                         name="Net Sales" dot={false} />
                     )}
                     {activeMetrics.has('Transactions') && (
@@ -509,21 +509,21 @@ export default function SalesAnalytics() {
               <div className="analytics-grid-2">
                 <div className="analytics-chart-card" style={{ marginBottom: 0 }}>
                   <div className="analytics-chart-title">
-                    <TrendingUp size={18} style={{ color: '#7ac143' }} /> Net Sales Trend
+                    <TrendingUp size={18} style={{ color: 'var(--accent-primary)' }} /> Net Sales Trend
                   </div>
                   <ChartInner height={240}>
                     <AreaChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                       <defs>
                         <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor="#7ac143" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="#7ac143" stopOpacity={0} />
+                          <stop offset="5%"  stopColor="var(--accent-primary)" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                       <XAxis {...xAxisProps} />
                       <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} />
                       <Tooltip content={<ChartTooltip tab={tab} />} />
-                      <Area type="monotone" dataKey="NetSales" stroke="#7ac143" fill="url(#netGrad)" strokeWidth={2.5} name="Net Sales" dot={false} />
+                      <Area type="monotone" dataKey="NetSales" stroke="var(--accent-primary)" fill="url(#netGrad)" strokeWidth={2.5} name="Net Sales" dot={false} />
                     </AreaChart>
                   </ChartInner>
                 </div>
@@ -546,7 +546,7 @@ export default function SalesAnalytics() {
                       <Tooltip content={<ChartTooltip tab={tab} />} />
                       <Legend wrapperStyle={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }} />
                       <Area type="monotone" dataKey="GrossSales" stroke="#3b82f6" fill="url(#grossGrad)" strokeWidth={2} name="Gross Sales" dot={false} />
-                      <Area type="monotone" dataKey="NetSales"   stroke="#7ac143" fill="rgba(122,193,67,0.1)" strokeWidth={2} name="Net Sales" dot={false} />
+                      <Area type="monotone" dataKey="NetSales"   stroke="var(--accent-primary)" fill="var(--brand-10)" strokeWidth={2} name="Net Sales" dot={false} />
                     </AreaChart>
                   </ChartInner>
                 </div>

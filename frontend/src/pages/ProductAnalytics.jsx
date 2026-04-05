@@ -194,7 +194,7 @@ export default function ProductAnalytics() {
                   <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={fmtAxisDollar} />
                   <YAxis type="category" dataKey="productName" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} width={130} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="sales" fill="#7ac143" radius={[0, 4, 4, 0]} name="Sales" />
+                  <Bar dataKey="sales" fill="var(--accent-primary)" radius={[0, 4, 4, 0]} name="Sales" />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -230,7 +230,7 @@ export default function ProductAnalytics() {
                     <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
                     <Tooltip content={<ChartTooltip />} />
                     <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }} />
-                    <Line type="monotone" dataKey="Revenue" stroke="#7ac143" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Revenue" stroke="var(--accent-primary)" strokeWidth={2} dot={false} />
                     <Line type="monotone" dataKey="Units"   stroke="#10b981" strokeWidth={2} dot={false} />
                     <Line type="monotone" dataKey="Profit"  stroke="#f8c01d" strokeWidth={2} dot={false} />
                   </LineChart>

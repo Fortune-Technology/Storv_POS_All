@@ -62,10 +62,10 @@ export default function EmployeeReports() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
         <div style={{
           width: 38, height: 38, borderRadius: 10,
-          background: 'rgba(122,193,67,.12)',
+          background: 'var(--brand-12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
-          <Users size={18} color="var(--green, #7ac143)" />
+          <Users size={18} color="var(--green, var(--accent-primary))" />
         </div>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>
@@ -99,7 +99,7 @@ export default function EmployeeReports() {
           disabled={loading}
           style={{
             height: 38, padding: '0 1.25rem', borderRadius: 8, border: 'none',
-            background: loading ? 'var(--bg-input, #1a1a2a)' : 'var(--green, #7ac143)',
+            background: loading ? 'var(--bg-input, #1a1a2a)' : 'var(--green, var(--accent-primary))',
             color: loading ? 'var(--text-muted, #6b7280)' : '#0f1117',
             fontWeight: 700, fontSize: '0.875rem',
             cursor: loading ? 'not-allowed' : 'pointer',
@@ -136,8 +136,8 @@ export default function EmployeeReports() {
             {[
               { label: 'Employees', value: data.employees?.length || 0, icon: Users, color: 'var(--blue, #63b3ed)', bg: 'rgba(99,179,237,.08)' },
               { label: 'Total Hours', value: data.employees?.reduce((s, e) => s + parseFloat(e.totalHours || 0), 0).toFixed(1) + ' hrs', icon: Clock, color: 'var(--amber, #f59e0b)', bg: 'rgba(245,158,11,.08)' },
-              { label: 'Transactions', value: data.employees?.reduce((s, e) => s + (e.txCount || 0), 0), icon: ShoppingCart, color: 'var(--green, #7ac143)', bg: 'rgba(122,193,67,.08)' },
-              { label: 'Total Sales', value: fmt$(data.employees?.reduce((s, e) => s + (e.txTotal || 0), 0)), icon: DollarSign, color: 'var(--green, #7ac143)', bg: 'rgba(122,193,67,.08)' },
+              { label: 'Transactions', value: data.employees?.reduce((s, e) => s + (e.txCount || 0), 0), icon: ShoppingCart, color: 'var(--green, var(--accent-primary))', bg: 'var(--brand-08)' },
+              { label: 'Total Sales', value: fmt$(data.employees?.reduce((s, e) => s + (e.txTotal || 0), 0)), icon: DollarSign, color: 'var(--green, var(--accent-primary))', bg: 'var(--brand-08)' },
             ].map(m => (
               <div key={m.label} style={{
                 padding: '1rem', borderRadius: 12,
@@ -215,10 +215,10 @@ export default function EmployeeReports() {
                     {emp.sessionCount || 0}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <ShoppingCart size={13} color="var(--green, #7ac143)" />
+                    <ShoppingCart size={13} color="var(--green, var(--accent-primary))" />
                     <span style={{ fontWeight: 700, color: 'var(--text-primary, #e2e8f0)' }}>{emp.txCount || 0}</span>
                   </div>
-                  <div style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green, #7ac143)', fontSize: '0.95rem' }}>
+                  <div style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green, var(--accent-primary))', fontSize: '0.95rem' }}>
                     {fmt$(emp.txTotal)}
                   </div>
                 </div>

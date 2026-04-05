@@ -24,22 +24,22 @@ const Home = () => {
     grocery: {
       title: 'Grocery & Supermarket',
       desc: 'Handle thousands of SKUs with ease. AI-powered invoice import and real-time inventory management.',
-      features: ['Scale Integration', 'Writability Support', 'Expiration Tracking']
+      features: ['EBT/SNAP Support', 'Scale Integration', 'AI Invoice Import']
     },
     retail: {
       title: 'General Retail',
       desc: 'Seamless checkout and deep analytics. Understand your best sellers and customer behavior.',
-      features: ['Multi-variant Support', 'Loyalty Program', 'Gift Cards']
+      features: ['PAX Terminal Direct', 'Customer Loyalty Points', 'Promotions Engine']
     },
     liquor: {
       title: 'Liquor & Wine',
       desc: 'Complex tax handling and vendor-specific mappings for spirits and beer distributors.',
-      features: ['Age Verification', 'Case-to-Unit Conversion', 'Bottle Deposits']
+      features: ['Age Verification', 'Lottery Module', 'Case-to-Unit Conversion']
     },
     meat: {
       title: 'Meat & Food',
       desc: 'Weight-based pricing and cold-chain management for fresh departments.',
-      features: ['Scale Sync', 'Yield Tracking', 'Batch Management']
+      features: ['Scale Sync (CAS/Mettler)', 'Weight-Based Pricing', 'Department Tax Rules']
     }
   };
 
@@ -59,13 +59,13 @@ const Home = () => {
     {
       icon: <TrendingUp size={32} />,
       title: 'Sales Predictions',
-      desc: 'Advanced Holt-Winters forecasting to predict sales volume and holiday spikes.',
+      desc: 'Holt-Winters 14-day forecasting to anticipate demand before you run out.',
       path: '/features#analytics'
     },
     {
       icon: <Package size={32} />,
-      title: 'Smart Inventory',
-      desc: 'Velocity-based reorder sheets that predict when you will run out of stock.',
+      title: 'Storv POS',
+      desc: 'A complete cashier app with barcode scanning, EBT/SNAP, lottery, age verification, and PAX card processing.',
       path: '/features#inventory'
     },
     {
@@ -76,8 +76,8 @@ const Home = () => {
     },
     {
       icon: <Globe size={32} />,
-      title: 'Multi-Store Sync',
-      desc: 'Manage different locations and organizations from a single cloud-based portal.',
+      title: 'Hardware Integration',
+      desc: 'Receipt printers, cash drawers, PAX terminals, and scales — all configured in a simple setup wizard.',
       path: '/features#stores'
     }
   ];
@@ -91,12 +91,12 @@ const Home = () => {
         <div className="mkt-container">
           <div className="hero-grid">
             <div className="hero-content">
-              <span className="hero-badge">Smart Retail Evolution</span>
+              <span className="hero-badge">Retail Technology, Reimagined</span>
               <h1 className="hero-title">
                 The POS System That <span className="text-gradient">Thinks</span> Like You Do
               </h1>
               <p className="hero-subtitle">
-                Storeveu combines AI-powered automation with deep retail analytics to help you manage inventory, boost sales, and simplify your daily operations.
+                StoreVeu is the complete retail platform built by store owners who got tired of overpaying for bad software. Run your POS, manage lottery, track inventory, and process payments — all without the middleman markup.
               </p>
               <div className="hero-actions">
                 <MarketingButton href="/contact" size="lg">Book a Free Demo</MarketingButton>
@@ -104,7 +104,7 @@ const Home = () => {
               </div>
               <div className="hero-trust">
                 <ShieldCheck size={20} />
-                <span>Trusted by 500+ independent retailers across the country</span>
+                <span>Trusted by independent retailers across North America</span>
               </div>
             </div>
             <div className="hero-visual">
@@ -125,31 +125,31 @@ const Home = () => {
       </section>
 
       {/* Problem Section */}
-      <MarketingSection 
-        title="Stop Fighting Your Software" 
-        subtitle="Traditional POS systems are just cash registers. Storeveu is a complete business partner."
+      <MarketingSection
+        title="Stop Paying the Middleman"
+        subtitle="Traditional POS companies take a cut of every card swipe. StoreVeu connects directly to your PAX terminal — you keep more of every dollar."
         bgVariant="white"
       >
         <div className="problem-grid">
           <div className="problem-card old">
             <h4>Old Ways</h4>
             <ul>
-              <li>Manual invoice entry (Hours of work)</li>
-              <li>Data sync delays and errors</li>
-              <li>Guesswork for inventory orders</li>
-              <li>Hidden trends and lost revenue</li>
+              <li>Paying 2.9%+ card processing through your POS vendor</li>
+              <li>Manual invoice entry (hours of office work)</li>
+              <li>Separate systems for POS, lottery, and inventory</li>
+              <li>Cookie-cutter software that doesn't understand retail</li>
             </ul>
           </div>
           <div className="problem-divider">
             <div className="arrow-right">→</div>
           </div>
           <div className="problem-card new">
-            <h4>Storeveu</h4>
+            <h4>StoreVeu</h4>
             <ul>
-              <li>AI scans invoices in seconds</li>
-              <li>Real-time sync every 60 seconds</li>
-              <li>Data-driven reorder velocity</li>
-              <li>Predictive analytics to grow margin</li>
+              <li>Direct PAX terminal integration at interchange rates</li>
+              <li>AI scans vendor invoices in seconds</li>
+              <li>POS + lottery + inventory + hardware in one platform</li>
+              <li>Built by retailers who know your daily challenges</li>
             </ul>
           </div>
         </div>
@@ -204,7 +204,6 @@ const Home = () => {
               <MarketingButton href="/contact" variant="secondary">Demo for {industries[activeTab].title.split(' & ')[0]}</MarketingButton>
             </div>
             <div className="tab-visual">
-              {/* TODO: Add industry specific visual/iconography */}
               <div className="industry-placeholder-icon">
                 {activeTab === 'grocery' && <Package size={120} />}
                 {activeTab === 'retail' && <Zap size={120} />}
@@ -225,18 +224,18 @@ const Home = () => {
         <div className="testimonial-teaser-grid">
           <div className="teaser-card">
             <div className="stars">★★★★★</div>
-            <p>"AI invoice import saved us 12 hours a week. It's the best investment we've ever made."</p>
-            <div className="author">— John D., Grocery Owner</div>
+            <p>"Switching from Square to StoreVeu cut our card fees by nearly 1%. On our volume, that's thousands a year."</p>
+            <div className="author">— David P., Grocery Owner</div>
           </div>
           <div className="teaser-card">
             <div className="stars">★★★★★</div>
-            <p>"The predictive analytics helped us reduce overstock by 15% in just 3 months."</p>
-            <div className="author">— Sarah L., Liquor Store Manager</div>
+            <p>"The lottery module alone saved us 3 hours of paperwork every week. Our cashiers love the shift scan feature."</p>
+            <div className="author">— Priya M., Liquor Store Owner</div>
           </div>
           <div className="teaser-card">
             <div className="stars">★★★★★</div>
-            <p>"Finally a system that speaks to our POS perfectly. The real-time hub is addictive."</p>
-            <div className="author">— Mike R., Food Market Owner</div>
+            <p>"AI invoice import is unreal. I used to spend Sunday nights entering vendor invoices. Now it takes 10 minutes."</p>
+            <div className="author">— James T., Independent Market Owner</div>
           </div>
         </div>
       </MarketingSection>
@@ -245,11 +244,11 @@ const Home = () => {
       <section className="final-cta-banner">
         <div className="mkt-container">
           <div className="cta-banner-content">
-            <h2>Ready to transform your retail operations?</h2>
-            <p>Join hundreds of smart retailers who are simplifying their business today.</p>
+            <h2>Ready to stop paying the middleman?</h2>
+            <p>Join retailers keeping more of every dollar they earn.</p>
             <div className="cta-banner-actions">
-              <MarketingButton href="/contact" size="xl">Start Free Trial after Demo</MarketingButton>
-              <MarketingButton href="/pricing" variant="ghost" size="xl" className="text-white">View Pricing Plans</MarketingButton>
+              <MarketingButton href="/contact" size="xl">Book Your Free Demo</MarketingButton>
+              <MarketingButton href="/pricing" variant="ghost" size="xl" className="text-white">See Pricing</MarketingButton>
             </div>
           </div>
         </div>

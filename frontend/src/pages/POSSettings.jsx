@@ -9,11 +9,11 @@ import Sidebar from '../components/Sidebar.jsx';
 // ── Branding constants ─────────────────────────────────────────────────────
 
 const PRESET_COLORS = [
-  '#7ac143', '#3b82f6', '#8b5cf6', '#ec4899',
+  'var(--accent-primary)', '#3b82f6', '#8b5cf6', '#ec4899',
   '#f59e0b', '#ef4444', '#14b8a6', '#f97316',
 ];
 
-const DEFAULT_BRANDING = { theme: 'dark', primaryColor: '#7ac143', logoText: '' };
+const DEFAULT_BRANDING = { theme: 'dark', primaryColor: 'var(--accent-primary)', logoText: '' };
 
 // ── Default Config ─────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ const LAYOUT_PRESETS = [
       <div style={{ display: 'flex', gap: 3, height: 52, width: '100%' }}>
         <div style={{ width: '28%', background: '#334155', borderRadius: 3 }} />
         <div style={{ flex: 1, background: '#1e293b', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
-          <div style={{ height: 10, background: '#7ac143', borderRadius: 2, opacity: 0.7 }} />
+          <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2, opacity: 0.7 }} />
           <div style={{ flex: 1, display: 'flex', gap: 2 }}>
             {[1,2,3,4].map(i => (
               <div key={i} style={{ flex: 1, background: '#334155', borderRadius: 2 }} />
@@ -64,7 +64,7 @@ const LAYOUT_PRESETS = [
         </div>
         <div style={{ width: '32%', background: '#253347', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
           <div style={{ flex: 1, background: '#1e2d3d', borderRadius: 2 }} />
-          <div style={{ height: 10, background: '#7ac143', borderRadius: 2 }} />
+          <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2 }} />
         </div>
       </div>
     ),
@@ -75,12 +75,12 @@ const LAYOUT_PRESETS = [
     description: 'Minimal UI · Fastest checkout · Less clicks',
     diagram: (
       <div style={{ display: 'flex', gap: 3, height: 52, width: '100%', flexDirection: 'column' }}>
-        <div style={{ height: 10, background: '#7ac143', borderRadius: 3, opacity: 0.8 }} />
+        <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 3, opacity: 0.8 }} />
         <div style={{ flex: 1, display: 'flex', gap: 3 }}>
           <div style={{ flex: 1, background: '#1e293b', borderRadius: 3 }} />
           <div style={{ width: '38%', background: '#253347', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
             <div style={{ flex: 1, background: '#1e2d3d', borderRadius: 2 }} />
-            <div style={{ height: 10, background: '#7ac143', borderRadius: 2 }} />
+            <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2 }} />
           </div>
         </div>
       </div>
@@ -94,7 +94,7 @@ const LAYOUT_PRESETS = [
       <div style={{ display: 'flex', gap: 3, height: 52, width: '100%' }}>
         <div style={{ width: '36%', background: '#253347', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
           <div style={{ flex: 1, background: '#1e2d3d', borderRadius: 2 }} />
-          <div style={{ height: 10, background: '#7ac143', borderRadius: 2 }} />
+          <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2 }} />
         </div>
         <div style={{ flex: 1, background: '#1e293b', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
           <div style={{ height: 10, background: '#475569', borderRadius: 2 }} />
@@ -115,13 +115,13 @@ const LAYOUT_PRESETS = [
       <div style={{ display: 'flex', gap: 3, height: 52, width: '100%' }}>
         <div style={{ flex: 1, background: '#1e293b', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 3, padding: 4 }}>
           <div style={{ height: 12, background: '#475569', borderRadius: 2, display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
-            <div style={{ width: 6, height: 6, background: '#7ac143', borderRadius: '50%' }} />
+            <div style={{ width: 6, height: 6, background: 'var(--accent-primary)', borderRadius: '50%' }} />
           </div>
           <div style={{ flex: 1, background: '#0f172a', borderRadius: 2 }} />
         </div>
         <div style={{ width: '34%', background: '#253347', borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2, padding: 3 }}>
           <div style={{ flex: 1, background: '#1e2d3d', borderRadius: 2 }} />
-          <div style={{ height: 10, background: '#7ac143', borderRadius: 2 }} />
+          <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2 }} />
         </div>
       </div>
     ),
@@ -143,7 +143,7 @@ const LAYOUT_PRESETS = [
               <div key={i} style={{ flex: 1, background: '#334155', borderRadius: 2 }} />
             ))}
           </div>
-          <div style={{ height: 10, background: '#7ac143', borderRadius: 2 }} />
+          <div style={{ height: 10, background: 'var(--accent-primary)', borderRadius: 2 }} />
         </div>
       </div>
     ),
@@ -159,9 +159,9 @@ function Toggle({ checked, onChange, label }) {
         onClick={() => onChange(!checked)}
         style={{
           width: 36, height: 20, borderRadius: 10, flexShrink: 0,
-          background: checked ? '#7ac143' : 'var(--bg-tertiary)',
+          background: checked ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
           position: 'relative', transition: 'background .2s', cursor: 'pointer',
-          border: `1px solid ${checked ? '#7ac143' : 'var(--border-color)'}`,
+          border: `1px solid ${checked ? 'var(--accent-primary)' : 'var(--border-color)'}`,
         }}
       >
         <div style={{
@@ -186,9 +186,9 @@ function ChipToggle({ checked, onChange, label }) {
       style={{
         padding: '0.4rem 0.85rem',
         borderRadius: 20,
-        border: checked ? '1px solid #7ac143' : '1px solid var(--border-color)',
-        background: checked ? 'rgba(122,193,67,.12)' : 'var(--bg-tertiary)',
-        color: checked ? '#7ac143' : 'var(--text-muted)',
+        border: checked ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+        background: checked ? 'var(--brand-12)' : 'var(--bg-tertiary)',
+        color: checked ? 'var(--accent-primary)' : 'var(--text-muted)',
         fontSize: '0.78rem', fontWeight: 600,
         cursor: 'pointer', transition: 'all .15s',
         display: 'flex', alignItems: 'center', gap: 5,
@@ -203,7 +203,7 @@ function ChipToggle({ checked, onChange, label }) {
 // ── Live POS Preview ────────────────────────────────────────────────────────
 
 function POSPreview({ config, branding }) {
-  const primary = branding?.primaryColor || '#7ac143';
+  const primary = branding?.primaryColor || 'var(--accent-primary)';
   const theme   = branding?.theme || 'dark';
   const isDark  = theme === 'dark';
 
@@ -559,10 +559,10 @@ export default function POSSettings() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
               width: 40, height: 40, borderRadius: 10,
-              background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.2)',
+              background: 'var(--brand-12)', border: '1px solid var(--brand-20)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <Monitor size={18} color="#7ac143" />
+              <Monitor size={18} color="var(--accent-primary)" />
             </div>
             <div>
               <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
@@ -613,8 +613,8 @@ export default function POSSettings() {
                       key={preset.key}
                       onClick={() => setField('layout', preset.key)}
                       style={{
-                        background: active ? 'rgba(122,193,67,.07)' : 'var(--bg-tertiary)',
-                        border: `2px solid ${active ? '#7ac143' : 'var(--border-color)'}`,
+                        background: active ? 'var(--brand-08)' : 'var(--bg-tertiary)',
+                        border: `2px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
                         borderRadius: 12, padding: '0.875rem',
                         cursor: 'pointer', textAlign: 'left',
                         transition: 'border-color .15s, background .15s',
@@ -627,7 +627,7 @@ export default function POSSettings() {
                         <div style={{
                           position: 'absolute', top: 8, right: 8,
                           width: 18, height: 18, borderRadius: '50%',
-                          background: '#7ac143',
+                          background: 'var(--accent-primary)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                         }}>
                           <Check size={10} color="#fff" strokeWidth={3} />
@@ -640,7 +640,7 @@ export default function POSSettings() {
                       {/* Name */}
                       <div style={{
                         fontSize: '0.82rem', fontWeight: 700,
-                        color: active ? '#7ac143' : 'var(--text-primary)',
+                        color: active ? 'var(--accent-primary)' : 'var(--text-primary)',
                         marginBottom: 3,
                       }}>
                         {preset.name}
@@ -704,12 +704,12 @@ export default function POSSettings() {
                       onClick={() => setField('cashRounding', value)}
                       style={{
                         flex: 1, padding: '0.75rem', borderRadius: 10, textAlign: 'left',
-                        border: `1.5px solid ${config.cashRounding === value ? '#7ac143' : 'var(--border-color)'}`,
-                        background: config.cashRounding === value ? 'rgba(122,193,67,.07)' : 'var(--bg-tertiary)',
+                        border: `1.5px solid ${config.cashRounding === value ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: config.cashRounding === value ? 'var(--brand-08)' : 'var(--bg-tertiary)',
                         cursor: 'pointer', transition: 'all .15s',
                       }}
                     >
-                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: config.cashRounding === value ? '#7ac143' : 'var(--text-primary)', marginBottom: 2 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: config.cashRounding === value ? 'var(--accent-primary)' : 'var(--text-primary)', marginBottom: 2 }}>
                         {label}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{sub}</div>
@@ -757,9 +757,9 @@ export default function POSSettings() {
                           style={{
                             padding: '0.4rem 0.85rem',
                             borderRadius: 20,
-                            border: hidden ? '1px solid rgba(224,63,63,.4)' : '1px solid #7ac143',
-                            background: hidden ? 'rgba(224,63,63,.08)' : 'rgba(122,193,67,.12)',
-                            color: hidden ? 'var(--red, #e03f3f)' : '#7ac143',
+                            border: hidden ? '1px solid rgba(224,63,63,.4)' : '1px solid var(--accent-primary)',
+                            background: hidden ? 'rgba(224,63,63,.08)' : 'var(--brand-12)',
+                            color: hidden ? 'var(--red, #e03f3f)' : 'var(--accent-primary)',
                             fontSize: '0.78rem', fontWeight: 600,
                             cursor: 'pointer', transition: 'all .15s',
                             display: 'flex', alignItems: 'center', gap: 5,
@@ -858,9 +858,9 @@ export default function POSSettings() {
                       style={{
                         padding: '0.55rem 1.25rem',
                         borderRadius: 8,
-                        border: `2px solid ${active ? '#7ac143' : 'var(--border-color)'}`,
-                        background: active ? 'rgba(122,193,67,.1)' : 'var(--bg-tertiary)',
-                        color: active ? '#7ac143' : 'var(--text-muted)',
+                        border: `2px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: active ? 'var(--brand-10)' : 'var(--bg-tertiary)',
+                        color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
                         fontWeight: 700, fontSize: '0.85rem',
                         cursor: 'pointer', transition: 'all .15s',
                         display: 'flex', alignItems: 'center', gap: 6,
@@ -918,7 +918,7 @@ export default function POSSettings() {
             {/* ── Section 5: Store Branding ── */}
             <div style={cardStyle}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem' }}>
-                <Palette size={14} color="#7ac143" />
+                <Palette size={14} color="var(--accent-primary)" />
                 <span style={{ ...sectionLabel, marginBottom: 0 }}>STORE BRANDING</span>
               </div>
 
@@ -938,9 +938,9 @@ export default function POSSettings() {
                       style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '0.5rem 1rem', borderRadius: 8,
-                        border: `1.5px solid ${branding.theme === key ? '#7ac143' : 'var(--border-color)'}`,
-                        background: branding.theme === key ? 'rgba(122,193,67,.1)' : 'var(--bg-tertiary)',
-                        color: branding.theme === key ? '#7ac143' : 'var(--text-muted)',
+                        border: `1.5px solid ${branding.theme === key ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: branding.theme === key ? 'var(--brand-10)' : 'var(--bg-tertiary)',
+                        color: branding.theme === key ? 'var(--accent-primary)' : 'var(--text-muted)',
                         fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
                         transition: 'all .15s',
                       }}
@@ -986,7 +986,7 @@ export default function POSSettings() {
                         border: '1px solid rgba(255,255,255,.12)', borderRadius: 6,
                         padding: '0.3rem 0.5rem', fontSize: '0.78rem', fontFamily: 'monospace',
                       }}
-                      placeholder="#7ac143"
+                      placeholder="var(--accent-primary)"
                     />
                   </div>
                 </div>
@@ -1042,7 +1042,7 @@ export default function POSSettings() {
                 disabled={saving || !hasChanges || !storeId}
                 style={{
                   padding: '0.875rem 2rem',
-                  background: didSave ? '#16a34a' : hasChanges ? '#7ac143' : 'rgba(255,255,255,.06)',
+                  background: didSave ? '#16a34a' : hasChanges ? 'var(--accent-primary)' : 'rgba(255,255,255,.06)',
                   color: hasChanges || didSave ? '#fff' : '#475569',
                   border: 'none', borderRadius: 10, fontWeight: 800, fontSize: '0.95rem',
                   cursor: hasChanges && !saving ? 'pointer' : 'not-allowed',
@@ -1112,13 +1112,13 @@ export default function POSSettings() {
                 onClick={() => setField('layout', key)}
                 style={{
                   padding: '0.6rem 0.875rem', borderRadius: 8, textAlign: 'left', cursor: 'pointer',
-                  background: config.layout === key ? 'rgba(122,193,67,.08)' : 'var(--bg-secondary)',
-                  border: `1.5px solid ${config.layout === key ? '#7ac143' : 'var(--border-color)'}`,
+                  background: config.layout === key ? 'var(--brand-08)' : 'var(--bg-secondary)',
+                  border: `1.5px solid ${config.layout === key ? 'var(--accent-primary)' : 'var(--border-color)'}`,
                   transition: 'all .15s',
                   boxShadow: config.layout === key ? 'var(--shadow-sm)' : 'none',
                 }}
               >
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: config.layout === key ? '#7ac143' : 'var(--text-primary)' }}>{label}</div>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: config.layout === key ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{label}</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{note}</div>
               </button>
             ))}

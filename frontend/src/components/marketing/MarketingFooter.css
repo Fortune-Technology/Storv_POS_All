@@ -1,11 +1,9 @@
-/**
- * Marketing Footer Styles
- */
+/** Marketing Footer Styles */
 
 .mkt-footer {
-  background-color: var(--bg-tertiary, #f1f5f9);
+  background-color: var(--bg-tertiary);
   padding: 5rem 1rem 2rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  border-top: 1px solid var(--border-light);
   font-family: inherit;
 }
 
@@ -37,29 +35,29 @@
 
 .mkt-footer-logo img {
   max-height: 45px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .mkt-footer-logo span {
-  font-family: var(--font-heading, 'Outfit'), sans-serif;
+  font-family: var(--font-heading);
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   letter-spacing: -0.02em;
 }
 
 .mkt-footer-desc {
   font-size: 1rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   line-height: 1.6;
   max-width: 320px;
 }
 
 .mkt-footer-title {
-  font-family: var(--font-heading, 'Outfit'), sans-serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
   margin-bottom: 1.5rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -76,23 +74,23 @@
 
 .mkt-footer-links a {
   text-decoration: none;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   font-size: 0.95rem;
   transition: color 0.2s ease;
 }
 
 .mkt-footer-links a:hover {
-  color: var(--accent-primary, #7ac143);
+  color: var(--accent-primary);
 }
 
 .mkt-footer-bottom {
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--border-color);
   padding-top: 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 0.875rem;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
 }
 
 .mkt-footer-legal {
@@ -102,49 +100,23 @@
 
 .mkt-footer-legal a {
   text-decoration: none;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   transition: color 0.2s ease;
 }
 
 .mkt-footer-legal a:hover {
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 @media (max-width: 991px) {
-  .mkt-footer-grid {
-    grid-template-columns: 1.5fr repeat(2, 1fr);
-    gap: 3rem;
-  }
+  .mkt-footer-grid { grid-template-columns: 1.5fr repeat(2, 1fr); gap: 3rem; }
 }
 
 @media (max-width: 768px) {
-  .mkt-footer {
-    padding: 4rem 1.5rem 2rem;
-  }
-  
-  .mkt-footer-grid {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
-    margin-bottom: 3rem;
-  }
-  
-  .mkt-footer-brand {
-    text-align: center;
-    align-items: center;
-  }
-  
-  .mkt-footer-group {
-    text-align: center;
-  }
-  
-  .mkt-footer-bottom {
-    flex-direction: column;
-    gap: 1.5rem;
-    text-align: center;
-  }
-  
-  .mkt-footer-legal {
-    justify-content: center;
-    flex-wrap: wrap;
-  }
+  .mkt-footer       { padding: 4rem 1.5rem 2rem; }
+  .mkt-footer-grid  { grid-template-columns: 1fr; gap: 2.5rem; margin-bottom: 3rem; }
+  .mkt-footer-brand { text-align: center; align-items: center; }
+  .mkt-footer-group { text-align: center; }
+  .mkt-footer-bottom { flex-direction: column; gap: 1.5rem; text-align: center; }
+  .mkt-footer-legal  { justify-content: center; flex-wrap: wrap; }
 }

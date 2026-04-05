@@ -5,7 +5,7 @@ import { getVendorOrders } from '../services/api';
 import './analytics.css';
 
 /* ─── Constants ─── */
-const REC_COLORS = { reorder: '#e30613', ok: '#10b981', overstock: '#f8c01d' };
+const REC_COLORS = { reorder: 'var(--error)', ok: '#10b981', overstock: '#f8c01d' };
 const REC_LABELS = { reorder: 'Reorder', ok: 'On Track', overstock: 'Overstock' };
 
 /* ─── Helpers ─── */
@@ -143,7 +143,7 @@ export default function VendorOrderSheet() {
         <div className="analytics-stats-row">
           {[
             { label: 'Products Analyzed', value: summary.total    || 0, iconBg: 'rgba(59,130,246,0.15)',  iconColor: '#3b82f6' },
-            { label: 'Need Reorder',      value: summary.reorder  || 0, iconBg: 'rgba(227,6,19,0.12)',    iconColor: 'var(--error)' },
+            { label: 'Need Reorder',      value: summary.reorder  || 0, iconBg: 'var(--error)',    iconColor: 'var(--error)' },
             { label: 'On Track',          value: summary.ok       || 0, iconBg: 'rgba(16,185,129,0.15)',  iconColor: 'var(--success)' },
             { label: 'Overstocked',       value: summary.overstock || 0, iconBg: 'rgba(248,192,29,0.15)', iconColor: 'var(--warning)' },
           ].map(({ label, value, iconBg, iconColor }) => (
@@ -219,7 +219,7 @@ export default function VendorOrderSheet() {
                   {sorted.map((p, i) => {
                     const color  = REC_COLORS[p.recommendation] || '#64748b';
                     const rowBg  = p.recommendation === 'reorder'
-                      ? 'rgba(227,6,19,0.03)'
+                      ? 'var(--error-bg)'
                       : p.recommendation === 'overstock'
                       ? 'rgba(248,192,29,0.03)'
                       : 'transparent';

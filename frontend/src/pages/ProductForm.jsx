@@ -1337,7 +1337,7 @@ export default function ProductForm() {
                             <button type="button" onClick={() => openDealForm(idx)}
                               style={{ padding:5, borderRadius:5, border:'none', background:'rgba(255,255,255,.04)',
                                 cursor:'pointer', color:'var(--text-muted)', display:'flex' }}
-                              onMouseEnter={e=>{e.currentTarget.style.background='rgba(122,193,67,.12)';e.currentTarget.style.color='#7ac143';}}
+                              onMouseEnter={e=>{e.currentTarget.style.background='var(--brand-12)';e.currentTarget.style.color='var(--accent-primary)';}}
                               onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,.04)';e.currentTarget.style.color='var(--text-muted)';}}>
                               <Edit2 size={12} />
                             </button>

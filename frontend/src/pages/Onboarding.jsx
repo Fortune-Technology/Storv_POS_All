@@ -35,7 +35,7 @@ function StepDots({ current, total }) {
             background: i === current
               ? 'var(--accent-primary)'
               : i < current
-                ? 'rgba(122,193,67,0.4)'
+                ? 'var(--brand-40)'
                 : 'var(--border-color)',
             transition: 'all 0.3s ease',
           }}
@@ -139,7 +139,7 @@ export default function Onboarding() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'radial-gradient(circle at top right, #7ac14310, transparent), radial-gradient(circle at bottom left, #e3061310, transparent)',
+      background: 'radial-gradient(circle at top right, var(--accent-primary)10, transparent), radial-gradient(circle at bottom left, var(--error)10, transparent)',
       padding: '2rem 1rem',
     }}>
       <div className="glass-card animate-fade-in" style={{
@@ -164,7 +164,7 @@ export default function Onboarding() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
         <div style={{
           width: 40, height: 40, borderRadius: '10px',
-          background: 'rgba(122,193,67,0.12)',
+          background: 'var(--brand-12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <Building2 size={20} color="var(--accent-primary)" />
@@ -331,7 +331,7 @@ export default function Onboarding() {
     <div style={{ textAlign: 'center' }}>
       <div style={{
         width: 72, height: 72, borderRadius: '50%',
-        background: 'rgba(122,193,67,0.12)',
+        background: 'var(--brand-12)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         margin: '0 auto 1.5rem',
       }}>
