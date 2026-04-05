@@ -26,7 +26,7 @@ const POS_OPTIONS = [
   { value: 'none',       label: 'No POS connected',         color: 'var(--text-muted)'   },
   { value: 'square',     label: 'Square',                   color: '#3b82f6'              },
   { value: 'clover',     label: 'Clover',                   color: '#f97316'              },
-  { value: 'toast',      label: 'Toast',                    color: '#e30613'              },
+  { value: 'toast',      label: 'Toast',                    color: 'var(--error)'              },
   { value: 'lightspeed', label: 'Lightspeed',               color: '#8b5cf6'              },
 ];
 
@@ -420,7 +420,7 @@ function StoreCard({ store, onEdit, onDeactivate }) {
       className="analytics-stat-card"
       style={{
         flexDirection: 'column', alignItems: 'flex-start', gap: '0.875rem', padding: '1.25rem',
-        border: isActive ? '1.5px solid rgba(122,193,67,0.45)' : '1px solid var(--border-color)',
+        border: isActive ? '1.5px solid var(--brand-40)' : '1px solid var(--border-color)',
         cursor: 'pointer',
         transition: 'border-color 0.2s',
       }}
@@ -432,7 +432,7 @@ function StoreCard({ store, onEdit, onDeactivate }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <div style={{
             width: 38, height: 38, borderRadius: '10px',
-            background: isActive ? 'rgba(122,193,67,0.2)' : 'rgba(122,193,67,0.1)',
+            background: isActive ? 'var(--brand-20)' : 'var(--brand-10)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <Store size={18} color="var(--accent-primary)" />
@@ -453,9 +453,9 @@ function StoreCard({ store, onEdit, onDeactivate }) {
             title="Customize POS branding"
             style={{
               display: 'flex', alignItems: 'center', gap: '0.3rem',
-              background: 'rgba(122,193,67,.08)', border: '1px solid rgba(122,193,67,.3)',
+              background: 'var(--brand-08)', border: '1px solid var(--brand-30)',
               borderRadius: '8px', padding: '0.3rem 0.6rem', cursor: 'pointer',
-              color: '#7ac143', fontSize: '0.72rem', fontWeight: 700,
+              color: 'var(--accent-primary)', fontSize: '0.72rem', fontWeight: 700,
             }}
           >
             <Palette size={12} /> Branding
@@ -601,7 +601,7 @@ export default function StoreManagement() {
         {/* KPI row */}
         <div className="analytics-stats-row" style={{ marginBottom: '1.75rem' }}>
           {[
-            { label: 'Active stores',    value: stores.length,          color: '#7ac143', bg: 'rgba(122,193,67,0.12)', icon: <Store size={20} /> },
+            { label: 'Active stores',    value: stores.length,          color: 'var(--accent-primary)', bg: 'var(--brand-12)', icon: <Store size={20} /> },
             { label: 'Total registers',  value: totalRegisters,         color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', icon: <Monitor size={20} /> },
             { label: 'Monthly total',    value: fmt(totalMonthly),      color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: <DollarSign size={20} /> },
             { label: 'Annual total',     value: fmt(totalMonthly * 12), color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', icon: <DollarSign size={20} /> },

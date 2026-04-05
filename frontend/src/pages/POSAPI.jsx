@@ -16,10 +16,10 @@ export default function POSAPI() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: '2rem' }}>
           <div style={{
             width: 44, height: 44, borderRadius: 12,
-            background: 'rgba(122,193,67,.12)',
+            background: 'var(--brand-12)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <Zap size={22} color="var(--green, #7ac143)" />
+            <Zap size={22} color="var(--green, var(--accent-primary))" />
           </div>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800 }}>POS System</h1>
@@ -32,15 +32,15 @@ export default function POSAPI() {
         {/* Status card */}
         <div style={{
           padding: '1.5rem',
-          background: 'rgba(122,193,67,.06)',
-          border: '1px solid rgba(122,193,67,.2)',
+          background: 'var(--brand-05)',
+          border: '1px solid var(--brand-20)',
           borderRadius: 14,
           marginBottom: '1.5rem',
           display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          <CheckCircle size={28} color="var(--green, #7ac143)" style={{ flexShrink: 0 }} />
+          <CheckCircle size={28} color="var(--green, var(--accent-primary))" style={{ flexShrink: 0 }} />
           <div>
-            <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--green, #7ac143)' }}>
+            <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--green, var(--accent-primary))' }}>
               Storv POS is Active
             </div>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 2 }}>

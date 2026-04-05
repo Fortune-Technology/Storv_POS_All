@@ -122,11 +122,11 @@ export default function EcommIntegration() {
           <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: 'rgba(122,193,67,0.10)', border: '1px solid rgba(122,193,67,0.3)',
+              background: 'var(--brand-10)', border: '1px solid var(--brand-30)',
               borderRadius: 99, padding: '5px 14px', marginBottom: 20,
             }}>
-              <Clock size={12} color="#7ac143" />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#7ac143', letterSpacing: '0.06em' }}>
+              <Clock size={12} color="var(--accent-primary)" />
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-primary)', letterSpacing: '0.06em' }}>
                 COMING SOON
               </span>
             </div>
@@ -139,7 +139,7 @@ export default function EcommIntegration() {
               lineHeight: 1.15,
             }}>
               eCommerce &amp; Delivery<br />
-              <span style={{ color: '#7ac143' }}>Platform Integrations</span>
+              <span style={{ color: 'var(--accent-primary)' }}>Platform Integrations</span>
             </h1>
 
             <p style={{
@@ -222,15 +222,15 @@ export default function EcommIntegration() {
           {/* ── What's included ── */}
           <div style={{
             background: '#ffffff',
-            border: '1.5px solid rgba(122,193,67,0.25)',
+            border: '1.5px solid var(--brand-30)',
             borderRadius: 16,
             padding: '1.75rem 2rem',
             marginBottom: '2rem',
             boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-              <Zap size={14} color="#7ac143" />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#7ac143', letterSpacing: '0.06em' }}>
+              <Zap size={14} color="var(--accent-primary)" />
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-primary)', letterSpacing: '0.06em' }}>
                 WHAT'S INCLUDED
               </span>
             </div>
@@ -252,8 +252,8 @@ export default function EcommIntegration() {
 
           {/* ── Notify CTA ── */}
           <div style={{
-            background: 'linear-gradient(135deg, rgba(122,193,67,0.08) 0%, rgba(16,185,129,0.05) 100%)',
-            border: '1px solid rgba(122,193,67,0.2)',
+            background: 'linear-gradient(135deg, var(--brand-08) 0%, rgba(16,185,129,0.05) 100%)',
+            border: '1px solid var(--brand-20)',
             borderRadius: 16,
             padding: '1.75rem 2rem',
             display: 'flex',
@@ -265,10 +265,10 @@ export default function EcommIntegration() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{
                 width: 44, height: 44, borderRadius: 12,
-                background: 'rgba(122,193,67,0.15)', display: 'flex',
+                background: 'var(--brand-15)', display: 'flex',
                 alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-                <Bell size={20} color="#7ac143" />
+                <Bell size={20} color="var(--accent-primary)" />
               </div>
               <div>
                 <div style={{ fontWeight: 800, color: 'var(--text-primary, #f1f5f9)', fontSize: '0.95rem', marginBottom: 3 }}>
@@ -282,8 +282,8 @@ export default function EcommIntegration() {
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '9px 20px', borderRadius: 10, cursor: 'default',
-              background: 'rgba(122,193,67,0.15)', border: '1px solid rgba(122,193,67,0.3)',
-              color: '#7ac143', fontWeight: 700, fontSize: '0.82rem', flexShrink: 0,
+              background: 'var(--brand-15)', border: '1px solid var(--brand-30)',
+              color: 'var(--accent-primary)', fontWeight: 700, fontSize: '0.82rem', flexShrink: 0,
             }}>
               <Clock size={13} />
               In Development

@@ -1167,7 +1167,7 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
           {/* ─ Create tab ─ */}
           {tab === 'create' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ background: 'rgba(122,193,67,0.08)', border: '1px solid rgba(122,193,67,0.25)', borderRadius: '8px', padding: '0.65rem 1rem', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              <div style={{ background: 'var(--brand-08)', border: '1px solid var(--brand-30)', borderRadius: '8px', padding: '0.65rem 1rem', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 📋 <strong>Pre-filled from invoice</strong> — review fields below then click Create.
                 Department, vendor, taxes &amp; fees can be set from the expanded edit view after creating.
               </div>

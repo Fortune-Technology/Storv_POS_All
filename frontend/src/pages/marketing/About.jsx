@@ -3,77 +3,98 @@ import MarketingNavbar from '../../components/marketing/MarketingNavbar';
 import MarketingFooter from '../../components/marketing/MarketingFooter';
 import MarketingSection from '../../components/marketing/MarketingSection';
 import MarketingButton from '../../components/marketing/MarketingButton';
-import { 
-  Heart, 
-  Target, 
-  Users, 
-  Award, 
-  Rocket, 
-  Lightbulb, 
-  ShieldCheck, 
+import {
+  Heart,
+  Target,
+  Users,
+  Award,
+  Rocket,
+  Lightbulb,
+  ShieldCheck,
   Zap,
   Star,
-  Compass
+  Compass,
+  Store,
+  DollarSign,
+  Handshake
 } from 'lucide-react';
 import './About.css';
 
 const About = () => {
   const milestones = [
     {
-      year: '2020',
-      title: 'The Foundation',
-      desc: 'Storeveu was founded by retail veterans who were tired of overly complex and outdated POS systems.'
-    },
-    {
       year: '2021',
-      title: 'First 100 Stores',
-      desc: 'We proved our concept with 100 independent grocery stores, focusing on reliability and speed.'
+      title: 'The Breaking Point',
+      desc: 'After years running independent grocery and liquor stores, our founders hit a wall: bad POS systems, paper invoices, and payment processors taking 3% off every dollar. Something had to change.'
     },
     {
       year: '2022',
-      title: 'AI Revolution',
-      desc: 'Launched our breakthrough AI Invoice Import, saving store owners hundreds of hours in data entry.'
+      title: 'Building the Fix',
+      desc: 'We started building StoreVeu in our own back office. First feature: scanning paper invoices with AI so we\'d never type a vendor price again. We built it for ourselves before we built it for anyone else.'
     },
     {
       year: '2023',
-      title: 'Predictive Insights',
-      desc: 'Released our proprietary Holt-Winters forecasting engine to help retailers anticipate demand.'
+      title: 'The POS That Gets It',
+      desc: 'Launched Storv POS cashier app — built for real stores, with lottery, EBT, age verification, and hardware integration out of the box. No bloat. No features you\'ll never use.'
     },
     {
       year: '2024',
-      title: 'Expanding Horizons',
-      desc: 'Moving into multi-store enterprises and scaling our impact across the retail landscape.'
+      title: 'Removing the Middleman',
+      desc: 'Integrated direct PAX terminal support. Stores on StoreVeu now process cards at direct interchange rates with no processor markup. The fees that used to go to Square and Stripe stay in your register.'
+    },
+    {
+      year: '2025',
+      title: 'Growing Together',
+      desc: 'Expanding to grocers, liquor stores, and specialty retailers across North America. Every new store that joins makes the platform better for all of us.'
     }
   ];
 
   const values = [
     {
-      icon: <Zap size={32} />,
-      title: 'Simplicity First',
-      desc: 'We believe complex problems deserve simple solutions. Our UI is designed to be mastered in minutes, not days.'
+      icon: <DollarSign size={32} />,
+      title: 'No Middleman',
+      desc: 'Direct payment processing integration with PAX terminals means you keep more of every sale. No third-party markup. No one skimming a percentage off the top because they can.'
     },
     {
-      icon: <Award size={32} />,
-      title: 'Absolute Reliability',
-      desc: 'When your store is open, we are up. Our systems are built for 99.9% uptime and mission-critical performance.'
+      icon: <Store size={32} />,
+      title: 'Built for the Floor',
+      desc: 'Designed by cashiers and store owners, not corporate engineers who never ran a register. Every screen, every workflow was tested on a real counter with real customers waiting.'
     },
     {
       icon: <Heart size={32} />,
       title: 'Local-First',
-      desc: 'We support the independent retailers that form the backbone of our communities. Your success is our mission.'
+      desc: 'We believe independent retailers are the backbone of every community. You\'re not a segment in our TAM — you\'re who we built this for. Your fight is our fight.'
     },
     {
-      icon: <ShieldCheck size={32} />,
-      title: 'Human Support',
-      desc: 'No endless phone trees. When you need help, you talk to a real person who understands your business.'
+      icon: <Handshake size={32} />,
+      title: 'Real Support',
+      desc: 'Call us. A real person who has run a store will pick up. No ticket queues, no chatbots, no "have you tried restarting." We know what it costs when your system goes down during a rush.'
     }
   ];
 
   const team = [
-    { name: 'A.P.', role: 'Founder & CEO', initials: 'AP', color: '#7ac143' },
+    { name: 'A.P.', role: 'Founder & CEO', initials: 'AP', color: 'var(--accent-primary)' },
     { name: 'M.J.', role: 'Chief Architect', initials: 'MJ', color: '#3b82f6' },
-    { name: 'S.R.', role: 'Head of Growth', initials: 'SR', color: '#e30613' },
+    { name: 'S.R.', role: 'Head of Growth', initials: 'SR', color: 'var(--error)' },
     { name: 'K.L.', role: 'Product Design', initials: 'KL', color: '#f8c01d' }
+  ];
+
+  const differentiators = [
+    {
+      icon: <DollarSign size={28} />,
+      title: 'Payment Processing',
+      desc: 'Traditional POS companies resell payment processing at a markup — that\'s how they make their real money. We integrate directly with PAX terminals at interchange rates, meaning you save on every single transaction. No markup. No percentage skimmed. What you swipe is what you keep, minus only the true cost of the network.'
+    },
+    {
+      icon: <ShieldCheck size={28} />,
+      title: 'No Vendor Lock-in',
+      desc: 'Export your data anytime in standard formats. No contracts longer than month-to-month on base plans. We keep your business because the product is worth it, not because leaving is a nightmare. Your inventory, your sales history, your customers — they\'re yours.'
+    },
+    {
+      icon: <Store size={28} />,
+      title: 'We Eat Our Own Cooking',
+      desc: 'StoreVeu runs in actual stores our founders still own. Every bug we fix is a bug we felt too. When a cashier workflow is clunky, we hear about it from our own staff. That\'s not a marketing line — it\'s why the product actually works on the floor.'
+    }
   ];
 
   return (
@@ -84,9 +105,9 @@ const About = () => {
       <section className="about-hero">
         <div className="mkt-container">
           <div className="about-hero-content">
-            <h1 className="about-title">We Built This Because We've Been in <span className="text-gradient">Your Shoes</span></h1>
+            <h1 className="about-title">Built by Retailers. <span className="text-gradient">For Retailers.</span></h1>
             <p className="about-subtitle">
-              Storeveu isn't just software. It's a mission to empower independent retailers with the same advanced technology used by global giants.
+              We know what it feels like to hand 2.9% of every sale to Stripe or Square and wonder why your POS vendor is getting rich off your margins. We owned stores. We paid those fees. Then we decided to stop.
             </p>
           </div>
         </div>
@@ -96,33 +117,35 @@ const About = () => {
       <MarketingSection bgVariant="white">
         <div className="about-story-grid">
           <div className="story-content">
-            <h2>The Storeveu Story</h2>
+            <h2>We Sat on Your Side of the Counter</h2>
             <p>
-              It started in the back office of a family-owned grocery store. We saw firsthand the stacks of paper invoices, the manual inventory counts, and the struggle to understand why sales were dipping.
+              Our founders spent years running independent grocery and liquor stores. They knew every corner of the business — the early morning deliveries, the vendor invoices stacked on the back desk, the end-of-night cash counts. And they knew the frustration of paying a POS vendor every month for software that barely worked, while a payment processor quietly took 3% off every card swipe.
             </p>
             <p>
-              We realized that the technology available was either too expensive or too basic. So we decided to build something better—a POS system that doesn't just record sales, but actually helps you grow.
+              The tools that existed were either built for enterprise chains with IT departments, or they were cheap and unreliable. Nothing was built for the independent store owner who is also the buyer, the manager, the cashier, and the bookkeeper. So we built it ourselves — in the back office of a real store, on real problems, with no outside investors telling us what features to prioritize.
+            </p>
+            <p>
+              StoreVeu is the system we wished we had. No middleman on payments. No bloated features you'll never use. No support line that puts you on hold when your terminal goes down during Saturday rush.
             </p>
             <div className="story-stats">
               <div className="stat-item">
-                <span className="stat-number">500+</span>
+                <span className="stat-number">50+</span>
                 <span className="stat-label">Stores Active</span>
               </div>
               <div className="stat-item">
-                <span className="stat-number">12k+</span>
-                <span className="stat-label">Daily Users</span>
+                <span className="stat-number">99.9%</span>
+                <span className="stat-label">Uptime</span>
               </div>
               <div className="stat-item">
-                <span className="stat-number">14M+</span>
-                <span className="stat-label">Invoices Scanned</span>
+                <span className="stat-number">$0</span>
+                <span className="stat-label">Middleman Markup</span>
               </div>
-              {/* // TODO: replace with real business metrics */}
             </div>
           </div>
           <div className="story-visual">
-             <div className="story-blob">
-                <Compass size={120} />
-             </div>
+            <div className="story-blob">
+              <Compass size={120} />
+            </div>
           </div>
         </div>
       </MarketingSection>
@@ -140,8 +163,24 @@ const About = () => {
         </div>
       </MarketingSection>
 
+      {/* Why We're Different */}
+      <MarketingSection title="Why We're Different" bgVariant="white">
+        <div className="timeline-container">
+          {differentiators.map((d, i) => (
+            <div key={i} className="timeline-item">
+              <div className="timeline-dot"></div>
+              <div className="timeline-year" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{d.icon}</div>
+              <div className="timeline-content">
+                <h3>{d.title}</h3>
+                <p>{d.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </MarketingSection>
+
       {/* Timeline Section */}
-      <MarketingSection title="Our Journey So Far" bgVariant="white">
+      <MarketingSection title="Our Journey So Far" bgVariant="light">
         <div className="timeline-container">
           {milestones.map((m, i) => (
             <div key={i} className="timeline-item">
@@ -150,15 +189,14 @@ const About = () => {
               <div className="timeline-content">
                 <h3>{m.title}</h3>
                 <p>{m.desc}</p>
-                {/* // TODO: confirm company milestones with founders */}
               </div>
             </div>
           ))}
         </div>
       </MarketingSection>
 
-      {/* Team Section Teaser */}
-      <MarketingSection title="The People Behind the Platform" bgVariant="light">
+      {/* Team Section */}
+      <MarketingSection title="The People Behind the Platform" bgVariant="white" id="careers">
         <div className="team-grid">
           {team.map((t, i) => (
             <div key={i} className="team-card">
@@ -167,13 +205,12 @@ const About = () => {
               </div>
               <h3>{t.name}</h3>
               <p>{t.role}</p>
-              {/* // TODO: replace with real team photos/names */}
             </div>
           ))}
         </div>
         <div className="team-footer">
-          <p>Want to join our mission? We're always looking for talent.</p>
-          <MarketingButton variant="ghost" href="/careers">View Open Positions →</MarketingButton>
+          <p>We're always looking for people who've worked retail and want to fix it.</p>
+          <MarketingButton variant="ghost" href="/contact">Get in Touch →</MarketingButton>
         </div>
       </MarketingSection>
 
@@ -181,10 +218,13 @@ const About = () => {
       <section className="about-final-cta">
         <div className="mkt-container">
           <div className="about-cta-card">
-            <h2>Ready to be part of our next chapter?</h2>
-            <p>Join the 500+ retailers who are already thriving with Storeveu.</p>
+            <h2>Join retailers who are taking back control.</h2>
+            <p>Stop paying middleman fees on every card swipe. StoreVeu gives you direct interchange rates, honest pricing, and a POS built by people who've stood where you stand.</p>
+            <p className="about-cta-contact">
+              Questions? Call us at <a href="tel:+18007867383">+1 (800) 786-7383</a> or email <a href="mailto:demo@storeveu.com">demo@storeveu.com</a>. A real person will answer.
+            </p>
             <div className="about-cta-actions">
-              <MarketingButton href="/contact" size="lg">Get Started Now</MarketingButton>
+              <MarketingButton href="/contact" size="lg">Talk to Us</MarketingButton>
               <MarketingButton href="/pricing" variant="secondary" size="lg">See Our Plans</MarketingButton>
             </div>
           </div>

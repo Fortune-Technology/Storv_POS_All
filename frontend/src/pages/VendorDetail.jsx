@@ -54,9 +54,9 @@ function Toggle({ checked, onChange }) {
       onClick={e => { e.stopPropagation(); onChange(!checked); }}
       style={{
         width: 34, height: 18, borderRadius: 9, flexShrink: 0,
-        background: checked ? 'var(--green, #7ac143)' : 'var(--bg-tertiary, #2a2a3a)',
+        background: checked ? 'var(--green, var(--accent-primary))' : 'var(--bg-tertiary, #2a2a3a)',
         position: 'relative', cursor: 'pointer',
-        border: `1px solid ${checked ? 'var(--green, #7ac143)' : 'var(--border-color, #3a3a4a)'}`,
+        border: `1px solid ${checked ? 'var(--green, var(--accent-primary))' : 'var(--border-color, #3a3a4a)'}`,
         transition: 'background .2s',
       }}
     >
@@ -76,8 +76,8 @@ function InfoRow({ icon: Icon, label, value, mono }) {
   if (!value) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '0.6rem 0', borderBottom: '1px solid var(--border-color, #1f2937)' }}>
-      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(122,193,67,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Icon size={14} color="#7ac143" />
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--brand-08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon size={14} color="var(--accent-primary)" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted, #6b7280)', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
@@ -260,7 +260,7 @@ function OverviewTab({ vendor, onVendorUpdate }) {
           }}>Cancel</button>
           <button onClick={handleSave} disabled={saving || !form.name.trim()} style={{
             flex: 2, padding: '0.75rem', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.875rem',
-            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--green, #7ac143)',
+            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--green, var(--accent-primary))',
             color: saving || !form.name.trim() ? 'var(--text-muted)' : '#0f1117',
             cursor: saving || !form.name.trim() ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -301,7 +301,7 @@ function OverviewTab({ vendor, onVendorUpdate }) {
             <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: 6 }}>ALIASES</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {vendor.aliases.map((a, i) => (
-                <span key={i} style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, background: 'rgba(122,193,67,.08)', color: '#7ac143', border: '1px solid rgba(122,193,67,.2)' }}>
+                <span key={i} style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, background: 'var(--brand-08)', color: 'var(--accent-primary)', border: '1px solid var(--brand-20)' }}>
                   {a}
                 </span>
               ))}
@@ -313,10 +313,10 @@ function OverviewTab({ vendor, onVendorUpdate }) {
       {/* Right: Status + meta */}
       <div>
         <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-muted, #6b7280)', letterSpacing: '0.05em', marginBottom: '1rem' }}>STATUS</div>
-        <div style={{ padding: '1rem', borderRadius: 10, background: vendor.active ? 'rgba(122,193,67,.06)' : 'rgba(100,116,139,.06)', border: `1px solid ${vendor.active ? 'rgba(122,193,67,.2)' : 'rgba(100,116,139,.2)'}`, marginBottom: '1rem' }}>
+        <div style={{ padding: '1rem', borderRadius: 10, background: vendor.active ? 'var(--brand-05)' : 'rgba(100,116,139,.06)', border: `1px solid ${vendor.active ? 'var(--brand-20)' : 'rgba(100,116,139,.2)'}`, marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: vendor.active ? '#7ac143' : '#64748b', boxShadow: vendor.active ? '0 0 8px rgba(122,193,67,.5)' : 'none' }} />
-            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: vendor.active ? '#7ac143' : '#64748b' }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: vendor.active ? 'var(--accent-primary)' : '#64748b', boxShadow: vendor.active ? '0 0 8px var(--brand-40)' : 'none' }} />
+            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: vendor.active ? 'var(--accent-primary)' : '#64748b' }}>
               {vendor.active ? 'Active' : 'Inactive'}
             </span>
           </div>
@@ -403,7 +403,7 @@ function ProductsTab({ vendorId }) {
             </div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{p.defaultRetailPrice != null ? fmt(p.defaultRetailPrice) : '—'}</div>
             <div>
-              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: p.active ? 'rgba(122,193,67,.12)' : 'rgba(100,116,139,.1)', color: p.active ? '#7ac143' : '#64748b' }}>
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: p.active ? 'var(--brand-12)' : 'rgba(100,116,139,.1)', color: p.active ? 'var(--accent-primary)' : '#64748b' }}>
                 {p.active ? 'Active' : 'Inactive'}
               </span>
             </div>
@@ -524,7 +524,7 @@ function StatsTab({ vendorId }) {
     <div>
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '2rem' }}>
-        <StatCard label="Linked Products" value={stats.productCount}      color="#7ac143" bg="rgba(122,193,67,.08)" icon={Package}     />
+        <StatCard label="Linked Products" value={stats.productCount}      color="var(--accent-primary)" bg="var(--brand-08)" icon={Package}     />
         <StatCard label="Total Paid Out"  value={fmt(stats.totalPaid)}    color="#a855f7" bg="rgba(168,85,247,.08)" icon={DollarSign}   />
         <StatCard label="Payout Events"   value={stats.payoutCount}       color="#3b82f6" bg="rgba(59,130,246,.08)" icon={CreditCard}   />
       </div>
@@ -608,8 +608,8 @@ export default function VendorDetail() {
           <>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: '1.75rem', flexWrap: 'wrap' }}>
-              <div style={{ width: 56, height: 56, borderRadius: 14, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Truck size={24} color="#7ac143" />
+              <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--brand-12)', border: '1px solid var(--brand-20)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Truck size={24} color="var(--accent-primary)" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -621,8 +621,8 @@ export default function VendorDetail() {
                   )}
                   <span style={{
                     fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                    background: vendor.active ? 'rgba(122,193,67,.12)' : 'rgba(100,116,139,.1)',
-                    color: vendor.active ? '#7ac143' : '#64748b',
+                    background: vendor.active ? 'var(--brand-12)' : 'rgba(100,116,139,.1)',
+                    color: vendor.active ? 'var(--accent-primary)' : '#64748b',
                   }}>
                     {vendor.active ? 'Active' : 'Inactive'}
                   </span>
@@ -645,9 +645,9 @@ export default function VendorDetail() {
                   <button key={t.id} onClick={() => setTab(t.id)} style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '0.625rem 1rem', background: 'none', border: 'none',
-                    borderBottom: `2px solid ${active ? '#7ac143' : 'transparent'}`,
+                    borderBottom: `2px solid ${active ? 'var(--accent-primary)' : 'transparent'}`,
                     marginBottom: -1, cursor: 'pointer',
-                    color: active ? '#7ac143' : 'var(--text-muted, #6b7280)',
+                    color: active ? 'var(--accent-primary)' : 'var(--text-muted, #6b7280)',
                     fontWeight: active ? 700 : 500, fontSize: '0.875rem',
                     transition: 'color .15s',
                   }}>

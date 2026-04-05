@@ -51,7 +51,7 @@ const ChartTooltip = ({ active, payload, label }) => {
 function accuracyGrade(mape) {
   if (mape == null) return { label: 'N/A', color: 'var(--text-muted)', bg: 'rgba(100,116,139,0.15)' };
   if (mape < 5)  return { label: 'Excellent', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
-  if (mape < 10) return { label: 'Good',      color: '#7ac143', bg: 'rgba(122,193,67,0.15)' };
+  if (mape < 10) return { label: 'Good',      color: 'var(--accent-primary)', bg: 'var(--brand-15)' };
   if (mape < 20) return { label: 'Fair',      color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
   return           { label: 'Poor',      color: '#ef4444', bg: 'rgba(239,68,68,0.15)' };
 }
@@ -61,7 +61,7 @@ function BiasIcon({ bias }) {
   if (bias == null) return <Minus size={16} />;
   if (bias > 50)  return <ArrowUpRight  size={16} style={{ color: '#3b82f6' }} />;
   if (bias < -50) return <ArrowDownRight size={16} style={{ color: '#f97316' }} />;
-  return <Minus size={16} style={{ color: '#7ac143' }} />;
+  return <Minus size={16} style={{ color: 'var(--accent-primary)' }} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -139,7 +139,7 @@ export default function SalesPredictions() {
   const mapeGrade  = accuracyGrade(mape);
 
   const fKpis = [
-    { label: `Total Forecast (${mode === 'daily' ? dailyDays + 'd' : weeklyWeeks + 'w'})`, value: fmt(totalFcst),     iconBg: 'rgba(122,193,67,0.15)', iconColor: '#7ac143', icon: <TrendingUp size={22} /> },
+    { label: `Total Forecast (${mode === 'daily' ? dailyDays + 'd' : weeklyWeeks + 'w'})`, value: fmt(totalFcst),     iconBg: 'var(--brand-15)', iconColor: 'var(--accent-primary)', icon: <TrendingUp size={22} /> },
     { label: 'Avg Per Period',  value: fmt(avgFcst),     iconBg: 'rgba(139,92,246,0.15)', iconColor: '#8b5cf6', icon: <BarChart2 size={22} /> },
     { label: 'Peak Period',     value: fmt(maxFcst),     iconBg: 'rgba(16,185,129,0.15)', iconColor: '#10b981', icon: <TrendingUp size={22} /> },
     { label: 'Slowest Period',  value: fmt(minFcst === Infinity ? null : minFcst), iconBg: 'rgba(248,192,29,0.15)', iconColor: '#f8c01d', icon: <BarChart2 size={22} /> },
@@ -310,8 +310,8 @@ export default function SalesPredictions() {
                     <ComposedChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                       <defs>
                         <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor="#7ac143" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="#7ac143" stopOpacity={0} />
+                          <stop offset="5%"  stopColor="var(--accent-primary)" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
@@ -325,10 +325,10 @@ export default function SalesPredictions() {
                       )}
                       <Area type="monotone" dataKey="Upper" fill="url(#confGrad)" stroke="none" legendType="none" />
                       <Area type="monotone" dataKey="Lower" fill="var(--bg-primary)" stroke="none" legendType="none" />
-                      <Line type="monotone" dataKey="Actual" stroke="#7ac143" strokeWidth={2} dot={false} name="Actual Net Sales" connectNulls={false} />
+                      <Line type="monotone" dataKey="Actual" stroke="var(--accent-primary)" strokeWidth={2} dot={false} name="Actual Net Sales" connectNulls={false} />
                       <Line type="monotone" dataKey="Predicted" stroke="#f8c01d" strokeWidth={2} strokeDasharray="6 3"
                         dot={(props) => props.payload?.isHoliday
-                          ? <circle key={props.key} cx={props.cx} cy={props.cy} r={5} fill="#e30613" stroke="var(--bg-secondary)" strokeWidth={2} />
+                          ? <circle key={props.key} cx={props.cx} cy={props.cy} r={5} fill="var(--error)" stroke="var(--bg-secondary)" strokeWidth={2} />
                           : null}
                         name="Predicted Sales" connectNulls={false} />
                     </ComposedChart>
@@ -484,7 +484,7 @@ export default function SalesPredictions() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                     {[
                       { label: 'Within ±5%',  pct: errDist.within5,  color: '#10b981' },
-                      { label: 'Within ±10%', pct: errDist.within10, color: '#7ac143' },
+                      { label: 'Within ±10%', pct: errDist.within10, color: 'var(--accent-primary)' },
                       { label: 'Within ±15%', pct: errDist.within15, color: '#f59e0b' },
                       { label: 'Within ±20%', pct: errDist.within20, color: '#f97316' },
                     ].map((band) => (
@@ -509,7 +509,7 @@ export default function SalesPredictions() {
                 {/* Predicted vs Actual Chart */}
                 <div className="analytics-chart-card" style={{ marginBottom: '1.75rem' }}>
                   <div className="analytics-chart-title" style={{ marginBottom: '1.25rem' }}>
-                    <TrendingUp size={16} style={{ color: '#7ac143' }} />
+                    <TrendingUp size={16} style={{ color: 'var(--accent-primary)' }} />
                     Predicted vs Actual Sales
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.75rem' }}>
                       Green = actual · Yellow dashed = model prediction
@@ -522,7 +522,7 @@ export default function SalesPredictions() {
                       <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={fmtAxisK} />
                       <Tooltip content={<ChartTooltip />} />
                       <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }} />
-                      <Line type="monotone" dataKey="Actual"    stroke="#7ac143" strokeWidth={2} dot={{ r: 3 }} name="Actual" />
+                      <Line type="monotone" dataKey="Actual"    stroke="var(--accent-primary)" strokeWidth={2} dot={{ r: 3 }} name="Actual" />
                       <Line type="monotone" dataKey="Predicted" stroke="#f8c01d" strokeWidth={2} strokeDasharray="5 3" dot={false} name="Predicted" />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -577,7 +577,7 @@ export default function SalesPredictions() {
                           <tr key={i}>
                             <td>{r.date}</td>
                             <td style={{ color: 'var(--text-secondary)' }}>{r.dayOfWeek}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600, color: '#7ac143' }}>{fmt(r.actual)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--accent-primary)' }}>{fmt(r.actual)}</td>
                             <td style={{ textAlign: 'right', color: '#f8c01d' }}>{fmt(r.predicted)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 600, color: r.residual >= 0 ? '#10b981' : '#ef4444' }}>
                               {r.residual >= 0 ? '+' : ''}{fmt(r.residual)}

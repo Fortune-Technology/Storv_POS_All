@@ -516,7 +516,7 @@ export default function Lottery() {
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(122,193,67,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--brand-15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Ticket size={22} color="var(--accent-primary)" />
           </div>
           <div>
@@ -673,7 +673,7 @@ export default function Lottery() {
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {b.status === 'inventory' && (
-                          <button onClick={() => setActivateBox(b)} style={{ padding: '5px 12px', borderRadius: 6, background: 'rgba(122,193,67,0.12)', border: '1px solid rgba(122,193,67,0.3)', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}>
+                          <button onClick={() => setActivateBox(b)} style={{ padding: '5px 12px', borderRadius: 6, background: 'var(--brand-12)', border: '1px solid var(--brand-30)', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}>
                             Activate
                           </button>
                         )}

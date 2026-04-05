@@ -53,7 +53,7 @@ input[type=number] {
   transition: border-color 0.25s ease, transform 0.2s ease;
 }
 .analytics-stat-card:hover {
-  border-color: rgba(122, 193, 67, 0.3);
+  border-color: var(--brand-30);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
@@ -135,7 +135,7 @@ input[type=number] {
 .analytics-controls input[type="date"]:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(122, 193, 67, 0.2);
+  box-shadow: 0 0 0 2px var(--brand-20);
 }
 
 /* ──── Chart Card ──── */
@@ -176,10 +176,10 @@ input[type=number] {
   font-size: 0.75rem;
   font-weight: 600;
 }
-.badge-success { background: rgba(16, 185, 129, 0.12); color: #059669; }
-.badge-danger  { background: rgba(227, 6, 19, 0.12);   color: var(--error); }
-.badge-warning { background: rgba(248, 192, 29, 0.12); color: #d97706; }
-.badge-info    { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
+.badge-success { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+.badge-danger  { background: var(--error-bg);           color: var(--error); }
+.badge-warning { background: rgba(248, 192, 29, 0.12); color: var(--warning); }
+.badge-info    { background: rgba(59, 130, 246, 0.12); color: var(--info); }
 .badge-gray    { background: var(--bg-tertiary);        color: var(--text-muted); }
 
 /* ──── Loading / Error states ──── */
@@ -202,8 +202,8 @@ input[type=number] {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .analytics-error {
-  background: rgba(227, 6, 19, 0.06);
-  border: 1px solid rgba(227, 6, 19, 0.2);
+  background: var(--error-bg);
+  border: 1px solid rgba(239, 68, 68, 0.20);
   border-radius: var(--radius-md);
   padding: 1rem 1.25rem;
   color: var(--error);
@@ -440,7 +440,7 @@ th.sortable:hover {
   align-items: center;
   justify-content: center;
 }
-.dp-day:hover:not(.disabled) { background: rgba(122, 193, 67, 0.12); color: var(--accent-primary); }
+.dp-day:hover:not(.disabled) { background: var(--brand-12); color: var(--accent-primary); }
 .dp-day.selected {
   background: var(--accent-primary);
   color: white;
@@ -469,7 +469,7 @@ th.sortable:hover {
   border-radius: var(--radius-sm);
   transition: background 0.15s;
 }
-.dp-today-btn:hover { background: rgba(122, 193, 67, 0.1); }
+.dp-today-btn:hover { background: var(--brand-10); }
 
 /* ═══════════════════════════════════════════════════════
    Chart Type Selector (Master / Individual / Weather)
@@ -529,8 +529,8 @@ th.sortable:hover {
   font-weight: 600;
   white-space: nowrap;
 }
-.weather-temp-high { color: #ef4444; }
-.weather-temp-low  { color: #3b82f6; }
+.weather-temp-high { color: var(--error); }
+.weather-temp-low  { color: var(--info); }
 .weather-condition {
   display: inline-flex;
   align-items: center;
@@ -544,8 +544,8 @@ th.sortable:hover {
    Expandable Weekly Table Rows
    ═══════════════════════════════════════════════════════ */
 .table-row-expandable { cursor: pointer; }
-.table-row-expandable:hover td { background: rgba(122, 193, 67, 0.04); }
-.table-row-expanded td { background: rgba(122, 193, 67, 0.06); border-bottom: none; }
+.table-row-expandable:hover td { background: var(--brand-05); }
+.table-row-expanded td { background: var(--brand-08); border-bottom: none; }
 .table-sub-row td {
   background: var(--bg-tertiary);
   font-size: 0.82rem;
@@ -572,7 +572,7 @@ th.sortable:hover {
   padding: 0.75rem 1rem;
   margin-bottom: 1.25rem;
   font-size: 0.875rem;
-  color: #2563eb;
+  color: var(--info);
 }
 .weather-setup-banner button {
   margin-left: auto;
@@ -651,7 +651,7 @@ th.sortable:hover {
   100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 .weather-hero-card {
-  background: linear-gradient(135deg, rgba(122,193,67,0.08) 0%, rgba(59,130,246,0.08) 100%);
+  background: linear-gradient(135deg, var(--brand-08) 0%, var(--brand-sec-08) 100%);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   padding: 2rem;

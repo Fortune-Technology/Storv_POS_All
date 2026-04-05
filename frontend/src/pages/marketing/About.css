@@ -1,16 +1,11 @@
-/**
- * About Page Marketing Styles
- */
+/** About Page Marketing Styles */
 
-.about-page {
-  overflow-x: hidden;
-}
+.about-page { overflow-x: hidden; }
 
 /* About Hero */
 .about-hero {
   padding: 160px 1.5rem 80px;
-  background: radial-gradient(circle at top left, rgba(122, 193, 67, 0.05), transparent 40%),
-              radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.05), transparent 40%);
+  background: var(--mkt-hero-gradient);
   text-align: center;
 }
 
@@ -23,13 +18,13 @@
   font-size: 3.5rem;
   font-weight: 800;
   margin-bottom: 1.5rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary);
 }
 
 .about-subtitle {
   font-size: 1.25rem;
   line-height: 1.6;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   margin-bottom: 3.5rem;
 }
 
@@ -48,7 +43,7 @@
 
 .story-content p {
   font-size: 1.15rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   line-height: 1.6;
   margin-bottom: 1.5rem;
 }
@@ -58,7 +53,7 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 2rem;
   margin-top: 3rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--border-color);
   padding-top: 3rem;
 }
 
@@ -70,13 +65,13 @@
 .stat-number {
   font-size: 2.5rem;
   font-weight: 800;
-  color: var(--accent-primary, #7ac143);
+  color: var(--accent-primary);
 }
 
 .stat-label {
   font-size: 0.875rem;
   font-weight: 700;
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -90,13 +85,19 @@
 .story-blob {
   width: 320px;
   height: 320px;
-  background: rgba(122, 193, 67, 0.05);
-  color: var(--accent-primary, #7ac143);
+  background: var(--brand-05);
+  color: var(--accent-primary);
   border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
   display: flex;
   align-items: center;
   justify-content: center;
   animation: morph 8s ease-in-out infinite;
+}
+
+@keyframes morph {
+  0%   { border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; }
+  50%  { border-radius: 50% 50% 20% 80% / 25% 60% 40% 75%; }
+  100% { border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; }
 }
 
 /* Values Grid */
@@ -107,24 +108,25 @@
 }
 
 .value-card {
-  background: #ffffff;
+  background: var(--bg-secondary);
   padding: 3rem;
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   text-align: center;
   transition: all 0.3s ease;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--border-color);
 }
 
 .value-card:hover {
   transform: translateY(-10px);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.05);
+  border-color: var(--border-brand);
 }
 
 .value-icon {
   width: 64px;
   height: 64px;
-  background: rgba(122, 193, 67, 0.1);
-  color: var(--accent-primary, #7ac143);
+  background: var(--brand-10);
+  color: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -139,7 +141,7 @@
 
 .value-card p {
   font-size: 0.95rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
@@ -158,7 +160,7 @@
   left: 20px;
   height: 100%;
   width: 2px;
-  background: var(--bg-tertiary, #f1f5f9);
+  background: var(--bg-tertiary);
 }
 
 .timeline-item {
@@ -167,9 +169,7 @@
   padding-left: 60px;
 }
 
-.timeline-item:last-child {
-  margin-bottom: 0;
-}
+.timeline-item:last-child { margin-bottom: 0; }
 
 .timeline-dot {
   position: absolute;
@@ -177,8 +177,8 @@
   left: 11px;
   width: 20px;
   height: 20px;
-  background: #ffffff;
-  border: 4px solid var(--accent-primary, #7ac143);
+  background: var(--bg-secondary);
+  border: 4px solid var(--accent-primary);
   border-radius: 50%;
   z-index: 10;
 }
@@ -186,7 +186,7 @@
 .timeline-year {
   font-size: 0.875rem;
   font-weight: 800;
-  color: var(--accent-primary, #7ac143);
+  color: var(--accent-primary);
   margin-bottom: 0.5rem;
 }
 
@@ -197,7 +197,7 @@
 
 .timeline-content p {
   font-size: 1.1rem;
-  color: var(--text-secondary, #334155);
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
@@ -211,10 +211,10 @@
 
 .team-card {
   text-align: center;
-  background: #ffffff;
+  background: var(--bg-secondary);
   padding: 2.5rem;
-  border-radius: 20px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .team-avatar {
@@ -229,32 +229,24 @@
   font-weight: 800;
 }
 
-.team-card h3 {
-  font-size: 1.15rem;
-  margin-bottom: 0.25rem;
-}
-
-.team-card p {
-  font-size: 0.9rem;
-  color: var(--text-muted, #64748b);
-  font-weight: 600;
-}
+.team-card h3 { font-size: 1.15rem; margin-bottom: 0.25rem; }
+.team-card p  { font-size: 0.9rem; color: var(--text-muted); font-weight: 600; }
 
 .team-footer {
   text-align: center;
   padding-top: 2rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid var(--border-color);
 }
 
 /* About Final CTA */
 .about-final-cta {
   padding: 100px 1.5rem;
-  background: #0f172a;
+  background: var(--bg-dark);
 }
 
 .about-cta-card {
   text-align: center;
-  color: #ffffff;
+  color: var(--text-inverse);
   max-width: 800px;
   margin: 0 auto;
 }
@@ -266,7 +258,7 @@
 
 .about-cta-card p {
   font-size: 1.25rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-inverse-muted);
   margin-bottom: 3rem;
 }
 
@@ -279,20 +271,20 @@
 /* Responsive */
 @media (max-width: 1100px) {
   .values-grid { grid-template-columns: 1fr 1fr; }
-  .team-grid { grid-template-columns: 1fr 1fr; }
+  .team-grid   { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 991px) {
   .about-story-grid { grid-template-columns: 1fr; gap: 4rem; text-align: center; }
-  .story-visual { order: -1; }
-  .story-stats { justify-content: center; }
+  .story-visual     { order: -1; }
+  .story-stats      { justify-content: center; }
 }
 
 @media (max-width: 768px) {
-  .about-hero { padding: 120px 1.5rem 60px; }
-  .about-title { font-size: 2.5rem; }
-  .values-grid { grid-template-columns: 1fr; }
-  .team-grid { grid-template-columns: 1fr; }
+  .about-hero     { padding: 120px 1.5rem 60px; }
+  .about-title    { font-size: 2.5rem; }
+  .values-grid    { grid-template-columns: 1fr; }
+  .team-grid      { grid-template-columns: 1fr; }
   .about-cta-actions { flex-direction: column; width: 100%; gap: 1rem; }
   .timeline-container { padding-left: 20px; }
 }

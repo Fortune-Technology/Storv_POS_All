@@ -34,11 +34,11 @@ const THEMES = {
 };
 
 const PRESET_COLORS = [
-  '#7ac143', '#3b82f6', '#8b5cf6', '#ec4899',
+  'var(--accent-primary)', '#3b82f6', '#8b5cf6', '#ec4899',
   '#f59e0b', '#ef4444', '#14b8a6', '#f97316',
 ];
 
-const DEFAULT_BRANDING = { theme: 'dark', primaryColor: '#7ac143', logoText: '' };
+const DEFAULT_BRANDING = { theme: 'dark', primaryColor: 'var(--accent-primary)', logoText: '' };
 
 // ── Mini POS Preview ───────────────────────────────────────────────────────
 
@@ -312,8 +312,8 @@ export default function StoreBranding() {
                       onClick={() => setDraftField('theme', th)}
                       style={{
                         flex: 1, padding: '1rem', borderRadius: 10, cursor: 'pointer',
-                        background: active ? 'rgba(122,193,67,.1)' : t.bgPanel,
-                        border: `2px solid ${active ? '#7ac143' : t.border}`,
+                        background: active ? 'var(--brand-10)' : t.bgPanel,
+                        border: `2px solid ${active ? 'var(--accent-primary)' : t.border}`,
                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
                         transition: 'border-color .15s',
                       }}
@@ -329,9 +329,9 @@ export default function StoreBranding() {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         {th === 'dark'
-                          ? <Moon size={14} color={active ? '#7ac143' : '#94a3b8'} />
-                          : <Sun  size={14} color={active ? '#7ac143' : '#94a3b8'} />}
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: active ? '#7ac143' : '#94a3b8' }}>
+                          ? <Moon size={14} color={active ? 'var(--accent-primary)' : '#94a3b8'} />
+                          : <Sun  size={14} color={active ? 'var(--accent-primary)' : '#94a3b8'} />}
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: active ? 'var(--accent-primary)' : '#94a3b8' }}>
                           {t.label}
                         </span>
                       </div>
@@ -419,7 +419,7 @@ export default function StoreBranding() {
               disabled={saving || !hasChanges || !storeId}
               style={{
                 width: '100%', padding: '0.875rem',
-                background: saved ? '#16a34a' : hasChanges ? '#7ac143' : 'rgba(255,255,255,.06)',
+                background: saved ? '#16a34a' : hasChanges ? 'var(--accent-primary)' : 'rgba(255,255,255,.06)',
                 color: hasChanges || saved ? '#fff' : '#475569',
                 border: 'none', borderRadius: 10, fontWeight: 800, fontSize: '0.95rem',
                 cursor: hasChanges ? 'pointer' : 'not-allowed',

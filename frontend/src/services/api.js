@@ -24,7 +24,7 @@ api.interceptors.request.use(
   }
 );
 
-// LEGACY API FUNCTIONS (myfuturefoods)
+// LEGACY API FUNCTIONS
 export const getVendors = () => api.get('/vendors').then(res => res.data);
 export const uploadFile = (file, vendorId) => {
     const formData = new FormData();

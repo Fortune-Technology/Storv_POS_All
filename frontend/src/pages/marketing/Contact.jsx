@@ -43,7 +43,6 @@ const Contact = () => {
     setTimeout(() => {
       setIsSubmitting(false);
       setIsSuccess(true);
-      // // TODO: replace with real API call to backend /api/contact
     }, 1500);
   };
 
@@ -66,7 +65,7 @@ const Contact = () => {
             <div className="contact-info-col">
               <h1 className="contact-title">Book a <span className="text-gradient">Personalized</span> Demo</h1>
               <p className="contact-subtitle">
-                See how Storeveu can transform your store. Our retail experts will give you a full tour of the platform tailored to your specific business needs.
+                See StoreVeu running in stores just like yours. Our team — retail veterans themselves — will walk you through everything tailored to your business.
               </p>
 
               <div className="contact-method-list">
@@ -74,7 +73,7 @@ const Contact = () => {
                   <div className="method-icon"><Clock size={24} /></div>
                   <div>
                     <h4>What happens next?</h4>
-                    <p>Our team will reach out within 2 hours to schedule a 30-minute walk-through.</p>
+                    <p>Our team will reach out within 2 hours to finalize your demo time. We're real people, not bots.</p>
                   </div>
                 </div>
                 <div className="method-item">
@@ -89,15 +88,15 @@ const Contact = () => {
               <div className="contact-direct">
                 <div className="direct-item">
                   <Phone size={18} />
-                  <span>+1 (800) FUTURE-POS</span>
+                  <span>+1 (800) 786-7383</span>
                 </div>
                 <div className="direct-item">
                   <Mail size={18} />
-                  <span>demo@futurefoods.com</span>
+                  <span>demo@storeveu.com</span>
                 </div>
                 <div className="direct-item">
                   <MapPin size={18} />
-                  <span>Global HQ, Silicon Valley, CA</span>
+                  <span>North America — Serving retailers coast to coast</span>
                 </div>
               </div>
             </div>

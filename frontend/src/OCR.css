@@ -66,7 +66,7 @@
 
 .ocr-history-item.active {
     border-color: var(--accent-primary) !important;
-    background: rgba(122, 193, 67, 0.05) !important;
+    background: var(--brand-05) !important;
 }
 
 /* Background Glows */
