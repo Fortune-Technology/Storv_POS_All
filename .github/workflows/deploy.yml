@@ -55,7 +55,7 @@ jobs:
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           cd /var/www/Storv_POS_All/frontend
-          sudo rm -rf dist
+          rm -rf dist
           npm ci
           npm install
           npm run build
@@ -68,7 +68,7 @@ jobs:
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           cd /var/www/Storv_POS_All/cashier-app
-          sudo rm -rf dist
+          rm -rf dist
           npm ci
           npm install
           npm run build
