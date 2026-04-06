@@ -54,6 +54,26 @@ import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
 import Lottery from './pages/Lottery';
 
+// Admin Pages
+import AdminDashboard        from './pages/admin/AdminDashboard';
+import AdminUsers            from './pages/admin/AdminUsers';
+import AdminOrganizations    from './pages/admin/AdminOrganizations';
+import AdminCmsPages         from './pages/admin/AdminCmsPages';
+import AdminCareers          from './pages/admin/AdminCareers';
+import AdminTickets          from './pages/admin/AdminTickets';
+import AdminSystemConfig     from './pages/admin/AdminSystemConfig';
+import AdminAnalytics        from './pages/admin/AdminAnalytics';
+import AdminOrgAnalytics     from './pages/admin/AdminOrgAnalytics';
+import AdminStorePerformance from './pages/admin/AdminStorePerformance';
+import AdminUserActivity     from './pages/admin/AdminUserActivity';
+import AdminCareerApplications from './pages/admin/AdminCareerApplications';
+
+// Public Marketing Pages (dynamic)
+import CmsPage  from './pages/marketing/CmsPage';
+import Careers      from './pages/marketing/Careers';
+import CareerDetail from './pages/marketing/CareerDetail';
+import Support      from './pages/marketing/Support';
+
 // Legacy Pages
 import UploadPage from './pages/UploadPage';
 import PreviewPage from './pages/PreviewPage';
@@ -83,6 +103,14 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Admin route — requires auth + superadmin role
+const AdminRoute = ({ children }) => {
+  const user = JSON.parse(localStorage.getItem('user'));
+  if (!user || !user.token) return <Navigate to="/login" replace />;
+  if (user.role !== 'superadmin') return <Navigate to="/portal/pos-api" replace />;
+  return children;
+};
+
 function App() {
   return (
     <Router>
@@ -96,6 +124,13 @@ function App() {
         <Route path="/pricing"  element={<Pricing />} />
         <Route path="/contact"  element={<Contact />} />
         <Route path="/about"    element={<About />} />
+        <Route path="/careers"      element={<Careers />} />
+        <Route path="/careers/:id"  element={<CareerDetail />} />
+        <Route path="/support"      element={<Support />} />
+        <Route path="/privacy"  element={<CmsPage />} />
+        <Route path="/terms"    element={<CmsPage />} />
+        <Route path="/cookies"  element={<CmsPage />} />
+        <Route path="/page/:slug" element={<CmsPage />} />
 
         {/* ── Public Auth ─────────────────────────────────────────────── */}
         <Route path="/login"          element={<Login />} />
@@ -161,6 +196,20 @@ function App() {
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />
         <Route path="/portal/products" element={<ProtectedRoute><Placeholder name="Products" /></ProtectedRoute>} />
+
+        {/* ── Admin Panel (superadmin only) ──────────────────────────── */}
+        <Route path="/admin"                          element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        <Route path="/admin/analytics"                element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
+        <Route path="/admin/analytics/organizations"  element={<AdminRoute><AdminOrgAnalytics /></AdminRoute>} />
+        <Route path="/admin/analytics/stores"         element={<AdminRoute><AdminStorePerformance /></AdminRoute>} />
+        <Route path="/admin/analytics/users"          element={<AdminRoute><AdminUserActivity /></AdminRoute>} />
+        <Route path="/admin/users"                    element={<AdminRoute><AdminUsers /></AdminRoute>} />
+        <Route path="/admin/organizations"            element={<AdminRoute><AdminOrganizations /></AdminRoute>} />
+        <Route path="/admin/cms"                      element={<AdminRoute><AdminCmsPages /></AdminRoute>} />
+        <Route path="/admin/careers"                  element={<AdminRoute><AdminCareers /></AdminRoute>} />
+        <Route path="/admin/careers/:careerPostingId/applications" element={<AdminRoute><AdminCareerApplications /></AdminRoute>} />
+        <Route path="/admin/tickets"                  element={<AdminRoute><AdminTickets /></AdminRoute>} />
+        <Route path="/admin/config"                   element={<AdminRoute><AdminSystemConfig /></AdminRoute>} />
 
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />

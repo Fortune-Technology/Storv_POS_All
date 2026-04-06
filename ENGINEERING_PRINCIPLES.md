@@ -4,7 +4,7 @@
 
 ### 1. **DRY (Don't Repeat Yourself)**
 
-- ✅ Created `src/utils/helpers.ts` with reusable utility functions for both backend and frontend
+- ✅ Created `src/utils/` with reusable utility functions for both backend and frontend
 - ✅ Centralized response formatting (`formatSuccessResponse`, `formatErrorResponse`)
 - ✅ Reusable data serialization (`serializeUser`, `serializeUserWithTokens`)
 - ✅ Common validation functions (`validateEmail`, `isValidObjectId`)
@@ -116,8 +116,8 @@
 ### Backend
 
 ```
-✅ Constants centralized in constants.ts
-✅ Utilities in helpers.ts
+✅ Constants centralized in constants.js
+✅ Utilities in helpers.js
 ✅ Middleware separated by concern
 ✅ Controllers follow consistent pattern
 ✅ Models with proper validation
@@ -127,8 +127,8 @@
 ### Frontend
 
 ```
-✅ Constants in constants.ts
-✅ Utilities in helpers.ts
+✅ Constants in constants.js
+✅ Utilities in helpers.js
 ✅ Custom hooks for reusable logic
 ✅ Redux slices for state management
 ✅ Service layer for API calls
@@ -214,7 +214,7 @@
 - **Test Coverage**: Ready for testing
 - **Documentation**: Comprehensive
 
-## 🔄 Continuous Improvement Areas
+## Continuous Improvement Areas
 
 While the current implementation follows all principles, here are areas for future enhancement:
 
@@ -223,11 +223,14 @@ While the current implementation follows all principles, here are areas for futu
 3. **Add error boundaries** in React
 4. **Implement logging service** (Winston with log levels)
 5. **Add monitoring** (APM tools like New Relic)
-6. **Implement CI/CD pipeline** (GitHub Actions)
-7. **Add API documentation** (Swagger/OpenAPI)
-8. **Performance monitoring** (Lighthouse, Web Vitals)
+6. **Add API documentation** (Swagger/OpenAPI)
+7. **Performance monitoring** (Lighthouse, Web Vitals)
 
-The codebase is production-ready and follows industry best practices! 🎉
+**Already implemented:**
+- CI/CD pipeline (GitHub Actions — `.github/workflows/deploy.yml`)
+- Health check endpoints (`/health`)
+- PM2 process management (production)
+- Nginx reverse proxy (production)
 
 🧩 What Was Missing (Now Added) 12. Type Safety & Language Discipline (JS + TypeScript)
 JavaScript (JS)

@@ -1,0 +1,388 @@
+/* ── Career Detail Page ───────────────────────────────── */
+
+.cd-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* Hero */
+.cd-hero {
+  background: linear-gradient(135deg, #eef2ff 0%, #e8eaf6 50%, #f0f9ff 100%);
+  padding: 100px 24px 60px;
+}
+
+.cd-hero-inner {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.cd-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-primary, #3d56b5);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  margin-bottom: 20px;
+}
+
+.cd-back-link:hover {
+  text-decoration: underline;
+}
+
+.cd-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 16px;
+  line-height: 1.15;
+}
+
+.cd-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.cd-badge-dept {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: rgba(61, 86, 181, 0.1);
+  color: var(--accent-primary, #3d56b5);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cd-badge-type {
+  padding: 5px 14px;
+  border-radius: 20px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cd-meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.cd-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+/* Content section */
+.cd-body {
+  padding: 48px 24px 100px;
+  display: flex;
+  justify-content: center;
+}
+
+.cd-layout {
+      max-width: 800px;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 40px;
+    justify-content: center;
+}
+
+/* Apply bar — always visible */
+.cd-apply-bar {
+  padding: 24px 0;
+}
+
+.cd-apply-card {
+  position: sticky;
+  top: 100px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 28px;
+}
+
+.cd-apply-card h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.cd-apply-card p {
+  font-size: 0.85rem;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.cd-apply-btn {
+  width: 100%;
+  padding: 13px 24px;
+  background: var(--accent-primary, #3d56b5);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.cd-apply-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Job description HTML content */
+.cd-content {
+  font-size: 0.95rem;
+  color: #374151;
+  line-height: 1.8;
+}
+
+.cd-content h1,
+.cd-content h2,
+.cd-content h3 {
+  color: #111827;
+  margin: 1.5em 0 0.5em;
+  font-weight: 700;
+}
+
+.cd-content h1 { font-size: 1.5rem; }
+.cd-content h2 { font-size: 1.25rem; }
+.cd-content h3 { font-size: 1.1rem; }
+.cd-content p { margin: 0 0 1em; }
+.cd-content ul, .cd-content ol { padding-left: 1.5em; margin: 0 0 1em; }
+.cd-content li { margin-bottom: 0.4em; }
+.cd-content strong { color: #111827; }
+.cd-content a { color: var(--accent-primary, #3d56b5); text-decoration: underline; }
+.cd-content blockquote {
+  border-left: 4px solid var(--accent-primary, #3d56b5);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Mobile apply button (always visible at bottom) */
+.cd-mobile-apply {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px 24px;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 50;
+}
+
+.cd-mobile-apply .cd-apply-btn {
+  width: 100%;
+}
+
+/* Empty/loading states */
+.cd-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 80px 24px;
+  text-align: center;
+}
+
+.cd-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e5e7eb;
+  border-top-color: var(--accent-primary, #3d56b5);
+  border-radius: 50%;
+  animation: cd-spin 0.8s linear infinite;
+}
+
+@keyframes cd-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Application Modal ──────────────────────────────── */
+.cd-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.cd-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.cd-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 28px 16px;
+}
+
+.cd-modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.cd-modal-subtitle {
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.cd-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+}
+
+.cd-modal-close:hover {
+  color: #374151;
+}
+
+.cd-modal-form {
+  padding: 8px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cd-field label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.cd-field input,
+.cd-field textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #111827;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.cd-field input:focus,
+.cd-field textarea:focus {
+  border-color: var(--accent-primary, #3d56b5);
+}
+
+.cd-field textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.cd-field-error input,
+.cd-field-error textarea {
+  border-color: #ef4444;
+}
+
+.cd-error-text {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-top: 2px;
+}
+
+.cd-file-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #6b7280;
+  transition: border-color 0.2s;
+}
+
+.cd-file-label:hover {
+  border-color: var(--accent-primary, #3d56b5);
+}
+
+.cd-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 28px;
+  background: var(--accent-primary, #3d56b5);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.cd-submit-btn:hover {
+  filter: brightness(1.1);
+}
+
+.cd-submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .cd-title {
+    font-size: 1.75rem;
+  }
+
+  .cd-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .cd-apply-bar {
+    display: none;
+  }
+
+  .cd-mobile-apply {
+    display: block;
+  }
+
+  .cd-body {
+    padding-bottom: 100px;
+  }
+}

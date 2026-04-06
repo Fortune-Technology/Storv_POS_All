@@ -1,10 +1,36 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import StoreveuLogo from '../StoreveuLogo';
+import axios from 'axios';
 import './MarketingFooter.css';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const MarketingFooter = () => {
   const currentYear = new Date().getFullYear();
+  const [cmsPages, setCmsPages] = useState([]);
+
+  useEffect(() => {
+    axios.get(`${API_URL}/public/cms-list`)
+      .then(r => setCmsPages(r.data?.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Static links
+  const staticCompanyLinks = [
+    { name: 'About Us', path: '/about' },
+    { name: 'Contact', path: '/contact' },
+    { name: 'Careers', path: '/careers' },
+    { name: 'Support', path: '/support' },
+  ];
+
+  // Dynamic CMS page links
+  const cmsLinks = cmsPages.map(p => ({
+    name: p.title,
+    path: `/page/${p.slug}`,
+  }));
+
+  const companyLinks = [...staticCompanyLinks, ...cmsLinks];
 
   const footerGroups = [
     {
@@ -18,12 +44,7 @@ const MarketingFooter = () => {
     },
     {
       title: 'Company',
-      links: [
-        { name: 'About Us', path: '/about' },
-        { name: 'Contact', path: '/contact' },
-        { name: 'Careers', path: '/about#careers' },
-        { name: 'Privacy Policy', path: '/privacy' },
-      ]
+      links: companyLinks,
     },
     {
       title: 'Industries',
@@ -40,17 +61,14 @@ const MarketingFooter = () => {
     <footer className="mkt-footer">
       <div className="mkt-footer-container">
         <div className="mkt-footer-grid">
-          {/* Logo and About Col */}
+          {/* Logo and About Col — match navbar logo size */}
           <div className="mkt-footer-brand">
             <Link to="/" className="mkt-footer-logo">
-              <StoreveuLogo height={28} darkMode={false} />
+              <StoreveuLogo height={38} darkMode={false} />
             </Link>
             <p className="mkt-footer-desc">
               The smartest POS solution for modern retailers. Powered by AI to simplify your inventory, billing, and growth.
             </p>
-            <div className="mkt-footer-social">
-              {/* TODO: Add real social links */}
-            </div>
           </div>
 
           {/* Link Groups */}
@@ -69,12 +87,7 @@ const MarketingFooter = () => {
         </div>
 
         <div className="mkt-footer-bottom">
-          <p>© {currentYear} Storeveu. All rights reserved.</p>
-          <div className="mkt-footer-legal">
-            <Link to="/terms">Terms of Service</Link>
-            <Link to="/privacy">Privacy</Link>
-            <Link to="/cookies">Cookies</Link>
-          </div>
+          <p style={{ textAlign: 'center', width: '100%' }}>&copy; {currentYear} Storeveu. All rights reserved.</p>
         </div>
       </div>
     </footer>
