@@ -1027,6 +1027,29 @@ model CashPayout {
 }
 
 // ─────────────────────────────────────────────────
+// VENDOR PAYMENT  (back-office managed vendor payments)
+// ─────────────────────────────────────────────────
+model VendorPayment {
+  id          String    @id @default(cuid())
+  orgId       String
+  storeId     String?
+  vendorId    Int?
+  vendorName  String?
+  amount      Decimal   @db.Decimal(10, 4)
+  paymentType  String    @default("expense")
+  tenderMethod String?   @default("cash")
+  notes        String?
+  paymentDate DateTime  @default(now())
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, storeId])
+  @@index([orgId, paymentDate])
+  @@map("vendor_payments")
+}
+
+// ─────────────────────────────────────────────────
 // CLOCK EVENT
 // Employee clock in / clock out records.
 // Identified by PIN without requiring a full JWT session.

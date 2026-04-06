@@ -50,7 +50,7 @@
 |------|---------|
 | `backend/src/server.js` | Express app, all route mounts |
 | `backend/src/config/postgres.js` | Prisma client singleton |
-| `backend/prisma/schema.prisma` | Full DB schema (35 models) |
+| `backend/prisma/schema.prisma` | Full DB schema (36+ models) |
 | `backend/src/middleware/auth.js` | JWT `protect` + `authorize()` |
 | `backend/src/middleware/scopeToTenant.js` | `req.orgId`, `req.storeId` injection |
 | `backend/src/controllers/lotteryController.js` | Full lottery module logic |
@@ -58,31 +58,42 @@
 | `backend/src/controllers/feeMappingController.js` | Service fees and delivery charges |
 | `backend/src/controllers/catalogController.js` | Product catalog CRUD |
 | `backend/src/controllers/salesController.js` | Analytics + Holt-Winters predictions |
+| `backend/src/controllers/vendorPaymentController.js` | Back-office vendor payment records (no shift required) |
 
 ### Portal (frontend/)
 | File | Purpose |
 |------|---------|
 | `frontend/src/App.jsx` | All route (portal + marketing) definitions |
-| `frontend/src/components/Sidebar.jsx` | Nav links — add new pages here |
+| `frontend/src/components/Sidebar.jsx` | Nav links — grouped: Operations/Lottery/Catalog/Vendors/Analytics/Integrations/POS/Account |
 | `frontend/src/services/api.js` | Single source of truth for ALL API calls |
 | `frontend/src/pages/marketing/` | Public site: Home, About, Features, Pricing, Contact |
 | `frontend/src/pages/Lottery.jsx` | Full lottery management (8 tabs) |
 | `frontend/src/pages/FeesMappings.jsx` | Service fees and tax mapping |
-| `frontend/src/pages/POSSettings.jsx` | Per-station POS config (saved to IndexedDB) |
+| `frontend/src/pages/POSSettings.jsx` | Per-station POS config (action bar height, quick folders link) |
 | `frontend/src/pages/ProductCatalog.jsx` | Native PG catalog management |
+| `frontend/src/pages/VendorPayouts.jsx` | Back-office vendor payment management with date picker |
+| `frontend/src/pages/VendorPayouts.css` | Styles for VendorPayouts page (`vp-` prefix) |
+| `frontend/src/pages/QuickAccess.jsx` | Back-office quick folder config (folder + product management) |
+| `frontend/src/pages/QuickAccess.css` | Styles for QuickAccess page (`qa-` prefix) |
 
 ### Cashier App (cashier-app/)
 | File | Purpose |
 |------|---------|
-| `cashier-app/src/screens/POSScreen.jsx` | Main POS screen — 3-zone layout |
+| `cashier-app/src/screens/POSScreen.jsx` | Main POS screen — 3-zone layout; CATALOG/QUICK tab bar |
 | `cashier-app/src/stores/useCartStore.js` | Cart state (Zustand) — add item types here |
 | `cashier-app/src/stores/useShiftStore.js` | Shift open/close state |
 | `cashier-app/src/stores/useLotteryStore.js` | Lottery session tracking |
-| `cashier-app/src/components/pos/ActionBar.jsx` | Bottom action bar (all quick-action buttons) |
+| `cashier-app/src/components/pos/ActionBar.jsx` | Bottom action bar — accepts `actionBarHeight` prop |
+| `cashier-app/src/components/pos/QuickFoldersPanel.jsx` | Folder-browse panel for quick product access |
+| `cashier-app/src/components/pos/QuickFoldersPanel.css` | Styles for QuickFoldersPanel (`qfp-` prefix) |
 | `cashier-app/src/components/tender/TenderModal.jsx` | Checkout / payment processing |
 | `cashier-app/src/components/modals/LotteryModal.jsx` | Combined Sale+Payout modal (latest) |
 | `cashier-app/src/components/modals/LotteryShiftModal.jsx` | EOD ticket scan reconciliation |
-| `cashier-app/src/hooks/usePOSConfig.js` | POS settings from IndexedDB |
+| `cashier-app/src/components/modals/VendorPayoutModal.jsx` | Cashier vendor payout (numpad, vendor select, type toggle) |
+| `cashier-app/src/components/modals/VendorPayoutModal.css` | Styles for VendorPayoutModal (`vpm-` prefix) |
+| `cashier-app/src/components/modals/BottleRedemptionModal.jsx` | Bottle deposit entry — numpad + tap-to-select rows |
+| `cashier-app/src/components/modals/BottleRedemptionModal.css` | Styles for BottleRedemptionModal (`brm-` prefix) |
+| `cashier-app/src/hooks/usePOSConfig.js` | POS settings from IndexedDB (incl. actionBarHeight, quickFolders) |
 | `cashier-app/src/api/pos.js` | All cashier-app API calls |
 | `cashier-app/src/db/dexie.js` | IndexedDB schema for offline catalog |
 
@@ -112,6 +123,7 @@
 - `CashDrop` / `CashPayout` — mid-shift cash events
 - `ClockEvent` — employee clock-in/out
 - `Customer` — loyalty/house accounts
+- `VendorPayment` — back-office vendor payment records; **not shift-scoped**; supports `paymentDate` override for historical entry
 
 ### Lottery Module (added April 2026)
 - `LotteryGame` — game type (name, ticketPrice, state, isGlobal)
@@ -248,7 +260,18 @@ After saving the main Transaction, if `lotteryItems[]` is present it creates `Lo
 - All modals: **white cards**, light UI, explicit `#ffffff` backgrounds
 - Green = sale/positive: `#16a34a`
 - Amber = payout/warning: `#d97706`
-- Inline styles throughout (no CSS modules, no Tailwind in cashier-app)
+- **New components use external `.css` files** with prefixed class names (e.g. `vpm-`, `brm-`, `qfp-`)
+- Older components still use inline styles — do not retroactively rewrite unless asked
+
+### External CSS Convention (all new components from April 2026)
+Create a `.css` file alongside every new `.jsx` file. Use a **component-unique prefix** on every class to prevent collisions:
+```css
+/* VendorPayoutModal.css — prefix: vpm- */
+.vpm-backdrop { ... }
+.vpm-modal    { ... }
+.vpm-numpad   { ... }
+```
+Import at the top of the JSX: `import './VendorPayoutModal.css';`
 
 ### Adding a New Portal Page
 1. Create `frontend/src/pages/NewPage.jsx` with `<div className="layout-container"><Sidebar /><main className="main-content">...</main></div>`
@@ -411,7 +434,7 @@ When working on this project:
 
 1. **Read before writing** — always read the target file before editing it
 2. **Use `npx prisma db push`** — never `prisma migrate dev`
-3. **Inline styles in cashier-app** — no CSS files, no Tailwind, inline only
+3. **External CSS for all new components** — create a `.css` file with prefixed class names (e.g. `vpm-`, `brm-`, `qa-`, `qfp-`); no inline style objects in new JSX
 4. **Portal modals use explicit `#ffffff`** — CSS vars go transparent in overlay modals
 5. **Respect multi-tenancy** — every DB query must filter by `orgId` and `storeId`
 6. **Lottery price is sacred** — never allow manual override of ticket price in the cashier flow
@@ -419,7 +442,207 @@ When working on this project:
 8. **Commission is store-level** — never store commission on individual games
 9. **State-scoped games** — global games (isGlobal=true) are visible only to stores whose `LotterySettings.state` matches the game's `state` field
 10. **Ask before big refactors** — this is a production-adjacent system; discuss before restructuring
+11. **Update CLAUDE.md after every session** — append the feature summary to "Recent Feature Additions" and update the roadmap
 
 ---
 
-*Last updated: April 2026 — Lottery Module complete*
+## 📦 Recent Feature Additions (April 2026 — Session 2)
+
+### External CSS Policy (enforced from this session onwards)
+All new React components use a dedicated `.css` file with a **unique class-name prefix** per component. No inline `style={{}}` objects in new JSX. Existing pages were not retroactively changed.
+
+| Component | CSS File | Prefix |
+|-----------|----------|--------|
+| `VendorPayoutModal` | `VendorPayoutModal.css` | `vpm-` |
+| `BottleRedemptionModal` | `BottleRedemptionModal.css` | `brm-` |
+| `VendorPayouts` (portal page) | `VendorPayouts.css` | `vp-` |
+| `QuickAccess` (portal page) | `QuickAccess.css` | `qa-` |
+| `QuickFoldersPanel` | `QuickFoldersPanel.css` | `qfp-` |
+
+---
+
+### Sidebar Restructuring — Vendors Group
+`frontend/src/components/Sidebar.jsx` reorganised into named groups:
+
+| Group | Items |
+|-------|-------|
+| Operations | Live Dashboard, Customers |
+| Lottery | Lottery |
+| Catalog | Products, Departments, Promotions, Bulk Import, Inventory Count |
+| **Vendors** *(new)* | Vendors, Vendor Payouts, Vendor Orders, Invoice Import, CSV Transform |
+| Analytics | Sales, Dept Analytics, Products, Predictions |
+| Integrations | POS API, eComm |
+| Point of Sale | POS Settings, Receipt Settings, Stations, Transactions, Employee Reports, Payouts Report, Deposit Rules, Tax Rules, Quick Access |
+| Account | Organisation, Users, Stores |
+
+---
+
+### Vendor Payments Module
+
+**New DB model — `VendorPayment`** (`backend/prisma/schema.prisma`):
+```prisma
+model VendorPayment {
+  id          String    @id @default(cuid())
+  orgId       String
+  storeId     String?
+  vendorId    Int?
+  vendorName  String?
+  amount      Decimal   @db.Decimal(10, 4)
+  paymentType String    @default("expense")   // "expense" | "merchandise"
+  notes       String?
+  paymentDate DateTime  @default(now())       // can be set historically
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([orgId, storeId])
+  @@index([orgId, paymentDate])
+  @@map("vendor_payments")
+}
+```
+Migration: `backend/prisma/migrations/add_vendor_payments.sql`
+
+**New controller** — `backend/src/controllers/vendorPaymentController.js`:
+- `listVendorPayments` — filters by storeId/date range/type/vendorId; returns payments + summary totals
+- `createVendorPayment` — accepts optional `paymentDate` for historical entries
+- `updateVendorPayment` — partial update
+
+**New routes** (added to `backend/src/routes/catalogRoutes.js`):
+```
+GET    /catalog/vendor-payments        manager+
+POST   /catalog/vendor-payments        manager+
+PUT    /catalog/vendor-payments/:id    owner+
+```
+
+**New API functions** (`frontend/src/services/api.js`):
+```js
+getVendorPayments(params)
+createVendorPaymentEntry(data)
+updateVendorPaymentEntry(id, data)
+```
+
+**Cashier — `VendorPayoutModal.jsx`** (`cashier-app/src/components/modals/`):
+- Purple accent (`#a855f7`), dedicated CSS file `VendorPayoutModal.css`
+- Amount entry via numpad with `buildAmount(current, key)` helper (handles decimals, backspace, clear)
+- Vendor dropdown (fetches from catalog API)
+- Type toggle: Expense / Merchandise
+- Note / remark text field
+- Confirm → success screen with amount + vendor + timestamp + "Print Receipt" / "Skip" buttons
+- Integrates with `useShiftStore().addPayout()` (shift-scoped)
+- Triggered via "Paid Out" button in `ActionBar.jsx` (previously opened CashDrawerModal)
+
+**Back-office — `VendorPayouts.jsx`** (`frontend/src/pages/`):
+- Summary cards: Total Expense / Total Merchandise / Grand Total
+- Inline add form: vendor dropdown, free-text vendor name fallback, amount, **date picker** for historical recording, type toggle, notes
+- Filter row + paginated data table with type badges
+- Route: `/portal/vendor-payouts`
+
+---
+
+### Bottle Redemption — Numpad Redesign
+`cashier-app/src/components/modals/BottleRedemptionModal.jsx` fully rewritten:
+
+- **Split layout**: scrollable rule list on top, fixed 4-column numpad panel pinned to bottom
+- **Tap-to-select**: clicking a rule row activates it (highlighted with `brm-rule-row--active`)
+- **Numpad**: `buildQty(current, key)` helper — integer only, max 9999, `C` resets to 0, `⌫` = floor divide by 10
+- Supports easy entry of large counts (e.g. 50 bottles, 200 cans)
+- CSS file: `BottleRedemptionModal.css` with `brm-` prefix, teal/green (`#34d399`) accent
+
+---
+
+### POS Action Bar — Configurable Height
+`cashier-app/src/hooks/usePOSConfig.js` — new config field:
+```js
+actionBarHeight: 'normal'   // 'compact' (48px) | 'normal' (58px) | 'large' (72px)
+```
+
+`cashier-app/src/components/pos/ActionBar.jsx`:
+- Accepts `actionBarHeight` prop (numeric pixels)
+- Reads from `posConfig.actionBarHeight` in `POSScreen.jsx`
+
+`frontend/src/pages/POSSettings.jsx` — new **"Action Bar Height"** section (section 3b):
+- Three visual selector buttons showing proportional bar previews (compact / normal / large)
+
+---
+
+### Quick Access Folders (POS Product Shortcuts)
+
+Store administrators can create **folder-structured quick-access panels** on the cashier POS screen (e.g. "Fruits", "Vegetables", "Limes & Lemons", "Ice").
+
+#### Data Storage
+Stored in the existing `store.pos` JSON column via `GET/PUT /pos-terminal/config`. Structure:
+```js
+quickFolders: [
+  {
+    id: string,
+    name: string,        // "Fruits"
+    emoji: string,       // "🍎"
+    color: string,       // "#16a34a"
+    sortOrder: number,
+    items: [
+      { productId: string, name: string, price: number, barcode: string }
+    ]
+  }
+]
+```
+No DB migration needed — stored in existing JSON column.
+
+#### Back-office — `QuickAccess.jsx` (`frontend/src/pages/`)
+- Route: `/portal/quick-access`
+- Loads/saves quickFolders via `GET/PUT /pos-terminal/config`
+- `FolderCard` sub-component: expand/collapse, edit name + emoji + color (10 swatches)
+- Product search via `searchCatalogProducts` to add items to each folder
+- Unsaved changes tracked via `dirty` flag; "Save All Changes" button
+- Linked from **POSSettings.jsx** → Section 5 "Quick Access Folders" → "Manage Folders →"
+
+#### Cashier — `QuickFoldersPanel.jsx` (`cashier-app/src/components/pos/`)
+- CSS file: `QuickFoldersPanel.css` with `qfp-` prefix
+- **Folder tile grid**: emoji + name + item count, coloured background from folder config
+- Click folder → **drill into product tiles** view with back button
+- Click product tile → `useCartStore().addProduct(...)` adds to cart
+- Props: `folders` array from `posConfig.quickFolders`
+
+#### POS Screen Tab Bar (`cashier-app/src/screens/POSScreen.jsx`)
+- When `posConfig.quickFolders?.length > 0`, a **CATALOG | ⚡ QUICK** tab bar appears above the product grid
+- `quickTab` state toggles between the existing `CategoryPanel` and the new `QuickFoldersPanel`
+- `VendorPayoutModal` integrated; "Paid Out" action in `ActionBar` triggers it
+
+#### New Portal Routes (`frontend/src/App.jsx`)
+```jsx
+<Route path="/portal/vendor-payouts" element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
+<Route path="/portal/quick-access"   element={<ProtectedRoute><QuickAccess /></ProtectedRoute>} />
+```
+
+---
+
+## 🛣 Product Roadmap (Known Next Steps)
+
+### Immediate / Testing
+- [ ] E2E test: full lottery sale + tender + shift close flow
+- [ ] Seed games with `state` field populated (Ontario games)
+- [ ] Sync `LotterySettings.cashOnly` + `scanRequired` with `usePOSConfig` on station setup
+- [ ] Run `npx prisma db push` to apply `VendorPayment` model to production DB
+- [ ] Wire "Print Receipt" in `VendorPayoutModal` success screen to actual receipt printer
+
+### Short-Term
+- [ ] Lottery ticket barcode scanning via device camera (for EOD scan)
+- [ ] Connect Lottery Reports CSV download to shift-level data
+- [ ] Commission report PDF export
+- [ ] Multi-store lottery dashboard (superadmin view)
+- [ ] Audit remaining portal pages for inline styles → migrate to external CSS
+
+### Medium-Term
+- [ ] Customer loyalty points on purchases (points-per-dollar model)
+- [ ] Vendor EDI/invoice auto-matching improvements
+- [ ] Employee schedule management
+- [ ] Ecommerce integration (Shopify/WooCommerce product sync)
+- [ ] Mobile app for manager approvals (push notifications)
+
+### Long-Term
+- [ ] Kiosk mode (customer self-checkout)
+- [ ] Fuel pump integration
+- [ ] Multi-state lottery compliance (US states + Canadian provinces)
+- [ ] Real-time inventory depletion alerts
+
+---
+
+*Last updated: April 2026 — Vendor Payments, Bottle Redemption Numpad, Action Bar Height, Quick Access Folders*

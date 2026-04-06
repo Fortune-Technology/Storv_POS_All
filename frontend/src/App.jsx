@@ -39,9 +39,15 @@ import StoreManagement from './pages/StoreManagement';
 import StoreBranding from './pages/StoreBranding';
 
 // POS Pages
-import POSSettings from './pages/POSSettings.jsx';
+import POSSettings     from './pages/POSSettings.jsx';
 import ReceiptSettings from './pages/ReceiptSettings.jsx';
 import EmployeeReports from './pages/EmployeeReports';
+import PayoutsReport   from './pages/PayoutsReport.jsx';
+import VendorPayouts  from './pages/VendorPayouts.jsx';
+import StoreSettings  from './pages/StoreSettings';
+import QuickAccess    from './pages/QuickAccess.jsx';
+import DepositRules    from './pages/DepositRules.jsx';
+import TaxRules        from './pages/TaxRules.jsx';
 
 // Catalog Pages
 import ProductCatalog from './pages/ProductCatalog';
@@ -163,12 +169,18 @@ function App() {
         {/* ── Account / Organisation ──────────────────────────────────── */}
         <Route path="/portal/organisation" element={<ProtectedRoute><Organisation /></ProtectedRoute>} />
         <Route path="/portal/users"        element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
-        <Route path="/portal/stores"       element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} />
+        <Route path="/portal/stores"         element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} />
+        <Route path="/portal/store-settings" element={<ProtectedRoute><StoreSettings /></ProtectedRoute>} />
         <Route path="/portal/branding"     element={<ProtectedRoute><StoreBranding /></ProtectedRoute>} />
         <Route path="/portal/pos-settings"      element={<ProtectedRoute><POSSettings /></ProtectedRoute>} />
         <Route path="/portal/receipt-settings"  element={<ProtectedRoute><ReceiptSettings /></ProtectedRoute>} />
         <Route path="/portal/employee-reports"  element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>} />
         <Route path="/portal/transactions"      element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
+        <Route path="/portal/payouts"           element={<ProtectedRoute><PayoutsReport /></ProtectedRoute>} />
+        <Route path="/portal/vendor-payouts"  element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
+        <Route path="/portal/quick-access"    element={<ProtectedRoute><QuickAccess /></ProtectedRoute>} />
+        <Route path="/portal/deposit-rules"     element={<ProtectedRoute><DepositRules /></ProtectedRoute>} />
+        <Route path="/portal/tax-rules"         element={<ProtectedRoute><TaxRules /></ProtectedRoute>} />
 
         {/* ── Legacy CSV Transformer ──────────────────────────────────── */}
         <Route path="/csv/upload"            element={<ProtectedRoute><Layout><UploadPage /></Layout></ProtectedRoute>} />

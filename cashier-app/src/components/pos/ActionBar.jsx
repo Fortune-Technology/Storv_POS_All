@@ -14,7 +14,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
-  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History,
+  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -54,7 +54,7 @@ const Divider = () => (
 
 // ── ActionBar ──────────────────────────────────────────────────────────────
 export default function ActionBar({
-  onPriceCheck, onHold, onReprint, onNoSale, onHistory,
+  onPriceCheck, onHold, onReprint, onNoSale, onHistory, onBottleReturn,
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
   onLottery,
@@ -63,6 +63,7 @@ export default function ActionBar({
   shiftOpen = false,
   heldCount = 0,           // badge on Hold button
   enabledShortcuts = {},
+  actionBarHeight = 58,
   // enabledShortcuts shape:
   //   { priceCheck, hold, reprint, noSale, discount, refund, voidTx, endOfDay }
   // A key being explicitly `false` hides the button; undefined/true shows it.
@@ -99,7 +100,7 @@ export default function ActionBar({
 
   return (
     <div style={{
-      height: 58, flexShrink: 0,
+      height: actionBarHeight, flexShrink: 0,
       background: 'var(--bg-panel)',
       borderTop: '1px solid var(--border-light)',
       display: 'flex', alignItems: 'stretch',
@@ -203,8 +204,17 @@ export default function ActionBar({
         <ACT icon={Printer} label="Reprint" onClick={onReprint} />
       )}
       <Divider />
-      {/* History — always visible, dedicated past-transactions button */}
-      <ACT icon={History} label="History" onClick={onHistory} color="var(--blue)" />
+      {/* History */}
+      {show('history') && (
+        <ACT icon={History} label="History" onClick={onHistory} color="var(--blue)" />
+      )}
+      {/* Bottle Return */}
+      {show('bottleReturn') && (
+        <>
+          <Divider />
+          <ACT icon={Recycle} label="Bottle Return" onClick={onBottleReturn} color="#34d399" />
+        </>
+      )}
       {show('hold') && (
         <>
           <Divider />

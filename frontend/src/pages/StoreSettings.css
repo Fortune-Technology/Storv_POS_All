@@ -1,0 +1,149 @@
+/* StoreSettings.css */
+
+.ss-page { padding: 2rem; max-width: 960px; }
+
+.ss-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+.ss-header-left { display: flex; align-items: center; gap: 12px; }
+.ss-header-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: rgba(20, 184, 166, 0.12);
+  border: 1px solid rgba(20, 184, 166, 0.25);
+  display: flex; align-items: center; justify-content: center;
+}
+.ss-header-left h1 { font-size: 1.25rem; font-weight: 800; color: var(--text-primary); margin: 0; }
+.ss-header-left p { font-size: 0.8rem; color: var(--text-muted); margin: 2px 0 0; }
+
+.ss-store-bar {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 2rem;
+}
+.ss-store-label { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); white-space: nowrap; }
+.ss-store-select {
+  padding: 0.5rem 2.5rem 0.5rem 0.875rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  appearance: none;
+  min-width: 220px;
+  cursor: pointer;
+}
+
+.ss-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.ss-section-title {
+  font-size: 0.8rem; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.07em;
+  margin: 0 0 0.25rem;
+}
+.ss-section-desc {
+  font-size: 0.8rem; color: var(--text-muted);
+  margin: 0 0 1.25rem;
+  line-height: 1.5;
+}
+
+/* Tender method list */
+.ss-tender-list { display: flex; flex-direction: column; gap: 8px; }
+.ss-tender-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  gap: 12px;
+}
+.ss-tender-info { display: flex; flex-direction: column; gap: 2px; }
+.ss-tender-label { font-size: 0.875rem; font-weight: 700; color: var(--text-primary); }
+.ss-tender-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+/* Toggle switch */
+.ss-toggle {
+  position: relative; width: 40px; height: 22px; flex-shrink: 0;
+}
+.ss-toggle input { opacity: 0; width: 0; height: 0; }
+.ss-toggle-slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--bg-input); border-radius: 11px;
+  transition: background 0.2s;
+  border: 1px solid var(--border);
+}
+.ss-toggle-slider::before {
+  content: '';
+  position: absolute; width: 16px; height: 16px;
+  left: 2px; top: 50%; transform: translateY(-50%);
+  background: var(--text-muted); border-radius: 50%;
+  transition: 0.2s;
+}
+.ss-toggle input:checked + .ss-toggle-slider {
+  background: #14b8a6;
+  border-color: #14b8a6;
+}
+.ss-toggle input:checked + .ss-toggle-slider::before {
+  transform: translate(18px, -50%);
+  background: #fff;
+}
+
+/* Add custom tender */
+.ss-add-tender {
+  display: flex; gap: 8px; margin-top: 12px;
+}
+.ss-add-input {
+  flex: 1; padding: 0.5rem 0.875rem;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-primary);
+  font-size: 0.875rem;
+}
+.ss-add-input::placeholder { color: var(--text-muted); }
+.ss-btn-add {
+  padding: 0.5rem 1rem;
+  background: rgba(20,184,166,0.12); border: 1px solid rgba(20,184,166,0.3);
+  border-radius: 8px; color: #14b8a6;
+  font-size: 0.875rem; font-weight: 700; cursor: pointer;
+  white-space: nowrap; display: flex; align-items: center; gap: 6px;
+}
+.ss-btn-remove {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 4px; display: flex; border-radius: 4px;
+}
+.ss-btn-remove:hover { color: var(--red); }
+
+/* Save button */
+.ss-btn-save {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0.75rem 2rem;
+  background: #14b8a6; border: none; border-radius: 10px;
+  color: #fff; font-weight: 800; font-size: 0.9rem;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.ss-btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.ss-btn-save:hover:not(:disabled) { opacity: 0.9; }
+
+.ss-unsaved-dot {
+  width: 8px; height: 8px; background: #f59e0b;
+  border-radius: 50%; display: inline-block; margin-left: 6px;
+}
+
+.ss-save-bar {
+  position: sticky; bottom: 0; padding: 1rem;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 12px;
+  margin-top: 1rem; margin-left: -2rem; margin-right: -2rem;
+}
+
+.ss-success-msg {
+  display: flex; align-items: center; gap: 6px;
+  color: #14b8a6; font-size: 0.875rem; font-weight: 700;
+}

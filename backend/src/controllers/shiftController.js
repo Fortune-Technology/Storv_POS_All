@@ -9,6 +9,8 @@
  *   POST /api/pos-terminal/shift/:id/payout    → addPayout
  *   GET  /api/pos-terminal/shift/:id/report    → getShiftReport
  *   GET  /api/pos-terminal/shifts              → listShifts
+ *   GET  /api/pos-terminal/payouts             → listPayouts
+ *   GET  /api/pos-terminal/cash-drops          → listCashDrops
  */
 
 import prisma from '../config/postgres.js';
@@ -318,6 +320,95 @@ export const listShifts = async (req, res) => {
         drops:   undefined,
         payouts: undefined,
       })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── GET /payouts ──────────────────────────────────────────────────────────────
+// List all payouts across shifts for back-office reporting
+export const listPayouts = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { storeId, dateFrom, dateTo, payoutType, vendorId, limit = 100 } = req.query;
+
+    const where = { orgId };
+    if (storeId)    where.storeId    = storeId;
+    if (payoutType) where.payoutType = payoutType;
+    if (vendorId)   where.vendorId   = parseInt(vendorId);
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) { const d = new Date(dateFrom); where.createdAt.gte = new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+      if (dateTo)   { const d = new Date(dateTo);   where.createdAt.lte = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
+    }
+
+    const payouts = await prisma.cashPayout.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(parseInt(limit) || 100, 500),
+      include: { shift: { select: { storeId: true } } },
+    });
+
+    // Resolve cashier names
+    const userIds = [...new Set(payouts.map(p => p.createdById).filter(Boolean))];
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : [];
+    const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
+
+    const totalExpense     = payouts.filter(p => p.payoutType !== 'merchandise').reduce((s, p) => s + Number(p.amount), 0);
+    const totalMerchandise = payouts.filter(p => p.payoutType === 'merchandise').reduce((s, p) => s + Number(p.amount), 0);
+
+    res.json({
+      payouts: payouts.map(p => ({
+        ...p,
+        amount:       Number(p.amount),
+        cashierName:  userMap[p.createdById] || '',
+        storeId:      p.shift?.storeId || storeId,
+        shift:        undefined,
+      })),
+      summary: {
+        total:         totalExpense + totalMerchandise,
+        totalExpense,
+        totalMerchandise,
+        count:         payouts.length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── GET /cash-drops ───────────────────────────────────────────────────────────
+export const listCashDrops = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { storeId, dateFrom, dateTo, limit = 100 } = req.query;
+
+    const where = { orgId };
+    if (storeId) where.storeId = storeId;
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) { const d = new Date(dateFrom); where.createdAt.gte = new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+      if (dateTo)   { const d = new Date(dateTo);   where.createdAt.lte = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
+    }
+
+    const drops = await prisma.cashDrop.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(parseInt(limit) || 100, 500),
+    });
+
+    const userIds = [...new Set(drops.map(d => d.createdById).filter(Boolean))];
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : [];
+    const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
+
+    res.json({
+      drops: drops.map(d => ({ ...d, amount: Number(d.amount), cashierName: userMap[d.createdById] || '' })),
+      summary: { total: drops.reduce((s, d) => s + Number(d.amount), 0), count: drops.length },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

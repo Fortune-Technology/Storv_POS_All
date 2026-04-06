@@ -181,9 +181,10 @@ export const getVendorPayouts    = (id, params) => api.get(`/catalog/vendors/${i
 export const getVendorStats      = (id)     => api.get(`/catalog/vendors/${id}/stats`).then(r => r.data);
 
 // ── Catalog — Tax Rules ───────────────────────────────────────────────────
-export const getCatalogTaxRules   = () => api.get('/catalog/tax-rules').then(r => r.data);
+export const getCatalogTaxRules   = (params) => api.get('/catalog/tax-rules', { params }).then(r => r.data);
 export const createCatalogTaxRule = (d) => api.post('/catalog/tax-rules', d).then(r => r.data);
 export const updateCatalogTaxRule = (id, d) => api.put(`/catalog/tax-rules/${id}`, d).then(r => r.data);
+export const deleteCatalogTaxRule = (id) => api.delete(`/catalog/tax-rules/${id}`).then(r => r.data);
 
 // ── Catalog — Deposit Rules ───────────────────────────────────────────────
 export const getCatalogDepositRules   = () => api.get('/catalog/deposit-rules').then(r => r.data);
@@ -244,6 +245,11 @@ export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id
 
 export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
 
+// ── Vendor Payments (back-office) ─────────────────────────────────────────
+export const getVendorPayments        = (params) => api.get('/catalog/vendor-payments', { params }).then(r => r.data);
+export const createVendorPaymentEntry = (data)   => api.post('/catalog/vendor-payments', data).then(r => r.data);
+export const updateVendorPaymentEntry = (id, d)  => api.put(`/catalog/vendor-payments/${id}`, d).then(r => r.data);
+
 // POS Transactions
 export const getTransactions = (params) => api.get('/pos-terminal/transactions', { params }).then(r => r.data);
 
@@ -288,6 +294,10 @@ export const getAdminUserActivity       = ()               => api.get('/admin/an
 // Admin Job Applications
 export const getAdminCareerApplications = (careerPostingId) => api.get(`/admin/careers/${careerPostingId}/applications`).then(r => r.data);
 export const updateAdminJobApplication  = (id, data)       => api.put(`/admin/applications/${id}`, data).then(r => r.data);
+
+// ── POS Terminal Config ───────────────────────────────────────────────────────
+export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
+export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data).then(r => r.data);
 
 // ── Public API (no auth) ─────────────────────────────────────────────────────
 export const getPublishedCareers        = ()               => api.get('/public/careers').then(r => r.data);

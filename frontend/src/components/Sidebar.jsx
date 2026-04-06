@@ -28,6 +28,11 @@ import {
   Tag,
   Upload,
   Ticket,
+  ArrowUpCircle,
+  Recycle,
+  Percent,
+  LayoutGrid,
+  Settings2,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -35,27 +40,34 @@ const menuGroups = [
   {
     label: 'Operations',
     items: [
-      { name: 'Live Dashboard',  icon: <Radio size={13} />,        path: '/portal/realtime' },
-      { name: 'Customers',       icon: <Users size={13} />,        path: '/portal/customers' },
-      { name: 'Invoice Import',  icon: <FileUp size={13} />,       path: '/portal/invoice-import' },
-      { name: 'CSV Transformer', icon: <FileUp size={13} />,       path: '/csv/upload' },
+      { name: 'Live Dashboard', icon: <Radio size={13} />, path: '/portal/realtime' },
+      { name: 'Customers',      icon: <Users size={13} />, path: '/portal/customers' },
     ],
   },
   {
     label: 'Lottery',
     items: [
-      { name: 'Lottery',  icon: <Ticket size={13} />,  path: '/portal/lottery' },
+      { name: 'Lottery', icon: <Ticket size={13} />, path: '/portal/lottery' },
     ],
   },
   {
     label: 'Catalog',
     items: [
-      { name: 'Products',    icon: <Package size={13} />,  path: '/portal/catalog' },
-      { name: 'Departments', icon: <Layers size={13} />,   path: '/portal/departments' },
-      { name: 'Vendors',     icon: <Truck size={13} />,    path: '/portal/vendors' },
-      { name: 'Promotions',  icon: <Tag size={13} />,      path: '/portal/promotions' },
+      { name: 'Products',         icon: <Package size={13} />,   path: '/portal/catalog' },
+      { name: 'Departments',      icon: <Layers size={13} />,    path: '/portal/departments' },
+      { name: 'Promotions',       icon: <Tag size={13} />,       path: '/portal/promotions' },
       { name: 'Bulk Import',      icon: <Upload size={13} />,    path: '/portal/import' },
-      { name: 'Inventory Count', icon: <BarChart2 size={13} />, path: '/portal/inventory-count' },
+      { name: 'Inventory Count',  icon: <BarChart2 size={13} />, path: '/portal/inventory-count' },
+    ],
+  },
+  {
+    label: 'Vendors',
+    items: [
+      { name: 'Vendors',        icon: <Truck size={13} />,        path: '/portal/vendors' },
+      { name: 'Vendor Payouts', icon: <ArrowUpCircle size={13} />, path: '/portal/vendor-payouts' },
+      { name: 'Vendor Orders',  icon: <Package size={13} />,      path: '/portal/vendor-orders' },
+      { name: 'Invoice Import', icon: <FileUp size={13} />,       path: '/portal/invoice-import' },
+      { name: 'CSV Transform',  icon: <Upload size={13} />,       path: '/csv/upload' },
     ],
   },
   {
@@ -70,27 +82,31 @@ const menuGroups = [
   {
     label: 'Integrations',
     items: [
-      { name: 'Vendor Orders', icon: <ClipboardList size={13} />, path: '/portal/vendor-orders' },
-      { name: 'POS API',       icon: <Zap size={13} />,           path: '/portal/pos-api' },
-      { name: 'eComm',         icon: <Globe size={13} />,         path: '/portal/ecomm' },
+      { name: 'POS API', icon: <Zap size={13} />,  path: '/portal/pos-api' },
+      { name: 'eComm',   icon: <Globe size={13} />, path: '/portal/ecomm' },
     ],
   },
   {
     label: 'Point of Sale',
     items: [
-      { name: 'POS Settings',     icon: <Monitor size={13} />,  path: '/portal/pos-settings' },
-      { name: 'Receipt Settings', icon: <FileText size={13} />, path: '/portal/receipt-settings' },
-      { name: 'Stations',         icon: <Tv2 size={13} />,      path: '/portal/stations' },
-      { name: 'Transactions',     icon: <Receipt size={13} />,  path: '/portal/transactions' },
-      { name: 'Employee Reports', icon: <Clock size={13} />,    path: '/portal/employee-reports' },
+      { name: 'POS Settings',     icon: <Monitor size={13} />,     path: '/portal/pos-settings' },
+      { name: 'Receipt Settings', icon: <FileText size={13} />,    path: '/portal/receipt-settings' },
+      { name: 'Stations',         icon: <Tv2 size={13} />,         path: '/portal/stations' },
+      { name: 'Transactions',     icon: <Receipt size={13} />,     path: '/portal/transactions' },
+      { name: 'Employee Reports', icon: <Clock size={13} />,       path: '/portal/employee-reports' },
+      { name: 'Payouts Report',   icon: <ArrowUpCircle size={13} />, path: '/portal/payouts' },
+      { name: 'Deposit Rules',    icon: <Recycle size={13} />,     path: '/portal/deposit-rules' },
+      { name: 'Tax Rules',        icon: <Percent size={13} />,     path: '/portal/tax-rules' },
+      { name: 'Quick Access',     icon: <LayoutGrid size={13} />,  path: '/portal/quick-access' },
     ],
   },
   {
     label: 'Account',
     items: [
-      { name: 'Organisation', icon: <Building2 size={13} />, path: '/portal/organisation' },
-      { name: 'Users',        icon: <Users size={13} />,     path: '/portal/users' },
-      { name: 'Stores',       icon: <Store size={13} />,     path: '/portal/stores' },
+      { name: 'Organisation',   icon: <Building2 size={13} />,  path: '/portal/organisation' },
+      { name: 'Users',          icon: <Users size={13} />,      path: '/portal/users' },
+      { name: 'Stores',         icon: <Store size={13} />,      path: '/portal/stores' },
+      { name: 'Store Settings', icon: <Settings2 size={13} />,  path: '/portal/store-settings' },
     ],
   },
 ];
