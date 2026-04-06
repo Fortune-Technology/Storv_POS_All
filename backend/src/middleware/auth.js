@@ -32,6 +32,17 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ error: 'Not authorized to access this route' });
     }
 
+    // Check user account status — pending users can only access onboarding endpoints
+    if (user.status && user.status !== 'active') {
+      const path = req.originalUrl || req.path;
+      const isOnboardingRoute = path.startsWith('/api/tenants') || path.startsWith('/api/stores');
+      const isSuperadmin = user.role === 'superadmin';
+
+      if (!isOnboardingRoute && !isSuperadmin) {
+        return res.status(403).json({ error: 'Account is not active. Please wait for administrator approval.' });
+      }
+    }
+
     req.user = user;
     scopeToTenant(req, res, next);
   } catch (err) {

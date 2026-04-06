@@ -1,7 +1,7 @@
-# Storv POS — Future Foods Portal
-### Full-Stack Multi-Tenant Retail POS & Business Intelligence Platform
+# StoreVeu POS — Full-Stack Multi-Tenant Retail Platform
+### POS Terminal + Management Portal + Business Intelligence
 
-A modern, cloud-first retail management system for independent convenience, grocery, and liquor stores. Combines a real-time management portal with an offline-first POS cashier terminal, AI-powered invoice processing, and a complete lottery compliance module.
+A modern, cloud-first retail management system for independent convenience, grocery, and liquor stores. Combines a real-time management portal with an offline-first POS cashier terminal (Electron desktop app), AI-powered invoice processing, hardware integration (receipt printers, cash drawers, barcode scanners, scales, PAX payment terminals), and a complete lottery compliance module.
 
 ---
 
@@ -28,7 +28,9 @@ A modern, cloud-first retail management system for independent convenience, groc
 11. [Authentication & Authorization](#11-authentication--authorization)
 12. [Styling System](#12-styling-system)
 13. [Developer Guides](#13-developer-guides)
-14. [Changelog](#14-changelog)
+14. [Hardware Integration](#14-hardware-integration)
+15. [CI/CD & Deployment](#15-cicd--deployment)
+16. [Changelog](#16-changelog)
 
 ---
 
@@ -38,7 +40,11 @@ A modern, cloud-first retail management system for independent convenience, groc
 |-------|-----------|
 | Portal Frontend | React 19, Vite 7, React Router v6, Redux Toolkit |
 | Marketing Site | React 19, Lucide, Framer Motion (animations) |
-| Cashier Terminal | React 18, Vite 5, Zustand, Dexie.js (IndexedDB), PWA |
+| Cashier Terminal | React 18, Vite 5, Zustand, Dexie.js (IndexedDB), Electron 33 |
+| Desktop Packaging | Electron Builder (NSIS installer for Windows x64) |
+| Receipt Printing | ESC/POS (USB via PowerShell, Network TCP, QZ Tray fallback) |
+| Label Printing | ZPL (network TCP to Zebra-compatible printers) |
+| Hardware | Barcode scanners (HID/Serial), scales (Magellan/Serial), PAX terminals |
 | Charts | Recharts (portal), Pure SVG (cashier/lottery) |
 | Icons | Lucide React |
 | Backend | Node.js, Express 4 |
@@ -46,6 +52,7 @@ A modern, cloud-first retail management system for independent convenience, groc
 | Auth | JWT (30-day tokens) + bcryptjs (passwords & POS PINs) |
 | File Handling | Multer, pdf2pic, csv-parser, fast-csv, xlsx |
 | OCR | Azure Document Intelligence + OpenAI GPT-4o-mini |
+| Payment Terminals | PAX A920/A35/A80/S300 (via backend API proxy) |
 | POS Integration | MarktPOS / IT Retail REST API v2 |
 | Weather | Open-Meteo API |
 | Predictions | Holt-Winters Triple Exponential Smoothing + DOW factors |
@@ -56,11 +63,14 @@ A modern, cloud-first retail management system for independent convenience, groc
 ## 2. Project Structure
 
 ```
-CSV_Filter_Project/
+Fortune_POS_Platform/
 ├── CLAUDE.md                    # AI session context — auto-loaded by Claude Code
 ├── README.md                    # This file
 ├── ENGINEERING_PRINCIPLES.md    # Code standards & architectural decisions
 ├── ProjectOverview.md           # High-level product overview
+├── .github/
+│   └── workflows/
+│       └── deploy.yml           # CI/CD: auto-deploy on push to main
 │
 ├── backend/
 │   ├── prisma/
@@ -73,14 +83,22 @@ CSV_Filter_Project/
 │   │   │   └── postgres.js      # Prisma client singleton
 │   │   ├── controllers/
 │   │   │   ├── authController.js
-│   │   │   ├── catalogController.js      # Native POS catalog CRUD
+│   │   │   ├── catalogController.js      # Native POS catalog CRUD (depts, tax, vendors, deposits, rebates)
 │   │   │   ├── customerController.js
+│   │   │   ├── employeeReportsController.js # Employee shift/clock summaries
+│   │   │   ├── feeMappingController.js   # Service fees and delivery charges
+│   │   │   ├── importController.js       # Bulk CSV/Excel import pipeline
 │   │   │   ├── invoiceController.js      # Azure OCR + GPT matching
 │   │   │   ├── lotteryController.js      # Full lottery module (games/boxes/txns/reports/settings)
+│   │   │   ├── paymentController.js      # PAX terminal integration (sale/refund/void/test)
 │   │   │   ├── posController.js          # IT Retail proxy
-│   │   │   ├── posTerminalController.js  # Cashier terminal API + lottery item handling
-│   │   │   ├── reportsController.js
-│   │   │   └── salesController.js        # Analytics + Holt-Winters predictions
+│   │   │   ├── posTerminalController.js  # Cashier terminal API + lottery + receipt printing
+│   │   │   ├── productController.js      # Master/store products, promotions
+│   │   │   ├── salesController.js        # Analytics + Holt-Winters predictions
+│   │   │   ├── shiftController.js        # Shift open/close, cash drops, payouts
+│   │   │   ├── stationController.js      # Station registration, PIN login, hardware config
+│   │   │   ├── storeController.js        # Store CRUD, branding, billing
+│   │   │   └── userManagementController.js # Tenant users, invites, roles
 │   │   ├── middleware/
 │   │   │   ├── auth.js                   # JWT protect + authorize(roles)
 │   │   │   └── scopeToTenant.js          # Injects req.orgId / req.storeId
@@ -89,7 +107,9 @@ CSV_Filter_Project/
 │   │       ├── catalogRoutes.js          # /api/catalog
 │   │       ├── customerRoutes.js         # /api/customers
 │   │       ├── invoiceRoutes.js          # /api/invoices
-│   │       ├── lotteryRoutes.js          # /api/lottery  ← NEW
+│   │       ├── feeMappingRoutes.js        # /api/fees-mappings
+│   │       ├── lotteryRoutes.js          # /api/lottery
+│   │       ├── paymentRoutes.js          # /api/payment (PAX terminals)
 │   │       ├── posRoutes.js              # /api/pos (IT Retail proxy)
 │   │       ├── posTerminalRoutes.js      # /api/pos-terminal
 │   │       ├── productRoutes.js          # /api/products
@@ -97,12 +117,20 @@ CSV_Filter_Project/
 │   │       ├── salesRoutes.js            # /api/sales
 │   │       ├── storeRoutes.js            # /api/stores
 │   │       ├── tenantRoutes.js           # /api/tenants
+│   │       ├── weatherRoutes.js          # /api/weather
 │   │       └── userManagementRoutes.js   # /api/users
 │
 ├── cashier-app/
+│   ├── electron/
+│   │   ├── main.cjs                     # Electron main process (IPC handlers, printer/drawer)
+│   │   └── preload.cjs                  # Context bridge (window.electronAPI)
 │   ├── src/
 │   │   ├── api/
+│   │   │   ├── client.js                # Axios instance (Bearer + Station token headers)
 │   │   │   └── pos.js                   # All cashier API calls (single source of truth)
+│   │   ├── services/
+│   │   │   ├── printerService.js        # ESC/POS receipt builder + printing (USB/Network/QZ)
+│   │   │   └── qzService.js             # QZ Tray WebSocket client (printers, serial ports)
 │   │   ├── components/
 │   │   │   ├── cart/
 │   │   │   │   ├── CartItem.jsx          # Handles lottery items (isLottery flag)
@@ -110,8 +138,10 @@ CSV_Filter_Project/
 │   │   │   ├── layout/
 │   │   │   │   └── StatusBar.jsx
 │   │   │   ├── modals/
-│   │   │   │   ├── LotteryModal.jsx      # Combined Sale+Payout modal ← LATEST
-│   │   │   │   ├── LotteryShiftModal.jsx # EOD ticket scan reconciliation ← LATEST
+│   │   │   │   ├── LotteryModal.jsx      # Combined Sale+Payout modal
+│   │   │   │   ├── LotterySaleModal.jsx  # Record lottery sale (game/box/qty)
+│   │   │   │   ├── LotteryPayoutModal.jsx # Record lottery payout
+│   │   │   │   ├── LotteryShiftModal.jsx # EOD ticket scan reconciliation
 │   │   │   │   ├── AgeVerificationModal.jsx
 │   │   │   │   ├── CashDrawerModal.jsx
 │   │   │   │   ├── CloseShiftModal.jsx
@@ -126,18 +156,25 @@ CSV_Filter_Project/
 │   │   │   │   ├── ReprintReceiptModal.jsx
 │   │   │   │   ├── TransactionHistoryModal.jsx
 │   │   │   │   └── VoidModal.jsx
+│   │   │   │   └── ReceiptModal.jsx       # Preview + print receipt
 │   │   │   ├── pos/
 │   │   │   │   ├── ActionBar.jsx         # Bottom bar — all quick-action buttons
 │   │   │   │   ├── CategoryPanel.jsx
-│   │   │   │   └── NumpadModal.jsx
+│   │   │   │   ├── NumPadInline.jsx      # Inline numeric keypad
+│   │   │   │   └── NumpadModal.jsx       # Full-screen numeric input
 │   │   │   └── tender/
 │   │   │       └── TenderModal.jsx       # Checkout — handles lottery cash-only enforcement
 │   │   ├── db/
 │   │   │   └── dexie.js                  # IndexedDB schema for offline catalog
 │   │   ├── hooks/
+│   │   │   ├── useBarcodeScanner.js      # HID/serial barcode scanner listener
+│   │   │   ├── useBranding.js            # Store branding, colors, logos
+│   │   │   ├── useCatalogSync.js         # Product sync (server → IndexedDB)
+│   │   │   ├── useHardware.js            # Hardware detection (printers, drawers, scales)
+│   │   │   ├── useOnlineStatus.js        # Internet connectivity monitor
 │   │   │   ├── usePOSConfig.js           # POS settings from IndexedDB (incl. lottery config)
-│   │   │   ├── useBarcodeScanner.js
-│   │   │   └── useProductLookup.js
+│   │   │   ├── useProductLookup.js       # Online fallback product search
+│   │   │   └── useScale.js              # Weight scale reading (serial)
 │   │   ├── screens/
 │   │   │   ├── POSScreen.jsx             # Main POS — 3-zone layout
 │   │   │   ├── LoginScreen.jsx
@@ -145,41 +182,55 @@ CSV_Filter_Project/
 │   │   │   ├── StationSetupScreen.jsx
 │   │   │   └── StoreSelect.jsx
 │   │   ├── stores/
+│   │   │   ├── useAuthStore.js           # Cashier login, token, offline mode
 │   │   │   ├── useCartStore.js           # Cart state (incl. addLotteryItem action)
 │   │   │   ├── useLotteryStore.js        # Lottery session tracking
 │   │   │   ├── useManagerStore.js        # Manager PIN session
 │   │   │   ├── useShiftStore.js          # Shift open/close
-│   │   │   ├── useStationStore.js        # Terminal registration
-│   │   │   └── useSyncStore.js           # Background catalog sync
+│   │   │   ├── useStationStore.js        # Terminal registration + hardware config
+│   │   │   └── useSyncStore.js           # Background catalog sync + pending tx count
 │   │   └── utils/
+│   │       ├── branding.js               # Store branding helpers
+│   │       ├── cashPresets.js            # Cash denomination presets
+│   │       ├── formatters.js             # Currency, date, percent formatting
+│   │       ├── pdf417Parser.js           # PDF-417 driver's license parser (age verify)
 │   │       ├── promoEngine.js            # Promo evaluation (excludes lottery items)
-│   │       ├── formatters.js
-│   │       └── cashPresets.js
+│   │       └── taxCalc.js               # Tax calculation engine (EBT exemptions)
 │
 └── frontend/
     ├── src/
     │   ├── App.jsx                       # All route definitions
     │   ├── components/
-    │   │   ├── Sidebar.jsx               # Nav links (incl. Lottery group) ← UPDATED
+    │   │   ├── Sidebar.jsx               # Nav links (incl. Lottery group)
     │   │   ├── Layout.jsx
     │   │   ├── Navbar.jsx
+    │   │   ├── StoreSwitcher.jsx         # Multi-store selector
+    │   │   ├── SetupGuide.jsx            # Onboarding wizard
     │   │   ├── DatePicker.jsx
     │   │   ├── DocumentUploader.jsx
     │   │   └── DocumentHistory.jsx
+    │   ├── contexts/
+    │   │   └── StoreContext.js            # Active store context
     │   ├── pages/
-    │   │   ├── Lottery.jsx               # Full lottery portal (8 tabs) ← NEW
-    │   │   ├── POSSettings.jsx           # POS config (incl. lottery settings) ← UPDATED
+    │   │   ├── Lottery.jsx               # Full lottery portal (8 tabs)
+    │   │   ├── POSSettings.jsx           # POS config (incl. lottery settings)
+    │   │   ├── ReceiptSettings.jsx       # Per-store receipt configuration
     │   │   ├── Dashboard.jsx
     │   │   ├── RealTimeDashboard.jsx
     │   │   ├── SalesAnalytics.jsx
     │   │   ├── ProductCatalog.jsx
+    │   │   ├── ProductForm.jsx           # Product create/edit form
     │   │   ├── Promotions.jsx
+    │   │   ├── BulkImport.jsx            # CSV/Excel bulk product import
     │   │   ├── EmployeeReports.jsx
+    │   │   ├── Transactions.jsx          # POS transaction audit log
     │   │   ├── Customers.jsx
     │   │   ├── OCRPage.jsx
-    │   │   └── ... (39 pages total)
+    │   │   ├── StoreManagement.jsx       # Multi-store CRUD
+    │   │   ├── StoreBranding.jsx         # Store theme/logo config
+    │   │   └── ... (45+ pages total)
     │   └── services/
-    │       └── api.js                    # All API calls (incl. 15 lottery functions) ← UPDATED
+    │       └── api.js                    # All API calls (incl. 15 lottery functions)
 ```
 
 ---
@@ -268,10 +319,13 @@ VITE_API_URL="http://localhost:5000/api"
 | `/portal/organisation` | Organisation.jsx | Org settings |
 | `/portal/stores` | StoreManagement.jsx | Store management |
 | `/portal/users` | UserManagement.jsx | User management |
-| `/portal/lottery` | **Lottery.jsx** | 🎰 Full lottery management |
-| `/portal/fees` | **FeesMappings.jsx** | 💰 Service fee management |
-| `/portal/deposits` | **DepositMapPage.jsx** | 🧴 Deposit mapping |
+| `/portal/lottery` | **Lottery.jsx** | Full lottery management |
+| `/portal/fees` | **FeesMappings.jsx** | Service fee management |
+| `/portal/deposits` | **DepositMapPage.jsx** | Deposit mapping |
 | `/portal/bulk-import` | BulkImport.jsx | Bulk product import |
+| `/portal/receipt-settings` | **ReceiptSettings.jsx** | Receipt printer config |
+| `/portal/branding` | **StoreBranding.jsx** | Store theme & logo |
+| `/portal/transactions` | **Transactions.jsx** | POS transaction audit log |
 | `/portal/ecomm` | EcommIntegration.jsx | eCommerce sync |
 
 All portal routes are wrapped in `<ProtectedRoute>`.
@@ -289,12 +343,15 @@ All portal routes are wrapped in `<ProtectedRoute>`.
 | `PinLoginScreen` | 4–6 digit cashier PIN login |
 | `POSScreen` | Main 3-zone POS layout |
 
-### Modals (18)
+### Modals (20+)
 | Modal | Trigger | Description |
 |-------|---------|-------------|
 | `LotteryModal` | Lottery button | Combined sale + payout, qty-based pricing |
+| `LotterySaleModal` | Via LotteryModal | Select game/box, enter quantity |
+| `LotteryPayoutModal` | Via LotteryModal | Record payout amount |
 | `LotteryShiftModal` | Close Shift / EOD | Per-box ticket scan reconciliation |
 | `TenderModal` | Cart checkout | Multi-method payment, lottery cash-only |
+| `ReceiptModal` | After tender | Preview + print receipt |
 | `DiscountModal` | Discount button | Line or order discounts |
 | `RefundModal` | Refund button | Transaction refund |
 | `VoidModal` | Void Tx button | Void full transaction |
@@ -327,14 +384,65 @@ All routes require `Authorization: Bearer <token>` unless noted.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/register-station` | Register terminal |
+| POST | `/verify-station` | Verify station token |
 | POST | `/pin-login` | Cashier PIN auth |
 | GET | `/catalog-snapshot` | Full offline catalog |
 | POST | `/transactions` | Save cart transaction (supports `lotteryItems[]`) |
+| POST | `/transactions/batch` | Bulk sync offline transactions |
 | GET | `/transactions` | Transaction history |
+| POST | `/transactions/:id/void` | Void transaction |
+| POST | `/transactions/:id/refund` | Refund transaction |
 | POST | `/shifts` | Open shift |
 | PUT | `/shifts/:id` | Update/close shift |
 | POST | `/cash-events` | Cash drop / payout |
 | GET | `/promotions` | Active promotions |
+| GET | `/branding` | Store branding config |
+| GET | `/config` | POS station config |
+| PUT | `/config` | Save POS station config |
+| GET | `/hardware-config` | Hardware settings |
+| PUT | `/hardware-config` | Save hardware settings |
+| POST | `/print-network` | Print receipt via network printer |
+| GET | `/end-of-day` | End of day report |
+
+### Payment `/api/payment`
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/pax/sale` | Initiate PAX card sale |
+| POST | `/pax/refund` | PAX refund |
+| POST | `/pax/void` | PAX void |
+| POST | `/pax/test` | PAX connection test |
+
+### Stores `/api/stores`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | List stores |
+| POST | `/` | Create store |
+| PUT | `/:id` | Update store |
+| PUT | `/:id/branding` | Update store branding |
+| PUT | `/:id/location` | Update store location |
+| GET | `/billing-summary` | Billing overview |
+
+### Shifts `/api/pos-terminal`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/shifts/active` | Get active shift |
+| POST | `/shifts/open` | Open new shift |
+| POST | `/shifts/close` | Close active shift |
+| POST | `/shifts/cash-drop` | Record cash drop |
+| POST | `/shifts/payout` | Record cash payout |
+
+### Fee Mappings `/api/fees-mappings`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | List fee mappings |
+| PUT | `/` | Upsert fee mapping |
+| DELETE | `/:id` | Delete fee mapping |
+
+### Weather `/api/weather`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/current` | Current weather for store |
+| GET | `/range` | Weather history for date range |
 
 ### Lottery `/api/lottery`
 | Method | Path | Access | Description |
@@ -376,11 +484,11 @@ Analytics with weather correlation, predictions.
 ### Multi-Tenant Core
 | Model | Key Fields |
 |-------|-----------|
-| `Organization` | id, name, state, country, subscriptionPlan |
+| `Organization` | id, name, state, country, subscriptionPlan (trial/starter/pro/enterprise) |
 | `User` | id, orgId, email, pin, role (cashier/manager/owner/admin/superadmin) |
-| `Store` | id, orgId, name, address, state, timezone |
+| `Store` | id, orgId, name, address, state, timezone, pos (JSON), branding (JSON) |
 | `UserStore` | userId, storeId (many-to-many) |
-| `Station` | id, storeId, name, token |
+| `Station` | id, storeId, name, token, hardwareConfig (JSON — printer, scale, PAX) |
 
 ### Catalog & Inventory
 | Model | Key Fields |
@@ -391,7 +499,9 @@ Analytics with weather correlation, predictions.
 | `Vendor` | id, orgId, name, contactInfo |
 | `MasterProduct` | id, orgId, upc, name, deptId, basePrice, ebtEligible |
 | `StoreProduct` | id, storeId, masterProductId, overridePrice, stock |
-| `Promotion` | id, orgId, type, trigger, reward, startsAt, endsAt |
+| `Promotion` | id, orgId, type (sale/BOGO/volume/mix_match/combo), dealConfig (JSON) |
+| `RebateProgram` | id, orgId, manufacturer, amount, active |
+| `VendorProductMap` | vendorCode, orgId, masterProductId, matchTier |
 
 ### POS Operations
 | Model | Key Fields |
@@ -401,6 +511,9 @@ Analytics with weather correlation, predictions.
 | `CashDrop` | id, shiftId, amount, reason |
 | `CashPayout` | id, shiftId, amount, vendor |
 | `Customer` | id, orgId, phone, name, points, balance |
+| `ClockEvent` | id, userId, storeId, type (in/out), timestamp |
+| `PosToken` | id, userId, token, expiresAt |
+| `PosLog` | id, endpoint, method, status, statusCode (TTL 30 days) |
 
 ### Lottery Module
 | Model | Key Fields |
@@ -414,14 +527,22 @@ Analytics with weather correlation, predictions.
 ### Documents & OCR
 | Model | Key Fields |
 |-------|-----------|
-| `Invoice` | id, orgId, vendorId, invoiceDate, totalAmount, status, lineItems (JSON) |
-| `Document` | id, orgId, fileName, ocrData (JSON) |
-| `VendorProductMap` | vendorCode, orgId, masterProductId |
+| `Invoice` | id, orgId, vendorId, invoiceDate, totalAmount, status, lineItems (JSON), pages (JSON) |
+| `Document` | id, orgId, fileName, docType, extractedFields (JSON) |
+| `FeeMapping` | id, orgId, label, internalType (bottle_deposit/bag_fee/alcohol_surcharge) |
 
 ### Analytics & External
 | Model | Key Fields |
 |-------|-----------|
-| `WeatherCache` | date, lat, lng, maxTemp, precip, conditionCode |
+| `WeatherCache` | date, lat, lng, maxTemp, precip, wind, conditionCode |
+| `ImportJob` | id, orgId, type, successCount, failedCount, skippedCount, errors (JSON) |
+
+### CSV Pipeline (Legacy)
+| Model | Key Fields |
+|-------|-----------|
+| `Upload` | id, orgId, fileName, status (pending/processing/complete/error) |
+| `Transform` | id, uploadId, outputFormat, rowsProcessed, warnings (JSON) |
+| `DepositMap` | id, orgId, itemCode, depositAmount |
 
 ---
 
@@ -431,22 +552,36 @@ Analytics with weather correlation, predictions.
 | File | Purpose |
 |------|---------|
 | `services/marktPOSService.js` | IT Retail API client (auth + product/transaction calls) |
+| `services/importService.js` | CSV/Excel bulk import validator & executor |
 | `services/salesService.js` | Sales data aggregation and formatting |
 | `services/weatherService.js` | Open-Meteo fetch + cache pipeline |
 | `services/matchingService.js` | Invoice line item ↔ POS product fuzzy matching |
+| `services/gptService.js` | OpenAI GPT-4o-mini for invoice field enrichment |
 | `utils/predictions.js` | Holt-Winters Triple Exponential Smoothing |
 | `utils/fileProcessor.js` | CSV/Excel parsing + vendor-specific transforms |
 | `utils/posScheduler.js` | Auto-refreshes MarktPOS auth tokens |
+| `utils/transformer.js` | CSV column mapping orchestrator |
+| `utils/transformers/` | Vendor-specific transforms (Agne Foods, Pine State Spirits) |
 
 ### Cashier App
 | File | Purpose |
 |------|---------|
+| `services/printerService.js` | ESC/POS receipt builder + USB/Network/QZ printing |
+| `services/qzService.js` | QZ Tray WebSocket (printers, serial ports, scales) |
 | `utils/promoEngine.js` | Client-side promotion evaluation (skips lottery items) |
+| `utils/taxCalc.js` | Tax calculation engine (EBT exemptions, dept rules) |
+| `utils/pdf417Parser.js` | PDF-417 driver's license barcode parser |
 | `utils/formatters.js` | Currency, date, percent formatters |
 | `utils/cashPresets.js` | Smart cash tender quick-button presets |
-| `db/dexie.js` | IndexedDB: products, promotions, tax rules, deposits |
-| `hooks/useBarcodeScanner.js` | USB/Bluetooth barcode scanner event handler |
+| `db/dexie.js` | IndexedDB v5: products, promotions, tax rules, deposits, departments, cashiers, scan frequency |
+| `hooks/useBarcodeScanner.js` | HID/Serial barcode scanner event handler |
+| `hooks/useHardware.js` | Hardware detection (receipt printer, drawer, scale) |
+| `hooks/useScale.js` | Magellan serial scale weight reading |
+| `hooks/useCatalogSync.js` | Product + department sync (server → IndexedDB) |
 | `hooks/usePOSConfig.js` | Reads POS config from IndexedDB (lottery settings included) |
+| `hooks/useOnlineStatus.js` | Internet connectivity monitor |
+| `electron/main.cjs` | Electron IPC: USB/network printing, drawer kick, app control |
+| `electron/preload.cjs` | Context bridge: `window.electronAPI` |
 
 ---
 
@@ -756,7 +891,89 @@ npx prisma db push
 
 ---
 
-## 14. Changelog
+## 14. Hardware Integration
+
+The cashier app includes a full ESC/POS hardware layer that works without browser print dialogs.
+
+### Supported Hardware
+
+| Device | Connection | Implementation |
+|--------|-----------|----------------|
+| Receipt Printer | USB (Windows) | Electron IPC → PowerShell → winspool.drv |
+| Receipt Printer | Network TCP | Electron/Backend → TCP socket port 9100 |
+| Receipt Printer | QZ Tray | Browser → QZ Tray bridge → USB driver |
+| Cash Drawer | Via printer | ESC/POS `DRAWER_KICK` command (auto on cash tender) |
+| Barcode Scanner | HID USB/BT | Global keydown listener (timing-based) |
+| Barcode Scanner | Serial | QZ Tray / Web Serial API |
+| Weight Scale | Serial (Magellan) | Web Serial API, configurable baud rate |
+| Label Printer | Network ZPL | TCP socket to Zebra-compatible printers |
+| PAX Terminal | Network IP | Backend API proxy (`/api/payment/pax/*`) |
+
+### Electron Desktop App
+
+The cashier app packages as a Windows desktop app via Electron Builder:
+
+```bash
+cd cashier-app
+npm run electron:dev    # Dev mode (Vite + Electron)
+npm run electron:build  # Production NSIS installer (Windows x64)
+```
+
+**App ID:** `com.storeveu.pos` | **Output:** `dist-electron/` | **Persistent config:** `%APPDATA%/storeveu_station.json`
+
+### Receipt Printing
+
+- **Paper widths:** 80mm (42 chars) and 58mm (32 chars)
+- **Content:** Store info, cashier, items, discounts, tax breakdown, tender, change, footer
+- **End of Day report** prints directly to receipt printer
+- **Print performance:** First USB print ~2-3s (compiles DLL), subsequent ~200-400ms
+
+---
+
+## 15. CI/CD & Deployment
+
+**GitHub Actions** (`.github/workflows/deploy.yml`) — auto-deploys on push to `main`:
+
+1. Backend: `npm ci` → `prisma generate` → `prisma migrate deploy` → `pm2 restart`
+2. Frontend: `npm ci` → `npm run build` → `nginx reload`
+3. Cashier App: `npm ci` → `npm run build` → `nginx reload`
+4. Health checks: `curl -f` against all endpoints
+
+**Production URLs:**
+| Service | URL |
+|---------|-----|
+| API | `https://api-pos.thefortunetech.com` |
+| Dashboard | `https://dashboard.thefortunetech.com` |
+| POS Web | `https://pos.thefortunetech.com` |
+
+---
+
+## 16. Changelog
+
+### April 2026 — Hardware Integration & Electron Build
+
+#### Hardware & Printing
+- **Receipt printer configuration** — Station-level setup for USB (PowerShell/winspool), Network (TCP:9100), and QZ Tray printers.
+- **ESC/POS receipt builder** — Full receipt generation with store info, line items, tax/deposit breakdown, tender, and footer.
+- **Cash drawer integration** — ESC/POS drawer kick via receipt printer (auto on cash tender, manual via No Sale).
+- **Barcode scanner support** — HID keyboard emulation with timing-based detection + QZ Tray serial port.
+- **Weight scale integration** — Magellan/Datalogic serial scales via Web Serial API.
+- **PAX payment terminal** — Backend API proxy for sale/refund/void (A920, A35, A80, S300).
+- **Label printer** — ZPL printing via network TCP to Zebra-compatible printers.
+
+#### Electron Desktop App
+- **Electron 33** wrapper for cashier-app with native IPC for USB/network printing.
+- **NSIS installer** for Windows x64 (`com.storeveu.pos`).
+- **Persistent config** — Station hardware settings backed up to `%APPDATA%/storeveu_station.json`.
+- **Preload context bridge** — `window.electronAPI` for secure IPC communication.
+
+#### Receipt Settings (Portal)
+- **Per-store receipt configuration** — Print behaviour (always/ask/never), paper width, store info, custom header/footer lines, return policy.
+- **Branding sync** — Primary colour and logo text synced from portal to POS receipt.
+
+#### CI/CD
+- **GitHub Actions deploy pipeline** — Auto-deploy backend, frontend, and cashier-app on push to `main`.
+- **Health check verification** — Automated curl checks against production endpoints.
 
 ### April 2026 — Marketing Site & UX Overhaul
 
@@ -814,4 +1031,4 @@ npx prisma db push
 
 ---
 
-*Built with ❤️ for Future Foods — Storv POS v2.0*
+*Built with care for Future Foods — StoreVeu POS v2.0*

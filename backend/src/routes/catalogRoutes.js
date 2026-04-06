@@ -63,6 +63,11 @@ import {
   getImportHistory,
   getImportJob,
 } from '../controllers/importController.js';
+import {
+  listVendorPayments,
+  createVendorPayment,
+  updateVendorPayment,
+} from '../controllers/vendorPaymentController.js';
 
 const router = express.Router();
 
@@ -134,5 +139,10 @@ router.post('/import/commit',         authorize('superadmin','admin','owner','ma
 router.get('/import/template/:type',  authorize('superadmin','admin','owner','manager'), getImportTemplate);
 router.get('/import/history',         authorize('superadmin','admin','owner','manager'), getImportHistory);
 router.get('/import/history/:id',     authorize('superadmin','admin','owner','manager'), getImportJob);
+
+// ─── Vendor Payments (back-office) ────────────────────────────────
+router.get('/vendor-payments',     authorize('superadmin', 'admin', 'owner', 'manager'), listVendorPayments);
+router.post('/vendor-payments',    authorize('superadmin', 'admin', 'owner', 'manager'), createVendorPayment);
+router.put('/vendor-payments/:id', authorize('superadmin', 'admin', 'owner'),           updateVendorPayment);
 
 export default router;

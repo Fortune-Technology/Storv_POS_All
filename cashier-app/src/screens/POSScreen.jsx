@@ -22,6 +22,7 @@ import TenderModal          from '../components/tender/TenderModal.jsx';
 import AgeVerificationModal from '../components/modals/AgeVerificationModal.jsx';
 import ActionBar            from '../components/pos/ActionBar.jsx';
 import CategoryPanel        from '../components/pos/CategoryPanel.jsx';
+import QuickFoldersPanel    from '../components/pos/QuickFoldersPanel.jsx';
 import NumpadModal          from '../components/pos/NumpadModal.jsx';
 import ManagerPinModal      from '../components/modals/ManagerPinModal.jsx';
 import DiscountModal        from '../components/modals/DiscountModal.jsx';
@@ -36,8 +37,10 @@ import ReprintReceiptModal     from '../components/modals/ReprintReceiptModal.js
 import OpenShiftModal          from '../components/modals/OpenShiftModal.jsx';
 import CloseShiftModal         from '../components/modals/CloseShiftModal.jsx';
 import CashDrawerModal         from '../components/modals/CashDrawerModal.jsx';
-import LotteryModal        from '../components/modals/LotteryModal.jsx';
-import LotteryShiftModal   from '../components/modals/LotteryShiftModal.jsx';
+import LotteryModal            from '../components/modals/LotteryModal.jsx';
+import LotteryShiftModal       from '../components/modals/LotteryShiftModal.jsx';
+import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
+import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding } from '../api/pos.js';
 
@@ -211,6 +214,9 @@ export default function POSScreen() {
   // Lottery modals
   const [showLottery,        setShowLottery]        = useState(false);
   const [showLotteryShift,   setShowLotteryShift]   = useState(false);
+  const [showBottleReturn,   setShowBottleReturn]   = useState(false);
+  const [showVendorPayout,   setShowVendorPayout]   = useState(false);
+  const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick'
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Discount modal: discountTarget = lineId string → line discount, null → order discount
   const [discountTarget,  setDiscountTarget]  = useState(undefined); // undefined = closed
@@ -553,20 +559,52 @@ export default function POSScreen() {
             )}
           </div>
 
+          {/* ── Quick Access tab bar ── */}
+          {posConfig.quickFolders?.length > 0 && (
+            <div style={{
+              display: 'flex', borderBottom: '1px solid var(--border)',
+              flexShrink: 0, background: 'var(--bg-panel)',
+            }}>
+              {[
+                { key: 'catalog', label: 'CATALOG' },
+                { key: 'quick',   label: '⚡ QUICK' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setQuickTab(tab.key)}
+                  style={{
+                    flex: 1, height: 34, background: 'none', border: 'none',
+                    borderBottom: `2px solid ${quickTab === tab.key ? 'var(--green)' : 'transparent'}`,
+                    color: quickTab === tab.key ? 'var(--green)' : 'var(--text-muted)',
+                    fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.05em',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Category panel (flex: 1 so it fills the remaining space) */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <CategoryPanel
-              config={{
-                showDepartments: layoutCfg.showDepts,
-                showQuickAdd: layoutCfg.showQuick,
-                hiddenDepartments: posConfig.hiddenDepartments || [],
-              }}
-              onAddProduct={(product) => {
-                addWithAgeCheck(product);
-                flash('hit');
-              }}
-            />
-          </div>
+          {quickTab === 'catalog' && (
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <CategoryPanel
+                config={{
+                  showDepartments: layoutCfg.showDepts,
+                  showQuickAdd: layoutCfg.showQuick,
+                  hiddenDepartments: posConfig.hiddenDepartments || [],
+                }}
+                onAddProduct={(product) => {
+                  addWithAgeCheck(product);
+                  flash('hit');
+                }}
+              />
+            </div>
+          )}
+          {quickTab === 'quick' && (
+            <QuickFoldersPanel folders={posConfig.quickFolders || []} />
+          )}
 
           {/* ── Selected-item action strip (bottom, only when item selected) ── */}
           {selectedItem && !layoutCfg.counterMode && (
@@ -1134,10 +1172,12 @@ export default function POSScreen() {
         onOpenShift={() => setShowOpenShift(true)}
         onCloseShift={() => requireManager('Close Shift', () => setShowCloseShift(true))}
         onCashDrop={() => { setCashDrawerTab('drop'); setShowCashDrawer(true); }}
-        onPayout={() => { setCashDrawerTab('payout'); setShowCashDrawer(true); }}
+        onPayout={() => setShowVendorPayout(true)}
         onLottery={() => setShowLottery(true)}
+        onBottleReturn={() => setShowBottleReturn(true)}
         shiftOpen={!!shift}
         heldCount={heldCount}
+        actionBarHeight={({'compact':48,'normal':58,'large':72}[posConfig.actionBarHeight] || 58)}
       />
 
       {/* ══ Modals ══ */}
@@ -1330,6 +1370,22 @@ export default function POSScreen() {
           scanRequired={posConfig.lottery?.scanRequiredAtShiftEnd || false}
           onSave={handleLotteryShiftSave}
           onClose={() => setShowLotteryShift(false)}
+        />
+      )}
+
+      {/* ── Bottle Redemption Modal ── */}
+      {showBottleReturn && (
+        <BottleRedemptionModal
+          onClose={() => setShowBottleReturn(false)}
+          onComplete={(tx) => { setLastCompletedTx(tx); setShowBottleReturn(false); }}
+        />
+      )}
+
+      {/* ── Vendor Payout Modal ── */}
+      {showVendorPayout && (
+        <VendorPayoutModal
+          onClose={() => setShowVendorPayout(false)}
+          onComplete={(tx) => { setShowVendorPayout(false); }}
         />
       )}
     </div>

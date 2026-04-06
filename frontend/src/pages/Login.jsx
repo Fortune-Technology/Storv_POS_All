@@ -17,7 +17,12 @@ const Login = () => {
       const { data } = await login(formData);
       localStorage.setItem('user', JSON.stringify(data));
       toast.success('Welcome back!');
-      navigate('/portal/pos-api');
+      // Role-based redirect: superadmin → admin panel, others → portal
+      if (data.role === 'superadmin') {
+        navigate('/admin');
+      } else {
+        navigate('/portal/pos-api');
+      }
     } catch (error) {
       toast.error(error.response?.data?.error || 'Login failed');
     } finally {

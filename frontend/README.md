@@ -1,6 +1,6 @@
-# 🎨 Future Foods Portal — Frontend
+# StoreVeu POS — Portal Frontend
 
-A premium, dark-themed management portal for Future Foods store owners and managers. Built with **React 19**, **Vite 7**, and **Redux Toolkit**.
+A premium, dark-themed management portal for StoreVeu POS store owners and managers. Built with **React 19**, **Vite 7**, and **Redux Toolkit**.
 
 ---
 
@@ -27,22 +27,30 @@ A premium, dark-themed management portal for Future Foods store owners and manag
 
 ---
 
-## 📁 Folder Structure
+## Folder Structure
 
 ```
 frontend/
 ├── public/              → Static assets (favicon, manifest)
 ├── src/
 │   ├── assets/          → Logos and imagery
-│   ├── components/      → Shared UI elements (Sidebar, Layout, DatePicker)
-│   ├── pages/           → Module-specific views
+│   ├── components/      → Shared UI (Sidebar, Layout, Navbar, StoreSwitcher, SetupGuide)
+│   ├── contexts/        → React contexts (StoreContext)
+│   ├── pages/           → Module-specific views (45+ pages)
+│   │   ├── marketing/   → Home, About, Features, Pricing, Contact
+│   │   ├── Lottery.jsx  → Full lottery portal (8 tabs)
+│   │   ├── ReceiptSettings.jsx → Per-store receipt configuration
 │   │   ├── RealTimeDashboard.jsx
 │   │   ├── SalesAnalytics.jsx
 │   │   ├── ProductCatalog.jsx
-│   │   ├── EmployeeReports.jsx
+│   │   ├── ProductForm.jsx → Product create/edit
+│   │   ├── BulkImport.jsx → CSV/Excel bulk import
+│   │   ├── Transactions.jsx → POS audit log
+│   │   ├── StoreManagement.jsx
+│   │   ├── StoreBranding.jsx
 │   │   └── ...
 │   ├── services/        → Centralized Axios API instances
-│   ├── store/           → Redux slices and RTK Query hooks
+│   ├── store/           → Redux slices
 │   ├── utils/           → Helpers (weather icons, formatters)
 │   ├── App.jsx          → Main router and route definitions
 │   └── main.jsx         → Entry point
@@ -67,13 +75,25 @@ A side-by-side review panel that uses Azure Intelligence and GPT-4o-mini to extr
 Uses Holt-Winters Triple Exponential Smoothing to forecast future sales based on historical trends, seasonal patterns, and day-of-week factors.
 
 ### 5. Lottery & Compliance
-A high-integrity management system for scratch-ticket inventory, box activation, and automated EOD reconciliation.
+A high-integrity management system for scratch-ticket inventory, box activation, and automated EOD reconciliation (8 tabs: Overview, Games, Inventory, Active Tickets, Shift Reports, Reports, Commission, Settings).
 
 ### 6. Public Marketing Site
-A high-performance promotional site with landing pages and product feature deep-dives, optimized for SEO.
+A high-performance promotional site with landing pages and product feature deep-dives, optimized for SEO (Home, About, Features, Pricing, Contact).
 
 ### 7. Employee Reports
 Comprehensive sales performance analytics per staff member, linked to the native POS transaction logs.
+
+### 8. Receipt Settings
+Per-store receipt configuration: print behaviour, paper width, store info, custom header/footer lines, return policy, branding sync.
+
+### 9. Store & Station Management
+Multi-store CRUD with branding, location/geo-mapping, and per-station hardware configuration (printers, scales, PAX terminals).
+
+### 10. Bulk Import
+CSV/Excel product import pipeline with preview, validation, column mapping, and batch commit.
+
+### 11. Fee & Deposit Management
+Service fee mapping (bottle deposit, bag fee, alcohol surcharge) and cross-store deposit rules.
 
 ---
 

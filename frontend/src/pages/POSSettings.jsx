@@ -26,15 +26,18 @@ const DEFAULT_CONFIG = {
   customerLookup: true,
   ageVerification: true,
   cashRounding: 'none',   // 'none' | '0.05'
+  actionBarHeight: 'normal',  // 'compact' | 'normal' | 'large'
   shortcuts: {
     priceCheck: true,
     hold: true,
+    history: true,
     reprint: false,
     noSale: true,
     discount: true,
     refund: true,
     voidTx: true,
     endOfDay: true,
+    bottleReturn: true,
   },
   lottery: {
     enabled:               true,
@@ -835,6 +838,58 @@ export default function POSSettings() {
                   onChange={v => setShortcut('endOfDay', v)}
                   label="End of Day"
                 />
+                <ChipToggle
+                  checked={config.shortcuts.history !== false}
+                  onChange={v => setShortcut('history', v)}
+                  label="Transaction History"
+                />
+                <ChipToggle
+                  checked={config.shortcuts.bottleReturn !== false}
+                  onChange={v => setShortcut('bottleReturn', v)}
+                  label="Bottle Return"
+                />
+              </div>
+            </div>
+
+            {/* ── Section 3b: Action Bar Height ── */}
+            <div style={cardStyle}>
+              <span style={sectionLabel}>ACTION BAR HEIGHT</span>
+              <p style={{ fontSize: '0.78rem', color: '#475569', margin: '0 0 1rem' }}>
+                Adjust the bottom bar size for better visibility on your POS screen.
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[
+                  { key: 'compact', label: 'Compact', sub: '48px — fits more screen', px: 48 },
+                  { key: 'normal',  label: 'Normal',  sub: '58px — default',          px: 58 },
+                  { key: 'large',   label: 'Large',   sub: '72px — easy touch targets', px: 72 },
+                ].map(({ key, label, sub, px }) => {
+                  const active = (config.actionBarHeight || 'normal') === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setField('actionBarHeight', key)}
+                      style={{
+                        flex: 1, padding: '0.75rem', borderRadius: 10, textAlign: 'left',
+                        border: `1.5px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: active ? 'var(--brand-08)' : 'var(--bg-tertiary)',
+                        cursor: 'pointer', transition: 'all .15s',
+                      }}
+                    >
+                      {/* Visual bar preview */}
+                      <div style={{
+                        height: Math.round(px * 0.38),
+                        background: active ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+                        borderRadius: 4, marginBottom: 8,
+                        border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        opacity: 0.7,
+                      }} />
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: active ? 'var(--accent-primary)' : 'var(--text-primary)', marginBottom: 2 }}>
+                        {label}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{sub}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -871,6 +926,34 @@ export default function POSSettings() {
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ── Section 5: Quick Access Folders ── */}
+            <div style={cardStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={sectionLabel}>QUICK ACCESS FOLDERS</span>
+                  <p style={{ fontSize: '0.78rem', color: '#475569', margin: 0 }}>
+                    Create product folders for fast access at the POS (fruits, vegetables, liquor items, etc.)
+                  </p>
+                </div>
+                <a
+                  href={`/portal/quick-access${storeId ? `?store=${storeId}` : ''}`}
+                  style={{
+                    padding: '0.55rem 1.25rem',
+                    borderRadius: 8,
+                    background: 'var(--brand-12)',
+                    border: '1px solid var(--accent-primary)',
+                    color: 'var(--accent-primary)',
+                    fontWeight: 700, fontSize: '0.82rem',
+                    textDecoration: 'none',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  Manage Folders →
+                </a>
               </div>
             </div>
 

@@ -24,7 +24,7 @@ The **Invoice Import & Processing System** is designed to automatically ingest, 
 ### Backend Components
 - **API Gateway / Router**: Receives multipart form data (files) and delegates processing.
 - **Processing Controller**: Orchestrates the multi-step extraction/validation pipeline.
-- **Storage Layer**: MongoDB collections for normalized invoices and parsed line items.
+- **Storage Layer**: PostgreSQL tables (via Prisma) for normalized invoices and parsed line items.
 
 ### Service Layers
 - **Upload Service**: Handles file sanity checks, size limits, and temporary storage.
@@ -48,7 +48,7 @@ The **Invoice Import & Processing System** is designed to automatically ingest, 
 6. **Business Logic Application**: Deposits, credits, and totals are validated and calculated.
 7. **Database Storage**: The stub is updated to **status: 'draft'** with all extracted line items.
 8. **User Review**: The user verifies data in the split-pane review UI.
-9. **POS Synchronization**: On "Confirm", the system upserts the validated products into the native PostgreSQL **MasterProduct** and **StoreProduct** tables, while also bulk-pushing updates to the IT Retail backend (`PUT /pos/products/:id/details`). The invoice status is then marked as **'synced'**.
+9. **POS Synchronization**: On "Confirm", the system upserts the validated products into the native PostgreSQL **MasterProduct** and **StoreProduct** tables (via Prisma), while also bulk-pushing updates to the IT Retail backend (`PUT /pos/products/:id/details`). The invoice status is then marked as **'synced'**.
 10. **Learning Feedback**: Confirmed matches are recorded in `VendorProductMap` to improve future OCR accuracy.
 
 ---
@@ -179,7 +179,7 @@ The **Invoice Import & Processing System** is designed to automatically ingest, 
 
 - **OCR Failures**: Reject document gracefully, prompting user for manual entry or clearer re-upload.
 - **Missing Fields**: If essential fields (`Invoice Number`, `Total`) are missing, flag status as `NEEDS_ATTENTION` instead of failing entirely.
-- **Duplicate Invoices**: Engine queries `Invoice` collection by `(vendor, invoiceNumber)`. If found, prompts user to overwrite or discard.
+- **Duplicate Invoices**: Engine queries `Invoice` table by `(vendor, invoiceNumber, orgId)`. If found, prompts user to overwrite or discard.
 - **Multi-page Invoices**: Uses page numbering (`1 of 3`) to stitch arrays before passing to mapping engine.
 
 ---
@@ -208,7 +208,7 @@ The **Invoice Import & Processing System** is designed to automatically ingest, 
 ## 10. Security & Validation
 
 - **File Validation**: MIME-type checking (reject `.exe`, `.bash`). Magic number inspection for genuine PDFs/JPEGs.
-- **Input Sanitization**: Escape raw strings to prevent NoSQL/Prompt Injection. Length limits on text fields.
+- **Input Sanitization**: Escape raw strings to prevent SQL/Prompt Injection. Length limits on text fields. Prisma prepared statements prevent SQL injection.
 
 ---
 

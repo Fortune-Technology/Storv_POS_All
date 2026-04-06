@@ -20,25 +20,37 @@ export const signup = async (req, res, next) => {
 
     const hashed = await bcrypt.hash(password, 12);
 
-    // All new signups start without an org (orgId = 'default', role = 'staff').
+    // All new signups start under a placeholder org (role = 'staff').
     // The role is promoted to 'owner' in POST /api/tenants when the user creates their organisation.
+    // Find or create a default placeholder org for new signups.
+    let defaultOrg = await prisma.organization.findFirst({ where: { slug: 'default' } });
+    if (!defaultOrg) {
+      defaultOrg = await prisma.organization.create({
+        data: { name: 'Default', slug: 'default', plan: 'trial', isActive: true },
+      });
+    }
+
     const user = await prisma.user.create({
       data: {
         name,
         email,
         phone,
         password: hashed,
-        orgId:    'default',
+        orgId:    defaultOrg.id,
         role:     'staff',
+        status:   'pending',   // public signups require superadmin approval
       },
     });
 
+    // Return JWT so user can complete onboarding (org + store setup).
+    // The protect middleware will allow pending users to access onboarding endpoints only.
     res.status(201).json({
       id: user.id,
       name: user.name,
       email: user.email,
       phone: user.phone,
       role: user.role,
+      status: user.status,
       token: generateToken(user.id, { name: user.name, email: user.email, role: user.role }),
     });
   } catch (error) {
@@ -64,6 +76,14 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Check user account status
+    if (user.status === 'pending') {
+      return res.status(403).json({ error: 'Your account is pending approval. Please wait for an administrator to activate your account.' });
+    }
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
+    }
+
     res.json({
       id:               user.id,
       _id:              user.id,   // legacy alias for frontend compatibility
@@ -71,6 +91,7 @@ export const login = async (req, res, next) => {
       email:            user.email,
       phone:            user.phone,
       role:             user.role,
+      status:           user.status,
       orgId:            user.orgId,
       tenantId:         user.orgId, // legacy alias used by Onboarding page
       token: generateToken(user.id, { name: user.name, email: user.email, role: user.role }),

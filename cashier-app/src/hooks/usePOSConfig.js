@@ -14,15 +14,19 @@ export const DEFAULT_POS_CONFIG = {
   ageVerification: true,
   cartSide: 'right',          // 'right' (default) | 'left'
   cashRounding: 'none',       // 'none' | '0.05'  (round cash change to nearest $0.05)
+  actionBarHeight: 'normal',   // 'compact' (48px) | 'normal' (58px) | 'large' (72px)
+  quickFolders:    [],          // array of { id, name, emoji, color, sortOrder, items[] }
   shortcuts: {
     priceCheck: true,
     hold: true,
+    history: true,
     reprint: false,
     noSale: true,
     discount: true,
     refund: true,
     voidTx: true,
     endOfDay: true,
+    bottleReturn: true,
   },
   lottery: {
     enabled:               true,
@@ -30,6 +34,13 @@ export const DEFAULT_POS_CONFIG = {
     scanRequiredAtShiftEnd: false,
   },
   quickTender: ['card', 'cash', 'ebt'],
+  vendorTenderMethods: [
+    { id: 'cash',          label: 'Cash',              enabled: true  },
+    { id: 'cheque',        label: 'Cheque',             enabled: true  },
+    { id: 'bank_transfer', label: 'Bank Transfer',      enabled: false },
+    { id: 'credit_card',   label: 'Credit Card',        enabled: false },
+    { id: 'interac',       label: 'Interac e-Transfer', enabled: false },
+  ],
   hardware: {
     receiptPrinter: {
       type:   'none',       // 'qz' | 'network' | 'none'
@@ -75,6 +86,8 @@ export function usePOSConfig() {
           ...DEFAULT_POS_CONFIG.shortcuts,
           ...(r.data.shortcuts || {}),
         },
+        quickFolders: r.data.quickFolders || DEFAULT_POS_CONFIG.quickFolders,
+        vendorTenderMethods: r.data.vendorTenderMethods || DEFAULT_POS_CONFIG.vendorTenderMethods,
         hardware: {
           ...DEFAULT_POS_CONFIG.hardware,
           ...(r.data.hardware || {}),

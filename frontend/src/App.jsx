@@ -39,9 +39,15 @@ import StoreManagement from './pages/StoreManagement';
 import StoreBranding from './pages/StoreBranding';
 
 // POS Pages
-import POSSettings from './pages/POSSettings.jsx';
+import POSSettings     from './pages/POSSettings.jsx';
 import ReceiptSettings from './pages/ReceiptSettings.jsx';
 import EmployeeReports from './pages/EmployeeReports';
+import PayoutsReport   from './pages/PayoutsReport.jsx';
+import VendorPayouts  from './pages/VendorPayouts.jsx';
+import StoreSettings  from './pages/StoreSettings';
+import QuickAccess    from './pages/QuickAccess.jsx';
+import DepositRules    from './pages/DepositRules.jsx';
+import TaxRules        from './pages/TaxRules.jsx';
 
 // Catalog Pages
 import ProductCatalog from './pages/ProductCatalog';
@@ -53,6 +59,26 @@ import Promotions        from './pages/Promotions';
 import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
 import Lottery from './pages/Lottery';
+
+// Admin Pages
+import AdminDashboard        from './pages/admin/AdminDashboard';
+import AdminUsers            from './pages/admin/AdminUsers';
+import AdminOrganizations    from './pages/admin/AdminOrganizations';
+import AdminCmsPages         from './pages/admin/AdminCmsPages';
+import AdminCareers          from './pages/admin/AdminCareers';
+import AdminTickets          from './pages/admin/AdminTickets';
+import AdminSystemConfig     from './pages/admin/AdminSystemConfig';
+import AdminAnalytics        from './pages/admin/AdminAnalytics';
+import AdminOrgAnalytics     from './pages/admin/AdminOrgAnalytics';
+import AdminStorePerformance from './pages/admin/AdminStorePerformance';
+import AdminUserActivity     from './pages/admin/AdminUserActivity';
+import AdminCareerApplications from './pages/admin/AdminCareerApplications';
+
+// Public Marketing Pages (dynamic)
+import CmsPage  from './pages/marketing/CmsPage';
+import Careers      from './pages/marketing/Careers';
+import CareerDetail from './pages/marketing/CareerDetail';
+import Support      from './pages/marketing/Support';
 
 // Legacy Pages
 import UploadPage from './pages/UploadPage';
@@ -83,6 +109,14 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Admin route — requires auth + superadmin role
+const AdminRoute = ({ children }) => {
+  const user = JSON.parse(localStorage.getItem('user'));
+  if (!user || !user.token) return <Navigate to="/login" replace />;
+  if (user.role !== 'superadmin') return <Navigate to="/portal/pos-api" replace />;
+  return children;
+};
+
 function App() {
   return (
     <Router>
@@ -96,6 +130,13 @@ function App() {
         <Route path="/pricing"  element={<Pricing />} />
         <Route path="/contact"  element={<Contact />} />
         <Route path="/about"    element={<About />} />
+        <Route path="/careers"      element={<Careers />} />
+        <Route path="/careers/:id"  element={<CareerDetail />} />
+        <Route path="/support"      element={<Support />} />
+        <Route path="/privacy"  element={<CmsPage />} />
+        <Route path="/terms"    element={<CmsPage />} />
+        <Route path="/cookies"  element={<CmsPage />} />
+        <Route path="/page/:slug" element={<CmsPage />} />
 
         {/* ── Public Auth ─────────────────────────────────────────────── */}
         <Route path="/login"          element={<Login />} />
@@ -128,12 +169,18 @@ function App() {
         {/* ── Account / Organisation ──────────────────────────────────── */}
         <Route path="/portal/organisation" element={<ProtectedRoute><Organisation /></ProtectedRoute>} />
         <Route path="/portal/users"        element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
-        <Route path="/portal/stores"       element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} />
+        <Route path="/portal/stores"         element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} />
+        <Route path="/portal/store-settings" element={<ProtectedRoute><StoreSettings /></ProtectedRoute>} />
         <Route path="/portal/branding"     element={<ProtectedRoute><StoreBranding /></ProtectedRoute>} />
         <Route path="/portal/pos-settings"      element={<ProtectedRoute><POSSettings /></ProtectedRoute>} />
         <Route path="/portal/receipt-settings"  element={<ProtectedRoute><ReceiptSettings /></ProtectedRoute>} />
         <Route path="/portal/employee-reports"  element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>} />
         <Route path="/portal/transactions"      element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
+        <Route path="/portal/payouts"           element={<ProtectedRoute><PayoutsReport /></ProtectedRoute>} />
+        <Route path="/portal/vendor-payouts"  element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
+        <Route path="/portal/quick-access"    element={<ProtectedRoute><QuickAccess /></ProtectedRoute>} />
+        <Route path="/portal/deposit-rules"     element={<ProtectedRoute><DepositRules /></ProtectedRoute>} />
+        <Route path="/portal/tax-rules"         element={<ProtectedRoute><TaxRules /></ProtectedRoute>} />
 
         {/* ── Legacy CSV Transformer ──────────────────────────────────── */}
         <Route path="/csv/upload"            element={<ProtectedRoute><Layout><UploadPage /></Layout></ProtectedRoute>} />
@@ -161,6 +208,20 @@ function App() {
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />
         <Route path="/portal/products" element={<ProtectedRoute><Placeholder name="Products" /></ProtectedRoute>} />
+
+        {/* ── Admin Panel (superadmin only) ──────────────────────────── */}
+        <Route path="/admin"                          element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        <Route path="/admin/analytics"                element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
+        <Route path="/admin/analytics/organizations"  element={<AdminRoute><AdminOrgAnalytics /></AdminRoute>} />
+        <Route path="/admin/analytics/stores"         element={<AdminRoute><AdminStorePerformance /></AdminRoute>} />
+        <Route path="/admin/analytics/users"          element={<AdminRoute><AdminUserActivity /></AdminRoute>} />
+        <Route path="/admin/users"                    element={<AdminRoute><AdminUsers /></AdminRoute>} />
+        <Route path="/admin/organizations"            element={<AdminRoute><AdminOrganizations /></AdminRoute>} />
+        <Route path="/admin/cms"                      element={<AdminRoute><AdminCmsPages /></AdminRoute>} />
+        <Route path="/admin/careers"                  element={<AdminRoute><AdminCareers /></AdminRoute>} />
+        <Route path="/admin/careers/:careerPostingId/applications" element={<AdminRoute><AdminCareerApplications /></AdminRoute>} />
+        <Route path="/admin/tickets"                  element={<AdminRoute><AdminTickets /></AdminRoute>} />
+        <Route path="/admin/config"                   element={<AdminRoute><AdminSystemConfig /></AdminRoute>} />
 
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />

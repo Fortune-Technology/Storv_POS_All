@@ -636,3 +636,5 @@ tr:last-child td { border-bottom: none; }
   input, select, textarea { font-size: 16px !important; }
   body, .layout-container { overflow-x: hidden; }
 }
+
+/* Admin form overrides handled in pages/admin/admin.css */

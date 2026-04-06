@@ -1,6 +1,6 @@
-# 🏧 Future Foods — Cashier Terminal (PWA)
+# StoreVeu POS — Cashier Terminal (Electron + PWA)
 
-A fast, lightweight, and offline-first Point of Sale interface designed for high-performance retail checkout. Built as a **Progressive Web App** leveraging the **Future Foods Backend API**.
+A fast, full-featured, and offline-first Point of Sale terminal designed for high-performance retail checkout. Available as an **Electron desktop app** (Windows) or **Progressive Web App**, with native hardware integration for receipt printers, cash drawers, barcode scanners, scales, and PAX payment terminals.
 
 ---
 
@@ -9,8 +9,12 @@ A fast, lightweight, and offline-first Point of Sale interface designed for high
 | Component | Technology |
 |---|---|
 | **Core** | React 18, Javascript (ESM) |
-| **State Management** | Zustand (Global App State) |
-| **Offline Storage** | **Dexie.js** (IndexedDB wrapper for Catalog Sync) |
+| **Desktop** | Electron 33 (IPC for USB printing, drawer, app control) |
+| **Packaging** | Electron Builder (NSIS installer, Windows x64) |
+| **State Management** | Zustand 5 (7 stores: auth, cart, shift, station, manager, lottery, sync) |
+| **Offline Storage** | **Dexie.js** v4 (IndexedDB — products, tx queue, departments, promotions, cashiers) |
+| **Receipt Printing** | ESC/POS (USB via PowerShell, Network TCP, QZ Tray fallback) |
+| **Hardware** | Barcode scanners (HID/Serial), Magellan scales, PAX terminals, ZPL label printers |
 | **PWA Readiness** | Manifest.webmanifest, Service Workers (Vite PWA Plugin) |
 | **Build Tool** | Vite 5 |
 
@@ -56,19 +60,33 @@ To install as a desktop application on Windows:
 
 ---
 
-## 📁 Folder Structure
+## Folder Structure
 
 ```
 cashier-app/
+├── electron/
+│   ├── main.cjs            → Electron main process (IPC: printer, drawer, app control)
+│   └── preload.cjs         → Context bridge (window.electronAPI)
 ├── public/                 → PWA assets (manifest, icons)
 ├── src/
-│   ├── api/                → Axios interceptors and terminal endpoints
-│   ├── components/         → UI elements (Numpad, Cart, ProductCards)
-│   ├── db/                 → Dexie database schema and sync logic
-│   ├── hooks/              → Custom hooks for scanning and pricing
-│   ├── screens/            → POSScreen, PinLogin, StationSetup
-│   ├── stores/             → Zustand stores (useCartStore, useAuthStore)
-│   └── utils/              → Formatting, tax calculations, and barcode helpers
+│   ├── api/
+│   │   ├── client.js       → Axios instance (Bearer + Station token headers)
+│   │   └── pos.js          → All cashier API calls
+│   ├── services/
+│   │   ├── printerService.js → ESC/POS receipt builder + printing
+│   │   └── qzService.js    → QZ Tray WebSocket client
+│   ├── components/
+│   │   ├── cart/            → CartItem, CartTotals
+│   │   ├── layout/         → StatusBar, StoreveuLogo
+│   │   ├── modals/         → 15+ modals (Lottery, Tender, Refund, Void, etc.)
+│   │   ├── pos/            → ActionBar, CategoryPanel, NumPad
+│   │   └── tender/         → TenderModal, ReceiptModal
+│   ├── db/
+│   │   └── dexie.js        → IndexedDB v5 (products, txQueue, departments, promotions, cashiers)
+│   ├── hooks/              → 8 hooks (scanner, scale, hardware, catalog sync, branding, etc.)
+│   ├── screens/            → POSScreen, PinLogin, StationSetup, StoreSelect, Login
+│   ├── stores/             → 7 Zustand stores (auth, cart, shift, station, manager, lottery, sync)
+│   └── utils/              → Tax calc, promo engine, formatters, PDF-417 parser, cash presets
 ├── index.html              → Entry HTML
 └── vite.config.js          → PWA and build configuration
 ```
@@ -93,27 +111,49 @@ Create a `.env` file:
 VITE_API_URL=http://localhost:5000/api
 ```
 
-### Running Locally
+### Running Locally (Web)
 ```bash
 npm run dev
 ```
 The terminal will be available at **http://localhost:5174**.
 
-### Building for Production (PWA)
+### Running as Electron App
 ```bash
-npm run build
+npm run electron:dev     # Dev mode (Vite + Electron concurrent)
 ```
-The `dist/` folder will contain the production-ready PWA with a generated service worker.
+
+### Building for Production
+
+**PWA (Web):**
+```bash
+npm run build            # dist/ folder with service worker
+```
+
+**Electron (Windows Desktop):**
+```bash
+npm run electron:build   # NSIS installer in dist-electron/
+npm run electron:pack    # Unpacked app (no installer)
+```
+
+App ID: `com.storeveu.pos` | Persistent config: `%APPDATA%/storeveu_station.json`
 
 ---
 
-## 🔑 Key Features
-- **Fast Scanning:** Optimized for HID-compliant USB/Bluetooth barcode scanners.
-- **Smart Deposits:** Automatically calculates Maine-specific bottle deposits based on product size.
+## Key Features
+- **Fast Scanning:** Optimized for HID-compliant USB/Bluetooth barcode scanners + serial port via QZ Tray.
+- **Smart Deposits:** Automatically calculates bottle deposits based on product size and container type.
 - **EBT Support:** Flags eligible items and separates EBT vs Non-EBT totals.
-- **PIN Security:** Rapid cashier switching without full credential entry.
+- **PIN Security:** Rapid cashier switching via 4-6 digit PIN (offline-capable with cached PIN hashes).
 - **Lottery Integration:** Unified sale/payout modal with qty-based pricing and automated EOD box reconciliation.
 - **Branded UI:** Dynamically pulls store logos and theme colors from the portal.
+- **Receipt Printing:** Full ESC/POS receipt builder with USB (PowerShell), Network TCP, and QZ Tray support.
+- **Cash Drawer:** Auto-kick on cash tender via ESC/POS command, manual via No Sale button.
+- **Weight Scales:** Magellan/Datalogic serial scales via Web Serial API with auto-fill quantity.
+- **PAX Terminals:** Card payment integration via backend API proxy (A920, A35, A80, S300).
+- **Hold/Recall:** Unlimited simultaneous parked transactions stored in IndexedDB.
+- **Offline Mode:** Full offline sales capability with batch sync on reconnect.
+- **Promotion Engine:** Client-side evaluation of sales, BOGO, volume, mix & match, and combo deals.
+- **Age Verification:** PDF-417 driver's license scanning + manual DOB entry.
 
 ---
 
@@ -386,7 +426,9 @@ Past transactions are accessible from two places:
 
 ---
 
-## 📄 Related Documentation
+## Related Documentation
 - [Root README](../README.md) — Full project ecosystem
 - [Portal Frontend](../frontend/README.md) — Management & Analytics
 - [Backend API](../backend/README.md) — Terminal endpoints
+- [Project Overview](../ProjectOverview.md) — High-level product overview
+- [Engineering Principles](../ENGINEERING_PRINCIPLES.md) — Code standards

@@ -138,7 +138,17 @@ export default function Onboarding() {
   };
 
   /* ── Step 2 — finish ──────────────────────────────────────────────────── */
-  const handleFinish = () => navigate('/portal/pos-api', { replace: true });
+  const handleFinish = () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.status === 'pending') {
+      // Pending users cannot access the portal — clear session and redirect to login
+      localStorage.removeItem('user');
+      toast.info('Your account is under review. You will be notified when approved.');
+      navigate('/login', { replace: true });
+    } else {
+      navigate('/portal/pos-api', { replace: true });
+    }
+  };
 
   /* ── Shared card wrapper ─────────────────────────────────────────────── */
   const card = (content) => (
