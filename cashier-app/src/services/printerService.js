@@ -40,81 +40,125 @@ const line = (left, right, width = 42) => {
 
 // ── Build full receipt string ────────────────────────────────────────────
 export const buildReceiptString = (receipt) => {
-  const W = 42; // characters wide (58mm paper = 32 chars, 80mm = 42 chars)
+  // Paper width: 80mm = 42 chars, 58mm = 32 chars
+  const W = receipt.paperWidth === '58mm' ? 32 : 42;
   let r = '';
 
   r += ESCPOS.INIT;
   r += ESCPOS.ALIGN_CENTER;
 
-  // Store name
+  // ── HEADER ──────────────────────────────────────────────────────────────
   r += ESCPOS.DOUBLE_SIZE + ESCPOS.BOLD_ON;
   r += (receipt.storeName || 'STORE') + LF;
   r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
 
   if (receipt.storeAddress) r += receipt.storeAddress + LF;
   if (receipt.storePhone)   r += receipt.storePhone   + LF;
-  if (receipt.storeTaxId)   r += 'GST/HST #: ' + receipt.storeTaxId + LF;
+  if (receipt.storeEmail)   r += receipt.storeEmail   + LF;
+  if (receipt.storeWebsite) r += receipt.storeWebsite + LF;
+  if (receipt.storeTaxId) {
+    const label = receipt.taxIdLabel || 'Tax ID';
+    r += label + ': ' + receipt.storeTaxId + LF;
+  }
+  if (receipt.headerLine1)  r += receipt.headerLine1  + LF;
+  if (receipt.headerLine2)  r += receipt.headerLine2  + LF;
 
   r += LF;
   r += ESCPOS.ALIGN_LEFT;
   r += '-'.repeat(W) + LF;
 
-  // Cashier + date
-  r += 'Cashier: ' + (receipt.cashierName || 'Cashier') + LF;
+  // ── TRANSACTION INFO ────────────────────────────────────────────────────
+  if (receipt.showCashier !== false) {
+    r += 'Cashier: ' + (receipt.cashierName || 'Cashier') + LF;
+  }
   r += 'Date: ' + new Date(receipt.date || Date.now()).toLocaleString() + LF;
-  if (receipt.invoiceNumber) r += 'Ref: ' + receipt.invoiceNumber + LF;
+  if (receipt.showTransactionId !== false && receipt.invoiceNumber) {
+    r += 'Ref: ' + receipt.invoiceNumber + LF;
+  }
   r += '-'.repeat(W) + LF;
 
-  // Line items
+  // ── LINE ITEMS ─────────────────────────────────────────────────────────
+  let itemCount = 0;
   (receipt.items || []).forEach(item => {
     const isLottery = item.isLottery;
-    const prefix    = isLottery ? (item.lotteryType === 'payout' ? '💰 ' : '🎟️ ') : '';
+    const prefix    = isLottery ? (item.lotteryType === 'payout' ? '** PAYOUT  ' : '>> LOTTERY ') : '';
     const name      = prefix + (item.name || 'Item');
     const price     = (item.lineTotal < 0 ? '-' : '') + '$' + Math.abs(item.lineTotal || 0).toFixed(2);
 
     if (item.qty && item.qty !== 1 && !isLottery) {
       r += name.substring(0, W) + LF;
-      r += line('  ' + item.qty + ' × $' + Number(item.unitPrice || 0).toFixed(2), price, W);
+      r += line('  ' + item.qty + ' x $' + Number(item.unitPrice || 0).toFixed(2), price, W);
     } else {
       r += line(name.substring(0, W - 10), price, W);
     }
 
-    if (item.discountAmount) {
+    if (receipt.showSavings !== false && item.discountAmount) {
       r += line('  Discount', '-$' + Math.abs(item.discountAmount).toFixed(2), W);
     }
+    if (!isLottery) itemCount += (item.qty || 1);
   });
 
   r += '-'.repeat(W) + LF;
 
-  // Subtotal, tax, deposits, total
-  if (receipt.subtotal  != null) r += line('Subtotal',    '$' + Number(receipt.subtotal).toFixed(2),    W);
-  if (receipt.totalTax  != null) r += line('Tax',         '$' + Number(receipt.totalTax).toFixed(2),    W);
+  // ── TOTALS ──────────────────────────────────────────────────────────────
+  if (receipt.subtotal   != null) r += line('Subtotal',    '$' + Number(receipt.subtotal).toFixed(2),    W);
+
+  if (receipt.showTaxBreakdown && receipt.taxLines?.length) {
+    receipt.taxLines.forEach(tl => {
+      r += line('  ' + tl.label, '$' + Number(tl.amount).toFixed(2), W);
+    });
+  } else if (receipt.totalTax != null) {
+    r += line('Tax',         '$' + Number(receipt.totalTax).toFixed(2),    W);
+  }
+
   if (receipt.totalDeposit > 0)  r += line('Deposit/CRV', '$' + Number(receipt.totalDeposit).toFixed(2), W);
-  if (receipt.discount  > 0)     r += line('Savings',     '-$' + Number(receipt.discount).toFixed(2),   W);
+  if (receipt.showSavings !== false && receipt.discount > 0) {
+    r += line('Savings',     '-$' + Number(receipt.discount).toFixed(2),   W);
+  }
 
   r += ESCPOS.BOLD_ON;
   r += line('TOTAL', '$' + Number(receipt.total || 0).toFixed(2), W);
   r += ESCPOS.BOLD_OFF;
   r += '-'.repeat(W) + LF;
 
-  // Tender
+  // ── TENDER ──────────────────────────────────────────────────────────────
   if (receipt.tenderMethod) {
     const methodLabel = receipt.tenderMethod.toUpperCase();
     r += line(methodLabel, '$' + Number(receipt.amountTendered || receipt.total || 0).toFixed(2), W);
-    if (receipt.changeDue > 0) r += line('CHANGE', '$' + Number(receipt.changeDue).toFixed(2), W);
-    if (receipt.authCode) r += line('Auth Code', receipt.authCode, W);
-    if (receipt.cardType) r += line('Card', (receipt.cardType) + ' ****' + (receipt.lastFour || ''), W);
+    if (receipt.changeDue > 0) r += line('CHANGE',   '$' + Number(receipt.changeDue).toFixed(2), W);
+    if (receipt.authCode)      r += line('Auth Code', receipt.authCode, W);
+    if (receipt.cardType)      r += line('Card',      receipt.cardType + ' ****' + (receipt.lastFour || ''), W);
   }
 
   r += '-'.repeat(W) + LF;
 
-  // Footer
+  // ── FOOTER ──────────────────────────────────────────────────────────────
   r += ESCPOS.ALIGN_CENTER;
-  r += (receipt.footerMessage || 'Thank you! Please come again.') + LF;
+
+  // Helper: print each \n-separated line from a multi-line footer field
+  const printFooterBlock = (text) => {
+    if (!text) return;
+    text.split('\n').forEach(ln => { if (ln.trim()) r += ln.trim() + LF; });
+  };
+
+  const footer1 = receipt.footerLine1 || receipt.footerMessage || 'Thank you! Please come again.';
+  const footer2 = receipt.footerLine2 || '';
+  printFooterBlock(footer1);
+  printFooterBlock(footer2);
+
+  if (receipt.showReturnPolicy && receipt.returnPolicy) {
+    r += LF;
+    printFooterBlock(receipt.returnPolicy);
+  }
+
+  if (receipt.showItemCount && itemCount > 0) {
+    r += LF + itemCount + ' item' + (itemCount !== 1 ? 's' : '') + ' purchased' + LF;
+  }
 
   if (receipt.loyaltyPoints != null) {
+    r += LF;
     r += ESCPOS.BOLD_ON;
-    r += '★ Points Earned: ' + receipt.loyaltyPoints + LF;
+    r += 'Points Earned: ' + receipt.loyaltyPoints + LF;
     r += 'Total Points: ' + (receipt.totalPoints || 0) + LF;
     r += ESCPOS.BOLD_OFF;
   }

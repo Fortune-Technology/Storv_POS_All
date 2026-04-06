@@ -40,6 +40,7 @@ import StoreBranding from './pages/StoreBranding';
 
 // POS Pages
 import POSSettings from './pages/POSSettings.jsx';
+import ReceiptSettings from './pages/ReceiptSettings.jsx';
 import EmployeeReports from './pages/EmployeeReports';
 
 // Catalog Pages
@@ -60,6 +61,7 @@ import TransformPage from './pages/TransformPage';
 import DepositMapPage from './pages/DepositMapPage';
 import HistoryPage from './pages/HistoryPage';
 import OCRPage from './pages/OCRPage';
+import Transactions from './pages/Transactions';
 
 // Components
 import Layout from './components/Layout';
@@ -129,7 +131,9 @@ function App() {
         <Route path="/portal/stores"       element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} />
         <Route path="/portal/branding"     element={<ProtectedRoute><StoreBranding /></ProtectedRoute>} />
         <Route path="/portal/pos-settings"      element={<ProtectedRoute><POSSettings /></ProtectedRoute>} />
+        <Route path="/portal/receipt-settings"  element={<ProtectedRoute><ReceiptSettings /></ProtectedRoute>} />
         <Route path="/portal/employee-reports"  element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>} />
+        <Route path="/portal/transactions"      element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
 
         {/* ── Legacy CSV Transformer ──────────────────────────────────── */}
         <Route path="/csv/upload"            element={<ProtectedRoute><Layout><UploadPage /></Layout></ProtectedRoute>} />

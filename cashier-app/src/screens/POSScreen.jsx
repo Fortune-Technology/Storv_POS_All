@@ -54,7 +54,7 @@ import { useShiftStore }     from '../stores/useShiftStore.js';
 import { useStationStore }   from '../stores/useStationStore.js';
 import { useSyncStore }      from '../stores/useSyncStore.js';
 import { useAuthStore }      from '../stores/useAuthStore.js';
-import { db, searchProducts, getActivePromotions } from '../db/dexie.js';
+import { db, searchProducts, getActivePromotions, getHeldTransactions } from '../db/dexie.js';
 import { evaluatePromotions }  from '../utils/promoEngine.js';
 import { fmt$ }              from '../utils/formatters.js';
 import { getSmartCashPresets } from '../utils/cashPresets.js';
@@ -104,6 +104,64 @@ export default function POSScreen() {
 
   // Store branding — used for receipt header
   const [storeBranding, setStoreBranding] = useState({});
+
+  // ── Shared receipt print helper — used by auto-print, ask-prompt, reprint, history ──
+  const handlePrintTx = useCallback((tx) => {
+    if (!hasReceiptPrinter || !tx) return;
+    const allItems = [
+      ...(tx.lineItems || []).map(i => ({
+        name:           i.name,
+        qty:            i.qty,
+        unitPrice:      i.unitPrice,
+        lineTotal:      i.lineTotal,
+        discountAmount: i.discountAmount || 0,
+      })),
+      ...(tx.lotteryItems || []).map(i => ({
+        name:        i.notes || (i.type === 'payout' ? 'Lottery Payout' : 'Lottery Sale'),
+        isLottery:   true,
+        lotteryType: i.type,
+        lineTotal:   i.type === 'payout' ? -(i.amount || 0) : (i.amount || 0),
+      })),
+    ];
+    const primaryTender = tx.tenderLines?.[0] || {};
+    const totalTendered = tx.tenderLines?.reduce((s, t) => s + (t.amount || 0), 0) || tx.grandTotal;
+    printReceipt({
+      storeName:           storeBranding.storeName    || storeBranding.name || '',
+      storeAddress:        storeBranding.storeAddress || '',
+      storePhone:          storeBranding.storePhone   || '',
+      storeTaxId:          storeBranding.storeTaxId   || '',
+      paperWidth:          storeBranding.receiptPaperWidth       || '80mm',
+      taxIdLabel:          storeBranding.taxIdLabel               || 'Tax ID',
+      storeEmail:          storeBranding.storeEmail               || '',
+      storeWebsite:        storeBranding.storeWebsite             || '',
+      headerLine1:         storeBranding.receiptHeaderLine1       || '',
+      headerLine2:         storeBranding.receiptHeaderLine2       || '',
+      showCashier:         storeBranding.receiptShowCashier       !== false,
+      showTransactionId:   storeBranding.receiptShowTransactionId !== false,
+      showItemCount:       Boolean(storeBranding.receiptShowItemCount),
+      showTaxBreakdown:    Boolean(storeBranding.receiptShowTaxBreakdown),
+      showSavings:         storeBranding.receiptShowSavings       !== false,
+      footerLine1:         storeBranding.receiptFooterLine1       || '',
+      footerLine2:         storeBranding.receiptFooterLine2       || '',
+      showReturnPolicy:    Boolean(storeBranding.receiptShowReturnPolicy),
+      returnPolicy:        storeBranding.receiptReturnPolicy      || '',
+      footerMessage:       storeBranding.receiptFooter            || 'Thank you! Please come again.',
+      cashierName:    tx.cashierName || cashier?.name || cashier?.email || 'Cashier',
+      invoiceNumber:  tx.txNumber,
+      date:           tx.offlineCreatedAt || tx.createdAt || Date.now(),
+      items:          allItems,
+      subtotal:       tx.subtotal,
+      totalTax:       tx.taxTotal,
+      totalDeposit:   tx.depositTotal,
+      total:          tx.grandTotal,
+      tenderMethod:   primaryTender.method?.replace('_', ' ') || '',
+      amountTendered: totalTendered,
+      changeDue:      tx.changeGiven || 0,
+      authCode:       tx.authCode,
+      cardType:       tx.cardType,
+      lastFour:       tx.lastFour,
+    }).catch(() => {});
+  }, [hasReceiptPrinter, printReceipt, storeBranding, cashier]);
 
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
@@ -157,9 +215,17 @@ export default function POSScreen() {
   // Discount modal: discountTarget = lineId string → line discount, null → order discount
   const [discountTarget,  setDiscountTarget]  = useState(undefined); // undefined = closed
 
+  // Held transaction count — shown as badge on the Hold button
+  const [heldCount, setHeldCount] = useState(0);
+  const refreshHeldCount = useCallback(() => {
+    getHeldTransactions().then(list => setHeldCount(list.length)).catch(() => {});
+  }, []);
+  useEffect(() => { refreshHeldCount(); }, [refreshHeldCount]);
+
   // Last completed transaction — used by Reprint button to print without opening history
   const [lastCompletedTx, setLastCompletedTx] = useState(null);
   const [reprintTx,       setReprintTx]       = useState(null);
+  const [receiptAskTx,    setReceiptAskTx]    = useState(null); // 'ask' behaviour prompt
 
   // ── Numpad ─────────────────────────────────────────────────────────────
   // numpad: { mode, title, value, onConfirm } | null
@@ -224,14 +290,29 @@ export default function POSScreen() {
     }
   }, [posConfig.ageVerification, verifiedAges, addProduct, requestAgeVerify]);
 
+  // ── Scan error toast ──────────────────────────────────────────────────────
+  const [scanError, setScanError] = useState(null);  // { upc, ts }
+  const scanErrorTimer = useRef(null);
+
+  const showScanError = useCallback((upc) => {
+    clearTimeout(scanErrorTimer.current);
+    setScanError({ upc, ts: Date.now() });
+    scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
+  }, []);
+  useEffect(() => () => clearTimeout(scanErrorTimer.current), []);
+
   // ── Barcode scan ─────────────────────────────────────────────────────────
   const handleScan = useCallback(async (raw) => {
     if (scanMode !== 'normal') return;
     const { product } = await lookup(raw);
-    if (!product) { flash('miss'); return; }
+    if (!product) {
+      flash('miss');
+      showScanError(raw);
+      return;
+    }
     addWithAgeCheck({ ...product, retailPrice: product.retailPrice });
     flash('hit');
-  }, [scanMode, lookup, addWithAgeCheck, flash]);
+  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError]);
 
   useBarcodeScanner(handleScan, scanMode === 'normal');
 
@@ -356,6 +437,25 @@ export default function POSScreen() {
       background: 'var(--bg-base)', overflow: 'hidden',
     }}>
       <StatusBar onRefresh={manualSync} />
+
+      {/* ── Scan-error toast ─────────────────────────────────────────────── */}
+      {scanError && (
+        <div style={{
+          position: 'fixed', top: '60px', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: '#b91c1c', color: '#fff',
+          padding: '0.6rem 1.4rem',
+          borderRadius: '8px',
+          fontSize: '1rem', fontWeight: 600,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          animation: 'slideDown 0.2s ease',
+          pointerEvents: 'none',
+        }}>
+          <span style={{ fontSize: '1.1rem' }}>⚠</span>
+          Product not found: <span style={{ fontFamily: 'monospace', marginLeft: '4px' }}>{scanError.upc}</span>
+        </div>
+      )}
 
       {/* ── Content row ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -1023,6 +1123,7 @@ export default function POSScreen() {
         enabledShortcuts={posConfig.shortcuts}
         onPriceCheck={() => setShowPriceCheck(true)}
         onHold={() => setShowHold(true)}
+        onHistory={() => setShowHistory(true)}
         onReprint={() => lastCompletedTx ? setReprintTx(lastCompletedTx) : setShowHistory(true)}
         onNoSale={() => {}}
         onDiscount={openOrderDiscount}
@@ -1036,6 +1137,7 @@ export default function POSScreen() {
         onPayout={() => { setCashDrawerTab('payout'); setShowCashDrawer(true); }}
         onLottery={() => setShowLottery(true)}
         shiftOpen={!!shift}
+        heldCount={heldCount}
       />
 
       {/* ══ Modals ══ */}
@@ -1051,6 +1153,7 @@ export default function POSScreen() {
           cashRounding={posConfig.cashRounding || 'none'}
           lotteryCashOnly={posConfig.lottery?.cashOnly || false}
           onClose={closeTender}
+          onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
           onComplete={(tx) => {
             setLastCompletedTx(tx);
 
@@ -1060,49 +1163,17 @@ export default function POSScreen() {
               openDrawer().catch(() => {});
             }
 
-            // ── Auto-print receipt if printer is configured ────────────────
-            if (hasReceiptPrinter) {
-              const allItems = [
-                ...(tx.lineItems || []).map(i => ({
-                  name:       i.name,
-                  qty:        i.qty,
-                  unitPrice:  i.unitPrice,
-                  lineTotal:  i.lineTotal,
-                  discountAmount: i.discountAmount || 0,
-                })),
-                ...(tx.lotteryItems || []).map(i => ({
-                  name:        i.notes || (i.type === 'payout' ? 'Lottery Payout' : 'Lottery Sale'),
-                  isLottery:   true,
-                  lotteryType: i.type,
-                  lineTotal:   i.type === 'payout' ? -(i.amount || 0) : (i.amount || 0),
-                })),
-              ];
-
-              // Pick the primary tender line for display
-              const primaryTender = tx.tenderLines?.[0] || {};
-              const totalTendered = tx.tenderLines?.reduce((s, t) => s + (t.amount || 0), 0) || tx.grandTotal;
-
-              printReceipt({
-                storeName:      storeBranding.storeName    || storeBranding.name || '',
-                storeAddress:   storeBranding.storeAddress || storeBranding.address || '',
-                storePhone:     storeBranding.storePhone   || storeBranding.phone || '',
-                storeTaxId:     storeBranding.taxId        || '',
-                footerMessage:  storeBranding.receiptFooter || 'Thank you! Please come again.',
-                cashierName:    cashier?.name || cashier?.email || 'Cashier',
-                invoiceNumber:  tx.txNumber,
-                date:           tx.offlineCreatedAt || Date.now(),
-                items:          allItems,
-                subtotal:       tx.subtotal,
-                totalTax:       tx.taxTotal,
-                totalDeposit:   tx.depositTotal,
-                total:          tx.grandTotal,
-                tenderMethod:   primaryTender.method?.replace('_', ' ') || '',
-                amountTendered: totalTendered,
-                changeDue:      tx.changeGiven || 0,
-                authCode:       tx.authCode,
-                cardType:       tx.cardType,
-                lastFour:       tx.lastFour,
-              }).catch(() => {});
+            // ── Receipt printing — for cash transactions the change-due screen
+            //    shows Print / Skip so the cashier controls it there.
+            //    For non-cash (card, EBT, etc.) use the store-level setting.
+            if (!hasCashTender && hasReceiptPrinter) {
+              const printBehavior = storeBranding.receiptPrintBehavior || 'always';
+              if (printBehavior === 'always') {
+                handlePrintTx(tx);
+              } else if (printBehavior === 'ask') {
+                setReceiptAskTx(tx);
+              }
+              // 'never' → do nothing
             }
           }}
         />
@@ -1118,7 +1189,7 @@ export default function POSScreen() {
       )}
 
       {showHold && (
-        <HoldRecallModal onClose={() => setShowHold(false)} />
+        <HoldRecallModal onClose={() => { setShowHold(false); refreshHeldCount(); }} />
       )}
 
       {showCustomer && (
@@ -1143,12 +1214,63 @@ export default function POSScreen() {
       {showHistory && (
         <TransactionHistoryModal
           onClose={() => setShowHistory(false)}
-          onPrintTx={(tx) => { setShowHistory(false); setReprintTx(tx); }}
+          onPrintTx={(tx) => handlePrintTx(tx)}
+          onViewTx={(tx)  => { setShowHistory(false); setReprintTx(tx); }}
         />
       )}
 
       {reprintTx && (
-        <ReprintReceiptModal tx={reprintTx} onClose={() => setReprintTx(null)} />
+        <ReprintReceiptModal
+          tx={reprintTx}
+          onPrint={handlePrintTx}
+          onClose={() => setReprintTx(null)}
+        />
+      )}
+
+      {/* ── "Ask for receipt" prompt (receiptPrintBehavior = 'ask') ── */}
+      {receiptAskTx && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 300,
+          background: 'rgba(0,0,0,.72)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: 'var(--bg-panel)',
+            borderRadius: 20, padding: '2rem 2rem 1.5rem',
+            width: '100%', maxWidth: 360, textAlign: 'center',
+            border: '1px solid var(--border-light)',
+            boxShadow: '0 32px 80px rgba(0,0,0,.65)',
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🧾</div>
+            <div style={{ fontWeight: 800, fontSize: '1.15rem', marginBottom: 6 }}>Print Receipt?</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+              {receiptAskTx.txNumber} · {(receiptAskTx.grandTotal < 0 ? '-' : '') + '$' + Math.abs(receiptAskTx.grandTotal || 0).toFixed(2)}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => { handlePrintTx(receiptAskTx); setReceiptAskTx(null); }}
+                style={{
+                  flex: 2, padding: '0.9rem', borderRadius: 12,
+                  background: 'var(--green)', color: '#fff',
+                  fontWeight: 800, fontSize: '0.95rem', border: 'none', cursor: 'pointer',
+                }}
+              >
+                Print Receipt
+              </button>
+              <button
+                onClick={() => setReceiptAskTx(null)}
+                style={{
+                  flex: 1, padding: '0.9rem', borderRadius: 12,
+                  background: 'var(--bg-input)', color: 'var(--text-secondary)',
+                  fontWeight: 600, fontSize: '0.9rem', border: 'none', cursor: 'pointer',
+                }}
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showVoid && (

@@ -446,18 +446,6 @@ function StoreCard({ store, onEdit, onDeactivate }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.35rem' }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => navigate(`/portal/branding?store=${store.id}`)}
-            title="Customize POS branding"
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.3rem',
-              background: 'var(--brand-08)', border: '1px solid var(--brand-30)',
-              borderRadius: '8px', padding: '0.3rem 0.6rem', cursor: 'pointer',
-              color: 'var(--accent-primary)', fontSize: '0.72rem', fontWeight: 700,
-            }}
-          >
-            <Palette size={12} /> Branding
-          </button>
           <button onClick={() => onEdit(store)} title="Edit"
             style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.45rem', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
             <Pencil size={13} />

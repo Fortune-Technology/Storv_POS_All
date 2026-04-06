@@ -1,17 +1,25 @@
 /**
  * useHardware.js
  * Unified hardware state hook. Reads hardware config from localStorage
- * (saved during station setup) and provides print/drawer/PAX/scale methods.
+ * and provides print/drawer/PAX/scale methods.
+ *
+ * Priority:
+ *   1. Electron (window.electronAPI) — desktop app, direct USB/network access
+ *   2. Network TCP                   — browser → backend proxy → printer
+ *   3. QZ Tray                       — browser → QZ bridge → USB printer
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import { useStationStore } from '../stores/useStationStore.js';
-import { printReceiptQZ, printReceiptNetwork, kickCashDrawer } from '../services/printerService.js';
-import { connectQZ, isQZConnected } from '../services/qzService.js';
+import { buildReceiptString, printReceiptNetwork, kickCashDrawer } from '../services/printerService.js';
+import { connectQZ, isQZConnected, printRaw } from '../services/qzService.js';
 import { useScale } from './useScale.js';
 import * as posApi from '../api/pos.js';
 
 const HW_STORAGE_KEY = 'storv_hardware_config';
+
+/** true when running inside the Electron desktop wrapper */
+export const isElectron = () => !!(window.electronAPI?.isElectron);
 
 export const loadHardwareConfig = () => {
   try {
@@ -29,16 +37,14 @@ export function useHardware({ onBarcode } = {}) {
   const hw      = loadHardwareConfig();
 
   const [printing,  setPrinting]  = useState(false);
-  const [payStatus, setPayStatus] = useState(null); // null|'waiting'|'approved'|'declined'|'error'
+  const [payStatus, setPayStatus] = useState(null);
   const [payResult, setPayResult] = useState(null);
 
-  // ── Scale / Magellan integration ─────────────────────────────────────────
+  // ── Scale / Magellan ──────────────────────────────────────────────────────
   const scale = useScale({ onBarcode });
 
-  // Auto-connect scale on mount if configured
   useEffect(() => {
     if (!hw?.scale || hw.scale.type === 'none') return;
-    // Attempt to connect to previously-granted port silently
     scale.getGrantedPorts().then(ports => {
       if (ports.length > 0) {
         scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label);
@@ -47,18 +53,38 @@ export function useHardware({ onBarcode } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Print receipt ────────────────────────────────────────────────────────
+  // ── Print receipt ─────────────────────────────────────────────────────────
   const printReceipt = useCallback(async (receiptData) => {
     if (!hw?.receiptPrinter || hw.receiptPrinter.type === 'none') return;
     setPrinting(true);
     try {
+      const escpos = buildReceiptString(receiptData);
+
+      // ── Path 1: Electron desktop app ──────────────────────────────────────
+      if (isElectron()) {
+        if (hw.receiptPrinter.type === 'network') {
+          await window.electronAPI.printNetwork(
+            hw.receiptPrinter.ip,
+            hw.receiptPrinter.port || 9100,
+            escpos,
+          );
+        } else {
+          // USB printer — direct Windows winspool raw print
+          await window.electronAPI.printUSB(hw.receiptPrinter.name, escpos);
+        }
+        return;
+      }
+
+      // ── Path 2: Network printer via backend TCP proxy ─────────────────────
       if (hw.receiptPrinter.type === 'network') {
         await printReceiptNetwork(hw.receiptPrinter.ip, hw.receiptPrinter.port, receiptData);
-      } else {
-        // QZ or WebSerial
-        if (!isQZConnected()) await connectQZ();
-        await printReceiptQZ(hw.receiptPrinter.name, receiptData);
+        return;
       }
+
+      // ── Path 3: USB via QZ Tray ───────────────────────────────────────────
+      if (!isQZConnected()) await connectQZ();
+      await printRaw(hw.receiptPrinter.name, [escpos]);
+
     } catch (err) {
       console.warn('Print failed:', err.message);
     } finally {
@@ -66,10 +92,24 @@ export function useHardware({ onBarcode } = {}) {
     }
   }, [hw]);
 
-  // ── Open cash drawer ─────────────────────────────────────────────────────
+  // ── Open cash drawer ──────────────────────────────────────────────────────
   const openDrawer = useCallback(async () => {
     if (!hw?.cashDrawer || hw.cashDrawer.type === 'none') return;
     try {
+      // ── Electron ──────────────────────────────────────────────────────────
+      if (isElectron()) {
+        if (hw.receiptPrinter?.type === 'network') {
+          await window.electronAPI.openDrawerNetwork(
+            hw.receiptPrinter.ip,
+            hw.receiptPrinter.port || 9100,
+          );
+        } else if (hw.receiptPrinter?.name) {
+          await window.electronAPI.openDrawerUSB(hw.receiptPrinter.name);
+        }
+        return;
+      }
+
+      // ── QZ Tray ───────────────────────────────────────────────────────────
       if (hw.cashDrawer.type === 'printer' && hw.receiptPrinter?.name) {
         await kickCashDrawer(hw.receiptPrinter.name);
       }
@@ -78,7 +118,13 @@ export function useHardware({ onBarcode } = {}) {
     }
   }, [hw]);
 
-  // ── PAX card payment ─────────────────────────────────────────────────────
+  // ── List system printers (Electron only) ──────────────────────────────────
+  const listSystemPrinters = useCallback(async () => {
+    if (isElectron()) return window.electronAPI.listPrinters();
+    return [];
+  }, []);
+
+  // ── PAX card payment ──────────────────────────────────────────────────────
   const processCardPayment = useCallback(async ({ amount, invoiceNumber, edcType = '02' }) => {
     if (!hw?.paxTerminal?.enabled) {
       throw new Error('No PAX terminal configured for this station.');
@@ -120,9 +166,10 @@ export function useHardware({ onBarcode } = {}) {
     hw,
     printing, payStatus, payResult,
     printReceipt, openDrawer,
+    listSystemPrinters,
     processCardPayment, cancelPayment,
     hasPAX, hasReceiptPrinter, hasCashDrawer, hasScale, hasLabelPrinter,
-    // Scale / Magellan
     scale,
+    isElectron: isElectron(),
   };
 }

@@ -87,7 +87,7 @@ const SCALE_BAUD_DEFAULTS = {
 
 // ── Style helpers ──────────────────────────────────────────────────────────
 const S = {
-  wrap:  { minHeight: '100vh', background: '#0b0d14', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto' },
+  wrap:  { height: '100%', background: '#0b0d14', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '2rem 1rem', overflowY: 'auto', overflowX: 'hidden' },
   card:  { width: '100%', maxWidth: 580, background: '#13161e', border: '1px solid rgba(255,255,255,.07)', borderRadius: 20, padding: '2rem', marginTop: '1rem', marginBottom: '2rem' },
   field: { width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, color: '#e8eaf0', padding: '0.8rem 1rem', fontSize: '0.95rem', outline: 'none', transition: 'border-color .15s' },
   select: { width: '100%', boxSizing: 'border-box', background: '#1a1d27', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, color: '#e8eaf0', padding: '0.8rem 1rem', fontSize: '0.95rem', outline: 'none', cursor: 'pointer' },
@@ -246,13 +246,24 @@ export default function StationSetupScreen() {
     } finally { setLoading(false); }
   };
 
-  // ── Detect QZ Tray printers ───────────────────────────────────────────
-  const [qzStatus, setQzStatus] = React.useState('unknown'); // 'unknown'|'running'|'not_running'
+  // ── Detect printers (Electron OR QZ Tray) ────────────────────────────
+  const [qzStatus, setQzStatus] = React.useState('unknown'); // 'unknown'|'running'|'not_running'|'electron'
 
   const detectQZPrinters = async (forLabel = false) => {
     setDetectingPrinters(true);
     setQzStatus('unknown');
     try {
+      // ── Path 1: Electron — use native OS printer list ──────────────────
+      if (window.electronAPI?.isElectron) {
+        const printers = await window.electronAPI.listPrinters();
+        const list = printers.map(p => p.displayName || p.name).filter(Boolean);
+        setQzStatus('electron');
+        if (forLabel) setDetectedLabelPrinters(list);
+        else setDetectedPrinters(list);
+        return;
+      }
+
+      // ── Path 2: QZ Tray ───────────────────────────────────────────────
       if (typeof window.qz === 'undefined') {
         setQzStatus('not_running');
         return;
@@ -381,17 +392,37 @@ export default function StationSetupScreen() {
   const testReceiptPrinter = async () => {
     const p = hw.receiptPrinter;
     setTestLoad('receipt', true); setTest('receipt', null);
+
+    // ESC/POS: reset → centre → print text → partial cut
+    const TEST_ESC = '\x1B\x40\x1B\x61\x01StoreVeu POS\nTest Print OK!\n\n\n\x1D\x56\x00';
+
     try {
-      if (p.type === 'network') {
+      // ── Electron desktop: route through native OS printer APIs ────────────
+      if (window.electronAPI?.isElectron) {
+        if (p.type === 'network' && p.ip) {
+          await window.electronAPI.printNetwork(p.ip, p.port || 9100, TEST_ESC);
+        } else if (p.name) {
+          // USB (Windows winspool) — printer name from the dropdown
+          await window.electronAPI.printUSB(p.name, TEST_ESC);
+        } else {
+          throw new Error('No printer selected. Choose a printer from the SELECT PRINTER dropdown.');
+        }
+      }
+      // ── Network printer via backend TCP proxy ─────────────────────────────
+      else if (p.type === 'network') {
         await api.post('/pos-terminal/print-network', {
           ip: p.ip, port: p.port,
-          data: btoa('\x1B\x40\x1B\x61\x01TEST PRINT\nReceipt printer OK!\n\n\n\x1D\x56\x00'),
+          data: btoa(TEST_ESC),
         });
-      } else if (p.type === 'qz' && p.name) {
+      }
+      // ── USB via QZ Tray ───────────────────────────────────────────────────
+      else if (p.type === 'qz' && p.name) {
         const q = window.qz;
         if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
         const cfg = q.configs.create(p.name);
-        await q.print(cfg, ['\x1B\x40\x1B\x61\x01TEST PRINT\nReceipt printer OK!\n\n\n\x1D\x56\x00']);
+        await q.print(cfg, [TEST_ESC]);
+      } else {
+        throw new Error('No printer configured. Select a model and printer above.');
       }
       setTest('receipt', 'ok');
     } catch (err) {
@@ -406,13 +437,22 @@ export default function StationSetupScreen() {
     if (hw.cashDrawer.type === 'none') return;
     setTestLoad('drawer', true);
     try {
-      if (p.type === 'qz' && p.name) {
+      // ── Electron ─────────────────────────────────────────────────────────
+      if (window.electronAPI?.isElectron) {
+        if (p.type === 'network' && p.ip) {
+          await window.electronAPI.openDrawerNetwork(p.ip, p.port || 9100);
+        } else if (p.name) {
+          await window.electronAPI.openDrawerUSB(p.name);
+        }
+      }
+      // ── QZ Tray ───────────────────────────────────────────────────────────
+      else if (p.type === 'qz' && p.name) {
         const q = window.qz;
         if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
         const cfg = q.configs.create(p.name);
-        await q.print(cfg, ['\x1B\x70\x00\x19\xFA']); // drawer kick command
-        setTest('drawer', 'ok');
+        await q.print(cfg, ['\x1B\x70\x00\x19\xFA']); // ESC/POS drawer kick
       }
+      setTest('drawer', 'ok');
     } catch (err) {
       setTest('drawer', 'err');
     } finally { setTestLoad('drawer', false); }
@@ -439,12 +479,30 @@ export default function StationSetupScreen() {
     setTestLoad('label', true); setTest('label', null);
     try {
       const zpl = '^XA^CF0,40^FO30,30^FDTEST LABEL^FS^CF0,25^FO30,80^FDLabel printer OK!^FS^XZ';
-      if (p.type === 'zebra_zpl' && p.name) {
+
+      // ── Electron: ZPL USB via winspool ───────────────────────────────────
+      if (window.electronAPI?.isElectron && p.type === 'zebra_zpl' && p.name) {
+        await window.electronAPI.printUSB(p.name, zpl);
+        setTest('label', 'ok');
+      }
+      // ── Electron / Browser: ZPL network ──────────────────────────────────
+      else if (p.type === 'zebra_net' && p.ip) {
+        if (window.electronAPI?.isElectron) {
+          await window.electronAPI.printLabelNetwork(p.ip, p.port || 9100, zpl);
+        } else {
+          await api.post('/pos-terminal/print-network', { ip: p.ip, port: p.port, data: btoa(zpl) });
+        }
+        setTest('label', 'ok');
+      }
+      // ── QZ Tray ───────────────────────────────────────────────────────────
+      else if (p.type === 'zebra_zpl' && p.name) {
         const q = window.qz;
         if (!q?.websocket?.isActive()) throw new Error('QZ Tray not connected');
         const cfg = q.configs.create(p.name);
         await q.print(cfg, [{ type: 'raw', format: 'plain', data: zpl }]);
         setTest('label', 'ok');
+      } else {
+        throw new Error('No label printer configured.');
       }
     } catch (err) {
       setTest('label', 'err');
@@ -688,8 +746,9 @@ export default function StationSetupScreen() {
                       borderRadius: 8, padding: '10px 12px',
                     }}>
                       <div style={{ fontSize: '0.78rem', lineHeight: 1.5 }}>
-                        {qzStatus === 'running' && <span style={{ color: '#4ade80', fontWeight: 700 }}>✓ QZ Tray is running</span>}
-                        {qzStatus === 'not_running' && (
+                        {qzStatus === 'electron'     && <span style={{ color: '#4ade80', fontWeight: 700 }}>✓ Running as desktop app — all printers detected</span>}
+                        {qzStatus === 'running'      && <span style={{ color: '#4ade80', fontWeight: 700 }}>✓ QZ Tray is running</span>}
+                        {qzStatus === 'not_running'  && (
                           <span style={{ color: '#f87171', fontWeight: 700 }}>
                             ✗ QZ Tray not detected —{' '}
                             <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{ color: '#7b95e0' }}>
@@ -700,11 +759,7 @@ export default function StationSetupScreen() {
                         )}
                         {qzStatus === 'unknown' && (
                           <span style={{ color: '#6b7280' }}>
-                            QZ Tray bridges USB printers to this browser.{' '}
-                            <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{ color: '#7b95e0' }}>
-                              Download QZ Tray
-                            </a>
-                            {' '}if not installed, then click Detect.
+                            Click <strong style={{ color: '#94a3b8' }}>Detect Printers</strong> to find all USB printers connected to this computer.
                           </span>
                         )}
                       </div>

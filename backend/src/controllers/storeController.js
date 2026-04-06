@@ -214,13 +214,66 @@ export const getStoreBranding = async (req, res, next) => {
 export const updateStoreBranding = async (req, res, next) => {
   try {
     if (!isOwnerOrAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
-    const { theme, primaryColor, logoText } = req.body;
+    const {
+      theme, primaryColor, logoText,
+      // Store info shown on receipt
+      storeAddress, storePhone, storeEmail, storeWebsite,
+      storeTaxId, taxIdLabel,
+      // Header
+      receiptHeaderLine1, receiptHeaderLine2,
+      // Body toggles
+      receiptShowCashier, receiptShowTransactionId, receiptShowItemCount,
+      receiptShowTaxBreakdown, receiptShowSavings,
+      // Footer
+      receiptFooterLine1, receiptFooterLine2,
+      receiptShowReturnPolicy, receiptReturnPolicy,
+      // Paper
+      receiptPaperWidth,
+    } = req.body;
+
+    // Get existing branding to merge (preserve fields not sent)
+    const existing = await prisma.store.findFirst({
+      where: { id: req.params.id },
+      select: { branding: true },
+    });
+    const prev = (existing?.branding && typeof existing.branding === 'object') ? existing.branding : {};
+
     const branding = {
-      theme:        ['light', 'dark'].includes(theme) ? theme : 'dark',
-      primaryColor: /^#[0-9a-fA-F]{6}$/.test(primaryColor) ? primaryColor : '#7ac143',
-      logoText:     logoText || '',
+      ...prev,
+      // POS UI branding
+      theme:        ['light', 'dark'].includes(theme) ? theme : (prev.theme || 'dark'),
+      primaryColor: /^#[0-9a-fA-F]{6}$/.test(primaryColor) ? primaryColor : (prev.primaryColor || '#7ac143'),
+      logoText:     logoText !== undefined ? (logoText || '') : (prev.logoText || ''),
       publishedAt:  new Date().toISOString(),
+      // Store info
+      storeAddress:  storeAddress  !== undefined ? storeAddress  : (prev.storeAddress  || ''),
+      storePhone:    storePhone    !== undefined ? storePhone    : (prev.storePhone    || ''),
+      storeEmail:    storeEmail    !== undefined ? storeEmail    : (prev.storeEmail    || ''),
+      storeWebsite:  storeWebsite  !== undefined ? storeWebsite  : (prev.storeWebsite  || ''),
+      storeTaxId:    storeTaxId    !== undefined ? storeTaxId    : (prev.storeTaxId    || ''),
+      taxIdLabel:    taxIdLabel    !== undefined ? taxIdLabel    : (prev.taxIdLabel    || 'Tax ID'),
+      // Header lines
+      receiptHeaderLine1: receiptHeaderLine1 !== undefined ? receiptHeaderLine1 : (prev.receiptHeaderLine1 || ''),
+      receiptHeaderLine2: receiptHeaderLine2 !== undefined ? receiptHeaderLine2 : (prev.receiptHeaderLine2 || ''),
+      // Body toggles
+      receiptShowCashier:       receiptShowCashier       !== undefined ? Boolean(receiptShowCashier)       : (prev.receiptShowCashier       !== false),
+      receiptShowTransactionId: receiptShowTransactionId !== undefined ? Boolean(receiptShowTransactionId) : (prev.receiptShowTransactionId !== false),
+      receiptShowItemCount:     receiptShowItemCount     !== undefined ? Boolean(receiptShowItemCount)     : Boolean(prev.receiptShowItemCount),
+      receiptShowTaxBreakdown:  receiptShowTaxBreakdown  !== undefined ? Boolean(receiptShowTaxBreakdown)  : Boolean(prev.receiptShowTaxBreakdown),
+      receiptShowSavings:       receiptShowSavings       !== undefined ? Boolean(receiptShowSavings)       : (prev.receiptShowSavings !== false),
+      // Footer
+      receiptFooterLine1:      receiptFooterLine1      !== undefined ? receiptFooterLine1      : (prev.receiptFooterLine1      || 'Thank you for your purchase!'),
+      receiptFooterLine2:      receiptFooterLine2      !== undefined ? receiptFooterLine2      : (prev.receiptFooterLine2      || 'Please come again.'),
+      receiptShowReturnPolicy: receiptShowReturnPolicy !== undefined ? Boolean(receiptShowReturnPolicy) : Boolean(prev.receiptShowReturnPolicy),
+      receiptReturnPolicy:     receiptReturnPolicy     !== undefined ? receiptReturnPolicy     : (prev.receiptReturnPolicy || ''),
+      // Paper
+      receiptPaperWidth: ['80mm', '58mm'].includes(receiptPaperWidth) ? receiptPaperWidth : (prev.receiptPaperWidth || '80mm'),
+      // Print behaviour: 'always' | 'ask' | 'never'
+      receiptPrintBehavior: ['always','ask','never'].includes(req.body.receiptPrintBehavior)
+        ? req.body.receiptPrintBehavior
+        : (prev.receiptPrintBehavior || 'always'),
     };
+
     const store = await prisma.store.update({
       where: { id: req.params.id },
       data:  { branding },

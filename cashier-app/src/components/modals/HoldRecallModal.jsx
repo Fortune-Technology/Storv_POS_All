@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PauseCircle, Play, Trash2, X, ShoppingCart } from 'lucide-react';
+import { PauseCircle, Play, Trash2, X, ShoppingCart, Tag } from 'lucide-react';
 import { useCartStore } from '../../stores/useCartStore.js';
 import { getHeldTransactions, deleteHeldTransaction } from '../../db/dexie.js';
 import { fmt$ } from '../../utils/formatters.js';
@@ -9,16 +9,17 @@ export default function HoldRecallModal({ onClose }) {
   const holdCart    = useCartStore(s => s.holdCart);
   const recallHeld  = useCartStore(s => s.recallHeld);
 
-  const [held,     setHeld]     = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [confirm,  setConfirm]  = useState(null); // id to confirm recall when cart not empty
+  const [held,      setHeld]     = useState([]);
+  const [loading,   setLoading]  = useState(true);
+  const [confirm,   setConfirm]  = useState(null); // id to confirm recall when cart not empty
+  const [holdLabel, setHoldLabel] = useState('');   // optional name for new hold
 
   const load = () => getHeldTransactions().then(setHeld).finally(() => setLoading(false));
 
   useEffect(() => { load(); }, []);
 
   const doHold = async () => {
-    await holdCart();
+    await holdCart(holdLabel.trim());
     onClose();
   };
 
@@ -67,6 +68,24 @@ export default function HoldRecallModal({ onClose }) {
         {/* Hold current cart button */}
         {items.length > 0 && (
           <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
+            {/* Optional label */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Tag size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+              <input
+                value={holdLabel}
+                onChange={e => setHoldLabel(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && doHold()}
+                placeholder="Label (optional) — e.g. Table 4, Jane"
+                maxLength={40}
+                style={{
+                  flex: 1, padding: '0.5rem 0.75rem',
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text-primary)',
+                  fontSize: '0.82rem',
+                }}
+              />
+            </div>
             <button onClick={doHold} style={{
               width: '100%', padding: '0.75rem',
               background: 'rgba(59,130,246,.12)',

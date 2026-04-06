@@ -17,8 +17,11 @@ export const getTaxRules = () =>
   api.get('/pos-terminal/tax-rules').then(r => r.data);
 
 // ── Product lookup (online fallback) ───────────────────────────────────────
+// Uses /search endpoint which does exact UPC match (with 12/13/14-digit variants)
+// before falling back to text search — unlike the bulk /products list endpoint
+// which ignores the `q` param entirely and returns alphabetical page 1.
 export const lookupProductByUPC = (upc, storeId) =>
-  api.get('/catalog/products', {
+  api.get('/catalog/products/search', {
     params: { q: upc, storeId, limit: 1 },
   }).then(r => r.data?.data?.[0] || r.data?.[0] || null);
 

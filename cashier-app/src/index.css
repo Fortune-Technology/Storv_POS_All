@@ -123,6 +123,11 @@ input:focus, select:focus { border-color: var(--green); }
 /* Spin utility */
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@keyframes slideDown {
+  from { transform: translateX(-50%) translateY(-12px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   15%       { transform: translateX(-8px); }

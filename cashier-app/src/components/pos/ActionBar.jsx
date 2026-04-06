@@ -14,7 +14,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
-  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket,
+  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -54,13 +54,14 @@ const Divider = () => (
 
 // ── ActionBar ──────────────────────────────────────────────────────────────
 export default function ActionBar({
-  onPriceCheck, onHold, onReprint, onNoSale,
+  onPriceCheck, onHold, onReprint, onNoSale, onHistory,
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
   onLottery,
   // Cash drawer / shift
   onOpenShift, onCloseShift, onCashDrop, onPayout,
   shiftOpen = false,
+  heldCount = 0,           // badge on Hold button
   enabledShortcuts = {},
   // enabledShortcuts shape:
   //   { priceCheck, hold, reprint, noSale, discount, refund, voidTx, endOfDay }
@@ -199,12 +200,45 @@ export default function ActionBar({
         <ACT icon={DollarSign} label="No Sale" onClick={mgr('No Sale', onNoSale)} locked={!valid} />
       )}
       {show('reprint') && (
-        <ACT icon={Printer}    label="Reprint" onClick={onReprint} />
+        <ACT icon={Printer} label="Reprint" onClick={onReprint} />
       )}
+      <Divider />
+      {/* History — always visible, dedicated past-transactions button */}
+      <ACT icon={History} label="History" onClick={onHistory} color="var(--blue)" />
       {show('hold') && (
         <>
           <Divider />
-          <ACT icon={PauseCircle} label="Hold" onClick={onHold} disabled={!items.length} />
+          {/* Hold button — badge shows parked count */}
+          <button
+            onClick={onHold}
+            title={`Hold / Recall${heldCount ? ` (${heldCount} parked)` : ''}`}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 3, padding: '0 14px', height: '100%', minWidth: 64,
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: heldCount > 0 ? 'var(--amber)' : 'var(--text-secondary)',
+              position: 'relative', borderRadius: 0,
+              transition: 'background .12s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+          >
+            <PauseCircle size={17} />
+            <span style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+              Hold{heldCount > 0 ? ` (${heldCount})` : ''}
+            </span>
+            {heldCount > 0 && (
+              <span style={{
+                position: 'absolute', top: 5, right: 8,
+                background: 'var(--amber)', color: '#000',
+                borderRadius: '50%', width: 16, height: 16,
+                fontSize: '0.6rem', fontWeight: 900,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {heldCount}
+              </span>
+            )}
+          </button>
         </>
       )}
       {show('priceCheck') && (

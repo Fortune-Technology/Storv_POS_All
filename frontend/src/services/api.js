@@ -244,6 +244,9 @@ export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id
 
 export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
 
+// POS Transactions
+export const getTransactions = (params) => api.get('/pos-terminal/transactions', { params }).then(r => r.data);
+
 export const getLotteryShiftReports   = (params) => api.get('/lottery/shift-reports', { params }).then(lotteryUnwrap);
 export const getLotteryShiftReport    = (shiftId) => api.get(`/lottery/shift-reports/${shiftId}`).then(lotteryUnwrap);
 

@@ -54,6 +54,23 @@ db.version(4).stores({
   promotions:        'id, orgId, active, promoType',
 });
 
+// Version 5: offline cashier login cache
+// cashiers.pinHash = SHA-256(raw PIN) — allows offline PIN verification
+// without ever storing the plain PIN text
+db.version(5).stores({
+  products:          '++id, upc, orgId, storeId, departmentId, updatedAt, active',
+  taxRules:          '++id, orgId, storeId',
+  depositRules:      '++id, orgId',
+  txQueue:           '++localId, status, createdAt, storeId, txNumber',
+  txHistory:         'id, txNumber, storeId, cashierId, createdAt',
+  syncMeta:          'key',
+  heldTransactions:  '++id, storeId, heldAt',
+  scanFrequency:     'productId, count, lastAt',
+  departments:       'id, orgId, active, sortOrder',
+  promotions:        'id, orgId, active, promoType',
+  cashiers:          'id, orgId, storeId',
+});
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 export async function getLastSync(key) {
@@ -178,4 +195,20 @@ export async function getActivePromotions() {
     if (p.endDate   && new Date(p.endDate).getTime()   < now) return false;
     return true;
   }).toArray();
+}
+
+// ── Offline cashier cache ──────────────────────────────────────────────────
+// cashierData should include: id, name, role, storeId, orgId, token, pinHash
+export async function cacheCashierLocally(cashierData) {
+  await db.cashiers.put({ ...cashierData, cachedAt: new Date().toISOString() });
+}
+
+// Find a cashier whose pinHash matches the SHA-256 of the entered PIN
+export async function findCashierByPinHash(pinHash) {
+  return db.cashiers.filter(c => c.pinHash === pinHash).first();
+}
+
+// Count locally cached products (for offline status display)
+export async function countCachedProducts() {
+  return db.products.filter(p => p.active !== false).count();
 }

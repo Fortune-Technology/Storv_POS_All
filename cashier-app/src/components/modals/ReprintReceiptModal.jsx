@@ -1,79 +1,26 @@
 /**
  * ReprintReceiptModal
- * Shows a past transaction as a receipt with a Print button.
- * Works with the transaction data shape from the API:
- *   { txNumber, createdAt, cashierName, lineItems, tenderLines, grandTotal, changeGiven }
- *
- * Also renders a hidden <PrintableReceipt> for window.print().
+ * Shows a past transaction on-screen.
+ * onPrint(tx) → sends directly to thermal printer via hardware (no browser dialog).
  */
 import React from 'react';
 import { X, Printer } from 'lucide-react';
 import { fmt$, fmtTxNumber } from '../../utils/formatters.js';
 import { useAuthStore } from '../../stores/useAuthStore.js';
 
-// ── Hidden element targeted by @media print CSS ────────────────────────────
-function PrintableReceipt({ tx, cashierName }) {
-  if (!tx) return null;
-  return (
-    <div
-      className="receipt-print"
-      style={{
-        position: 'fixed', left: -9999, top: 0,
-        width: 320, fontFamily: 'monospace', fontSize: 12,
-      }}
-    >
-      <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>RECEIPT</div>
-        <div>{fmtTxNumber(tx.txNumber)}</div>
-        <div>{new Date(tx.createdAt).toLocaleString()}</div>
-      </div>
-      <hr />
-      {(tx.lineItems || []).map((item, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-          <span>{item.qty > 1 ? `${item.qty}x ` : ''}{item.name}</span>
-          <span>{fmt$(item.lineTotal)}</span>
-        </div>
-      ))}
-      <hr />
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-        <span>TOTAL</span>
-        <span>{fmt$(Math.abs(tx.grandTotal))}</span>
-      </div>
-      {(tx.tenderLines || []).map((t, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{t.method.replace('_', ' ').toUpperCase()}</span>
-          <span>{fmt$(t.amount)}</span>
-        </div>
-      ))}
-      {tx.changeGiven > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-          <span>CHANGE</span>
-          <span>{fmt$(tx.changeGiven)}</span>
-        </div>
-      )}
-      <hr />
-      <div style={{ textAlign: 'center', marginTop: 8 }}>
-        Cashier: {cashierName}<br />
-        Thank you for shopping with us!
-      </div>
-    </div>
-  );
-}
-
 // ── Main modal ──────────────────────────────────────────────────────────────
-export default function ReprintReceiptModal({ tx, onClose }) {
+export default function ReprintReceiptModal({ tx, onClose, onPrint }) {
   const cashier     = useAuthStore(s => s.cashier);
   const cashierName = tx?.cashierName || cashier?.name || cashier?.email || '';
 
   if (!tx) return null;
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    if (onPrint) onPrint(tx);
+  };
 
   return (
     <>
-      {/* Hidden receipt for window.print() */}
-      <PrintableReceipt tx={tx} cashierName={cashierName} />
-
       {/* Modal */}
       <div style={{
         position: 'fixed', inset: 0, zIndex: 250,

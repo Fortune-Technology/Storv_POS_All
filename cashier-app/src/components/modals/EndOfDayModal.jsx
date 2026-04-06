@@ -6,6 +6,89 @@ import { X, BarChart2, Printer, RefreshCw, Clock, DollarSign, CreditCard, Leaf }
 import { getEndOfDayReport } from '../../api/pos.js';
 import { fmt$ } from '../../utils/formatters.js';
 import { useAuthStore } from '../../stores/useAuthStore.js';
+import { useHardware } from '../../hooks/useHardware.js';
+import { ESCPOS } from '../../services/printerService.js';
+
+// ── Build ESC/POS EOD report string ─────────────────────────────────────────
+function buildEODString(report, today) {
+  const W   = 42;
+  const LF  = '\x0A';
+  const ESC = '\x1B';
+  const GS  = '\x1D';
+  const line = (left, right) => {
+    const r = String(right || '');
+    const l = String(left  || '').substring(0, W - r.length).padEnd(W - r.length);
+    return l + r + LF;
+  };
+  const centre = (text) => {
+    const t = String(text || '');
+    const pad = Math.max(0, Math.floor((W - t.length) / 2));
+    return ' '.repeat(pad) + t + LF;
+  };
+  const dashes = () => '-'.repeat(W) + LF;
+
+  let r = '';
+  r += ESCPOS.INIT;
+  r += ESCPOS.ALIGN_CENTER;
+  r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE;
+  r += 'END OF DAY REPORT' + LF;
+  r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
+  r += today + LF;
+  r += LF;
+  r += ESCPOS.ALIGN_LEFT;
+  r += dashes();
+
+  // Net Sales
+  r += ESCPOS.BOLD_ON;
+  r += line('NET SALES', fmt$(report.netSales));
+  r += ESCPOS.BOLD_OFF;
+  r += line('Gross Sales',  fmt$(report.totalSales));
+  r += line('Tax Collected', fmt$(report.totalTax));
+  r += line('Refunds',       fmt$(report.totalRefunds || 0));
+  r += dashes();
+
+  // Counts
+  r += line('Transactions', String(report.transactionCount || 0));
+  r += line('Refunds',      String(report.refundCount      || 0));
+  r += line('Voided',       String(report.voidedCount      || 0));
+  r += dashes();
+
+  // Tender breakdown
+  r += ESCPOS.BOLD_ON + 'TENDER BREAKDOWN' + LF + ESCPOS.BOLD_OFF;
+  const tenders = report.tenderBreakdown || {};
+  Object.entries(tenders).forEach(([method, amount]) => {
+    r += line('  ' + method.replace(/_/g, ' ').toUpperCase(), fmt$(amount));
+  });
+  r += dashes();
+
+  // Cashier breakdown
+  if (report.cashierBreakdown?.length > 0) {
+    r += ESCPOS.BOLD_ON + 'BY CASHIER' + LF + ESCPOS.BOLD_OFF;
+    report.cashierBreakdown.forEach(c => {
+      r += line('  ' + (c.name || ''), `${c.count} txns  ${fmt$(c.total)}`);
+    });
+    r += dashes();
+  }
+
+  // Clock events
+  if (report.clockEvents?.length > 0) {
+    r += ESCPOS.BOLD_ON + 'CLOCK EVENTS' + LF + ESCPOS.BOLD_OFF;
+    report.clockEvents.forEach(e => {
+      const d   = new Date(e.createdAt);
+      const h   = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+      const t   = `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
+      const lbl = e.type === 'in' ? 'IN ' : 'OUT';
+      r += line(`  ${lbl}  ${e.userName || ''}`, t);
+    });
+    r += dashes();
+  }
+
+  r += ESCPOS.ALIGN_CENTER;
+  r += centre('*** END OF REPORT ***');
+  r += ESCPOS.FEED_3;
+  r += ESCPOS.CUT_PARTIAL;
+  return r;
+}
 
 const BACKDROP = { position:'fixed', inset:0, zIndex:210, background:'rgba(0,0,0,.75)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' };
 
@@ -24,8 +107,11 @@ export default function EndOfDayModal({ onClose }) {
   const storeId = cashier?.storeId;
   const today   = new Date().toISOString().split('T')[0];
 
-  const [report,  setReport]  = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [report,   setReport]   = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [printing, setPrinting] = useState(false);
+
+  const { hasReceiptPrinter, hw, isElectron: isElec } = useHardware();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,7 +122,37 @@ export default function EndOfDayModal({ onClose }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handlePrint = () => window.print();
+  const handlePrint = useCallback(async () => {
+    if (!report) return;
+    if (!hasReceiptPrinter || !hw?.receiptPrinter) return;
+
+    setPrinting(true);
+    try {
+      const escpos  = buildEODString(report, today);
+      const printer = hw.receiptPrinter;
+
+      if (isElec) {
+        // Electron: send raw ESC/POS directly via IPC
+        if (printer.type === 'network') {
+          await window.electronAPI.printNetwork(printer.ip, printer.port || 9100, escpos);
+        } else {
+          await window.electronAPI.printUSB(printer.name, escpos);
+        }
+      } else if (printer.type === 'network') {
+        // Browser + network: post raw bytes to backend proxy
+        const api = (await import('../../api/client.js')).default;
+        await api.post('/pos-terminal/print-network', {
+          ip:   printer.ip,
+          port: printer.port || 9100,
+          data: btoa(unescape(encodeURIComponent(escpos))),
+        });
+      }
+    } catch (err) {
+      console.warn('EOD print failed:', err.message);
+    } finally {
+      setPrinting(false);
+    }
+  }, [report, hasReceiptPrinter, hw, isElec, today]);
 
   return (
     <div style={BACKDROP}>
@@ -52,7 +168,16 @@ export default function EndOfDayModal({ onClose }) {
           </div>
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={load} title="Refresh" style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}><RefreshCw size={15} /></button>
-            <button onClick={handlePrint} title="Print" style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}><Printer size={15} /></button>
+            {hasReceiptPrinter && (
+              <button
+                onClick={handlePrint}
+                disabled={printing || !report}
+                title="Print to receipt printer"
+                style={{ background:'none', border:'none', color: printing ? 'var(--green)' : 'var(--text-muted)', cursor: printing ? 'not-allowed' : 'pointer', padding:6, display:'flex', opacity: (!report || printing) ? 0.5 : 1 }}
+              >
+                <Printer size={15} style={{ animation: printing ? 'spin 1s linear infinite' : 'none' }} />
+              </button>
+            )}
             <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}><X size={16} /></button>
           </div>
         </div>

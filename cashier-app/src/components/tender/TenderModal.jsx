@@ -19,7 +19,7 @@ import React, { useState, useMemo } from 'react';
 import {
   X, DollarSign, CreditCard, Leaf, Smartphone,
   MoreHorizontal, Check, RotateCcw,
-  Printer, RefreshCw, Trash2, PlusCircle,
+  RefreshCw, Trash2, PlusCircle,
 } from 'lucide-react';
 import NumPadInline, { digitsToNumber, numberToDigits } from '../pos/NumPadInline.jsx';
 import { useCartStore, selectTotals } from '../../stores/useCartStore.js';
@@ -96,39 +96,6 @@ const numpadCol = {
   borderLeft: '1px solid var(--border)',
 };
 
-// ── Hidden receipt for window.print() ────────────────────────────────────────
-function PrintableReceipt({ tx, totals, change, cashier }) {
-  if (!tx) return null;
-  return (
-    <div className="receipt-print" style={{ position: 'fixed', left: -9999, top: 0, width: 320, fontFamily: 'monospace', fontSize: 12 }}>
-      <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <div style={{ fontWeight: 700 }}>RECEIPT</div>
-        <div>{fmtTxNumber(tx.txNumber)} · {fmtDate()} {fmtTime()}</div>
-        <div>Cashier: {cashier?.name || cashier?.email}</div>
-      </div>
-      <hr />
-      {tx.lineItems?.map((item, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{item.qty > 1 ? `${item.qty}× ` : ''}{item.name}</span>
-          <span>{fmt$(item.lineTotal)}</span>
-        </div>
-      ))}
-      <hr />
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>{fmt$(totals.subtotal)}</span></div>
-      {totals.taxTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax</span><span>{fmt$(totals.taxTotal)}</span></div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>TOTAL</span><span>{fmt$(totals.grandTotal)}</span></div>
-      <hr />
-      {tx.tenderLines?.map((t, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>{t.method.replace('_', ' ').toUpperCase()}</span><span>{fmt$(t.amount)}</span>
-        </div>
-      ))}
-      {change > 0.005 && <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>CHANGE</span><span>{fmt$(change)}</span></div>}
-      <div style={{ textAlign: 'center', marginTop: 8 }}>Thank you!</div>
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -136,6 +103,7 @@ function PrintableReceipt({ tx, totals, change, cashier }) {
 export default function TenderModal({
   onClose,
   onComplete,              // optional: called with (completedTx) after transaction saves
+  onPrint,                 // optional: (tx) → send directly to hardware printer
   taxRules       = [],
   initMethod     = null,
   initCashAmount = null,   // numeric dollar amount from quick-cash buttons
@@ -296,40 +264,75 @@ export default function TenderModal({
   // ════════════════════════════════════════════════════════════════════════════
   if (screen === 'change' && completedTx) {
     const handleDone  = () => { clearCart(); onClose(); };
-    const handlePrint = () => { window.print(); clearCart(); onClose(); };
+    const handlePrint = () => { if (onPrint) onPrint(completedTx); clearCart(); onClose(); };
+    const hasCashTender = completedTx.tenderLines?.some(t => t.method === 'cash');
+    const tenderLines   = completedTx.tenderLines || [];
+    const multiTender   = tenderLines.length > 1;
+
     return (
-      <>
-        <PrintableReceipt tx={completedTx} totals={totals} change={completedChg} cashier={cashier} />
-        <div style={s.backdrop}>
-          <div style={{ width: '100%', maxWidth: 400, background: 'var(--bg-panel)', borderRadius: 20, overflow: 'hidden', border: '1px solid rgba(122,193,67,.3)', boxShadow: '0 32px 80px rgba(0,0,0,.7)' }}>
-            <div style={{ background: 'rgba(122,193,67,.1)', borderBottom: '1px solid rgba(122,193,67,.2)', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Check size={15} color="#0f1117" strokeWidth={3} />
-              </div>
-              <span style={{ fontWeight: 800, color: 'var(--green)', fontSize: '0.95rem' }}>Sale Complete</span>
-              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtTxNumber(completedTx.txNumber)}</span>
+      <div style={s.backdrop}>
+        <div style={{ width: '100%', maxWidth: 400, background: 'var(--bg-panel)', borderRadius: 20, overflow: 'hidden', border: '1px solid rgba(122,193,67,.3)', boxShadow: '0 32px 80px rgba(0,0,0,.7)' }}>
+
+          {/* Header */}
+          <div style={{ background: 'rgba(122,193,67,.1)', borderBottom: '1px solid rgba(122,193,67,.2)', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Check size={15} color="#0f1117" strokeWidth={3} />
             </div>
-            <div style={{ padding: '2rem 1.5rem 1.25rem', textAlign: 'center' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 8 }}>CHANGE DUE</div>
-              <div style={{ fontSize: '4.5rem', fontWeight: 900, color: 'var(--green)', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmt$(completedChg)}</div>
-              {cashRounding === '0.05' && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>Rounded to nearest $0.05</div>}
-              <div style={{ marginTop: '1.25rem', display: 'flex', gap: 6, justifyContent: 'center', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <span>Total: {fmt$(totals.grandTotal)}</span>
-                <span style={{ opacity: 0.4 }}>·</span>
-                <span>Cash: {fmt$(completedTx.tenderLines?.find(l => l.method === 'cash')?.amount || activeAmt)}</span>
-              </div>
+            <span style={{ fontWeight: 800, color: 'var(--green)', fontSize: '0.95rem' }}>Sale Complete</span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtTxNumber(completedTx.txNumber)}</span>
+          </div>
+
+          {/* Change amount */}
+          <div style={{ padding: '1.5rem 1.5rem 0.75rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 8 }}>CHANGE DUE</div>
+            <div style={{ fontSize: '4.5rem', fontWeight: 900, color: 'var(--green)', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmt$(completedChg)}</div>
+            {cashRounding === '0.05' && (
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Rounded to nearest $0.05</div>
+            )}
+          </div>
+
+          {/* Tender breakdown */}
+          <div style={{ margin: '0.5rem 1.25rem 0.75rem', background: 'var(--bg-input)', borderRadius: 10, padding: '0.6rem 0.875rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: multiTender ? 6 : 0 }}>
+              <span>Total charged</span>
+              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fmt$(totals.grandTotal)}</span>
             </div>
-            <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {multiTender && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2 }}>
+                {tenderLines.map((t, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 2 }}>
+                    <span>{t.method.replace(/_/g, ' ').toUpperCase()}</span>
+                    <span>{fmt$(t.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!multiTender && tenderLines[0] && (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                {tenderLines[0].method.replace(/_/g, ' ').toUpperCase()}: {fmt$(tenderLines[0].amount)}
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {hasCashTender && onPrint ? (
+              <>
+                <button onClick={handlePrint} style={s.bigBtn('var(--green)')}>
+                  <Check size={18} /> Print Receipt &amp; Done
+                </button>
+                <button onClick={handleDone} style={{ width: '100%', padding: '0.875rem', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, cursor: 'pointer' }}>
+                  <RefreshCw size={16} /> Skip — New Sale
+                </button>
+              </>
+            ) : (
               <button onClick={handleDone} style={s.bigBtn('var(--green)')}>
                 <RefreshCw size={18} /> Done — New Sale
               </button>
-              <button onClick={handlePrint} style={{ width: '100%', padding: '0.875rem', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, cursor: 'pointer' }}>
-                <Printer size={16} /> Print Receipt &amp; Done
-              </button>
-            </div>
+            )}
           </div>
         </div>
-      </>
+      </div>
     );
   }
 

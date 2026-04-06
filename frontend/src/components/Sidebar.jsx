@@ -21,6 +21,7 @@ import {
   Monitor,
   Tv2,
   Receipt,
+  FileText,
   Clock,
   Layers,
   Truck,
@@ -78,6 +79,7 @@ const menuGroups = [
     label: 'Point of Sale',
     items: [
       { name: 'POS Settings',     icon: <Monitor size={13} />,  path: '/portal/pos-settings' },
+      { name: 'Receipt Settings', icon: <FileText size={13} />, path: '/portal/receipt-settings' },
       { name: 'Stations',         icon: <Tv2 size={13} />,      path: '/portal/stations' },
       { name: 'Transactions',     icon: <Receipt size={13} />,  path: '/portal/transactions' },
       { name: 'Employee Reports', icon: <Clock size={13} />,    path: '/portal/employee-reports' },

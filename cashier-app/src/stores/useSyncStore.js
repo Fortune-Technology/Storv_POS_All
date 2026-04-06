@@ -7,6 +7,9 @@ export const useSyncStore = create((set, get) => ({
   pendingCount:   0,
   isSyncing:      false,       // transaction queue sync
   lastSyncAt:     null,
+  // 'auth_expired' → cashier needs to re-login online to drain queue
+  // 'network'      → generic failure, will auto-retry
+  syncError:      null,
 
   // Catalog sync state (product/price refresh)
   catalogSyncing: false,
@@ -15,6 +18,7 @@ export const useSyncStore = create((set, get) => ({
   setOnline:          (v)  => set({ isOnline: v }),
   setCatalogSyncing:  (v)  => set({ catalogSyncing: v }),
   setCatalogSyncedAt: (ts) => set({ catalogSyncedAt: ts }),
+  clearSyncError:     ()   => set({ syncError: null }),
 
   // Load pending count from IndexedDB on startup
   loadPendingCount: async () => {
@@ -43,9 +47,13 @@ export const useSyncStore = create((set, get) => ({
         await markTransactionSynced(r.localId);
       }
       const remaining = await getPendingTransactions();
-      set({ pendingCount: remaining.length, lastSyncAt: new Date().toISOString() });
-    } catch {
-      // Will retry on next interval
+      set({ pendingCount: remaining.length, lastSyncAt: new Date().toISOString(), syncError: null });
+    } catch (err) {
+      // Detect auth expiry so the UI can prompt re-login
+      if (err.response?.status === 401) {
+        set({ syncError: 'auth_expired' });
+      }
+      // Any other error: stay silent, will auto-retry when online
     } finally {
       set({ isSyncing: false });
     }

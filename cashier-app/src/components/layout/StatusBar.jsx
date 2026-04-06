@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut, Database, AlertTriangle } from 'lucide-react';
 import StoreveuLogo from '../StoreveuLogo.jsx';
 import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { useSyncStore }    from '../../stores/useSyncStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
 import { fmtTime }         from '../../utils/formatters.js';
+import { countCachedProducts } from '../../db/dexie.js';
 
 /** How many minutes ago was the last catalog sync (rounded) */
 function fmtSyncAge(isoStr) {
@@ -21,7 +22,7 @@ export default function StatusBar({ onRefresh }) {
   const cashier  = useAuthStore(s => s.cashier);
   const logout   = useAuthStore(s => s.logout);
   const station  = useStationStore(s => s.station);
-  const { isOnline, isSyncing, pendingCount, catalogSyncing, catalogSyncedAt } = useSyncStore();
+  const { isOnline, isSyncing, pendingCount, catalogSyncing, catalogSyncedAt, syncError, clearSyncError } = useSyncStore();
   const txNumber = useCartStore(s => s.txNumber);
   const cartItemCount = useCartStore(s => s.items.length);
   const checkLogout   = useAuthStore(s => s.checkLogout);
@@ -30,7 +31,14 @@ export default function StatusBar({ onRefresh }) {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [blockMsg,      setBlockMsg]      = useState('');
   const [syncAge,       setSyncAge]       = useState(fmtSyncAge(catalogSyncedAt));
+  const [productCount,  setProductCount]  = useState(null);
   const resetTimer = useRef(null);
+
+  // Count cached products for offline indicator
+  useEffect(() => {
+    countCachedProducts().then(setProductCount).catch(() => {});
+    // Refresh count after every catalog sync
+  }, [catalogSyncedAt]);
 
   // Auto-enter fullscreen when logged in
   useEffect(() => {
@@ -100,7 +108,7 @@ export default function StatusBar({ onRefresh }) {
 
       <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,.08)', flexShrink: 0 }} />
 
-      {/* Online status */}
+      {/* Online status + cached product count */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
         {isOnline
           ? <Wifi size={12} color="var(--green)" />
@@ -108,6 +116,16 @@ export default function StatusBar({ onRefresh }) {
         <span style={{ color: isOnline ? 'var(--green)' : 'var(--red)' }}>
           {isOnline ? 'ONLINE' : 'OFFLINE'}
         </span>
+        {productCount !== null && (
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 3,
+            color: 'var(--text-muted)', fontSize: '0.65rem',
+            marginLeft: 2,
+          }}>
+            <Database size={10} />
+            {productCount.toLocaleString()}
+          </span>
+        )}
       </div>
 
       {/* ── Catalog Refresh button ── */}
@@ -174,11 +192,17 @@ export default function StatusBar({ onRefresh }) {
         </span>
       )}
 
-      {/* Cashier name */}
+      {/* Cashier name (amber if in offline mode) */}
       {cashier && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-          <User size={12} color="var(--text-muted)" />
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+          color: cashier.offlineMode ? 'var(--amber)' : 'var(--text-muted)',
+        }}>
+          <User size={12} color={cashier.offlineMode ? 'var(--amber)' : 'var(--text-muted)'} />
           <span>{cashier.name || cashier.email}</span>
+          {cashier.offlineMode && (
+            <span style={{ fontSize: '0.6rem', fontWeight: 800, opacity: 0.8 }}>(offline)</span>
+          )}
         </div>
       )}
 
@@ -239,8 +263,26 @@ export default function StatusBar({ onRefresh }) {
           background: 'rgba(224,63,63,.12)', border: '1px solid rgba(224,63,63,.25)',
           borderRadius: 4, padding: '2px 8px', fontSize: '0.65rem',
           color: 'var(--red)', fontWeight: 700, flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 4,
         }}>
-          OFFLINE MODE — Transactions will sync when reconnected
+          <AlertTriangle size={10} />
+          OFFLINE — Sales queued, will sync on reconnect
+        </div>
+      )}
+
+      {/* Auth-expired warning: pending queue can't drain because JWT expired */}
+      {isOnline && syncError === 'auth_expired' && pendingCount > 0 && (
+        <div
+          onClick={clearSyncError}
+          title="Click to dismiss"
+          style={{
+            background: 'rgba(245,158,11,.15)', border: '1px solid rgba(245,158,11,.35)',
+            borderRadius: 4, padding: '2px 10px', fontSize: '0.65rem',
+            color: 'var(--amber)', fontWeight: 700, flexShrink: 0,
+            display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+          }}>
+          <AlertTriangle size={10} />
+          Session expired — sign out and log in again to sync {pendingCount} pending sale{pendingCount !== 1 ? 's' : ''}
         </div>
       )}
     </div>
