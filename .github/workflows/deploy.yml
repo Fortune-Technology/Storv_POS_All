@@ -35,7 +35,6 @@ jobs:
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           cd /var/www/Storv_POS_All/backend
           npm ci
-          npm install
           npx prisma generate
           npx prisma migrate deploy
           pm2 restart storv-pos-backend
@@ -57,7 +56,6 @@ jobs:
           cd /var/www/Storv_POS_All/frontend
           rm -rf dist
           npm ci
-          npm install
           npm run build
           sudo systemctl reload nginx
 
@@ -70,7 +68,6 @@ jobs:
           cd /var/www/Storv_POS_All/cashier-app
           rm -rf dist
           npm ci
-          npm install
           npm run build
           sudo systemctl reload nginx
 
