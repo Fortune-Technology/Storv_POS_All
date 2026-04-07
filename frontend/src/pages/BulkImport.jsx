@@ -869,7 +869,7 @@ export default function BulkImport() {
       const blob = await downloadImportTemplate(importType);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url;
-      a.download = `storevue_template_${importType}.csv`; a.click();
+      a.download = `storeveu_template_${importType}.csv`; a.click();
       URL.revokeObjectURL(url);
     } catch { toast.error('Failed to download template'); }
   };

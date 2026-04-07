@@ -72,7 +72,7 @@ export default function StoreveuLogo({ height = 40, darkMode = true, showTagline
         fontSize="80"
         letterSpacing="-3"
         fill={vueColor}
-      >vue</text>
+      >veu</text>
 
       {/* Tagline */}
       {showTagline && (
