@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, ArrowUpDown, Loader } from 'lucide-react';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminOrgAnalytics } from '../../services/api';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminOrgAnalytics } from '../services/api';
 import { toast } from 'react-toastify';
-import './admin.css';
+import '../styles/admin.css';
 
 const PLAN_COLORS = {
   free: '#6b7280', starter: '#3b82f6', pro: '#8b5cf6', enterprise: '#f59e0b',

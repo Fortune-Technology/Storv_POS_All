@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, Users, Briefcase } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../../components/AdminSidebar';
-import RichTextEditor from '../../components/RichTextEditor';
-import { getAdminCareers, createAdminCareer, updateAdminCareer, deleteAdminCareer } from '../../services/api';
-import './admin.css';
+import AdminSidebar from '../components/AdminSidebar';
+import RichTextEditor from '../components/RichTextEditor';
+import { getAdminCareers, createAdminCareer, updateAdminCareer, deleteAdminCareer } from '../services/api';
+import '../styles/admin.css';
 
 const JOB_TYPES = ['full-time', 'part-time', 'contract', 'internship'];
 
@@ -82,7 +82,7 @@ const AdminCareers = () => {
                   {c.location && <div className="admin-card-meta">{c.location}</div>}
                 </div>
                 <div className="admin-card-actions">
-                  <button onClick={() => navigate(`/admin/careers/${c.id}/applications`)} className="admin-btn-secondary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}>
+                  <button onClick={() => navigate(`/careers/${c.id}/applications`)} className="admin-btn-secondary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}>
                     <Users size={12} /> Applications
                   </button>
                   <button onClick={() => setModal({ mode: 'edit', data: c })} className="admin-btn-icon"><Edit3 size={13} /></button>

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Loader } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminUserActivity } from '../../services/api';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminUserActivity } from '../services/api';
 import { toast } from 'react-toastify';
-import './admin.css';
+import '../styles/admin.css';
 
 const ROLE_COLORS = ['#3b82f6', 'var(--accent-primary)', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
 const STATUS_COLORS = { active: '#10b981', pending: '#f59e0b', suspended: '#ef4444' };
@@ -27,7 +27,7 @@ const PieLegend = ({ data, colors }) => (
   </div>
 );
 
-const tooltipStyle = { background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' };
+const tooltipStyle = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' };
 
 const AdminUserActivity = () => {
   const [data, setData] = useState(null);
@@ -92,10 +92,10 @@ const AdminUserActivity = () => {
               <ChartCard title="Weekly Signups">
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={data?.weeklySignups || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis dataKey="week" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} stroke="rgba(255,255,255,0.06)" />
-                    <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} stroke="rgba(255,255,255,0.06)" allowDecimals={false} />
-                    <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'var(--text-muted)' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                    <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} stroke="rgba(0,0,0,0.06)" />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 11 }} stroke="rgba(0,0,0,0.06)" allowDecimals={false} />
+                    <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#64748b' }} />
                     <Line type="monotone" dataKey="count" stroke="var(--accent-primary)" strokeWidth={2} dot={{ fill: 'var(--accent-primary)', r: 3 }} name="Signups" />
                   </LineChart>
                 </ResponsiveContainer>

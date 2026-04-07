@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader, X, MessageSquare } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminTickets, updateAdminTicket } from '../../services/api';
-import './admin.css';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminTickets, updateAdminTicket } from '../services/api';
+import '../styles/admin.css';
 
 const STATUS_OPTS = ['open', 'in_progress', 'resolved', 'closed'];
 const PRIORITY_OPTS = ['low', 'normal', 'high', 'urgent'];

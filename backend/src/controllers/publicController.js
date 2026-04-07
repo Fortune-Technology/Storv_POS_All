@@ -7,6 +7,7 @@
  */
 
 import prisma from '../config/postgres.js';
+import { sendContactNotifyAdmin, sendContactConfirmation } from '../services/emailService.js';
 
 // ─────────────────────────────────────────────────────────────
 // CMS PAGES (Public)
@@ -150,27 +151,9 @@ export const createPublicTicket = async (req, res, next) => {
       },
     });
 
-    // Try sending email notification if SMTP is configured (optional — no error if not configured)
-    if (process.env.SMTP_HOST && process.env.SMTP_USER) {
-      try {
-        const nodemailer = await import('nodemailer');
-        const transporter = nodemailer.default.createTransport({
-          host: process.env.SMTP_HOST,
-          port: parseInt(process.env.SMTP_PORT || '587'),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-        });
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || process.env.SMTP_USER,
-          to: process.env.SUPPORT_EMAIL || process.env.SMTP_USER,
-          subject: `[Support Ticket] ${subject}`,
-          text: `New support ticket from ${name || 'Anonymous'} (${email}):\n\n${ticketBody}`,
-        });
-      } catch (emailErr) {
-        console.warn('Email notification failed (SMTP not configured or error):', emailErr.message);
-        // Don't fail the request — ticket is already saved in DB
-      }
-    }
+    // Send email notifications (non-blocking)
+    sendContactNotifyAdmin(name, email, subject, ticketBody);
+    sendContactConfirmation(email, name);
 
     res.status(201).json({ success: true, data: ticket, message: 'Support ticket created successfully' });
   } catch (error) {

@@ -1,6 +1,8 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import prisma from '../config/postgres.js';
+import { sendForgotPassword, sendNewSignupNotifyAdmin, sendPasswordChanged } from '../services/emailService.js';
 
 // ── Token generation ──────────────────────────────────────────────────────────
 const generateToken = (id, extra = {}) =>
@@ -41,6 +43,9 @@ export const signup = async (req, res, next) => {
         status:   'pending',   // public signups require superadmin approval
       },
     });
+
+    // Notify admin of new signup (non-blocking)
+    sendNewSignupNotifyAdmin(user.name, user.email);
 
     // Return JWT so user can complete onboarding (org + store setup).
     // The protect middleware will allow pending users to access onboarding endpoints only.
@@ -101,20 +106,68 @@ export const login = async (req, res, next) => {
   }
 };
 
-// ── @desc    Forgot password (stub — wire up email sender when ready)
+// ── @desc    Forgot password — sends reset email
 // ── @route   POST /api/auth/forgot-password
 // ── @access  Public
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
+    // Always return success to avoid email enumeration
+    const successMsg = 'If that email is registered, a reset link has been sent.';
+
     const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.json({ message: successMsg });
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    // Generate token
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashed = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-    // TODO: generate reset token, store hash + expiry, send email
-    res.json({ message: 'If that email is registered, a reset link has been sent.' });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetPasswordToken: hashed,
+        resetPasswordExpire: new Date(Date.now() + 30 * 60 * 1000), // 30 min
+      },
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+    sendForgotPassword(user.email, user.name, resetUrl);
+
+    res.json({ message: successMsg });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── @desc    Reset password with token
+// ── @route   POST /api/auth/reset-password
+// ── @access  Public
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token and new password are required' });
+
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await prisma.user.findFirst({
+      where: {
+        resetPasswordToken: hashed,
+        resetPasswordExpire: { gt: new Date() },
+      },
+    });
+
+    if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+    const newHash = await bcrypt.hash(password, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: newHash, resetPasswordToken: null, resetPasswordExpire: null },
+    });
+
+    sendPasswordChanged(user.email, user.name);
+
+    res.json({ message: 'Password has been reset successfully' });
   } catch (error) {
     next(error);
   }

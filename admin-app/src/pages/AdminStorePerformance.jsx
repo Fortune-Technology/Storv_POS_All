@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Loader } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminStorePerformance } from '../../services/api';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminStorePerformance } from '../services/api';
 import { toast } from 'react-toastify';
-import './admin.css';
+import '../styles/admin.css';
 
 const AdminStorePerformance = () => {
   const [stores, setStores] = useState([]);
@@ -45,12 +45,12 @@ const AdminStorePerformance = () => {
                 <h2 className="admin-chart-title">Top 10 Stores by Transactions</h2>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={top10} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} stroke="rgba(255,255,255,0.06)" />
-                    <YAxis dataKey="name" type="category" width={140} tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} stroke="rgba(255,255,255,0.06)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 12 }} stroke="rgba(0,0,0,0.06)" />
+                    <YAxis dataKey="name" type="category" width={140} tick={{ fill: '#334155', fontSize: 12 }} stroke="rgba(0,0,0,0.06)" />
                     <Tooltip
-                      contentStyle={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }}
-                      labelStyle={{ color: 'var(--text-muted)' }}
+                      contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }}
+                      labelStyle={{ color: '#64748b' }}
                     />
                     <Bar dataKey="transactions" fill="var(--accent-primary)" radius={[0, 6, 6, 0]} barSize={20} />
                   </BarChart>

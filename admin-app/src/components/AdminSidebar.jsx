@@ -17,43 +17,45 @@ import {
   PieChart,
   TrendingUp,
   Activity,
+  Store,
 } from 'lucide-react';
 
 const adminMenuGroups = [
   {
     label: 'Overview',
     items: [
-      { name: 'Dashboard', icon: <LayoutDashboard size={13} />, path: '/admin' },
+      { name: 'Dashboard', icon: <LayoutDashboard size={13} />, path: '/dashboard' },
     ],
   },
   {
     label: 'Analytics',
     items: [
-      { name: 'Analytics Dashboard',    icon: <BarChart2 size={13} />,    path: '/admin/analytics' },
-      { name: 'Organization Analytics', icon: <PieChart size={13} />,     path: '/admin/analytics/organizations' },
-      { name: 'Store Performance',      icon: <TrendingUp size={13} />,   path: '/admin/analytics/stores' },
-      { name: 'User Activity',          icon: <Activity size={13} />,     path: '/admin/analytics/users' },
+      { name: 'Analytics Dashboard',    icon: <BarChart2 size={13} />,    path: '/analytics' },
+      { name: 'Organization Analytics', icon: <PieChart size={13} />,     path: '/analytics/organizations' },
+      { name: 'Store Performance',      icon: <TrendingUp size={13} />,   path: '/analytics/stores' },
+      { name: 'User Activity',          icon: <Activity size={13} />,     path: '/analytics/users' },
     ],
   },
   {
     label: 'Management',
     items: [
-      { name: 'Users',         icon: <Users size={13} />,     path: '/admin/users' },
-      { name: 'Organizations', icon: <Building2 size={13} />, path: '/admin/organizations' },
+      { name: 'Users',         icon: <Users size={13} />,     path: '/users' },
+      { name: 'Organizations', icon: <Building2 size={13} />, path: '/organizations' },
+      { name: 'Stores',        icon: <Store size={13} />,     path: '/stores' },
     ],
   },
   {
     label: 'Content',
     items: [
-      { name: 'CMS Pages', icon: <FileText size={13} />,  path: '/admin/cms' },
-      { name: 'Careers',   icon: <Briefcase size={13} />, path: '/admin/careers' },
+      { name: 'CMS Pages', icon: <FileText size={13} />,  path: '/cms' },
+      { name: 'Careers',   icon: <Briefcase size={13} />, path: '/careers' },
     ],
   },
   {
     label: 'Support',
     items: [
-      { name: 'Tickets',       icon: <Ticket size={13} />,   path: '/admin/tickets' },
-      { name: 'System Config', icon: <Settings size={13} />,  path: '/admin/config' },
+      { name: 'Tickets',       icon: <Ticket size={13} />,   path: '/tickets' },
+      { name: 'System Config', icon: <Settings size={13} />,  path: '/config' },
     ],
   },
 ];
@@ -77,8 +79,7 @@ const AdminSidebar = () => {
   }, [mobileOpen]);
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('activeStoreId');
+    localStorage.removeItem('admin_user');
     navigate('/login');
   };
 
