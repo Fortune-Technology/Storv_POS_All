@@ -16,7 +16,7 @@ export default function StoreveuLogo({
   iconOnly    = false,
 }) {
 
-  /* ── Icon-only: 200×200 blue square (from storevue_icon.svg) ─────────── */
+  /* ── Icon-only: 200×200 blue square (from storeveu_icon.svg) ─────────── */
   if (iconOnly) {
     return (
       <svg
@@ -47,7 +47,7 @@ export default function StoreveuLogo({
   const vbH = showTagline ? 230 : 200;
   const width = Math.round(height * (vbW / vbH));
 
-  // Exact colours from storevue_logo_dark.svg / storevue_logo_light.svg
+  // Exact colours from storeveu_logo_dark.svg / storeveu_logo_light.svg
   const iconBg   = darkMode ? '#1a1f38' : '#eaecf5';
   const stem     = darkMode ? '#7b95e0' : '#3d56b5';
   const leafAlt  = darkMode ? '#a0b4ea' : '#3d56b5';
@@ -106,7 +106,7 @@ export default function StoreveuLogo({
         fontSize="84"
         letterSpacing="0"
         fill={vueClr}
-      >vue</text>
+      >veu</text>
 
       {/* Optional tagline */}
       {showTagline && (

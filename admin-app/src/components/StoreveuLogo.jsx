@@ -16,7 +16,7 @@ export default function StoreveuLogo({
   iconOnly    = false,
 }) {
 
-  /* ── Icon-only: 200×200 blue square (from storevue_icon.svg) ─────────── */
+  /* ── Icon-only: 200×200 blue square (from storeveu_icon.svg) ─────────── */
   if (iconOnly) {
     return (
       <svg
@@ -92,7 +92,7 @@ export default function StoreveuLogo({
         fontSize="84"
         letterSpacing="0"
         fill={vueClr}
-      >vue</text>
+      >veu</text>
       {showTagline && (
         <text
           x="163" y="155"
