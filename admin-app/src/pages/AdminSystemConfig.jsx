@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Save, Trash2, Loader, Settings } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminSystemConfig, updateAdminSystemConfig } from '../../services/api';
-import './admin.css';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminSystemConfig, updateAdminSystemConfig } from '../services/api';
+import '../styles/admin.css';
 
 const AdminSystemConfig = () => {
   const [configs, setConfigs] = useState([]);

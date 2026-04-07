@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Building2, Store, Receipt, Loader } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminAnalyticsDashboard } from '../../services/api';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminAnalyticsDashboard } from '../services/api';
 import { toast } from 'react-toastify';
-import './admin.css';
+import '../styles/admin.css';
 
 const StatCard = ({ icon, label, value, color }) => (
   <div className="admin-stat-card">
@@ -68,12 +68,12 @@ const AdminAnalytics = () => {
                 <h2 className="admin-chart-title">Signups Over Last 30 Days</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={data?.chartData || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} stroke="rgba(255,255,255,0.06)" />
-                    <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 12 }} stroke="rgba(255,255,255,0.06)" allowDecimals={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                    <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 12 }} stroke="rgba(0,0,0,0.06)" />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 12 }} stroke="rgba(0,0,0,0.06)" allowDecimals={false} />
                     <Tooltip
-                      contentStyle={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }}
-                      labelStyle={{ color: 'var(--text-muted)' }}
+                      contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }}
+                      labelStyle={{ color: '#64748b' }}
                     />
                     <Line type="monotone" dataKey="users" stroke="#3b82f6" strokeWidth={2} dot={false} name="Users" />
                     <Line type="monotone" dataKey="orgs" stroke="var(--accent-primary)" strokeWidth={2} dot={false} name="Organizations" />
@@ -91,7 +91,7 @@ const AdminAnalytics = () => {
                         <Cell key={i} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} />
+                    <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="admin-chart-legend">

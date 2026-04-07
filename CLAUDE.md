@@ -29,6 +29,10 @@
 │  Management UI, Analytics,   Vite 7, React Router v6  │
 │  Reports, Settings           Port 5173                │
 ├─────────────────────────────────────────────────────┤
+│  Admin Panel (admin-app/)    React 19 + React Router  │
+│  Superadmin-only dashboard,  Vite 7, Axios, Recharts  │
+│  User/Org/CMS management    Port 5175                │
+├─────────────────────────────────────────────────────┤
 │  Cashier App (cashier-app/)  React 18 + Zustand       │
 │  POS Terminal, Cart, Tender  Dexie.js (IndexedDB)     │
 │  Offline-first PWA           Port 5174                │
@@ -75,6 +79,31 @@
 | `frontend/src/pages/VendorPayouts.css` | Styles for VendorPayouts page (`vp-` prefix) |
 | `frontend/src/pages/QuickAccess.jsx` | Back-office quick folder config (folder + product management) |
 | `frontend/src/pages/QuickAccess.css` | Styles for QuickAccess page (`qa-` prefix) |
+
+### Admin Panel (admin-app/)
+| File | Purpose |
+|------|---------|
+| `admin-app/src/App.jsx` | Route definitions + ProtectedRoute (superadmin-only) |
+| `admin-app/src/pages/Login.jsx` | Superadmin login — no signup, rejects non-superadmin |
+| `admin-app/src/pages/Login.css` | Login page styles (`al-` prefix) |
+| `admin-app/src/pages/AdminDashboard.jsx` | Admin overview with stat cards |
+| `admin-app/src/pages/AdminUsers.jsx` | User approval / suspension management |
+| `admin-app/src/pages/AdminOrganizations.jsx` | Organization management |
+| `admin-app/src/pages/AdminAnalytics.jsx` | Analytics overview with charts |
+| `admin-app/src/pages/AdminOrgAnalytics.jsx` | Organization-level analytics |
+| `admin-app/src/pages/AdminStorePerformance.jsx` | Store performance metrics |
+| `admin-app/src/pages/AdminUserActivity.jsx` | User activity tracking |
+| `admin-app/src/pages/AdminCmsPages.jsx` | CMS page editor |
+| `admin-app/src/pages/AdminCareers.jsx` | Career posting management |
+| `admin-app/src/pages/AdminCareerApplications.jsx` | Job application management |
+| `admin-app/src/pages/AdminTickets.jsx` | Support ticket management |
+| `admin-app/src/pages/AdminSystemConfig.jsx` | System configuration |
+| `admin-app/src/components/AdminSidebar.jsx` | Admin navigation sidebar |
+| `admin-app/src/components/StoreveuLogo.jsx` | Brand logo SVG component |
+| `admin-app/src/components/RichTextEditor.jsx` | Quill-based rich text editor |
+| `admin-app/src/services/api.js` | Axios client + 24 admin API functions |
+| `admin-app/src/styles/global.css` | Dark theme design tokens + layout |
+| `admin-app/src/styles/admin.css` | Admin component styles |
 
 ### Cashier App (cashier-app/)
 | File | Purpose |
@@ -331,6 +360,7 @@ The top-level org model is `Organization` (NOT `Tenant`). Use `prisma.organizati
 - Backend: `5000`
 - Frontend Portal: `5173`
 - Cashier App: `5174`
+- Admin Panel: `5175`
 
 ### Dev Start
 ```bash
@@ -341,6 +371,7 @@ npm run dev
 npm run dev:backend
 npm run dev:frontend
 npm run dev:cashier
+npm run dev:admin
 ```
 
 ---
@@ -760,7 +791,7 @@ When `totals.grandTotal < -0.005` (i.e. cart is net-negative — bottle returns 
 
 ---
 
-*Last updated: April 2026 — Session 6: Clock-in/out duplicate state guard, Employee Timesheet tab with PDF export, Sidebar scroll persistence fix*
+*Last updated: April 2026 — Session 8: Admin Panel extracted, light theme, enhanced dashboard, email system, Login-as-User, full CRUD for Users/Orgs/Stores*
 
 ---
 
@@ -1250,3 +1281,202 @@ function isoToDatetimeLocal(iso) {
 ### Backlog Updates
 
 - [x] **Employee schedule management** (Medium-Term) — back-office shift management (add/edit/delete clock sessions) is now live via the Manage Shifts tab in Employee Reports
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 8)
+
+### Admin Panel Extracted into Standalone App (`admin-app/`)
+
+The superadmin panel was previously embedded inside the main `frontend/` app as `/admin/*` routes with an `AdminRoute` guard. It has been fully extracted into a **separate React + Vite application** at `admin-app/` with its own build pipeline, login page, and routing.
+
+#### New Application: `admin-app/`
+- **Port**: 5175
+- **Auth**: Separate `admin_user` localStorage key — superadmin-only login, no signup
+- **Routes**: No `/admin` prefix needed — routes are `/dashboard`, `/users`, `/organizations`, `/cms`, `/careers`, `/tickets`, `/config`, `/analytics/*`
+- **12 admin pages** migrated with adjusted imports
+- **3 shared components** copied: `AdminSidebar`, `StoreveuLogo`, `RichTextEditor`
+- **Dedicated API service** with 24 admin API functions + login
+- **Dark theme** with design tokens in `global.css`
+
+#### Files Created
+| File | Purpose |
+|------|---------|
+| `admin-app/package.json` | React 19, Vite 7, Axios, Recharts, Lucide, React-Toastify, React-Quill |
+| `admin-app/vite.config.js` | Port 5175, proxies `/api` → `http://localhost:5000` |
+| `admin-app/index.html` | Entry HTML |
+| `admin-app/src/main.jsx` | BrowserRouter + App render |
+| `admin-app/src/App.jsx` | All routes + `ProtectedRoute` (superadmin check) |
+| `admin-app/src/pages/Login.jsx` + `Login.css` | Superadmin login (`al-` prefix CSS) |
+| `admin-app/src/services/api.js` | Axios client + 24 admin endpoints |
+| `admin-app/src/styles/global.css` | Light theme tokens, sidebar, layout |
+| `admin-app/src/styles/admin.css` | All admin component styles |
+| `admin-app/src/components/AdminSidebar.jsx` | Nav links (paths stripped of `/admin` prefix) |
+| `admin-app/src/components/StoreveuLogo.jsx` | Brand SVG component |
+| `admin-app/src/components/RichTextEditor.jsx` | Quill editor for CMS/Careers |
+
+#### Files Modified
+| File | Change |
+|------|---------|
+| `backend/src/server.js` | Added `http://localhost:5175` to CORS origins |
+| `package.json` (root) | Added `dev:admin` script; updated `dev` to run 4 apps; updated `install:all` |
+| `.claude/launch.json` | Added `Admin App` configuration |
+| `frontend/src/App.jsx` | Removed 12 admin imports, `AdminRoute` component, and 12 `/admin/*` routes |
+| `frontend/src/services/api.js` | Removed 24 admin API functions |
+| `frontend/src/pages/Login.jsx` | Removed superadmin → `/admin` redirect; all users go to `/portal/pos-api` |
+
+#### Key Design Decisions
+- **Separate localStorage key**: `admin_user` (not `user`) — admin sessions are independent of portal sessions
+- **No signup**: Login page only — superadmin accounts are created via seed/backend
+- **Auto-redirect**: If already logged in as superadmin, Login page redirects to `/dashboard`
+- **Non-superadmin rejection**: Login form validates `role === 'superadmin'` and shows error toast for other roles
+
+---
+
+### Admin Panel — Light Theme Conversion
+
+All admin-app styles converted from dark to light theme:
+
+**`global.css` token changes:**
+| Token | Dark | Light |
+|-------|------|-------|
+| `--bg-primary` | `#0c0f1a` | `#f8fafc` |
+| `--bg-secondary` | `#111527` | `#ffffff` |
+| `--bg-card` | `rgba(255,255,255,0.03)` | `#ffffff` |
+| `--text-primary` | `#e8eaf6` | `#0f172a` |
+| `--text-secondary` | `#a0a8c4` | `#475569` |
+| `--border-color` | `rgba(255,255,255,0.08)` | `#e2e8f0` |
+
+**`admin.css` changes:**
+- All badge variants use solid light backgrounds (e.g. `#d1fae5` for active, `#fef3c7` for pending)
+- Tables, cards, buttons, alerts — all swapped from dark semi-transparent to light solid colors
+- Added `admin-dash-*` prefix classes for dashboard grid, cards, and mini-tables
+
+**Analytics pages** — chart tooltip, grid, and axis colors updated to light theme in: `AdminAnalytics.jsx`, `AdminStorePerformance.jsx`, `AdminUserActivity.jsx`
+
+---
+
+### Admin Dashboard — Enhanced Layout
+
+**Backend** (`adminController.js` — `getDashboardStats`):
+Response now includes 6 additional fields:
+- `recentUsers` — last 5 user signups (name, email, role, status, createdAt)
+- `recentOrgs` — last 5 orgs (name, plan, userCount, storeCount, createdAt)
+- `recentTickets` — last 5 tickets (subject, status, priority, createdAt)
+- `chartData` — 7-day signup trend (users + orgs per day)
+- `usersByRole` — role distribution counts
+- `orgsByPlan` — plan distribution counts
+
+**Frontend** (`AdminDashboard.jsx`):
+New layout below stat cards:
+```
+┌──────────────────────────────────────────────────┐
+│  5 Stat Cards (row)                              │
+├──────────────────────┬───────────────────────────┤
+│  7-day Signups       │  Users by Role            │
+│  AreaChart           │  PieChart (donut)         │
+├──────────────────────┴───────────────────────────┤
+│  Recent Users (table) │  Recent Orgs (table)     │
+├──────────────────────┴───────────────────────────┤
+│  Recent Support Tickets (full-width table)       │
+└──────────────────────────────────────────────────┘
+```
+
+Uses recharts `AreaChart`, `PieChart` with light-compatible tooltip styles.
+
+---
+
+### Frontend Admin Cleanup
+
+Deleted leftover admin files from the main frontend directory:
+- `frontend/src/pages/admin/` — 13 files (12 pages + admin.css)
+- `frontend/src/components/AdminSidebar.jsx`
+
+These were already unused (imports removed in Session 8) but the files remained on disk.
+
+---
+
+### Email System (`backend/src/services/emailService.js`)
+
+Centralized email service using nodemailer. All email sending goes through this service. Templates use branded HTML with `wrapTemplate()` for consistent header/footer.
+
+**Email templates:**
+| Function | Trigger | Recipient |
+|----------|---------|-----------|
+| `sendForgotPassword` | POST /auth/forgot-password | User |
+| `sendPasswordChanged` | POST /auth/reset-password | User |
+| `sendNewSignupNotifyAdmin` | POST /auth/signup | Admin |
+| `sendUserApproved` | PUT /admin/users/:id/approve | User |
+| `sendUserRejected` | PUT /admin/users/:id/reject | User |
+| `sendUserSuspended` | PUT /admin/users/:id/suspend | User |
+| `sendContactConfirmation` | POST /public/tickets | Submitter |
+| `sendContactNotifyAdmin` | POST /public/tickets | Admin |
+
+**Auth controller changes:**
+- `forgotPassword` — generates crypto token, stores hashed in DB, sends reset email
+- `resetPassword` (new) — validates token, updates password, sends confirmation email
+- `signup` — now sends admin notification email
+
+**New `.env` vars:** `FRONTEND_URL`, `ADMIN_URL`
+
+---
+
+### Login-as-User (Admin Impersonation)
+
+**Backend** (`adminController.js` — `impersonateUser`):
+- `POST /api/admin/users/:id/impersonate`
+- Generates 2-hour JWT with target user's identity + `impersonatedBy` audit field
+- Blocks impersonation of other superadmins
+- Returns token + user object (id, name, email, role, orgId, storeIds)
+
+**Admin UI** (`AdminUsers.jsx`):
+- "Login As" button (LogIn icon) in actions column for active non-superadmin users
+- Opens portal in new tab: `http://localhost:5173/impersonate?token=...&user=...`
+
+**Portal** (`frontend/src/App.jsx`):
+- `/impersonate` route reads token + user from URL, stores in `localStorage.user`, redirects to portal
+
+---
+
+### Full CRUD — Users, Organizations, Stores
+
+**New backend endpoints:**
+| Method | Route | Purpose |
+|--------|-------|---------|
+| POST | `/api/admin/users` | Create user (temp password) |
+| PUT | `/api/admin/users/:id` | Update user fields |
+| DELETE | `/api/admin/users/:id` | Soft delete (suspend) |
+| POST | `/api/admin/users/:id/impersonate` | Login as user |
+| POST | `/api/admin/organizations` | Create organization |
+| DELETE | `/api/admin/organizations/:id` | Soft delete (deactivate) |
+| GET | `/api/admin/stores` | List all stores |
+| POST | `/api/admin/stores` | Create store |
+| PUT | `/api/admin/stores/:id` | Update store |
+| DELETE | `/api/admin/stores/:id` | Soft delete (deactivate) |
+
+**Admin panel pages updated:**
+- `AdminUsers.jsx` — Create/Edit modal, Delete, Login As, plus existing approve/suspend/reject
+- `AdminOrganizations.jsx` — Create/Edit modal with slug auto-gen, Delete (deactivate)
+- `AdminStores.jsx` (new) — Full CRUD with org dropdown, table view
+
+**New files:**
+| File | Purpose |
+|------|---------|
+| `backend/src/services/emailService.js` | Centralized email service with 8 branded templates |
+| `admin-app/src/pages/AdminStores.jsx` | Store management CRUD page |
+
+**Modified files:**
+| File | Change |
+|------|--------|
+| `backend/src/controllers/authController.js` | Forgot/reset password, signup notification |
+| `backend/src/controllers/adminController.js` | Email on approve/reject/suspend, user/org/store CRUD, impersonate |
+| `backend/src/controllers/publicController.js` | Uses emailService instead of inline nodemailer |
+| `backend/src/routes/adminRoutes.js` | Added 10 new routes |
+| `backend/src/routes/authRoutes.js` | Added reset-password route |
+| `admin-app/src/services/api.js` | Added 11 new API functions |
+| `admin-app/src/pages/AdminUsers.jsx` | Full CRUD + Login As |
+| `admin-app/src/pages/AdminOrganizations.jsx` | Full CRUD |
+| `admin-app/src/components/AdminSidebar.jsx` | Added "Stores" nav item |
+| `admin-app/src/App.jsx` | Added /stores route |
+| `frontend/src/App.jsx` | Added /impersonate route |
+| `backend/.env` | Added FRONTEND_URL, ADMIN_URL |

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -60,19 +60,6 @@ import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
 import Lottery from './pages/Lottery';
 
-// Admin Pages
-import AdminDashboard        from './pages/admin/AdminDashboard';
-import AdminUsers            from './pages/admin/AdminUsers';
-import AdminOrganizations    from './pages/admin/AdminOrganizations';
-import AdminCmsPages         from './pages/admin/AdminCmsPages';
-import AdminCareers          from './pages/admin/AdminCareers';
-import AdminTickets          from './pages/admin/AdminTickets';
-import AdminSystemConfig     from './pages/admin/AdminSystemConfig';
-import AdminAnalytics        from './pages/admin/AdminAnalytics';
-import AdminOrgAnalytics     from './pages/admin/AdminOrgAnalytics';
-import AdminStorePerformance from './pages/admin/AdminStorePerformance';
-import AdminUserActivity     from './pages/admin/AdminUserActivity';
-import AdminCareerApplications from './pages/admin/AdminCareerApplications';
 
 // Public Marketing Pages (dynamic)
 import CmsPage  from './pages/marketing/CmsPage';
@@ -109,13 +96,27 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Admin route — requires auth + superadmin role
-const AdminRoute = ({ children }) => {
-  const user = JSON.parse(localStorage.getItem('user'));
-  if (!user || !user.token) return <Navigate to="/login" replace />;
-  if (user.role !== 'superadmin') return <Navigate to="/portal/pos-api" replace />;
-  return children;
+// Admin impersonation landing — reads token from URL and sets up the session
+const ImpersonateLanding = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    const token = searchParams.get('token');
+    const userData = searchParams.get('user');
+    if (token && userData) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userData));
+        user.token = token;
+        localStorage.setItem('user', JSON.stringify(user));
+        navigate('/portal/pos-api', { replace: true });
+      } catch { navigate('/login', { replace: true }); }
+    } else {
+      navigate('/login', { replace: true });
+    }
+  }, [searchParams, navigate]);
+  return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100vh' }}>Loading...</div>;
 };
+
 
 function App() {
   return (
@@ -143,6 +144,9 @@ function App() {
         <Route path="/signup"         element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/phone-lookup"   element={<PhoneLookup />} />
+
+        {/* ── Admin Impersonation Landing ────────────────────────────── */}
+        <Route path="/impersonate" element={<ImpersonateLanding />} />
 
         {/* ── Onboarding (auth required, no sidebar) ─────────────────── */}
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
@@ -208,20 +212,6 @@ function App() {
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />
         <Route path="/portal/products" element={<ProtectedRoute><Placeholder name="Products" /></ProtectedRoute>} />
-
-        {/* ── Admin Panel (superadmin only) ──────────────────────────── */}
-        <Route path="/admin"                          element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-        <Route path="/admin/analytics"                element={<AdminRoute><AdminAnalytics /></AdminRoute>} />
-        <Route path="/admin/analytics/organizations"  element={<AdminRoute><AdminOrgAnalytics /></AdminRoute>} />
-        <Route path="/admin/analytics/stores"         element={<AdminRoute><AdminStorePerformance /></AdminRoute>} />
-        <Route path="/admin/analytics/users"          element={<AdminRoute><AdminUserActivity /></AdminRoute>} />
-        <Route path="/admin/users"                    element={<AdminRoute><AdminUsers /></AdminRoute>} />
-        <Route path="/admin/organizations"            element={<AdminRoute><AdminOrganizations /></AdminRoute>} />
-        <Route path="/admin/cms"                      element={<AdminRoute><AdminCmsPages /></AdminRoute>} />
-        <Route path="/admin/careers"                  element={<AdminRoute><AdminCareers /></AdminRoute>} />
-        <Route path="/admin/careers/:careerPostingId/applications" element={<AdminRoute><AdminCareerApplications /></AdminRoute>} />
-        <Route path="/admin/tickets"                  element={<AdminRoute><AdminTickets /></AdminRoute>} />
-        <Route path="/admin/config"                   element={<AdminRoute><AdminSystemConfig /></AdminRoute>} />
 
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />

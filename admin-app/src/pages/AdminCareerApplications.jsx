@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, ChevronUp, Download, Loader, Save } from 'lucide-react';
-import AdminSidebar from '../../components/AdminSidebar';
-import { getAdminCareerApplications, updateAdminJobApplication } from '../../services/api';
+import AdminSidebar from '../components/AdminSidebar';
+import { getAdminCareerApplications, updateAdminJobApplication } from '../services/api';
 import { toast } from 'react-toastify';
-import './admin.css';
+import '../styles/admin.css';
 
 const STATUS_COLORS = { new: '#3b82f6', reviewed: '#f59e0b', shortlisted: '#10b981', rejected: '#ef4444' };
 const STATUS_OPTIONS = ['new', 'reviewed', 'shortlisted', 'rejected'];
@@ -70,7 +70,7 @@ const AdminCareerApplications = () => {
       <AdminSidebar />
       <main className="main-content admin-page">
         {/* Back Link */}
-        <Link to="/admin/careers" className="admin-back-link">
+        <Link to="/careers" className="admin-back-link">
           <ArrowLeft size={16} /> Back to Careers
         </Link>
 

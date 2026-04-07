@@ -6,6 +6,9 @@
  */
 
 import prisma from '../config/postgres.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { sendUserApproved, sendUserRejected, sendUserSuspended } from '../services/emailService.js';
 
 // ─────────────────────────────────────────────────────────────
 // DASHBOARD
@@ -14,17 +17,81 @@ import prisma from '../config/postgres.js';
 /* GET /api/admin/dashboard */
 export const getDashboardStats = async (req, res, next) => {
   try {
-    const [totalUsers, pendingUsers, totalOrgs, activeOrgs, openTickets] = await Promise.all([
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalUsers, pendingUsers, totalOrgs, activeOrgs, openTickets,
+      recentUsers, recentOrgs, recentTickets,
+      usersByRole, orgsByPlan,
+      signupUsers, signupOrgs,
+    ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { status: 'pending' } }),
       prisma.organization.count(),
       prisma.organization.count({ where: { isActive: true } }),
       prisma.supportTicket.count({ where: { status: { in: ['open', 'in_progress'] } } }),
+      // Recent users
+      prisma.user.findMany({
+        take: 5, orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+      }),
+      // Recent orgs
+      prisma.organization.findMany({
+        take: 5, orderBy: { createdAt: 'desc' },
+        select: { id: true, name: true, plan: true, createdAt: true, _count: { select: { users: true, stores: true } } },
+      }),
+      // Recent tickets
+      prisma.supportTicket.findMany({
+        take: 5, orderBy: { createdAt: 'desc' },
+        select: { id: true, subject: true, status: true, priority: true, createdAt: true },
+      }).catch(() => []),
+      // Users by role
+      prisma.user.groupBy({ by: ['role'], _count: true }).catch(() => []),
+      // Orgs by plan
+      prisma.organization.groupBy({ by: ['plan'], _count: true }).catch(() => []),
+      // Signups last 7 days (users)
+      prisma.user.groupBy({
+        by: ['createdAt'],
+        where: { createdAt: { gte: sevenDaysAgo } },
+        _count: true,
+      }).catch(() => []),
+      // Signups last 7 days (orgs)
+      prisma.organization.groupBy({
+        by: ['createdAt'],
+        where: { createdAt: { gte: sevenDaysAgo } },
+        _count: true,
+      }).catch(() => []),
     ]);
+
+    // Build 7-day chart data
+    const usersByDay = {};
+    for (const u of signupUsers) {
+      const day = new Date(u.createdAt).toISOString().split('T')[0];
+      usersByDay[day] = (usersByDay[day] || 0) + u._count;
+    }
+    const orgsByDay = {};
+    for (const o of signupOrgs) {
+      const day = new Date(o.createdAt).toISOString().split('T')[0];
+      orgsByDay[day] = (orgsByDay[day] || 0) + o._count;
+    }
+    const chartData = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().split('T')[0];
+      chartData.push({ date: key, users: usersByDay[key] || 0, orgs: orgsByDay[key] || 0 });
+    }
 
     res.json({
       success: true,
-      data: { totalUsers, pendingUsers, totalOrgs, activeOrgs, openTickets },
+      data: {
+        totalUsers, pendingUsers, totalOrgs, activeOrgs, openTickets,
+        recentUsers,
+        recentOrgs: recentOrgs.map(o => ({ ...o, userCount: o._count.users, storeCount: o._count.stores, _count: undefined })),
+        recentTickets,
+        chartData,
+        usersByRole: usersByRole.reduce((acc, r) => { acc[r.role] = r._count; return acc; }, {}),
+        orgsByPlan: orgsByPlan.reduce((acc, p) => { acc[p.plan || 'none'] = p._count; return acc; }, {}),
+      },
     });
   } catch (error) {
     next(error);
@@ -94,6 +161,7 @@ export const approveUser = async (req, res, next) => {
       });
     }
 
+    sendUserApproved(user.email, user.name);
     res.json({ success: true, data: user, message: 'User approved successfully' });
   } catch (error) {
     next(error);
@@ -109,6 +177,7 @@ export const suspendUser = async (req, res, next) => {
       select: { id: true, name: true, email: true, status: true },
     });
 
+    sendUserSuspended(user.email, user.name);
     res.json({ success: true, data: user, message: 'User suspended' });
   } catch (error) {
     next(error);
@@ -132,7 +201,101 @@ export const rejectUser = async (req, res, next) => {
       }).catch(() => {}); // ignore if org doesn't exist
     }
 
+    sendUserRejected(user.email, user.name);
     res.json({ success: true, data: user, message: 'User rejected' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* POST /api/admin/users — create user */
+export const createUser = async (req, res, next) => {
+  try {
+    const { name, email, phone, role, orgId, status } = req.body;
+    if (!name || !email || !orgId) return res.status(400).json({ error: 'Name, email, and organization are required' });
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(400).json({ error: 'A user with this email already exists' });
+
+    const tempPassword = await bcrypt.hash('Temp@1234', 12);
+    const user = await prisma.user.create({
+      data: { name, email, phone: phone || null, password: tempPassword, role: role || 'staff', orgId, status: status || 'active' },
+      select: { id: true, name: true, email: true, role: true, status: true, orgId: true, createdAt: true },
+    });
+
+    res.status(201).json({ success: true, data: user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* PUT /api/admin/users/:id — update user */
+export const updateUser = async (req, res, next) => {
+  try {
+    const { name, email, phone, role, status, orgId } = req.body;
+    const data = {};
+    if (name !== undefined)   data.name = name;
+    if (email !== undefined)  data.email = email;
+    if (phone !== undefined)  data.phone = phone;
+    if (role !== undefined)   data.role = role;
+    if (status !== undefined) data.status = status;
+    if (orgId !== undefined)  data.orgId = orgId;
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data,
+      select: { id: true, name: true, email: true, role: true, status: true, orgId: true },
+    });
+
+    res.json({ success: true, data: user });
+  } catch (error) {
+    if (error.code === 'P2002') return res.status(400).json({ error: 'Email already in use' });
+    next(error);
+  }
+};
+
+/* DELETE /api/admin/users/:id — soft delete (suspend) */
+export const softDeleteUser = async (req, res, next) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { status: 'suspended' },
+      select: { id: true, name: true, email: true, status: true },
+    });
+    res.json({ success: true, data: user, message: 'User suspended (soft delete)' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* POST /api/admin/users/:id/impersonate — login as user */
+export const impersonateUser = async (req, res, next) => {
+  try {
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, name: true, email: true, role: true, status: true, orgId: true,
+                stores: { select: { storeId: true } } },
+    });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role === 'superadmin') return res.status(403).json({ error: 'Cannot impersonate another superadmin' });
+
+    const token = jwt.sign(
+      { id: target.id, name: target.name, email: target.email, role: target.role, impersonatedBy: req.user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' },
+    );
+
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: {
+          id: target.id, name: target.name, email: target.email,
+          role: target.role, status: target.status, orgId: target.orgId,
+          storeIds: target.stores.map(s => s.storeId),
+        },
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -194,6 +357,126 @@ export const updateOrganization = async (req, res, next) => {
     });
 
     res.json({ success: true, data: org });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* POST /api/admin/organizations — create org */
+export const createOrganization = async (req, res, next) => {
+  try {
+    const { name, slug, plan, billingEmail, maxStores, maxUsers } = req.body;
+    if (!name || !slug) return res.status(400).json({ error: 'Name and slug are required' });
+
+    const org = await prisma.organization.create({
+      data: {
+        name, slug,
+        plan: plan || 'trial',
+        billingEmail: billingEmail || null,
+        maxStores: maxStores ? parseInt(maxStores) : 1,
+        maxUsers: maxUsers ? parseInt(maxUsers) : 3,
+      },
+    });
+
+    res.status(201).json({ success: true, data: org });
+  } catch (error) {
+    if (error.code === 'P2002') return res.status(400).json({ error: 'An organization with this slug already exists' });
+    next(error);
+  }
+};
+
+/* DELETE /api/admin/organizations/:id — soft delete */
+export const softDeleteOrganization = async (req, res, next) => {
+  try {
+    const org = await prisma.organization.update({
+      where: { id: req.params.id },
+      data: { isActive: false, deactivatedAt: new Date() },
+    });
+    res.json({ success: true, data: org, message: 'Organization deactivated' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// STORE MANAGEMENT (cross-org)
+// ─────────────────────────────────────────────────────────────
+
+/* GET /api/admin/stores?search=main&page=1&limit=25 */
+export const getAllStores = async (req, res, next) => {
+  try {
+    const { search, page = 1, limit = 25 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const where = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { address: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [stores, total] = await Promise.all([
+      prisma.store.findMany({
+        where,
+        include: {
+          organization: { select: { id: true, name: true } },
+          _count: { select: { users: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.store.count({ where }),
+    ]);
+
+    res.json({ success: true, data: stores, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* POST /api/admin/stores — create store */
+export const createStore = async (req, res, next) => {
+  try {
+    const { name, orgId, address, stationCount } = req.body;
+    if (!name || !orgId) return res.status(400).json({ error: 'Name and organization are required' });
+
+    const store = await prisma.store.create({
+      data: { name, orgId, address: address || null, stationCount: stationCount ? parseInt(stationCount) : 1 },
+    });
+
+    res.status(201).json({ success: true, data: store });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* PUT /api/admin/stores/:id — update store */
+export const updateStore = async (req, res, next) => {
+  try {
+    const { name, address, stationCount, isActive, orgId } = req.body;
+    const data = {};
+    if (name !== undefined)         data.name = name;
+    if (address !== undefined)      data.address = address;
+    if (stationCount !== undefined) data.stationCount = parseInt(stationCount);
+    if (isActive !== undefined)     data.isActive = isActive;
+    if (orgId !== undefined)        data.orgId = orgId;
+
+    const store = await prisma.store.update({ where: { id: req.params.id }, data });
+    res.json({ success: true, data: store });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* DELETE /api/admin/stores/:id — soft delete */
+export const softDeleteStore = async (req, res, next) => {
+  try {
+    const store = await prisma.store.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    });
+    res.json({ success: true, data: store, message: 'Store deactivated' });
   } catch (error) {
     next(error);
   }

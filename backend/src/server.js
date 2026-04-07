@@ -39,7 +39,7 @@ const app  = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174')
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174,http://localhost:5175')
   .split(',')
   .map(s => s.trim());
 

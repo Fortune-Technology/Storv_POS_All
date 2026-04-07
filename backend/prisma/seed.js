@@ -12,6 +12,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -396,7 +397,210 @@ async function main() {
   }
 
   console.log(`  ✓ Products — ${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}`);
+
+  // ── Seed Users (one per role) ───────────────────────────────
+  // System org for superadmin
+  let systemOrg = await prisma.organization.findFirst({ where: { slug: 'system' } });
+  if (!systemOrg) {
+    systemOrg = await prisma.organization.create({
+      data: { name: 'System Administration', slug: 'system', plan: 'enterprise', maxStores: 999, maxUsers: 999, isActive: true },
+    });
+  }
+
+  const SEED_USERS = [
+    { name: 'System Admin',   email: 'admin@storeveu.com',   role: 'superadmin', orgId: systemOrg.id },
+    { name: 'Store Owner',    email: 'owner@storeveu.com',   role: 'owner',      orgId: ORG_ID },
+    { name: 'Store Manager',  email: 'manager@storeveu.com', role: 'manager',    orgId: ORG_ID },
+    { name: 'Front Cashier',  email: 'cashier@storeveu.com', role: 'cashier',    orgId: ORG_ID },
+    { name: 'Staff Member',   email: 'staff@storeveu.com',   role: 'staff',      orgId: ORG_ID },
+  ];
+
+  const defaultPassword = 'Admin@123';
+  const hashed = await bcrypt.hash(defaultPassword, 12);
+  let userCount = 0;
+
+  for (const u of SEED_USERS) {
+    const existing = await prisma.user.findUnique({ where: { email: u.email } });
+    if (existing) continue;
+
+    const user = await prisma.user.create({
+      data: { name: u.name, email: u.email, password: hashed, role: u.role, status: 'active', orgId: u.orgId },
+    });
+
+    // Link non-superadmin users to the default store
+    if (u.role !== 'superadmin') {
+      await prisma.userStore.create({ data: { userId: user.id, storeId } }).catch(() => {});
+    }
+
+    userCount++;
+  }
+
+  if (userCount > 0) {
+    console.log(`  ✓ ${userCount} users created (password: ${defaultPassword})`);
+    SEED_USERS.forEach(u => console.log(`      ${u.role.padEnd(12)} → ${u.email}`));
+  } else {
+    console.log(`  ✓ All seed users already exist`);
+  }
+
+  // ── Lottery Games & Data ──────────────────────────────────
+  await seedLottery(ORG_ID, storeId);
+
   console.log(`\n✅ Seed complete! ${created + updated} / ${PRODUCTS.length} products in catalog.\n`);
+}
+
+// ─────────────────────────────────────────────────────────
+// LOTTERY SEED (inline)
+// ─────────────────────────────────────────────────────────
+const ONTARIO_GAMES = [
+  { name: '$100,000 Jackpot',   gameNumber: '3001', ticketPrice: 5.00,  ticketsPerBox: 600 },
+  { name: '$500,000 Jackpot',   gameNumber: '3002', ticketPrice: 10.00, ticketsPerBox: 500 },
+  { name: '$1,000,000 Jackpot', gameNumber: '3003', ticketPrice: 20.00, ticketsPerBox: 300 },
+  { name: '$2,000,000 Jackpot', gameNumber: '3004', ticketPrice: 30.00, ticketsPerBox: 200 },
+  { name: 'Lucky Lines',        gameNumber: '2201', ticketPrice: 2.00,  ticketsPerBox: 600 },
+  { name: 'Crossword',          gameNumber: '2202', ticketPrice: 3.00,  ticketsPerBox: 600 },
+  { name: 'Wheel of Fortune',   gameNumber: '2203', ticketPrice: 5.00,  ticketsPerBox: 600 },
+  { name: '7, 11, 21',          gameNumber: '2204', ticketPrice: 1.00,  ticketsPerBox: 600 },
+  { name: 'Break the Bank',     gameNumber: '2205', ticketPrice: 3.00,  ticketsPerBox: 600 },
+  { name: 'Gold Rush',          gameNumber: '2206', ticketPrice: 2.00,  ticketsPerBox: 600 },
+  { name: 'Instant Bingo',      gameNumber: '2207', ticketPrice: 3.00,  ticketsPerBox: 600 },
+  { name: 'Bonus Cashword',     gameNumber: '2208', ticketPrice: 5.00,  ticketsPerBox: 600 },
+  { name: 'Fast Cash',          gameNumber: '2209', ticketPrice: 2.00,  ticketsPerBox: 600 },
+  { name: 'Bigger Bucks',       gameNumber: '2210', ticketPrice: 5.00,  ticketsPerBox: 600 },
+  { name: 'Lucky 7s',           gameNumber: '2211', ticketPrice: 2.00,  ticketsPerBox: 600 },
+  { name: 'Diamond 7s',         gameNumber: '2212', ticketPrice: 3.00,  ticketsPerBox: 600 },
+  { name: 'Triple 777',         gameNumber: '2213', ticketPrice: 5.00,  ticketsPerBox: 600 },
+  { name: 'Merry Money',        gameNumber: '2214', ticketPrice: 3.00,  ticketsPerBox: 600 },
+  { name: 'Extra Cash',         gameNumber: '2215', ticketPrice: 1.00,  ticketsPerBox: 600 },
+  { name: 'Cash Blitz',         gameNumber: '2216', ticketPrice: 5.00,  ticketsPerBox: 600 },
+];
+
+const daysAgo = (n) => new Date(Date.now() - n * 86400000);
+const rand    = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const pick    = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+async function seedLottery(orgId, storeId) {
+  // Check if lottery data already exists
+  const existingGames = await prisma.lotteryGame.count({ where: { orgId, storeId } });
+  if (existingGames > 0) {
+    console.log(`  ✓ Lottery data already exists (${existingGames} games) — skipping`);
+    return;
+  }
+
+  console.log('\n  🎟️  Seeding lottery data...');
+
+  // Games
+  const gameRecords = [];
+  for (const g of ONTARIO_GAMES) {
+    const game = await prisma.lotteryGame.create({
+      data: {
+        orgId, storeId,
+        name: g.name, gameNumber: g.gameNumber,
+        ticketPrice: g.ticketPrice, ticketsPerBox: g.ticketsPerBox,
+        active: true,
+      },
+    });
+    gameRecords.push(game);
+  }
+  console.log(`  ✓ ${gameRecords.length} lottery games (Ontario OLGC)`);
+
+  // Boxes: 4 active, 6 inventory, 3 depleted
+  let boxCount = 0;
+  for (let i = 0; i < 4; i++) {
+    const game = gameRecords[i];
+    const ticketsSold = rand(50, 400);
+    await prisma.lotteryBox.create({
+      data: {
+        orgId, storeId, gameId: game.id,
+        boxNumber: `B${String(i + 1).padStart(3, '0')}`, slotNumber: i + 1,
+        totalTickets: game.ticketsPerBox, ticketPrice: game.ticketPrice,
+        totalValue: (Number(game.ticketPrice) * game.ticketsPerBox).toFixed(2),
+        status: 'active', activatedAt: daysAgo(rand(1, 7)),
+        ticketsSold, salesAmount: (ticketsSold * Number(game.ticketPrice)).toFixed(2),
+      },
+    });
+    boxCount++;
+  }
+  for (let i = 0; i < 6; i++) {
+    const game = pick(gameRecords.slice(4));
+    await prisma.lotteryBox.create({
+      data: {
+        orgId, storeId, gameId: game.id,
+        boxNumber: `B${String(i + 10).padStart(3, '0')}`,
+        totalTickets: game.ticketsPerBox, ticketPrice: game.ticketPrice,
+        totalValue: (Number(game.ticketPrice) * game.ticketsPerBox).toFixed(2),
+        status: 'inventory', ticketsSold: 0, salesAmount: 0,
+      },
+    });
+    boxCount++;
+  }
+  for (let i = 0; i < 3; i++) {
+    const game = pick(gameRecords.slice(0, 5));
+    await prisma.lotteryBox.create({
+      data: {
+        orgId, storeId, gameId: game.id,
+        boxNumber: `B${String(i + 20).padStart(3, '0')}`,
+        totalTickets: game.ticketsPerBox, ticketPrice: game.ticketPrice,
+        totalValue: (Number(game.ticketPrice) * game.ticketsPerBox).toFixed(2),
+        status: 'depleted', activatedAt: daysAgo(rand(7, 21)), depletedAt: daysAgo(rand(1, 6)),
+        ticketsSold: game.ticketsPerBox,
+        salesAmount: (Number(game.ticketPrice) * game.ticketsPerBox).toFixed(2),
+      },
+    });
+    boxCount++;
+  }
+  console.log(`  ✓ ${boxCount} lottery boxes (4 active, 6 inventory, 3 depleted)`);
+
+  // Transactions (30 days)
+  const txns = [];
+  for (let day = 29; day >= 0; day--) {
+    const date = daysAgo(day);
+    for (let s = 0; s < rand(5, 20); s++) {
+      const game = pick(gameRecords);
+      txns.push({
+        orgId, storeId, type: 'sale',
+        amount: pick([Number(game.ticketPrice), Number(game.ticketPrice) * 2, Number(game.ticketPrice) * 5]),
+        gameId: game.id,
+        createdAt: new Date(date.getTime() + rand(28800000, 72000000)),
+      });
+    }
+    for (let p = 0; p < rand(1, 4); p++) {
+      txns.push({
+        orgId, storeId, type: 'payout',
+        amount: pick([5, 10, 20, 50, 100, 200, 500]),
+        createdAt: new Date(date.getTime() + rand(28800000, 72000000)),
+      });
+    }
+  }
+  await prisma.lotteryTransaction.createMany({ data: txns });
+  console.log(`  ✓ ${txns.length} lottery transactions (30 days)`);
+
+  // Shift reports (14 days)
+  let reportCount = 0;
+  for (let day = 13; day >= 1; day--) {
+    const date = daysAgo(day);
+    const dayStart = new Date(date); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(date); dayEnd.setHours(23,59,59,999);
+    const dayTxns = txns.filter(t => t.createdAt >= dayStart && t.createdAt <= dayEnd);
+    const totalSales = dayTxns.filter(t => t.type === 'sale').reduce((s, t) => s + Number(t.amount), 0);
+    const totalPayouts = dayTxns.filter(t => t.type === 'payout').reduce((s, t) => s + Number(t.amount), 0);
+    const netAmount = totalSales - totalPayouts;
+    const varPct = Math.random() * 0.04 - 0.02;
+    const actual = netAmount * (1 + varPct);
+    await prisma.lotteryShiftReport.create({
+      data: {
+        orgId, storeId, shiftId: `shift-demo-day${day}`,
+        machineAmount: parseFloat((actual * 0.8).toFixed(2)),
+        digitalAmount: parseFloat((actual * 0.2).toFixed(2)),
+        totalSales: parseFloat(totalSales.toFixed(2)),
+        totalPayouts: parseFloat(totalPayouts.toFixed(2)),
+        netAmount: parseFloat(netAmount.toFixed(2)),
+        variance: parseFloat((actual - netAmount).toFixed(2)),
+        closedAt: dayEnd, createdAt: dayEnd, updatedAt: dayEnd,
+      },
+    });
+    reportCount++;
+  }
+  console.log(`  ✓ ${reportCount} lottery shift reports`);
 }
 
 main()

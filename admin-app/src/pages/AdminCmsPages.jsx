@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, FileText } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../../components/AdminSidebar';
-import RichTextEditor from '../../components/RichTextEditor';
-import { getAdminCmsPages, createAdminCmsPage, updateAdminCmsPage, deleteAdminCmsPage } from '../../services/api';
-import './admin.css';
+import AdminSidebar from '../components/AdminSidebar';
+import RichTextEditor from '../components/RichTextEditor';
+import { getAdminCmsPages, createAdminCmsPage, updateAdminCmsPage, deleteAdminCmsPage } from '../services/api';
+import '../styles/admin.css';
 
 const toSlug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 

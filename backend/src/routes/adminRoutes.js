@@ -12,8 +12,18 @@ import {
   approveUser,
   suspendUser,
   rejectUser,
+  createUser,
+  updateUser,
+  softDeleteUser,
+  impersonateUser,
   getAllOrganizations,
   updateOrganization,
+  createOrganization,
+  softDeleteOrganization,
+  getAllStores,
+  createStore,
+  updateStore,
+  softDeleteStore,
   getCmsPages,
   createCmsPage,
   updateCmsPage,
@@ -50,14 +60,26 @@ router.get('/analytics/stores',        getStorePerformance);
 router.get('/analytics/users',         getUserActivity);
 
 // User management (cross-org)
-router.get('/users',              getAllUsers);
-router.put('/users/:id/approve',  approveUser);
-router.put('/users/:id/suspend',  suspendUser);
-router.put('/users/:id/reject',   rejectUser);
+router.get('/users',                   getAllUsers);
+router.post('/users',                  createUser);
+router.put('/users/:id',               updateUser);
+router.delete('/users/:id',            softDeleteUser);
+router.put('/users/:id/approve',       approveUser);
+router.put('/users/:id/suspend',       suspendUser);
+router.put('/users/:id/reject',        rejectUser);
+router.post('/users/:id/impersonate',  impersonateUser);
 
 // Organization management
-router.get('/organizations',      getAllOrganizations);
-router.put('/organizations/:id',  updateOrganization);
+router.get('/organizations',           getAllOrganizations);
+router.post('/organizations',          createOrganization);
+router.put('/organizations/:id',       updateOrganization);
+router.delete('/organizations/:id',    softDeleteOrganization);
+
+// Store management (cross-org)
+router.get('/stores',                  getAllStores);
+router.post('/stores',                 createStore);
+router.put('/stores/:id',              updateStore);
+router.delete('/stores/:id',           softDeleteStore);
 
 // CMS pages
 router.get('/cms',                getCmsPages);

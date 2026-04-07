@@ -264,37 +264,6 @@ export const getLotteryCommissionReport = (params) => api.get('/lottery/commissi
 export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
 export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
 
-// ── Admin Panel ──────────────────────────────────────────────────────────────
-export const getAdminDashboard          = ()               => api.get('/admin/dashboard').then(r => r.data);
-export const getAdminUsers              = (params)         => api.get('/admin/users', { params }).then(r => r.data);
-export const approveAdminUser           = (id)             => api.put(`/admin/users/${id}/approve`).then(r => r.data);
-export const suspendAdminUser           = (id)             => api.put(`/admin/users/${id}/suspend`).then(r => r.data);
-export const rejectAdminUser            = (id)             => api.put(`/admin/users/${id}/reject`).then(r => r.data);
-export const getAdminOrganizations      = (params)         => api.get('/admin/organizations', { params }).then(r => r.data);
-export const updateAdminOrganization    = (id, data)       => api.put(`/admin/organizations/${id}`, data).then(r => r.data);
-export const getAdminCmsPages           = ()               => api.get('/admin/cms').then(r => r.data);
-export const createAdminCmsPage         = (data)           => api.post('/admin/cms', data).then(r => r.data);
-export const updateAdminCmsPage         = (id, data)       => api.put(`/admin/cms/${id}`, data).then(r => r.data);
-export const deleteAdminCmsPage         = (id)             => api.delete(`/admin/cms/${id}`).then(r => r.data);
-export const getAdminCareers            = ()               => api.get('/admin/careers').then(r => r.data);
-export const createAdminCareer          = (data)           => api.post('/admin/careers', data).then(r => r.data);
-export const updateAdminCareer          = (id, data)       => api.put(`/admin/careers/${id}`, data).then(r => r.data);
-export const deleteAdminCareer          = (id)             => api.delete(`/admin/careers/${id}`).then(r => r.data);
-export const getAdminTickets            = (params)         => api.get('/admin/tickets', { params }).then(r => r.data);
-export const updateAdminTicket          = (id, data)       => api.put(`/admin/tickets/${id}`, data).then(r => r.data);
-export const getAdminSystemConfig       = ()               => api.get('/admin/config').then(r => r.data);
-export const updateAdminSystemConfig    = (data)           => api.put('/admin/config', data).then(r => r.data);
-
-// Admin Analytics
-export const getAdminAnalyticsDashboard = ()               => api.get('/admin/analytics/dashboard').then(r => r.data);
-export const getAdminOrgAnalytics       = ()               => api.get('/admin/analytics/organizations').then(r => r.data);
-export const getAdminStorePerformance   = ()               => api.get('/admin/analytics/stores').then(r => r.data);
-export const getAdminUserActivity       = ()               => api.get('/admin/analytics/users').then(r => r.data);
-
-// Admin Job Applications
-export const getAdminCareerApplications = (careerPostingId) => api.get(`/admin/careers/${careerPostingId}/applications`).then(r => r.data);
-export const updateAdminJobApplication  = (id, data)       => api.put(`/admin/applications/${id}`, data).then(r => r.data);
-
 // ── POS Terminal Config ───────────────────────────────────────────────────────
 export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
 export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data).then(r => r.data);

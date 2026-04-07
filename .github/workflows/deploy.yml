@@ -8,6 +8,7 @@ on:
       - "backend/**"
       - "frontend/**"
       - "cashier-app/**"
+      - "admin-app/**"
       - ".github/workflows/deploy.yml"
 
 concurrency:
@@ -72,6 +73,18 @@ jobs:
           npm run build
           sudo systemctl reload nginx
 
+      - name: Deploy admin-app
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd /var/www/Storv_POS_All/admin-app
+          rm -rf dist
+          npm ci
+          npm run build
+          sudo systemctl reload nginx
+
       - name: Verify deployments
         shell: bash
         run: |
@@ -80,6 +93,7 @@ jobs:
           curl -f https://api-pos.thefortunetech.com/health && echo "✅ API is up"
           curl -f https://dashboard.thefortunetech.com && echo "✅ Dashboard is up"
           curl -f https://pos.thefortunetech.com && echo "✅ POS is up"
+          curl -f https://admin.thefortunetech.com && echo "✅ Admin is up"
           pm2 list
 
       - name: Notify success
@@ -90,6 +104,7 @@ jobs:
           echo "Backend:    https://api-pos.thefortunetech.com"
           echo "Dashboard:  https://dashboard.thefortunetech.com"
           echo "POS:        https://pos.thefortunetech.com"
+          echo "Admin:      https://admin.thefortunetech.com"
 
       - name: Notify failure
         if: failure()
