@@ -15,6 +15,7 @@ import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
   ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
+  ClipboardList,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -58,9 +59,11 @@ export default function ActionBar({
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
   onLottery,
+  onLotteryShift,          // opens LotteryShiftModal for reconciliation
   // Cash drawer / shift
   onOpenShift, onCloseShift, onCashDrop, onPayout,
   shiftOpen = false,
+  lotteryEnabled = true,   // show lottery buttons only when lottery is on
   heldCount = 0,           // badge on Hold button
   enabledShortcuts = {},
   actionBarHeight = 58,
@@ -183,8 +186,13 @@ export default function ActionBar({
           <ACT icon={ArrowDownCircle} label="Cash Drop" onClick={onCashDrop} color="var(--amber)" />
           <ACT icon={ArrowUpCircle}   label="Paid Out"  onClick={onPayout}   color="#a855f7" />
           <Divider />
-          <ACT icon={Ticket} label="Lottery" onClick={onLottery} color="var(--green)" />
-          <Divider />
+          {lotteryEnabled && (
+            <>
+              <ACT icon={Ticket}        label="Lottery"      onClick={onLottery}      color="var(--green)" />
+              <ACT icon={ClipboardList} label="Lotto Shift"  onClick={onLotteryShift} color="#f59e0b" />
+              <Divider />
+            </>
+          )}
         </>
       )}
 

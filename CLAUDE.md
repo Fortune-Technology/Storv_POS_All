@@ -434,7 +434,7 @@ When working on this project:
 
 1. **Read before writing** — always read the target file before editing it
 2. **Use `npx prisma db push`** — never `prisma migrate dev`
-3. **External CSS for all new components** — create a `.css` file with prefixed class names (e.g. `vpm-`, `brm-`, `qa-`, `qfp-`); no inline style objects in new JSX
+3. **External CSS for ALL UI** — every new component or page **must** use a dedicated `.css` file with a unique class-name prefix (e.g. `vpm-`, `brm-`, `qa-`). **Zero inline `style={{}}` objects** in new JSX. This is a hard rule on every task, every prompt.
 4. **Portal modals use explicit `#ffffff`** — CSS vars go transparent in overlay modals
 5. **Respect multi-tenancy** — every DB query must filter by `orgId` and `storeId`
 6. **Lottery price is sacred** — never allow manual override of ticket price in the cashier flow
@@ -442,7 +442,7 @@ When working on this project:
 8. **Commission is store-level** — never store commission on individual games
 9. **State-scoped games** — global games (isGlobal=true) are visible only to stores whose `LotterySettings.state` matches the game's `state` field
 10. **Ask before big refactors** — this is a production-adjacent system; discuss before restructuring
-11. **Update CLAUDE.md after every session** — append the feature summary to "Recent Feature Additions" and update the roadmap
+11. **Update CLAUDE.md after every task** — append the feature summary to "Recent Feature Additions", update the roadmap, and mark completed items `[x]`. This must happen at the end of **every** prompt, no exceptions.
 
 ---
 
@@ -614,14 +614,128 @@ No DB migration needed — stored in existing JSON column.
 
 ---
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 3)
+
+### Vendor Payout — Mode of Tender
+`VendorPayment` model now has `tenderMethod String? @default("cash")`.
+
+**Schema change** (`backend/prisma/schema.prisma`):
+```prisma
+tenderMethod  String?   @default("cash")
+```
+Applied via `npx prisma db push`. Backend `createVendorPayment` / `updateVendorPayment` now read/write this field.
+
+**POS Config** — new `vendorTenderMethods` array in `usePOSConfig.js` (and `DEFAULT_POS_CONFIG`):
+```js
+vendorTenderMethods: [
+  { id: 'cash',          label: 'Cash',              enabled: true  },
+  { id: 'cheque',        label: 'Cheque',            enabled: true  },
+  { id: 'bank_transfer', label: 'Bank Transfer',     enabled: false },
+  { id: 'credit_card',   label: 'Credit Card',       enabled: false },
+  { id: 'interac',       label: 'Interac e-Transfer', enabled: false },
+]
+```
+Stored in `store.pos` JSON. Managed by admin via **Store Settings** page.
+
+---
+
+### Store Settings Page (Portal)
+New page: `frontend/src/pages/StoreSettings.jsx` / `StoreSettings.css` (`ss-` prefix).
+- Route: `/portal/store-settings`
+- Sidebar: Account group → "Store Settings" (Settings2 icon)
+- Store selector dropdown
+- **Vendor Payment Tender Methods** section — toggle switches per method, add/remove custom methods
+- Loads via `getPOSConfig(storeId)`, saves via `updatePOSConfig({ storeId, ...config, vendorTenderMethods })`
+- Dirty-state indicator + sticky save bar
+
+**New API helpers** (`frontend/src/services/api.js`):
+```js
+getPOSConfig   = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data)
+updatePOSConfig = (data)   => api.put('/pos-terminal/config', data).then(r => r.data)
+```
+
+---
+
+### VendorPayoutModal — Two-Column Numpad Layout + Tender Method
+`cashier-app/src/components/modals/VendorPayoutModal.jsx` fully rewritten:
+- **Layout**: form LEFT (`vpm-left-col`, flex:1, border-right), numpad RIGHT (`vpm-right-col`, width:260px)
+- Tender method buttons loaded from `usePOSConfig().vendorTenderMethods.filter(t => t.enabled)`
+- **Success screen**: amount, vendor name, tender label, payout type, timestamp + Print Receipt / Skip
+- Responsive: `@media (max-width: 560px)` → `flex-direction: column-reverse`
+
+---
+
+### CashDrawerModal — Two-Column + Success Screen
+`cashier-app/src/components/modals/CashDrawerModal.jsx` fully rewritten (vendor payout tab removed):
+- **Layout**: form LEFT (shift chip + note), numpad RIGHT (amount display + numpad) — `CashDropModal.css` (`cdm-` prefix, amber accent)
+- **Success state**: after `addCashDrop` → shows amount, "removed from drawer", note, shift info
+- Print Receipt / Skip buttons; `onPrint` prop wired in `POSScreen.jsx`:
+  ```jsx
+  <CashDrawerModal onPrint={hasReceiptPrinter ? handlePrintTx : undefined} ... />
+  ```
+
+| CSS file | Prefix | Accent |
+|----------|--------|--------|
+| `CashDropModal.css` | `cdm-` | amber `#f59e0b` |
+
+---
+
+### Bottle Redemption — Cart-Based Negative Items
+`cashier-app/src/components/modals/BottleRedemptionModal.jsx` fully rewritten:
+- **No longer creates a standalone transaction** (`createOpenRefund` removed)
+- Calls `useCartStore(s => s.addBottleReturnItems)(lineItems)` instead
+- Two-column layout: rule list LEFT (`brm-left-col`), qty display + 4-col numpad + summary RIGHT (`brm-right-col`, width:260px)
+- Amounts shown with `-` prefix in summary (e.g. `-$4.50`)
+- Button: "Add to Cart (-$X.XX)" → "Added to Cart ✓" on success → auto-closes after 900ms
+- `POSScreen.jsx` `onComplete` simplified to `() => setShowBottleReturn(false)`
+
+**`useCartStore.js`** — new `addBottleReturnItems(lines)` action:
+```js
+addBottleReturnItems: (lines) => {
+  const items = lines.map(l => ({
+    lineId: nanoid(8), isBottleReturn: true,
+    name: `♻️ Bottle Return – ${l.rule.name}`,
+    qty: l.qty,
+    unitPrice: -Number(l.rule.depositAmount),
+    effectivePrice: -Number(l.rule.depositAmount),
+    lineTotal: -Math.abs(l.lineTotal),
+    depositTotal: 0, taxable: false, ebtEligible: false,
+    depositAmount: null, discountEligible: false,
+    discountType: null, discountValue: null, promoAdjustment: null,
+  }));
+  set(s => ({ items: [...s.items, ...items] }));
+},
+```
+
+---
+
+### TenderModal — Negative Grand Total (Refund / Pure Bottle Return)
+When `totals.grandTotal < -0.005` (i.e. cart is net-negative — bottle returns exceed purchases):
+- `isRefundTx = true`
+- `canComplete = true` immediately (no minimum tender needed)
+- `rawChange = Math.abs(grandTotal)` — displayed as "REFUND DUE TO CUSTOMER"
+- `finalLines` auto-includes `{ method: 'cash', amount: Math.abs(grandTotal), note: 'Refund/Bottle Return' }`
+- Completion screen shows "Refund Complete" with teal (`#34d399`) colour scheme
+
+---
+
+### Receipt — Negative Amounts & Bottle Returns
+`cashier-app/src/services/printerService.js` — `buildReceiptString()`:
+- New prefix for bottle return items: `'♻ RETURN   '`
+- Lottery payout already: `'** PAYOUT  '`; lottery sale: `'>> LOTTERY '`
+- TOTAL line: when `totalAmt < -0.005` → shows `REFUND DUE   -$X.XX` instead of `TOTAL`
+
+---
+
 ## 🛣 Product Roadmap (Known Next Steps)
 
 ### Immediate / Testing
 - [ ] E2E test: full lottery sale + tender + shift close flow
 - [ ] Seed games with `state` field populated (Ontario games)
 - [ ] Sync `LotterySettings.cashOnly` + `scanRequired` with `usePOSConfig` on station setup
-- [ ] Run `npx prisma db push` to apply `VendorPayment` model to production DB
-- [ ] Wire "Print Receipt" in `VendorPayoutModal` success screen to actual receipt printer
+- [ ] Cash Drop receipt format — `handlePrintTx` receives `{ type: 'cash_drop', amount, note }` object; may need a dedicated print path for non-transaction receipts
 
 ### Short-Term
 - [ ] Lottery ticket barcode scanning via device camera (for EOD scan)
@@ -629,6 +743,7 @@ No DB migration needed — stored in existing JSON column.
 - [ ] Commission report PDF export
 - [ ] Multi-store lottery dashboard (superadmin view)
 - [ ] Audit remaining portal pages for inline styles → migrate to external CSS
+- [ ] Dedicated cash-drop / payout receipt format in `printerService.js`
 
 ### Medium-Term
 - [ ] Customer loyalty points on purchases (points-per-dollar model)
@@ -645,4 +760,493 @@ No DB migration needed — stored in existing JSON column.
 
 ---
 
-*Last updated: April 2026 — Vendor Payments, Bottle Redemption Numpad, Action Bar Height, Quick Access Folders*
+*Last updated: April 2026 — Session 6: Clock-in/out duplicate state guard, Employee Timesheet tab with PDF export, Sidebar scroll persistence fix*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 4)
+
+### P0 Fix: Lottery Cash-Only Enforcement (`usePOSConfig.js`)
+`lottery` object was shallow-merged from server response, so saving `cashOnly: true` would lose `scanRequiredAtShiftEnd` (and vice-versa). Fixed with explicit deep-merge:
+```js
+lottery: {
+  ...DEFAULT_POS_CONFIG.lottery,
+  ...(r.data.lottery || {}),
+},
+```
+`TenderModal` already had the enforcement logic (`allowedMethods = lotteryCashOnly && hasLotteryItems ? [cash only] : ALL`). The `lotteryCashOnly` prop was already being passed from `POSScreen`. This fix ensures the flag survives the config load.
+
+---
+
+### P0 Fix: Require Ticket Scan at Shift End
+
+#### New "Lotto Shift" button (`ActionBar.jsx`)
+- Added `ClipboardList` (lucide-react) import
+- New props: `onLotteryShift`, `lotteryEnabled`
+- "Lotto Shift" button (amber `#f59e0b`) shown when `shiftOpen && lotteryEnabled`, next to the existing "Lottery" button
+- Wrapping both lottery buttons in `{lotteryEnabled && (...)}` guard
+
+#### Intercepted CloseShift flow (`POSScreen.jsx`)
+Two new state variables:
+```js
+const [lotteryShiftDone,  setLotteryShiftDone]  = useState(false);
+const [pendingShiftClose, setPendingShiftClose] = useState(false);
+```
+`lotteryShiftDone` resets on shift ID change (`useEffect`).
+
+`onCloseShift` now checks before opening `CloseShiftModal`:
+```js
+if (scanReq && lotteryOn && hasBoxes && !lotteryShiftDone) {
+  setPendingShiftClose(true);
+  setShowLotteryShift(true);   // must reconcile first
+} else {
+  setShowCloseShift(true);     // proceed normally
+}
+```
+
+`handleLotteryShiftSave` updated:
+```js
+setLotteryShiftDone(true);
+setShowLotteryShift(false);
+if (pendingShiftClose) {
+  setPendingShiftClose(false);
+  setShowCloseShift(true);     // auto-continue to close shift
+}
+```
+
+New helper `handleOpenLotteryShift` — refreshes active boxes then opens `LotteryShiftModal` (used by ActionBar button).
+
+#### LotteryShiftModal — CSS migration + `pendingShiftClose` banner
+- Fully migrated from inline styles → `LotteryShiftModal.css` (`lsm-` prefix)
+- New prop `pendingShiftClose: bool` — shows amber banner: *"Scan required before closing the shift. Complete reconciliation to proceed."*
+- Save button label changes: `"Save & Continue to Close Shift"` when `pendingShiftClose=true`
+- When user clicks Skip, `setPendingShiftClose(false)` is also called so close-shift isn't blocked indefinitely
+
+| File | Change |
+|------|--------|
+| `usePOSConfig.js` | Deep-merge `lottery` config object |
+| `LotteryShiftModal.css` | NEW — `lsm-` prefix, full external CSS |
+| `LotteryShiftModal.jsx` | Rewritten with external CSS + `pendingShiftClose` prop |
+| `ActionBar.jsx` | Added `ClipboardList`, `onLotteryShift`, `lotteryEnabled`, "Lotto Shift" button |
+| `POSScreen.jsx` | `lotteryShiftDone` + `pendingShiftClose` state, intercepted close-shift flow, `handleOpenLotteryShift` |
+
+---
+
+### Bug Fix: Lottery Cash-Only — Card Button Still Accessible (`TenderModal.jsx` + `POSScreen.jsx`)
+Three bypass paths allowed Card checkout even when `lotteryCashOnly=true`:
+
+1. **Card-quick screen bypass** — `if (initMethod === 'card' && splits.length === 0)` rendered a full card-payment screen before `allowedMethods` was consulted. Fixed: added `&& !(lotteryCashOnly && hasLotteryItems)` to the guard so it falls through to the entry modal.
+
+2. **Wrong initial `method` state** — `useState(initMethod || ...)` would start `method='card'` even under cash-only, meaning `complete()` would submit as card. Fixed: initial value now forced to `'cash'` when `lotteryCashOnly && hasLotteryItems`.
+
+3. **Quick-tender CARD button not disabled** — Both CARD shortcut buttons in POSScreen were always enabled. Added `const cashOnlyEnforced = posConfig.lottery?.cashOnly && items.some(i => i.isLottery)` and applied `disabled`, `opacity: 0.45`, `cursor: not-allowed`, and a tooltip *"Lottery items — cash only"* to both CARD buttons when enforced.
+
+---
+
+### Critical Bug Fix: TenderModal Blank Screen (`TenderModal.jsx`)
+`const isRefundTx` was declared on line 161 but **used on lines 144 and 152** (inside `rawChange` and `canComplete`). JavaScript's temporal dead zone throws `ReferenceError: Cannot access 'isRefundTx' before initialization` on every render → blank screen whenever Cash/Card/EBT was tapped.
+
+Fix: moved `const isRefundTx = totals.grandTotal < -0.005;` to immediately before `rawChange`.
+
+---
+
+## 🚦 Prioritized Product Backlog (April 2026)
+
+> Items are ordered **P0 → P4**. Work top-to-bottom within each tier.
+> Mark items `[x]` when complete and move a summary into "Recent Feature Additions".
+
+---
+
+### 🔴 P0 — Critical Bugs (fix before anything else)
+
+- [ ] **Barcode scan returns wrong product** — cashier app scan always resolves to one product even when multiple exist; wrong item added to cart
+- [ ] **Product-not-found not handled** — if barcode is missing from catalog, cashier app still adds a product instead of showing a "not found" error
+- [ ] **No internet → screen blinks on scan** — offline mode falls back incorrectly; Dexie lookup fails silently and the screen flashes instead of showing a cached/offline result or a clear "offline" message
+- [ ] **Stations page → redirects to sign-in** — `/portal/stations` drops user to the frontend login page instead of loading
+- [ ] **POS Transactions tab → redirects to sign-in** — same issue as Stations; route guard or token propagation failure
+- [x] **Cash-only lottery enforcement** — `usePOSConfig` now deep-merges `lottery` object so `cashOnly` flag is preserved; TenderModal already filters methods when `lotteryCashOnly=true`
+- [x] **Require Ticket Scan at Shift End + Lottery Shift button** — see Session 4 notes below
+
+---
+
+### 🟠 P1 — High-Priority Bugs & Regressions
+
+- [x] **Employee Report UI breaking** — added `layout-container` + `<Sidebar />` wrapper; rewritten with `EmployeeReports.css` (`er-` prefix), zero inline styles
+- [x] **PIN for clock-in/out** — confirmed clock-in/out uses same 4–6 digit register PIN; added "Use your register PIN" hint text in clock mode on `PinLoginScreen.jsx`
+- [x] **POS Settings not reflecting instantly** — `usePOSConfig.js` now polls every 5 minutes via `setInterval` AND re-fetches on `visibilitychange` (tab becomes visible). Config fetch logic extracted to `mergeConfig()` helper to avoid duplication.
+- [x] **Active sidebar tab click resets scroll to top** — `Sidebar.jsx` NavLink now has `onClick` guard: `if (location.pathname === item.path) e.preventDefault()` — prevents React Router re-navigation (and subsequent scroll-to-top) when already on the route
+- [x] **Deposit Rules page — sidebar UI broken** — added `layout-container` + `<Sidebar />` wrapper; main export converted to external CSS with `DepositRules.css` (`dr-` prefix)
+- [x] **Department is mandatory** — `ProductForm.jsx` `handleSave` now validates `form.departmentId` with `toast.error('Department is required')` before submitting
+- [x] **New shift at midnight** — `useShiftStore.loadActiveShift` now flags `shift._crossedMidnight = true` when `shift.openedAt < today's midnight`; `POSScreen.jsx` shows an amber banner when this flag is set
+
+---
+
+### 🟡 P2 — Core Features (next sprint)
+
+- [ ] **Bottle deposit redemption** *(partially done — cart items work; needs end-to-end polish)*
+  - Verify receipt shows `♻ RETURN` lines with negative amounts
+  - Verify cash drawer opens on refund completion
+  - Add bottle rules management in portal (admin can set deposit amounts per container type)
+
+- [ ] **Export / download all products** — portal Products page needs a CSV/XLSX export button; mandatory columns: Name, UPC, Price; all others optional. Backend `GET /catalog/products/export` endpoint.
+
+- [ ] **Create new product from cashier app** — when a barcode is not found, show a "Create Product" shortcut that opens a minimal form (Name, UPC, Price, Department). Requires manager-level PIN verification.
+
+- [ ] **Station config edit from PIN screen** — small gear icon on cashier PIN/login screen; tapping it asks for manager verification, then opens station setup (store, station name, printer IP, etc.)
+
+- [ ] **Connected stations view** — portal Stations page: show live heartbeat status, terminal name, cashier logged in, last activity timestamp per station
+
+- [ ] **Station limit per subscription plan** — backend enforces max stations per store based on `Organization.plan`; portal shows current usage vs limit; cashier app blocks pairing when limit reached
+
+- [ ] **Cash withdraw — out-of-business transactions** — "Cash Out" / "Paid Out" event that removes cash from drawer without a vendor payout; recorded as `CashPayout` with reason; shows on shift report
+
+- [ ] **Receipt customization (back-office)** — receipt designer page: toggle which fields print (store name, address, logo, tax breakdown, cashier name, shift ID, etc.); preview pane; saved to `store.pos` config
+
+- [ ] **Sound feedback** — play a short beep/tone on: scan success, scan error/not-found, transaction complete, transaction error. Use Web Audio API (offline-safe).
+
+- [ ] **Sales Reports & Analytics — fix live data**
+  - Live Dashboard: hook up real aggregation queries (today's sales, top products, hourly chart)
+  - Department Analytics: fix data shape mismatch
+  - Product Analytics: velocity ranking, sales trend
+  - Predictions: Holt-Winters should use actual `Transaction` data from this POS
+
+---
+
+### 🟢 P3 — Important Features (following sprint)
+
+- [ ] **Promotions management + bulk import**
+  - Portal: full BOGO / volume / combo / mix-and-match CRUD
+  - CSV bulk import with validation preview
+  - Cashier app: promo engine already has hooks; verify they fire correctly
+
+- [ ] **Customize quick switches (Action Bar)** — allow store admin to reorder / rename / hide the action-bar buttons (Lottery, Bottle Return, Vendor Payout, Cash Drop, etc.) via Store Settings
+
+- [ ] **Role & permissions module** — granular permissions per user (e.g. can_void, can_discount, can_edit_prices, can_close_shift); assigned in Users page; enforced in both portal and cashier app
+
+- [ ] **Employee clock-in/out PIN design** — decide: same PIN as register login OR separate clock PIN. Build dedicated clock screen if separate. Tie to Employee Reports.
+
+- [ ] **Customer module — fix & loyalty tie-in**
+  - Fix existing Customer page (data not loading / UI broken)
+  - Link customers to transactions (lookup by phone/loyalty card at checkout)
+  - Points-per-dollar accrual; balance display at checkout; redemption flow
+
+- [ ] **Vendor order based on product velocity** — portal Vendor Orders page: suggest reorder quantities based on weekly sales velocity, seasonal trends, and reorder frequency config per product
+
+- [ ] **Fix vendor order page** — current UI needs product-movement data feed; connect to `Transaction` line items for movement calculation
+
+---
+
+### 🔵 P4 — Nice-to-Have / Planned
+
+- [ ] **POS API page → "Coming Soon"** — replace current page content with a styled "Coming Soon" placeholder; keep sidebar item visible but disabled/badged
+
+- [ ] **Customer email/SMS marketing** — bulk campaign tool: filter inactive customers, send offer emails/SMS via SendGrid/Twilio integration
+
+- [ ] **Electron desktop build (.exe)**
+  ```bash
+  cd cashier-app
+  npm run electron:dev      # dev mode (Vite + Electron together)
+  npm run electron:build    # produces dist-electron/StoreVeu POS Setup.exe
+  ```
+  Ensure `package.json` has `electron`, `electron-builder` deps and `main` entry. Build target: Windows NSIS installer.
+
+- [ ] **Multi-store lottery dashboard** — superadmin view aggregating all stores' lottery KPIs
+
+- [ ] **Lottery ticket barcode scanning** — camera-based scan for EOD ticket number entry in `LotteryShiftModal`
+
+- [ ] **Kiosk / self-checkout mode**
+
+- [ ] **Fuel pump integration**
+
+---
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 5)
+
+### P1 Fix: Sidebar Scroll Reset on Active Tab Click (`Sidebar.jsx`)
+`NavLink` in `Sidebar.jsx` now has an `onClick` guard:
+```jsx
+onClick={(e) => {
+  if (location.pathname === item.path) e.preventDefault();
+}}
+```
+This prevents React Router from re-navigating to the same route (which caused a re-render + `ScrollToTop` firing, scrolling the page to the top).
+
+---
+
+### P1 Fix: POS Settings Lag in PWA (`usePOSConfig.js`)
+Config fetch logic extracted into `mergeConfig(defaults, data)` helper. `usePOSConfig` now:
+- Fetches on mount (unchanged)
+- Polls every **5 minutes** via `setInterval` (constant `POLL_INTERVAL_MS = 5 * 60 * 1000`)
+- Re-fetches immediately on `visibilitychange` when `document.visibilityState === 'visible'` (covers returning from background on PWA/mobile)
+- Cleans up both listener and interval on unmount / storeId change
+
+---
+
+### P1 Fix: Department Mandatory Validation (`ProductForm.jsx`)
+`handleSave` now checks `form.departmentId` immediately after name:
+```js
+if (!form.departmentId) { toast.error('Department is required'); return; }
+```
+
+---
+
+### P1 Fix: Midnight Shift Flag (`useShiftStore.js` + `POSScreen.jsx`)
+`loadActiveShift` now mutates the returned shift with `_crossedMidnight: true` when `shift.openedAt` is before today's midnight:
+```js
+const todayMidnight = new Date();
+todayMidnight.setHours(0, 0, 0, 0);
+if (new Date(shift.openedAt) < todayMidnight) shift._crossedMidnight = true;
+```
+`POSScreen.jsx` shows an amber banner strip (below `StatusBar`, above content) when `shift._crossedMidnight` is true:
+> ⚠ This shift was opened before midnight — please close it and open a new shift for today.
+
+---
+
+### P1 Fix: Employee Reports Layout (`EmployeeReports.jsx` + `EmployeeReports.css`)
+Page fully rewritten:
+- Wraps with `<div className="layout-container"><Sidebar /><main className="main-content">` — sidebar now visible
+- All inline styles replaced with `EmployeeReports.css` (`er-` prefix)
+- Summary cards, table, filters, error state all use CSS classes
+
+| CSS file | Prefix | Accent |
+|----------|--------|--------|
+| `EmployeeReports.css` | `er-` | green/blue/amber |
+
+---
+
+### P1 Fix: Deposit Rules Layout (`DepositRules.jsx` + `DepositRules.css`)
+Main export function updated:
+- Wraps with `<div className="layout-container"><Sidebar /><main className="main-content">` — sidebar now visible
+- Page-level structure (header, error banner, confirm row, empty state, rule list, loading) migrated to `DepositRules.css` (`dr-` prefix)
+- Sub-components (`ContainerTypeToggle`, `RuleForm`, `RuleCard`) retain their pre-existing inline styles (complex conditional styles; not new code)
+
+| CSS file | Prefix | Accent |
+|----------|--------|--------|
+| `DepositRules.css` | `dr-` | teal `#34d399` |
+
+---
+
+### P1 Fix: PIN Policy for Clock-In/Out (`PinLoginScreen.jsx`)
+Clock mode (`mode === 'clock'`) now shows a small info note above the clock-in/out toggle:
+> *"Use your register PIN to clock in or out"*
+Confirms to cashiers that no separate PIN exists — the same 4–6 digit register PIN is used for both sign-in and clock events.
+
+---
+
+### Updated File Map
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/Sidebar.jsx` | Added `onClick` guard on NavLink to prevent same-route re-navigation |
+| `cashier-app/src/hooks/usePOSConfig.js` | Added 5-min polling + `visibilitychange` listener; `mergeConfig()` helper |
+| `frontend/src/pages/ProductForm.jsx` | Added `departmentId` validation in `handleSave` |
+| `cashier-app/src/stores/useShiftStore.js` | Added `_crossedMidnight` flag in `loadActiveShift` |
+| `cashier-app/src/screens/POSScreen.jsx` | Added midnight shift warning banner |
+| `frontend/src/pages/EmployeeReports.jsx` | Rewritten with layout wrapper + external CSS |
+| `frontend/src/pages/EmployeeReports.css` | NEW — `er-` prefix |
+| `frontend/src/pages/DepositRules.jsx` | Added layout wrapper; main export uses CSS classes |
+| `frontend/src/pages/DepositRules.css` | NEW — `dr-` prefix |
+| `cashier-app/src/screens/PinLoginScreen.jsx` | Added clock mode PIN hint text |
+
+---
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 6)
+
+### Clock-In/Out Duplicate State Guard
+
+**Root issue:** Backend `clockEvent` always created a new event without checking current state. A cashier could clock-in twice in a row.
+
+**Backend (`posTerminalController.js` — `clockEvent`):**
+After identifying the user by PIN, the handler now fetches their last clock event at this store:
+```js
+const lastEvent = await prisma.clockEvent.findFirst({
+  where: { orgId, storeId: effectiveStoreId, userId: matchedUser.id },
+  orderBy: { createdAt: 'desc' },
+  select: { type: true, createdAt: true },
+});
+```
+- `type='in'` + last was `'in'` → returns `{ alreadyClockedIn: true, since, userName }` (HTTP 200, no new event created)
+- `type='out'` + no events or last was `'out'` → returns `{ notClockedIn: true, userName }` (HTTP 200, no event)
+- Otherwise → creates event normally and returns `{ userName, type, createdAt }`
+
+**Cashier App (`PinLoginScreen.jsx`):**
+- New state `clockWarn: { kind: 'alreadyIn'|'notIn', userName, since? }`
+- `submitClock` branches on response flags: sets `clockWarn` instead of `clockDone`
+- `fmtDuration(since)` helper: "2h 14m" countdown from the `since` timestamp
+- New warning screen replaces numpad when `clockWarn` is set:
+  - **Already clocked in**: ⏱ amber banner showing "Clocked in for Xh Ym", prompt to clock out
+  - **Not clocked in**: 🔒 red message, prompt to clock in
+  - "Done" button auto-switches `clockType` to the correct action (so cashier can immediately proceed)
+- `switchMode()` now also clears `clockWarn`
+
+---
+
+### Employee Timesheet Tab + PDF Export (`EmployeeReports.jsx`)
+
+**Two-tab layout**: Summary | 🕐 Timesheet
+
+**Timesheet tab:**
+- Shows each employee as an expandable card (click to expand sessions)
+- Session rows: Date · Clock In · Clock Out · Duration · Status badge (⬤ Active pulsing dot when still clocked in)
+- Per-employee "PDF" button + "Export All as PDF" toolbar button
+- Data comes from existing `sessions[]` array already returned by `GET /reports/employees`
+
+**PDF export (zero new dependencies):**
+- `openPDFWindow(employees, from, to)` opens a new `window.open()` tab
+- `buildPDFHTML()` generates a clean print-ready HTML document with inline CSS
+- Print-specific `@media print` hides the "Print / Save as PDF" button
+- `setTimeout(() => w.print(), 400)` auto-triggers the browser print dialog
+- Works as both physical print and "Save as PDF" (via browser's built-in PDF driver)
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/EmployeeReports.jsx` | Added tabs, Timesheet tab, TimesheetCard component, PDF functions |
+| `frontend/src/pages/EmployeeReports.css` | Added tab bar, timesheet card, session row, active badge, PDF button styles |
+
+---
+
+### Sidebar Scroll Position Persistence (`Sidebar.jsx`)
+
+**Root cause (architectural):** Every portal page mounts its own `<Sidebar />` — there is no shared persistent layout. When React Router navigates, the old page unmounts (destroying Sidebar + its `scrollTop`), and the new page mounts a fresh Sidebar at `scrollTop = 0`.
+
+**Fix (pragmatic — no refactor of 30+ pages needed):**
+`useLayoutEffect` restores `scrollTop` from `sessionStorage` before the first paint:
+```jsx
+useLayoutEffect(() => {
+  const saved = sessionStorage.getItem('sidebar-scroll-y');
+  if (saved && asideRef.current) asideRef.current.scrollTop = parseInt(saved, 10);
+}, []);
+```
+`onScroll` on the `<aside>` element saves the current position:
+```jsx
+<aside ref={asideRef} onScroll={e => sessionStorage.setItem('sidebar-scroll-y', e.currentTarget.scrollTop)}>
+```
+`useLayoutEffect` (vs `useEffect`) runs synchronously before paint, preventing a flash of scroll position 0.
+
+**Why not a shared layout?** That requires removing `<Sidebar />` from all 30+ individual page files — a large refactor. The `sessionStorage` approach solves the UX problem without touching any other files.
+
+---
+
+### 📝 Standing Instructions (apply to every prompt / task)
+
+> These two rules are **mandatory** on every single task without exception:
+>
+> 1. **Use external CSS for all UI** — no inline `style={{}}` in new JSX. Create a `.css` file with a unique class prefix per component.
+> 2. **Update CLAUDE.md after completing the task** — mark the backlog item `[x]`, add a summary under "Recent Feature Additions", and update the roadmap.
+
+---
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 7)
+
+### Bug Fix: Clock Events Not Showing in Back-Office Reports (`employeeReportsController.js`)
+
+**Root cause:** `new Date('2026-04-07')` in JavaScript/Node.js creates `2026-04-07T00:00:00.000Z` (midnight UTC). When used as `lte: toDate` in a Prisma `where` clause, all clock events that occurred *after* midnight UTC that day (i.e., every event during business hours in non-UTC timezones) are excluded.
+
+**Fix:** Added `parseFromDate` and `parseToDate` helpers that append explicit time suffixes:
+```js
+function parseFromDate(str) {
+  return str ? new Date(str + 'T00:00:00.000Z') : (() => {
+    const d = new Date(); d.setUTCDate(d.getUTCDate() - 7); d.setUTCHours(0, 0, 0, 0); return d;
+  })();
+}
+function parseToDate(str) {
+  return str ? new Date(str + 'T23:59:59.999Z') : (() => {
+    const d = new Date(); d.setUTCHours(23, 59, 59, 999); return d;
+  })();
+}
+```
+All date-range queries in `employeeReportsController.js` now use these helpers.
+
+---
+
+### Back-Office Clock Event CRUD (`employeeReportsController.js` + `reportsRoutes.js`)
+
+New backend endpoints for manually managing employee clock sessions from the back-office portal:
+
+| Method | Route | Auth | Purpose |
+|--------|-------|------|---------|
+| `GET` | `/api/reports/employees` | manager+ | Aggregate report with sessions + sales per employee |
+| `GET` | `/api/reports/employees/list` | manager+ | Employee dropdown list (PIN-enabled users only) |
+| `GET` | `/api/reports/clock-events` | manager+ | Raw clock events with user info |
+| `POST` | `/api/reports/clock-events` | owner+ | Create a clock-in + optional clock-out event |
+| `PUT` | `/api/reports/clock-events/:id` | owner+ | Edit timestamp, type, or note of one event |
+| `DELETE` | `/api/reports/clock-events/:id` | owner+ | Delete a single clock event |
+
+**Controller functions added:**
+- `listClockEvents` — returns events with `userName`, `userEmail`, `userRole` attached
+- `listStoreEmployees` — returns `{ employees }` for dropdowns, filtered to `posPin: { not: null }` (cashier-app users only)
+- `createClockSession` — body `{ userId, storeId, inTime, outTime?, note? }` — creates `in` event and optional `out` event; returns `{ inEvent, outEvent }`
+- `updateClockEvent` — body `{ timestamp?, type?, note? }` — ownership-checked by `orgId`
+- `deleteClockEvent` — ownership-checked; returns `{ success: true }`
+
+**Route guards:**
+```js
+const readGuard  = [protect, requireTenant, authorize('manager', 'owner', 'admin', 'superadmin')];
+const writeGuard = [protect, requireTenant, authorize('owner', 'admin', 'superadmin')];
+```
+
+---
+
+### New API Functions (`frontend/src/services/api.js`)
+
+Added before the `// ── Public API` section:
+```js
+export const getEmployeeReport     = (params)    => api.get('/reports/employees',           { params }).then(r => r.data);
+export const getStoreEmployees     = (params)    => api.get('/reports/employees/list',       { params }).then(r => r.data);
+export const getClockEvents        = (params)    => api.get('/reports/clock-events',         { params }).then(r => r.data);
+export const createClockSession    = (data)      => api.post('/reports/clock-events',        data).then(r => r.data);
+export const updateClockEventEntry = (id, data)  => api.put(`/reports/clock-events/${id}`,  data).then(r => r.data);
+export const deleteClockEventEntry = (id)        => api.delete(`/reports/clock-events/${id}`).then(r => r.data);
+```
+
+---
+
+### Employee Reports — Manage Shifts Tab (`EmployeeReports.jsx` + `EmployeeReports.css`)
+
+`EmployeeReports.jsx` fully rewritten with **3 tabs**: Summary | 🕐 Timesheet | 🛠 Manage Shifts
+
+**Manage Shifts tab:**
+- `ShiftForm` sub-component: employee dropdown (for Add mode), `datetime-local` inputs for clock-in/out, note field, Save/Cancel
+- Session pairing algorithm via `React.useMemo` from raw `msEvents` — groups events by `userId`, pairs each `in` with the next `out`
+- Sessions sorted descending by `inTime` (most recent first)
+- **Active sessions** — unpaired `in` events → shown with pulsing green ⬤ badge
+- **Orphan events** — unmatched `out` events → shown with red badge
+- **Edit**: populates `ShiftForm` with `isoToDatetimeLocal()` conversion of existing timestamps
+- **Delete**: calls `window.confirm()` then deletes `inEvent` and `outEvent` IDs separately
+- Employee filter dropdown + date range + Refresh button
+
+**`isoToDatetimeLocal` helper:**
+```js
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+```
+
+**New CSS classes added to `EmployeeReports.css` (`er-ms-` prefix):**
+- `.er-ms-toolbar`, `.er-ms-add-btn`, `.er-ms-emp-filter`
+- `.er-ms-form-panel`, `.er-ms-form-grid`, `.er-ms-form-field`, `.er-ms-form-input`
+- `.er-ms-table-wrap`, `.er-ms-table-head`, `.er-ms-row` (grid: `1.6fr 1fr 1fr 1fr 0.8fr 100px`)
+- `.er-ms-btn-edit`, `.er-ms-btn-delete`, `.er-ms-active-badge`, `.er-ms-active-dot`, `.er-ms-orphan-badge`
+
+| File | Change |
+|------|--------|
+| `backend/src/controllers/employeeReportsController.js` | Fully rewritten — UTC date fix + 5 new controller functions |
+| `backend/src/routes/reportsRoutes.js` | Rewritten — 6 routes with `readGuard`/`writeGuard` split |
+| `frontend/src/services/api.js` | Added 6 new employee reports / clock-event API functions |
+| `frontend/src/pages/EmployeeReports.jsx` | Rewritten — 3 tabs: Summary, Timesheet, Manage Shifts |
+| `frontend/src/pages/EmployeeReports.css` | Extended with `er-ms-` prefix styles for Manage Shifts tab |
+
+---
+
+### Backlog Updates
+
+- [x] **Employee schedule management** (Medium-Term) — back-office shift management (add/edit/delete clock sessions) is now live via the Manage Shifts tab in Employee Reports

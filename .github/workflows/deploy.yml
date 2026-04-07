@@ -36,6 +36,7 @@ jobs:
           cd /var/www/Storv_POS_All/backend
           npm ci
           npx prisma generate
+          npx prisma db push --accept-data-loss
           npx prisma migrate deploy
           pm2 restart storv-pos-backend
           pm2 save

@@ -122,7 +122,12 @@ export default function TenderModal({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [splits,  setSplits]  = useState([]);
-  const [method,  setMethod]  = useState(initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'));
+  // When lottery cash-only is enforced, always start on cash regardless of initMethod
+  const [method,  setMethod]  = useState(
+    (lotteryCashOnly && hasLotteryItems)
+      ? 'cash'
+      : (initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'))
+  );
   const [payStatus, setPayStatus] = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
   const [payResult, setPayResult] = useState(null);
   const hw = loadHardwareConfig();
@@ -141,19 +146,24 @@ export default function TenderModal({
   const remaining  = Math.max(0, Math.round((totals.grandTotal - totalSplit) * 100) / 100);
   const activeAmt  = digitsToNumber(amount);  // digit string → dollars
 
-  const rawChange = GIVES_CHANGE.includes(method) && activeAmt > remaining ? activeAmt - remaining : 0;
-  const change    = applyRounding(rawChange, cashRounding);
+  const isRefundTx = totals.grandTotal < -0.005;
+
+  const rawChange = isRefundTx
+    ? Math.abs(totals.grandTotal)
+    : (GIVES_CHANGE.includes(method) && activeAmt > remaining ? activeAmt - remaining : 0);
+  const change = applyRounding(rawChange, cashRounding);
 
   const presets = useMemo(() => getSmartCashPresets(remaining), [remaining]);
 
   const canComplete = useMemo(() => {
+    if (isRefundTx) return true;  // refund/bottle return: always completeable
     if (totalSplit >= totals.grandTotal - 0.005) return true;
     if (method === 'card' || method === 'manual_card') return remaining > 0;
     if (GIVES_CHANGE.includes(method)) return activeAmt >= remaining - 0.005;
     if (method === 'ebt' || method === 'manual_ebt') return activeAmt > 0;
     if (method === 'other') return activeAmt > 0;
     return false;
-  }, [method, activeAmt, remaining, totalSplit, totals.grandTotal]);
+  }, [isRefundTx, method, activeAmt, remaining, totalSplit, totals.grandTotal]);
 
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
@@ -224,7 +234,10 @@ export default function TenderModal({
     setSaving(true);
 
     const finalLines = [...splits.map(({ method: m, label, amount: a }) => ({ method: m, label, amount: a }))];
-    if (method === 'card' || method === 'manual_card') {
+    if (isRefundTx) {
+      // Refund transaction: cash is disbursed to customer
+      finalLines.push({ method: 'cash', amount: Math.abs(totals.grandTotal), note: 'Refund/Bottle Return' });
+    } else if (method === 'card' || method === 'manual_card') {
       finalLines.push({ method, amount: remaining });
     } else if (activeAmt > 0) {
       finalLines.push({ method, amount: activeAmt, ...(note ? { note } : {}) });
@@ -278,14 +291,18 @@ export default function TenderModal({
             <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Check size={15} color="#0f1117" strokeWidth={3} />
             </div>
-            <span style={{ fontWeight: 800, color: 'var(--green)', fontSize: '0.95rem' }}>Sale Complete</span>
+            <span style={{ fontWeight: 800, color: isRefundTx ? '#34d399' : 'var(--green)', fontSize: '0.95rem' }}>
+              {isRefundTx ? 'Refund Complete' : 'Sale Complete'}
+            </span>
             <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtTxNumber(completedTx.txNumber)}</span>
           </div>
 
           {/* Change amount */}
           <div style={{ padding: '1.5rem 1.5rem 0.75rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 8 }}>CHANGE DUE</div>
-            <div style={{ fontSize: '4.5rem', fontWeight: 900, color: 'var(--green)', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmt$(completedChg)}</div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', marginBottom: 8 }}>
+              {isRefundTx ? 'REFUND DUE TO CUSTOMER' : 'CHANGE DUE'}
+            </div>
+            <div style={{ fontSize: '4.5rem', fontWeight: 900, color: isRefundTx ? '#34d399' : 'var(--green)', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmt$(completedChg)}</div>
             {cashRounding === '0.05' && (
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Rounded to nearest $0.05</div>
             )}
@@ -338,8 +355,9 @@ export default function TenderModal({
 
   // ════════════════════════════════════════════════════════════════════════════
   // SCREEN: CARD QUICK MODE (no numpad — just confirm)
+  // Skipped when lottery cash-only is enforced — falls through to entry modal
   // ════════════════════════════════════════════════════════════════════════════
-  if (initMethod === 'card' && splits.length === 0) {
+  if (initMethod === 'card' && splits.length === 0 && !(lotteryCashOnly && hasLotteryItems)) {
     return (
       <div style={s.backdrop}>
         <div style={{ ...s.modal(440), border: '1px solid rgba(59,130,246,.3)' }}>

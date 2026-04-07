@@ -878,8 +878,9 @@ export default function ProductForm() {
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) { toast.error('Product name is required'); return; }
-    if (upcWarning)         { toast.error(upcWarning); return; }
+    if (!form.name.trim())     { toast.error('Product name is required'); return; }
+    if (!form.departmentId)    { toast.error('Department is required'); return; }
+    if (upcWarning)            { toast.error(upcWarning); return; }
     setSaving(true);
     try {
       const payload = {

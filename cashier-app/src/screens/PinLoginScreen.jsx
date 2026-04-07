@@ -35,7 +35,18 @@ export default function PinLoginScreen() {
   const [mode,         setMode]         = useState('signin');  // 'signin' | 'clock'
   const [clockType,    setClockType]    = useState('in');      // 'in' | 'out'
   const [clockDone,    setClockDone]    = useState(null);      // { userName, type } after success
+  const [clockWarn,    setClockWarn]    = useState(null);      // { kind: 'alreadyIn'|'notIn', userName, since? }
   const [clockLoading, setClockLoading] = useState(false);
+
+  // Format duration from a timestamp to now (e.g. "2h 14m")
+  const fmtDuration = (since) => {
+    const mins = Math.floor((Date.now() - new Date(since)) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
 
   const triggerShake = () => {
     setShake(true);
@@ -59,8 +70,14 @@ export default function PinLoginScreen() {
     setClockLoading(true);
     try {
       const res = await clockInOut(p, clockType, station?.storeId, station?.stationToken);
-      setClockDone({ userName: res.userName, type: res.type });
       setPin('');
+      if (res.alreadyClockedIn) {
+        setClockWarn({ kind: 'alreadyIn', userName: res.userName, since: res.since });
+      } else if (res.notClockedIn) {
+        setClockWarn({ kind: 'notIn', userName: res.userName });
+      } else {
+        setClockDone({ userName: res.userName, type: res.type });
+      }
     } catch {
       triggerShake();
     } finally {
@@ -110,6 +127,7 @@ export default function PinLoginScreen() {
     setPin('');
     clearError();
     setClockDone(null);
+    setClockWarn(null);
   };
 
   const isLoading = loading || clockLoading;
@@ -166,8 +184,76 @@ export default function PinLoginScreen() {
             Done
           </button>
         </div>
+
+      ) : mode === 'clock' && clockWarn ? (
+        /* ── Already clocked in / not clocked in warning ── */
+        <div style={{ textAlign:'center', padding:'2rem 1rem', width:280 }}>
+          {clockWarn.kind === 'alreadyIn' ? (
+            <>
+              <div style={{ fontSize:'2.5rem', marginBottom:12 }}>⏱</div>
+              <div style={{ fontWeight:800, fontSize:'1.05rem', color:'var(--amber, #f59e0b)', marginBottom:6 }}>
+                Already Clocked In
+              </div>
+              <div style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginBottom:4 }}>
+                {clockWarn.userName}
+              </div>
+              <div style={{
+                marginTop:10, padding:'0.6rem 1rem', borderRadius:10,
+                background:'rgba(245,158,11,.1)', border:'1px solid rgba(245,158,11,.3)',
+                color:'#fbbf24', fontSize:'0.82rem', fontWeight:700,
+              }}>
+                Clocked in for {fmtDuration(clockWarn.since)}
+              </div>
+              <div style={{ color:'var(--text-muted)', fontSize:'0.75rem', marginTop:8 }}>
+                Please clock out first before clocking in again.
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize:'2.5rem', marginBottom:12 }}>🔒</div>
+              <div style={{ fontWeight:800, fontSize:'1.05rem', color:'var(--red, #ef4444)', marginBottom:6 }}>
+                Not Clocked In
+              </div>
+              <div style={{ color:'var(--text-secondary)', fontSize:'0.9rem', marginBottom:4 }}>
+                {clockWarn.userName}
+              </div>
+              <div style={{ color:'var(--text-muted)', fontSize:'0.75rem', marginTop:8 }}>
+                You must clock in before you can clock out.
+              </div>
+            </>
+          )}
+          <button
+            onClick={() => {
+              setClockWarn(null);
+              setPin('');
+              // Auto-switch to the correct action
+              setClockType(clockWarn.kind === 'alreadyIn' ? 'out' : 'in');
+            }}
+            style={{ marginTop:'1.5rem', padding:'0.75rem 2rem', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, color:'var(--text-muted)', fontWeight:700, cursor:'pointer' }}
+          >
+            {clockWarn.kind === 'alreadyIn' ? 'Switch to Clock Out' : 'Switch to Clock In'}
+          </button>
+        </div>
+
       ) : (
         <>
+          {/* Clock mode hint */}
+          {mode === 'clock' && (
+            <div style={{
+              width: 260, marginBottom: '0.6rem',
+              padding: '0.45rem 0.75rem',
+              borderRadius: 8,
+              background: 'rgba(255,255,255,.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-muted)',
+              fontSize: '0.72rem',
+              textAlign: 'center',
+              lineHeight: 1.4,
+            }}>
+              Use your register PIN to clock in or out
+            </div>
+          )}
+
           {/* Clock in/out type toggle — only shown in clock mode */}
           {mode === 'clock' && (
             <div style={{ display:'flex', gap:8, marginBottom:'1rem', width:260 }}>

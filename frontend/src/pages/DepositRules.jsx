@@ -15,6 +15,8 @@ import {
   Recycle, Plus, Pencil, Trash2, Check, X as XIcon,
   AlertCircle, ChevronDown,
 } from 'lucide-react';
+import Sidebar from '../components/Sidebar';
+import './DepositRules.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmt$(n) {
@@ -375,132 +377,104 @@ export default function DepositRules() {
   };
 
   return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 900, margin: '0 auto' }}>
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content">
+        <div className="dr-page">
 
-      {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: 'rgba(52,211,153,.12)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Recycle size={18} color="#34d399" />
+          {/* ── Header ── */}
+          <div className="dr-header">
+            <div className="dr-header-left">
+              <div className="dr-header-icon">
+                <Recycle size={18} color="#34d399" />
+              </div>
+              <div>
+                <h1 className="dr-title">Deposit Rules</h1>
+                <p className="dr-subtitle">Manage bottle &amp; can deposit amounts accepted at your store</p>
+              </div>
+            </div>
+            {!showForm && (
+              <button className="dr-add-btn" onClick={() => setShowForm('new')}>
+                <Plus size={15} /> Add Rule
+              </button>
+            )}
           </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>
-              Deposit Rules
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted, #6b7280)' }}>
-              Manage bottle &amp; can deposit amounts accepted at your store
-            </p>
-          </div>
-        </div>
-        {!showForm && (
-          <button
-            onClick={() => setShowForm('new')}
-            style={{
-              height: 38, padding: '0 1.25rem',
-              background: 'rgba(52,211,153,.9)', border: 'none',
-              borderRadius: 8, color: '#0f1117',
-              fontWeight: 800, fontSize: '0.875rem',
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            <Plus size={15} /> Add Rule
-          </button>
-        )}
-      </div>
 
-      {/* ── Error banner ── */}
-      {error && (
-        <div style={{
-          padding: '0.75rem 1rem', borderRadius: 8, marginBottom: '1rem',
-          background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)',
-          color: '#f87171', fontSize: '0.85rem', fontWeight: 600,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertCircle size={15} /> {error}
-          </span>
-          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0 }}>
-            <XIcon size={14} />
-          </button>
-        </div>
-      )}
+          {/* ── Error banner ── */}
+          {error && (
+            <div className="dr-error">
+              <span className="dr-error-left">
+                <AlertCircle size={15} /> {error}
+              </span>
+              <button className="dr-error-dismiss" onClick={() => setError('')}>
+                <XIcon size={14} />
+              </button>
+            </div>
+          )}
 
-      {/* ── Create / Edit form ── */}
-      {showForm && (
-        <RuleForm
-          initial={showForm === 'new' ? EMPTY_FORM : {
-            name:           showForm.name,
-            description:    showForm.description || '',
-            depositAmount:  showForm.depositAmount,
-            containerTypes: showForm.containerTypes || '',
-            minVolumeOz:    showForm.minVolumeOz ?? '',
-            maxVolumeOz:    showForm.maxVolumeOz ?? '',
-            state:          showForm.state || '',
-          }}
-          onSave={handleSave}
-          onCancel={() => setShowForm(false)}
-          saving={saving}
-        />
-      )}
-
-      {/* ── Deactivate confirmation ── */}
-      {confirmDeactivate && (
-        <div style={{
-          padding: '1rem 1.25rem', borderRadius: 12, marginBottom: '1rem',
-          background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.25)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-        }}>
-          <span style={{ fontSize: '0.875rem', color: 'var(--text-primary, #e2e8f0)' }}>
-            Deactivate <strong>{confirmDeactivate.name}</strong>? It will no longer appear in the cashier app.
-          </span>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button onClick={() => setConfirmDeactivate(null)} style={{
-              padding: '0.4rem 1rem', borderRadius: 8,
-              background: 'var(--bg-card, #1a1a2a)', border: '1px solid var(--border-color, #2a2a3a)',
-              color: 'var(--text-secondary, #9ca3af)', fontWeight: 700, cursor: 'pointer', fontSize: '0.82rem',
-            }}>Cancel</button>
-            <button onClick={() => handleDeactivate(confirmDeactivate)} disabled={saving} style={{
-              padding: '0.4rem 1rem', borderRadius: 8,
-              background: '#ef4444', border: 'none',
-              color: '#fff', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.82rem',
-            }}>Deactivate</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Rules list ── */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted, #6b7280)', fontSize: '0.875rem' }}>
-          Loading deposit rules…
-        </div>
-      ) : rules.length === 0 ? (
-        <div style={{
-          textAlign: 'center', padding: '3rem 2rem',
-          background: 'var(--bg-secondary, #111827)',
-          border: '1px solid var(--border-color, #1f2937)',
-          borderRadius: 12, color: 'var(--text-muted, #6b7280)', fontSize: '0.875rem',
-        }}>
-          <Recycle size={32} style={{ marginBottom: 10, opacity: 0.25 }} /><br />
-          No active deposit rules yet.<br />
-          <span style={{ fontSize: '0.8rem' }}>Click <strong style={{ color: 'var(--text-secondary, #9ca3af)' }}>Add Rule</strong> to create your first one.</span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rules.map(rule => (
-            <RuleCard
-              key={rule.id}
-              rule={rule}
-              onEdit={(r) => { setShowForm(r); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              onDeactivate={(r) => setConfirmDeactivate(r)}
+          {/* ── Create / Edit form ── */}
+          {showForm && (
+            <RuleForm
+              initial={showForm === 'new' ? EMPTY_FORM : {
+                name:           showForm.name,
+                description:    showForm.description || '',
+                depositAmount:  showForm.depositAmount,
+                containerTypes: showForm.containerTypes || '',
+                minVolumeOz:    showForm.minVolumeOz ?? '',
+                maxVolumeOz:    showForm.maxVolumeOz ?? '',
+                state:          showForm.state || '',
+              }}
+              onSave={handleSave}
+              onCancel={() => setShowForm(false)}
+              saving={saving}
             />
-          ))}
+          )}
+
+          {/* ── Deactivate confirmation ── */}
+          {confirmDeactivate && (
+            <div className="dr-confirm-row">
+              <span className="dr-confirm-text">
+                Deactivate <strong>{confirmDeactivate.name}</strong>? It will no longer appear in the cashier app.
+              </span>
+              <div className="dr-confirm-actions">
+                <button className="dr-confirm-cancel" onClick={() => setConfirmDeactivate(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="dr-confirm-deactivate"
+                  onClick={() => handleDeactivate(confirmDeactivate)}
+                  disabled={saving}
+                >
+                  Deactivate
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Rules list ── */}
+          {loading ? (
+            <div className="dr-loading">Loading deposit rules…</div>
+          ) : rules.length === 0 ? (
+            <div className="dr-empty">
+              <Recycle size={32} className="dr-empty-icon" /><br />
+              No active deposit rules yet.<br />
+              <span style={{ fontSize: '0.8rem' }}>Click <strong style={{ color: 'var(--text-secondary, #9ca3af)' }}>Add Rule</strong> to create your first one.</span>
+            </div>
+          ) : (
+            <div className="dr-rule-list">
+              {rules.map(rule => (
+                <RuleCard
+                  key={rule.id}
+                  rule={rule}
+                  onEdit={(r) => { setShowForm(r); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  onDeactivate={(r) => setConfirmDeactivate(r)}
+                />
+              ))}
+            </div>
+          )}
+
         </div>
-      )}
+      </main>
     </div>
   );
 }

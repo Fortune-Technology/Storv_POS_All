@@ -1,15 +1,13 @@
 /**
  * BottleRedemptionModal
- * Cashier UI for bottle/can deposit returns.
- * Tap a bottle type → enter quantity via numpad → auto-calculates refund total.
+ * Adds bottle/can deposit returns as negative line items to the active cart.
+ * The cashier then tenders the cart normally — cash drawer opens at tender time.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Recycle, Check, AlertCircle, Delete } from 'lucide-react';
 import { X } from 'lucide-react';
 import { getDepositRules } from '../../api/pos.js';
-import { createOpenRefund } from '../../api/pos.js';
-import { useStationStore } from '../../stores/useStationStore.js';
-import { useAuthStore }    from '../../stores/useAuthStore.js';
+import { useCartStore }    from '../../stores/useCartStore.js';
 import { fmt$ }            from '../../utils/formatters.js';
 import './BottleRedemptionModal.css';
 
@@ -18,24 +16,22 @@ const NUMPAD_KEYS = ['7','8','9','C','4','5','6','⌫','1','2','3','','0',''];
 function buildQty(current, key) {
   if (key === 'C') return 0;
   if (key === '⌫') return Math.floor(current / 10);
-  if (key === '') return current; // empty cells
+  if (key === '') return current;
   const digit = parseInt(key);
   if (isNaN(digit)) return current;
   const next = current * 10 + digit;
-  return next > 9999 ? current : next; // cap at 9999
+  return next > 9999 ? current : next;
 }
 
 export default function BottleRedemptionModal({ onClose, onComplete }) {
-  const station = useStationStore(s => s.station);
-  const cashier = useAuthStore(s => s.cashier);
+  const addBottleReturnItems = useCartStore(s => s.addBottleReturnItems);
 
-  const [rules,      setRules]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [counts,     setCounts]     = useState({});
-  const [activeId,   setActiveId]   = useState(null); // selected rule for numpad
-  const [saving,     setSaving]     = useState(false);
-  const [success,    setSuccess]    = useState(false);
-  const [error,      setError]      = useState('');
+  const [rules,    setRules]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [counts,   setCounts]   = useState({});
+  const [activeId, setActiveId] = useState(null);
+  const [added,    setAdded]    = useState(false);
+  const [error,    setError]    = useState('');
 
   useEffect(() => {
     getDepositRules()
@@ -63,35 +59,16 @@ export default function BottleRedemptionModal({ onClose, onComplete }) {
 
   const grandTotal = lineItems.reduce((s, l) => s + l.lineTotal, 0);
 
-  const handleSubmit = useCallback(async () => {
+  const handleAddToCart = () => {
     if (!grandTotal) { setError('Select at least one bottle type with a quantity.'); return; }
-    setSaving(true);
     setError('');
-    try {
-      const items = lineItems.map(l => ({
-        name:      l.rule.name,
-        qty:       l.qty,
-        unitPrice: -Number(l.rule.depositAmount),
-        lineTotal: -l.lineTotal,
-      }));
-      const tx = await createOpenRefund({
-        storeId:     station?.storeId,
-        stationId:   station?.id,
-        cashierId:   cashier?.id,
-        cashierName: cashier?.name || cashier?.email,
-        notes:       'Bottle/Can Deposit Redemption',
-        lineItems:   items,
-        grandTotal:  -grandTotal,
-        tenderLines: [{ method: 'cash', amount: grandTotal }],
-      });
-      setSuccess(true);
-      setTimeout(() => { onComplete?.(tx); onClose(); }, 1400);
-    } catch (err) {
-      setError(err?.response?.data?.error || err.message || 'Failed to process redemption');
-    } finally {
-      setSaving(false);
-    }
-  }, [grandTotal, lineItems, station, cashier, onComplete, onClose]);
+    addBottleReturnItems(lineItems);
+    setAdded(true);
+    setTimeout(() => {
+      onComplete?.();
+      onClose();
+    }, 900);
+  };
 
   const activeRule = rules.find(r => r.id === activeId);
 
@@ -113,7 +90,7 @@ export default function BottleRedemptionModal({ onClose, onComplete }) {
           </button>
         </div>
 
-        {/* Two-column: LEFT = rule list, RIGHT = numpad + summary */}
+        {/* Two-column: LEFT = rule list, RIGHT = numpad */}
         <div className="brm-content">
 
           {/* LEFT: Bottle list */}
@@ -188,12 +165,12 @@ export default function BottleRedemptionModal({ onClose, onComplete }) {
                 {lineItems.map(l => (
                   <div key={l.rule.id} className="brm-line-item">
                     <span>{l.qty} × {l.rule.name}</span>
-                    <span>{fmt$(l.lineTotal)}</span>
+                    <span>-{fmt$(l.lineTotal)}</span>
                   </div>
                 ))}
                 <div className="brm-total-row">
-                  <span>TOTAL REFUND</span>
-                  <span>{fmt$(grandTotal)}</span>
+                  <span>REFUND DUE</span>
+                  <span>-{fmt$(grandTotal)}</span>
                 </div>
               </div>
             )}
@@ -207,15 +184,13 @@ export default function BottleRedemptionModal({ onClose, onComplete }) {
         <div className="brm-footer">
           <button className="brm-btn-cancel" onClick={onClose}>Cancel</button>
           <button
-            className={`brm-btn-submit${success ? ' brm-btn-submit--success' : grandTotal ? ' brm-btn-submit--active' : ' brm-btn-submit--disabled'}`}
-            onClick={handleSubmit}
-            disabled={saving || success || !grandTotal}
+            className={`brm-btn-submit${added ? ' brm-btn-submit--success' : grandTotal ? ' brm-btn-submit--active' : ' brm-btn-submit--disabled'}`}
+            onClick={handleAddToCart}
+            disabled={added || !grandTotal}
           >
-            {success
-              ? <><Check size={16} /> Refund Issued!</>
-              : saving
-              ? 'Processing…'
-              : `Issue Refund ${grandTotal ? fmt$(grandTotal) : ''}`}
+            {added
+              ? <><Check size={16} /> Added to Cart!</>
+              : `Add to Cart ${grandTotal ? `(-${fmt$(grandTotal)})` : ''}`}
           </button>
         </div>
       </div>

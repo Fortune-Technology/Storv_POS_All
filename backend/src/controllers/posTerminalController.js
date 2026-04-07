@@ -665,6 +665,32 @@ export const clockEvent = async (req, res) => {
 
     const effectiveStoreId = storeId || station.storeId;
 
+    // ── Duplicate state guard ────────────────────────────────────────────────
+    // Find the last clock event for this employee at this store
+    const lastEvent = await prisma.clockEvent.findFirst({
+      where: { orgId: station.orgId, storeId: effectiveStoreId, userId: matchedUser.id },
+      orderBy: { createdAt: 'desc' },
+      select: { type: true, createdAt: true },
+    });
+
+    if (type === 'in' && lastEvent?.type === 'in') {
+      // Already clocked in — don't create a duplicate event
+      return res.status(200).json({
+        alreadyClockedIn: true,
+        userName: matchedUser.name,
+        since: lastEvent.createdAt,
+      });
+    }
+
+    if (type === 'out' && (!lastEvent || lastEvent.type === 'out')) {
+      // Not clocked in yet — cannot clock out
+      return res.status(200).json({
+        notClockedIn: true,
+        userName: matchedUser.name,
+      });
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const event = await prisma.clockEvent.create({
       data: {
         orgId:     station.orgId,

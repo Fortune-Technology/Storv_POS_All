@@ -261,3 +261,53 @@
   .cdm-numpad { grid-template-columns: repeat(4, 1fr); }
   .cdm-key--zero { grid-column: span 1; }
 }
+
+/* Success state */
+.cdm-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  gap: 8px;
+  text-align: center;
+}
+
+.cdm-success-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.12);
+  border: 2px solid rgba(245, 158, 11, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.cdm-success-amount {
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--amber);
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.cdm-success-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.cdm-success-note {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+.cdm-success-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import StoreveuLogo from './StoreveuLogo';
 import {
@@ -116,6 +116,19 @@ const Sidebar = () => {
   const location  = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // ── Persist sidebar scroll position across route changes ─────────────────
+  // Each page mounts its own <Sidebar />, so scrollTop resets on navigation.
+  // We save scrollTop to sessionStorage and restore it with useLayoutEffect
+  // (before paint) to avoid a flash of scrollTop=0.
+  const asideRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const saved = sessionStorage.getItem('sidebar-scroll-y');
+    if (saved && asideRef.current) {
+      asideRef.current.scrollTop = parseInt(saved, 10);
+    }
+  }, []); // runs once on every mount (= every navigation)
+
   // Close sidebar whenever the route changes (user tapped a link on mobile)
   useEffect(() => {
     setMobileOpen(false);
@@ -154,7 +167,11 @@ const Sidebar = () => {
       )}
 
       {/* ── Sidebar drawer ── */}
-      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
+      <aside
+        ref={asideRef}
+        className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}
+        onScroll={e => sessionStorage.setItem('sidebar-scroll-y', e.currentTarget.scrollTop)}
+      >
 
         {/* Mobile close button inside drawer */}
         <button
@@ -183,6 +200,10 @@ const Sidebar = () => {
                   key={item.path}
                   to={item.path}
                   className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  onClick={(e) => {
+                    // Prevent re-navigation (and page scroll reset) when already on this route
+                    if (location.pathname === item.path) e.preventDefault();
+                  }}
                 >
                   <span className="nav-icon">{item.icon}</span>
                   <span className="nav-text">{item.name}</span>

@@ -80,10 +80,15 @@ export const buildReceiptString = (receipt) => {
   // ── LINE ITEMS ─────────────────────────────────────────────────────────
   let itemCount = 0;
   (receipt.items || []).forEach(item => {
-    const isLottery = item.isLottery;
-    const prefix    = isLottery ? (item.lotteryType === 'payout' ? '** PAYOUT  ' : '>> LOTTERY ') : '';
-    const name      = prefix + (item.name || 'Item');
-    const price     = (item.lineTotal < 0 ? '-' : '') + '$' + Math.abs(item.lineTotal || 0).toFixed(2);
+    const isLottery     = item.isLottery;
+    const isBottleReturn = item.isBottleReturn;
+    const prefix = isBottleReturn
+      ? '♻ RETURN   '
+      : isLottery
+        ? (item.lotteryType === 'payout' ? '** PAYOUT  ' : '>> LOTTERY ')
+        : '';
+    const name  = prefix + (item.name || 'Item');
+    const price = (item.lineTotal < 0 ? '-' : '') + '$' + Math.abs(item.lineTotal || 0).toFixed(2);
 
     if (item.qty && item.qty !== 1 && !isLottery) {
       r += name.substring(0, W) + LF;
@@ -117,7 +122,9 @@ export const buildReceiptString = (receipt) => {
   }
 
   r += ESCPOS.BOLD_ON;
-  r += line('TOTAL', '$' + Number(receipt.total || 0).toFixed(2), W);
+  const totalAmt = Number(receipt.total || 0);
+  r += line(totalAmt < -0.005 ? 'REFUND DUE' : 'TOTAL',
+            (totalAmt < -0.005 ? '-$' : '$') + Math.abs(totalAmt).toFixed(2), W);
   r += ESCPOS.BOLD_OFF;
   r += '-'.repeat(W) + LF;
 

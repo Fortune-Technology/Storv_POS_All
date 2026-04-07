@@ -156,6 +156,28 @@ export const useCartStore = create((set, get) => ({
     set(s => ({ items: [...s.items, item] }));
   },
 
+  addBottleReturnItems: (lines) => {
+    // lines: [{ rule: {id, name, depositAmount}, qty: number, lineTotal: number }]
+    const items = lines.map(l => ({
+      lineId:           nanoid(8),
+      isBottleReturn:   true,
+      name:             `♻️ Bottle Return – ${l.rule.name}`,
+      qty:              l.qty,
+      unitPrice:        -Number(l.rule.depositAmount),
+      effectivePrice:   -Number(l.rule.depositAmount),
+      lineTotal:        -Math.abs(l.lineTotal),
+      depositTotal:     0,
+      taxable:          false,
+      ebtEligible:      false,
+      depositAmount:    null,
+      discountEligible: false,
+      discountType:     null,
+      discountValue:    null,
+      promoAdjustment:  null,
+    }));
+    set(s => ({ items: [...s.items, ...items] }));
+  },
+
   removeItem: (lineId) => {
     set(s => {
       const rawItems = s.items.filter(i => i.lineId !== lineId);

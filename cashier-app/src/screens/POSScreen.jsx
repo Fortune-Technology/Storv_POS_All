@@ -192,6 +192,9 @@ export default function POSScreen() {
     }
   }, [shift?.id, storeId]); // eslint-disable-line
 
+  // Reset lottery reconciliation flag when shift changes (new shift = fresh start)
+  useEffect(() => { setLotteryShiftDone(false); }, [shift?.id]);
+
   useOnlineStatus();
   useBranding();
 
@@ -218,6 +221,9 @@ export default function POSScreen() {
   const [showVendorPayout,   setShowVendorPayout]   = useState(false);
   const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick'
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
+  // Lottery shift reconciliation state
+  const [lotteryShiftDone,   setLotteryShiftDone]   = useState(false);
+  const [pendingShiftClose,  setPendingShiftClose]  = useState(false);
   // Discount modal: discountTarget = lineId string → line discount, null → order discount
   const [discountTarget,  setDiscountTarget]  = useState(undefined); // undefined = closed
 
@@ -367,6 +373,21 @@ export default function POSScreen() {
   // ── Lottery handlers ─────────────────────────────────────────────────────
   const handleLotteryShiftSave = async (data) => {
     await saveLotteryShiftReport(data);
+    setLotteryShiftDone(true);
+    setShowLotteryShift(false);
+    // If this reconciliation was triggered by a shift-close request, proceed now
+    if (pendingShiftClose) {
+      setPendingShiftClose(false);
+      setShowCloseShift(true);
+    }
+  };
+
+  // Opens LotteryShiftModal after refreshing active boxes (standalone button)
+  const handleOpenLotteryShift = () => {
+    getLotteryBoxes({ storeId, status: 'active' })
+      .then(r => setLotteryActiveBoxes(r?.data || r || []))
+      .catch(() => {});
+    setShowLotteryShift(true);
   };
 
   // ── Quick tender helpers ─────────────────────────────────────────────────
@@ -392,6 +413,9 @@ export default function POSScreen() {
 
   // ── Show EBT quick-tender button only when there are EBT-eligible items ──
   const showEbtButton = totals.ebtTotal > 0;
+
+  // ── Lottery cash-only: disable Card / EBT quick-tender when enforced ──
+  const cashOnlyEnforced = (posConfig.lottery?.cashOnly ?? false) && items.some(i => i.isLottery);
 
   // ── Layout preset config ──────────────────────────────────────────────────
   const layoutCfg = useMemo(() => {
@@ -443,6 +467,21 @@ export default function POSScreen() {
       background: 'var(--bg-base)', overflow: 'hidden',
     }}>
       <StatusBar onRefresh={manualSync} />
+
+      {/* ── Midnight shift warning ───────────────────────────────────────── */}
+      {shift?._crossedMidnight && (
+        <div style={{
+          background: 'rgba(245,158,11,.12)',
+          borderBottom: '1px solid rgba(245,158,11,.3)',
+          color: '#fbbf24',
+          padding: '0.45rem 1rem',
+          fontSize: '0.78rem', fontWeight: 700,
+          display: 'flex', alignItems: 'center', gap: 8,
+          flexShrink: 0,
+        }}>
+          ⚠ This shift was opened before midnight — please close it and open a new shift for today.
+        </div>
+      )}
 
       {/* ── Scan-error toast ─────────────────────────────────────────────── */}
       {scanError && (
@@ -749,7 +788,12 @@ export default function POSScreen() {
                       gridTemplateColumns: showEbtButton ? '1fr 1fr 1fr' : '1fr 1fr',
                       gap: 8,
                     }}>
-                      <button onClick={() => openTender('card')} style={{ height: 56, borderRadius: 12, background: 'rgba(99,179,237,.12)', border: '1px solid rgba(99,179,237,.3)', color: 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,179,237,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,179,237,.12)'; }}>
+                      <button
+                        onClick={() => !cashOnlyEnforced && openTender('card')}
+                        disabled={cashOnlyEnforced}
+                        title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
+                        style={{ height: 56, borderRadius: 12, background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)', border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`, color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cashOnlyEnforced ? 0.45 : 1 }}
+                      >
                         <CreditCard size={16} /><span>CARD</span>
                       </button>
                       <button onClick={() => openTender('cash')} style={{ height: 56, borderRadius: 12, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.3)', color: 'var(--green)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; }}>
@@ -1051,27 +1095,34 @@ export default function POSScreen() {
                     gridTemplateColumns: showEbtButton ? '1fr 1fr 1fr' : '1fr 1fr',
                     gap: 8,
                   }}>
-                    {/* CARD */}
+                    {/* CARD — disabled when lottery cash-only is enforced */}
                     <button
-                      onClick={() => openTender('card')}
+                      onClick={() => !cashOnlyEnforced && openTender('card')}
+                      disabled={cashOnlyEnforced}
+                      title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
                       style={{
                         height: 56, borderRadius: 12,
-                        background: 'rgba(99,179,237,.12)',
-                        border: '1px solid rgba(99,179,237,.3)',
-                        color: 'var(--blue)',
+                        background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)',
+                        border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`,
+                        color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)',
                         fontWeight: 800, fontSize: '0.8rem',
-                        cursor: 'pointer',
+                        cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer',
                         display: 'flex', flexDirection: 'column',
                         alignItems: 'center', justifyContent: 'center', gap: 2,
+                        opacity: cashOnlyEnforced ? 0.45 : 1,
                         transition: 'background .1s, border-color .1s',
                       }}
                       onMouseEnter={e => {
-                        e.currentTarget.style.background = 'rgba(99,179,237,.2)';
-                        e.currentTarget.style.borderColor = 'rgba(99,179,237,.5)';
+                        if (!cashOnlyEnforced) {
+                          e.currentTarget.style.background = 'rgba(99,179,237,.2)';
+                          e.currentTarget.style.borderColor = 'rgba(99,179,237,.5)';
+                        }
                       }}
                       onMouseLeave={e => {
-                        e.currentTarget.style.background = 'rgba(99,179,237,.12)';
-                        e.currentTarget.style.borderColor = 'rgba(99,179,237,.3)';
+                        if (!cashOnlyEnforced) {
+                          e.currentTarget.style.background = 'rgba(99,179,237,.12)';
+                          e.currentTarget.style.borderColor = 'rgba(99,179,237,.3)';
+                        }
                       }}
                     >
                       <CreditCard size={16} />
@@ -1170,10 +1221,26 @@ export default function POSScreen() {
         onEndOfDay={() => setShowEndOfDay(true)}
         onOpenCustomer={() => setShowCustomer(true)}
         onOpenShift={() => setShowOpenShift(true)}
-        onCloseShift={() => requireManager('Close Shift', () => setShowCloseShift(true))}
+        onCloseShift={() => requireManager('Close Shift', () => {
+          const scanReq     = posConfig.lottery?.scanRequiredAtShiftEnd;
+          const lotteryOn   = posConfig.lottery?.enabled ?? true;
+          const hasBoxes    = lotteryActiveBoxes.length > 0;
+          if (scanReq && lotteryOn && hasBoxes && !lotteryShiftDone) {
+            // Must reconcile lottery first — refresh boxes then show modal
+            getLotteryBoxes({ storeId, status: 'active' })
+              .then(r => setLotteryActiveBoxes(r?.data || r || []))
+              .catch(() => {});
+            setPendingShiftClose(true);
+            setShowLotteryShift(true);
+          } else {
+            setShowCloseShift(true);
+          }
+        })}
         onCashDrop={() => { setCashDrawerTab('drop'); setShowCashDrawer(true); }}
         onPayout={() => setShowVendorPayout(true)}
         onLottery={() => setShowLottery(true)}
+        onLotteryShift={handleOpenLotteryShift}
+        lotteryEnabled={posConfig.lottery?.enabled ?? true}
         onBottleReturn={() => setShowBottleReturn(true)}
         shiftOpen={!!shift}
         heldCount={heldCount}
@@ -1351,6 +1418,7 @@ export default function POSScreen() {
         <CashDrawerModal
           defaultTab={cashDrawerTab}
           onClose={() => setShowCashDrawer(false)}
+          onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
         />
       )}
 
@@ -1368,8 +1436,9 @@ export default function POSScreen() {
           sessionSales={sessionSales}
           sessionPayouts={sessionPayouts}
           scanRequired={posConfig.lottery?.scanRequiredAtShiftEnd || false}
+          pendingShiftClose={pendingShiftClose}
           onSave={handleLotteryShiftSave}
-          onClose={() => setShowLotteryShift(false)}
+          onClose={() => { setShowLotteryShift(false); setPendingShiftClose(false); }}
         />
       )}
 
@@ -1377,7 +1446,7 @@ export default function POSScreen() {
       {showBottleReturn && (
         <BottleRedemptionModal
           onClose={() => setShowBottleReturn(false)}
-          onComplete={(tx) => { setLastCompletedTx(tx); setShowBottleReturn(false); }}
+          onComplete={() => setShowBottleReturn(false)}
         />
       )}
 

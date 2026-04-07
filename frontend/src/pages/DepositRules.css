@@ -1,0 +1,179 @@
+/* ── DepositRules — dr- prefix ────────────────────────────────────────────── */
+
+.dr-page {
+  padding: 1.5rem 2rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Header */
+.dr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.dr-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dr-header-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(52, 211, 153, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dr-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.dr-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.dr-add-btn {
+  height: 38px;
+  padding: 0 1.25rem;
+  background: rgba(52, 211, 153, 0.9);
+  border: none;
+  border-radius: 8px;
+  color: #0f1117;
+  font-weight: 800;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.dr-add-btn:hover {
+  opacity: 0.88;
+}
+
+/* Error banner */
+.dr-error {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dr-error-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dr-error-dismiss {
+  background: none;
+  border: none;
+  color: #f87171;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Deactivate confirm row */
+.dr-confirm-row {
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dr-confirm-text {
+  font-size: 0.875rem;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.dr-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dr-confirm-cancel {
+  padding: 0.4rem 1rem;
+  border-radius: 8px;
+  background: var(--bg-card, #1a1a2a);
+  border: 1px solid var(--border-color, #2a2a3a);
+  color: var(--text-secondary, #9ca3af);
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.dr-confirm-deactivate {
+  padding: 0.4rem 1rem;
+  border-radius: 8px;
+  background: #ef4444;
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.dr-confirm-deactivate:not(:disabled) {
+  cursor: pointer;
+}
+
+.dr-confirm-deactivate:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Empty state */
+.dr-empty {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--bg-secondary, #111827);
+  border: 1px solid var(--border-color, #1f2937);
+  border-radius: 12px;
+  color: var(--text-muted, #6b7280);
+  font-size: 0.875rem;
+}
+
+.dr-empty-icon {
+  margin-bottom: 10px;
+  opacity: 0.25;
+}
+
+/* Rules list */
+.dr-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Loading */
+.dr-loading {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-muted, #6b7280);
+  font-size: 0.875rem;
+}

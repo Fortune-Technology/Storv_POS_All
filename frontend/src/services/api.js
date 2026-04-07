@@ -299,6 +299,14 @@ export const updateAdminJobApplication  = (id, data)       => api.put(`/admin/ap
 export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
 export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data).then(r => r.data);
 
+// ── Employee Reports & Clock Management ──────────────────────────────────────
+export const getEmployeeReport    = (params)     => api.get('/reports/employees',       { params }).then(r => r.data);
+export const getStoreEmployees    = (params)     => api.get('/reports/employees/list',  { params }).then(r => r.data);
+export const getClockEvents       = (params)     => api.get('/reports/clock-events',    { params }).then(r => r.data);
+export const createClockSession   = (data)       => api.post('/reports/clock-events',   data).then(r => r.data);
+export const updateClockEventEntry = (id, data)  => api.put(`/reports/clock-events/${id}`, data).then(r => r.data);
+export const deleteClockEventEntry = (id)        => api.delete(`/reports/clock-events/${id}`).then(r => r.data);
+
 // ── Public API (no auth) ─────────────────────────────────────────────────────
 export const getPublishedCareers        = ()               => api.get('/public/careers').then(r => r.data);
 export const getPublishedCmsPage        = (slug)           => api.get(`/public/cms/${slug}`).then(r => r.data);

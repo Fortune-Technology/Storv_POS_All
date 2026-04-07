@@ -28,7 +28,18 @@ export const useShiftStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       const data = await apiGetActiveShift(storeId);
-      set({ shift: data.shift || null, loading: false });
+      const shift = data.shift || null;
+
+      // Flag if the shift was opened before today's midnight (cashier forgot to close last night)
+      if (shift?.openedAt) {
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        if (new Date(shift.openedAt) < todayMidnight) {
+          shift._crossedMidnight = true;
+        }
+      }
+
+      set({ shift, loading: false });
     } catch (err) {
       set({ error: err.response?.data?.error || err.message, loading: false });
     }

@@ -1,0 +1,346 @@
+/* LotteryShiftModal.css — End-of-shift lottery reconciliation */
+
+.lsm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.lsm-modal {
+  background: #ffffff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 94vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  border: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ── */
+.lsm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  flex-shrink: 0;
+}
+
+.lsm-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lsm-header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lsm-header-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #111827;
+  margin: 0;
+}
+
+.lsm-header-sub {
+  font-size: 0.7rem;
+  color: #6b7280;
+  margin: 2px 0 0;
+}
+
+.lsm-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+/* ── Body ── */
+.lsm-body {
+  padding: 16px 20px 20px;
+  flex: 1;
+}
+
+/* ── Session summary grid ── */
+.lsm-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.lsm-summary-card {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+  border: 1px solid #e5e7eb;
+}
+
+.lsm-summary-label {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.lsm-summary-value {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.lsm-summary-value--green  { color: #16a34a; }
+.lsm-summary-value--amber  { color: #d97706; }
+.lsm-summary-value--dark   { color: #111827; }
+
+/* ── Section label ── */
+.lsm-section-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* ── Box list ── */
+.lsm-box-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.lsm-box-row {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1.5px solid #e5e7eb;
+  transition: border-color 0.12s;
+}
+
+.lsm-box-row--scanned-ok  { border-color: #bbf7d0; }
+.lsm-box-row--scanned-err { border-color: #fecaca; }
+
+.lsm-box-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.lsm-box-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #111827;
+}
+
+.lsm-box-slot {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.lsm-box-meta {
+  font-size: 0.72rem;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.lsm-box-amount-value {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #16a34a;
+  text-align: right;
+}
+
+.lsm-box-ticket-count {
+  font-size: 0.68rem;
+  color: #9ca3af;
+  text-align: right;
+}
+
+/* ── Scan input row ── */
+.lsm-scan-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lsm-scan-input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #e5e7eb;
+  background: #ffffff;
+  font-size: 0.88rem;
+  color: #111827;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.lsm-scan-input:focus { border-color: #16a34a; }
+.lsm-scan-input--invalid { border-color: #fca5a5; }
+
+.lsm-box-error-msg {
+  font-size: 0.72rem;
+  color: #ef4444;
+  margin-top: 4px;
+}
+
+/* ── Empty state ── */
+.lsm-empty {
+  text-align: center;
+  padding: 24px 0;
+  color: #9ca3af;
+  font-size: 0.88rem;
+}
+
+/* ── Variance card ── */
+.lsm-variance {
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.lsm-variance--ok   { background: #f0fdf4; border: 1.5px solid #bbf7d0; }
+.lsm-variance--warn { background: #fffbeb; border: 1.5px solid #fde68a; }
+
+.lsm-variance-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lsm-variance-label {
+  font-size: 0.72rem;
+  color: #6b7280;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.lsm-variance-detail {
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.lsm-variance-right { text-align: right; }
+
+.lsm-variance-num-label {
+  font-size: 0.7rem;
+  color: #6b7280;
+}
+
+.lsm-variance-num {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+/* ── Notes input ── */
+.lsm-notes-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1.5px solid #e5e7eb;
+  background: #f9fafb;
+  color: #111827;
+  font-size: 0.87rem;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.12s;
+}
+
+.lsm-notes-input:focus { border-color: #16a34a; }
+.lsm-notes-input::placeholder { color: #9ca3af; }
+
+/* ── Footer actions ── */
+.lsm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.lsm-btn-save {
+  flex: 1;
+  padding: 13px;
+  border-radius: 12px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.lsm-btn-save--active   { background: #16a34a; color: #ffffff; }
+.lsm-btn-save--disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+
+.lsm-btn-skip {
+  padding: 13px 18px;
+  border-radius: 12px;
+  border: 1.5px solid #e5e7eb;
+  background: #ffffff;
+  color: #6b7280;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.lsm-btn-skip:hover { background: #f9fafb; }
+
+/* ── Scan-required warning ── */
+.lsm-scan-required-msg {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #d97706;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* ── Pending-close banner ── */
+.lsm-pending-close-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 0.8rem;
+  color: #b45309;
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  .lsm-summary-grid { grid-template-columns: 1fr 1fr; }
+  .lsm-modal { border-radius: 16px; }
+}

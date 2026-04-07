@@ -72,33 +72,63 @@ export const DEFAULT_POS_CONFIG = {
   },
 };
 
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+function mergeConfig(defaults, data) {
+  return {
+    ...defaults,
+    ...data,
+    shortcuts: {
+      ...defaults.shortcuts,
+      ...(data.shortcuts || {}),
+    },
+    quickFolders: data.quickFolders || defaults.quickFolders,
+    vendorTenderMethods: data.vendorTenderMethods || defaults.vendorTenderMethods,
+    lottery: {
+      ...defaults.lottery,
+      ...(data.lottery || {}),
+    },
+    hardware: {
+      ...defaults.hardware,
+      ...(data.hardware || {}),
+      receiptPrinter: { ...defaults.hardware.receiptPrinter, ...(data.hardware?.receiptPrinter || {}) },
+      labelPrinter:   { ...defaults.hardware.labelPrinter,   ...(data.hardware?.labelPrinter   || {}) },
+      scale:          { ...defaults.hardware.scale,          ...(data.hardware?.scale          || {}) },
+      paxTerminal:    { ...defaults.hardware.paxTerminal,    ...(data.hardware?.paxTerminal    || {}) },
+      cashDrawer:     { ...defaults.hardware.cashDrawer,     ...(data.hardware?.cashDrawer     || {}) },
+    },
+  };
+}
+
 export function usePOSConfig() {
   const storeId = useStationStore(s => s.station?.storeId);
   const [config, setConfig] = useState(DEFAULT_POS_CONFIG);
 
   useEffect(() => {
     if (!storeId) return;
-    api.get('/pos-terminal/config', { params: { storeId } })
-      .then(r => setConfig({
-        ...DEFAULT_POS_CONFIG,
-        ...r.data,
-        shortcuts: {
-          ...DEFAULT_POS_CONFIG.shortcuts,
-          ...(r.data.shortcuts || {}),
-        },
-        quickFolders: r.data.quickFolders || DEFAULT_POS_CONFIG.quickFolders,
-        vendorTenderMethods: r.data.vendorTenderMethods || DEFAULT_POS_CONFIG.vendorTenderMethods,
-        hardware: {
-          ...DEFAULT_POS_CONFIG.hardware,
-          ...(r.data.hardware || {}),
-          receiptPrinter: { ...DEFAULT_POS_CONFIG.hardware.receiptPrinter, ...(r.data.hardware?.receiptPrinter || {}) },
-          labelPrinter:   { ...DEFAULT_POS_CONFIG.hardware.labelPrinter,   ...(r.data.hardware?.labelPrinter   || {}) },
-          scale:          { ...DEFAULT_POS_CONFIG.hardware.scale,          ...(r.data.hardware?.scale          || {}) },
-          paxTerminal:    { ...DEFAULT_POS_CONFIG.hardware.paxTerminal,    ...(r.data.hardware?.paxTerminal    || {}) },
-          cashDrawer:     { ...DEFAULT_POS_CONFIG.hardware.cashDrawer,     ...(r.data.hardware?.cashDrawer     || {}) },
-        },
-      }))
-      .catch(() => {}); // silently use defaults
+
+    const fetchConfig = () => {
+      api.get('/pos-terminal/config', { params: { storeId } })
+        .then(r => setConfig(mergeConfig(DEFAULT_POS_CONFIG, r.data)))
+        .catch(() => {}); // silently use cached defaults
+    };
+
+    // Initial fetch
+    fetchConfig();
+
+    // Poll every 5 minutes (keeps PWA in sync without a full reload)
+    const intervalId = setInterval(fetchConfig, POLL_INTERVAL_MS);
+
+    // Re-fetch immediately when the tab becomes visible again (e.g. returning from background)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchConfig();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [storeId]);
 
   return config;
