@@ -74,7 +74,7 @@ Fortune_POS_Platform/
 │
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma        # 35 Prisma models — full DB schema
+│   │   ├── schema.prisma        # 38+ Prisma models — full DB schema
 │   │   ├── seed.js              # Tax/deposit/product seeder
 │   │   └── seedLottery.js       # Ontario OLGC lottery game seeder (20 games)
 │   ├── src/
@@ -1028,6 +1028,48 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 - **Activated box protection** — boxes in active/depleted/settled state cannot be deleted (backend + UI)
 - **EOD scan workflow** — each active box requires last ticket # entry; calculates `ticketsSold = end - start`
 - **Cart integration** — lottery items are cart line items (`isLottery:true`); tender splits them out for `LotteryTransaction` creation
+
+---
+
+### April 2026 — Multi-UPC, Pack Sizes & Product Form Redesign
+
+#### Schema Additions
+- **ProductUpc** model — multiple barcodes per product (`@@unique([orgId, upc])`)
+- **ProductPackSize** model — selectable pack sizes at POS (label, unitCount, retailPrice, isDefault)
+- **MasterProduct** fields — `unitPack`, `packInCase`, `depositPerUnit` for simplified pack/deposit config
+
+#### Backend
+- 7 new API routes under `/catalog/products/:id/upcs` and `/catalog/products/:id/pack-sizes`
+- Barcode search now checks `ProductUpc` table first, then falls back to `MasterProduct.upc`
+- All product responses include `upcs[]` and `packSizes[]`
+
+#### Portal — Product Form Redesign
+- **Multi-UPC manager** — add/remove barcodes per product with labels
+- **Pack Sizes manager** — define cashier picker variants (Single, 6-Pack, 12-Pack, etc.)
+- **Simplified pack config** — `unitPack` + `packInCase` chip selectors
+- **Simplified deposit** — flat `depositPerUnit` with quick-set buttons ($0.05/$0.10/$0.15/$0.20)
+- Full external CSS (`ProductForm.css`, `pf-` prefix)
+
+#### Cashier App
+- **PackSizePickerModal** — shown at scan when product has 2+ sizes; tappable grid buttons
+- Smart scan flow: multi-size → picker modal; single size → silent apply; no sizes → normal flow
+
+### April 2026 — Admin Panel & Support Tickets
+
+#### Admin Panel (`admin-app/`)
+- Standalone React + Vite app (port 5175), superadmin-only
+- Light theme, enhanced dashboard with charts and recent activity tables
+- Full CRUD for Users, Organizations, Stores
+- Login-as-User impersonation, email notifications on approve/reject/suspend
+- Support ticket management with conversation threads
+
+#### Support Tickets (Portal)
+- Store-side ticket creation, threaded conversations with admin
+- Status filter tabs, priority badges, auto-attached user context
+
+#### Email System
+- Centralized `emailService.js` with 8 branded HTML templates
+- Forgot/reset password flow, signup notifications, contact form confirmations
 
 ---
 

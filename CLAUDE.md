@@ -125,6 +125,9 @@
 | `cashier-app/src/hooks/usePOSConfig.js` | POS settings from IndexedDB (incl. actionBarHeight, quickFolders) |
 | `cashier-app/src/api/pos.js` | All cashier-app API calls |
 | `cashier-app/src/db/dexie.js` | IndexedDB schema for offline catalog |
+| `cashier-app/src/components/modals/PackSizePickerModal.jsx` | Pack size picker when product has multiple sizes |
+| `cashier-app/electron/main.cjs` | Electron main process — USB/network printing, cash drawer, app control |
+| `cashier-app/electron/preload.cjs` | Context bridge — secure IPC between renderer and main |
 
 ---
 
@@ -139,7 +142,9 @@
 
 ### Catalog
 - `Department` — product categories
-- `MasterProduct` — org-level product catalog
+- `MasterProduct` — org-level product catalog (incl. `unitPack`, `packInCase`, `depositPerUnit`)
+- `ProductUpc` — multiple barcodes per product (`@@unique([orgId, upc])`)
+- `ProductPackSize` — selectable pack sizes shown in cashier picker (label, unitCount, retailPrice, isDefault)
 - `StoreProduct` — store-level price/stock overrides
 - `TaxRule` — configurable tax rates
 - `DepositRule` — container deposit/CRV rules
@@ -791,7 +796,7 @@ When `totals.grandTotal < -0.005` (i.e. cart is net-negative — bottle returns 
 
 ---
 
-*Last updated: April 2026 — Session 8: Admin Panel extracted, light theme, enhanced dashboard, email system, Login-as-User, full CRUD for Users/Orgs/Stores*
+*Last updated: April 2026 — Session 9: Multi-UPC, Multi-Pack-Size, Simplified Pack/Deposit, Product Form Redesign, Admin Tickets*
 
 ---
 
@@ -976,13 +981,7 @@ Fix: moved `const isRefundTx = totals.grandTotal < -0.005;` to immediately befor
 
 - [ ] **Customer email/SMS marketing** — bulk campaign tool: filter inactive customers, send offer emails/SMS via SendGrid/Twilio integration
 
-- [ ] **Electron desktop build (.exe)**
-  ```bash
-  cd cashier-app
-  npm run electron:dev      # dev mode (Vite + Electron together)
-  npm run electron:build    # produces dist-electron/StoreVeu POS Setup.exe
-  ```
-  Ensure `package.json` has `electron`, `electron-builder` deps and `main` entry. Build target: Windows NSIS installer.
+- [x] **Electron desktop build (.exe)** — fully configured: `electron/main.cjs` + `preload.cjs`, NSIS installer, USB/network printing IPC, cash drawer IPC. See Session 9 notes.
 
 - [ ] **Multi-store lottery dashboard** — superadmin view aggregating all stores' lottery KPIs
 
