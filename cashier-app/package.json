@@ -3,6 +3,10 @@
   "description": "StoreVeu Point of Sale Terminal",
   "author": "StoreVeu",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fortune-Technology/Storv_POS_All.git"
+  },
   "version": "1.0.0",
   "type": "module",
   "main": "electron/main.cjs",
