@@ -143,9 +143,7 @@ jobs:
 
       - name: Build Vite + Electron installer
         working-directory: cashier-app
-        run: npm run electron:build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx vite build && npx electron-builder --publish never
 
       - name: Find installer file
         id: find-exe
