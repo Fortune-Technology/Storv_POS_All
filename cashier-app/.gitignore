@@ -6,7 +6,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
 node_modules
 dist
 dist-ssr
@@ -23,6 +22,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.env.production
+dist-electron/
 
 # package-lock.json must be committed so CI can run `npm ci`
 # Do NOT add package-lock.json here

@@ -1,0 +1,131 @@
+/* PackSizePickerModal.css — prefix: pspm- */
+
+.pspm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 1rem;
+}
+
+.pspm-modal {
+  background: #1a1d27;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.pspm-header {
+  padding: 1.1rem 1.4rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pspm-product-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 0.2rem;
+}
+
+.pspm-subtitle {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+}
+
+.pspm-close-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  padding: 0.35rem;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.pspm-close-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* ── Size grid ───────────────────────────────────────────────── */
+.pspm-body {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.pspm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.pspm-size-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1.1rem 0.75rem;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: all 0.15s;
+  color: #fff;
+}
+
+.pspm-size-btn:hover,
+.pspm-size-btn:focus {
+  border-color: var(--accent, #7ac143);
+  background: rgba(122, 193, 67, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(122, 193, 67, 0.2);
+}
+
+.pspm-size-btn.default {
+  border-color: rgba(122, 193, 67, 0.4);
+  background: rgba(122, 193, 67, 0.07);
+}
+
+.pspm-size-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.pspm-size-units {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+}
+
+.pspm-size-price {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--accent, #7ac143);
+  margin-top: 0.1rem;
+}
+
+.pspm-size-default-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(122, 193, 67, 0.2);
+  color: var(--accent, #7ac143);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

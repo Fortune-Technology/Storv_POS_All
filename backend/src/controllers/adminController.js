@@ -629,6 +629,67 @@ export const updateSupportTicket = async (req, res, next) => {
   }
 };
 
+/* POST /api/admin/tickets */
+export const createSupportTicket = async (req, res, next) => {
+  try {
+    const { email, name, subject, body, priority = 'normal', orgId, userId } = req.body;
+    if (!email?.trim()) return res.status(400).json({ error: 'email is required' });
+    if (!subject?.trim()) return res.status(400).json({ error: 'subject is required' });
+    if (!body?.trim()) return res.status(400).json({ error: 'body is required' });
+
+    const ticket = await prisma.supportTicket.create({
+      data: {
+        email: email.trim(),
+        name: name?.trim(),
+        subject: subject.trim(),
+        body: body.trim(),
+        priority,
+        orgId: orgId || null,
+        userId: userId || null,
+        status: 'open',
+        responses: [],
+      },
+    });
+    res.status(201).json({ success: true, data: ticket });
+  } catch (error) { next(error); }
+};
+
+/* DELETE /api/admin/tickets/:id */
+export const deleteSupportTicket = async (req, res, next) => {
+  try {
+    await prisma.supportTicket.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) { next(error); }
+};
+
+/* POST /api/admin/tickets/:id/reply */
+export const addAdminTicketReply = async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'message is required' });
+
+    const ticket = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const responses = Array.isArray(ticket.responses) ? [...ticket.responses] : [];
+    responses.push({
+      by:     req.user?.name || 'Support Team',
+      byType: 'admin',
+      message: message.trim(),
+      date:   new Date().toISOString(),
+    });
+
+    const updated = await prisma.supportTicket.update({
+      where: { id: req.params.id },
+      data: {
+        responses,
+        status: ticket.status === 'open' ? 'in_progress' : ticket.status,
+      },
+    });
+    res.json({ success: true, data: updated });
+  } catch (error) { next(error); }
+};
+
 // ─────────────────────────────────────────────────────────────
 // SYSTEM CONFIG
 // ─────────────────────────────────────────────────────────────

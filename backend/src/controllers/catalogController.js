@@ -586,12 +586,24 @@ export const searchMasterProducts = async (req, res) => {
         ...(query.length === 12 ? ['0' + query] : []),
       ])].filter(v => v.length >= 6);
 
+      // First check ProductUpc table (multiple-UPC support)
+      const upcRow = await prisma.productUpc.findFirst({
+        where: { orgId, upc: { in: upcVariants } },
+        select: { masterProductId: true },
+      });
+
+      const exactWhere = upcRow
+        ? { id: upcRow.masterProductId, orgId, deleted: false }
+        : { orgId, deleted: false, upc: { in: upcVariants } };
+
       const exact = await prisma.masterProduct.findFirst({
-        where: { orgId, deleted: false, upc: { in: upcVariants } },
+        where: exactWhere,
         include: {
           department: { select: { id: true, name: true, code: true, taxClass: true, ageRequired: true } },
           vendor:     { select: { id: true, name: true } },
           depositRule:{ select: { id: true, depositAmount: true } },
+          upcs:       { select: { id: true, upc: true, label: true, isDefault: true } },
+          packSizes:  { orderBy: { sortOrder: 'asc' } },
         },
       });
       if (exact) return res.json({ success: true, data: [exact], pagination: { page: 1, limit: 1, total: 1, pages: 1 } });
@@ -627,6 +639,8 @@ export const searchMasterProducts = async (req, res) => {
           department: { select: { id: true, name: true, code: true, taxClass: true, ageRequired: true } },
           vendor:     { select: { id: true, name: true } },
           depositRule:{ select: { id: true, depositAmount: true } },
+          upcs:       { select: { id: true, upc: true, label: true, isDefault: true } },
+          packSizes:  { orderBy: { sortOrder: 'asc' } },
         },
         orderBy: { name: 'asc' },
         skip,
@@ -657,6 +671,8 @@ export const getMasterProduct = async (req, res) => {
         vendor:       true,
         depositRule:  true,
         storeProducts:{ select: { id: true, storeId: true, retailPrice: true, quantityOnHand: true, active: true } },
+        upcs:         { select: { id: true, upc: true, label: true, isDefault: true }, orderBy: { isDefault: 'desc' } },
+        packSizes:    { orderBy: { sortOrder: 'asc' } },
       },
     });
 
@@ -673,6 +689,7 @@ export const createMasterProduct = async (req, res) => {
     const {
       upc, plu, sku, itemCode, name, description, brand, imageUrl,
       size, sizeUnit, pack, casePacks, sellUnitSize, sellUnit, innerPack, unitsPerPack, weight,
+      unitPack, packInCase, depositPerUnit,
       departmentId, vendorId, depositRuleId, containerType, containerVolumeOz,
       taxClass, defaultCostPrice, defaultRetailPrice, defaultCasePrice,
       byWeight, byUnit,
@@ -703,6 +720,10 @@ export const createMasterProduct = async (req, res) => {
         sellUnit:           sellUnit     || null,
         innerPack:          innerPack    ? parseInt(innerPack)    : null,
         unitsPerPack:       unitsPerPack ? parseInt(unitsPerPack) : null,
+        unitPack:           unitPack     ? parseInt(unitPack)     : null,
+        packInCase:         packInCase   ? parseInt(packInCase)   : null,
+        depositPerUnit:     depositPerUnit != null ? parseFloat(depositPerUnit) : null,
+        caseDeposit:        req.body.caseDeposit   != null ? parseFloat(req.body.caseDeposit) : null,
         weight:             weight ? parseFloat(weight) : null,
         departmentId:       departmentId ? parseInt(departmentId) : null,
         vendorId:           vendorId     ? parseInt(vendorId)     : null,
@@ -788,6 +809,11 @@ export const updateMasterProduct = async (req, res) => {
     if (body.active        !== undefined) updates.active        = Boolean(body.active);
     if (body.hideFromEcom  !== undefined) updates.hideFromEcom  = Boolean(body.hideFromEcom);
     if (body.ecomTags      !== undefined) updates.ecomTags      = Array.isArray(body.ecomTags) ? body.ecomTags : [];
+    if (body.unitPack      !== undefined) updates.unitPack      = body.unitPack   ? parseInt(body.unitPack)         : null;
+    if (body.packInCase    !== undefined) updates.packInCase    = body.packInCase ? parseInt(body.packInCase)       : null;
+    if (body.depositPerUnit!== undefined) updates.depositPerUnit= body.depositPerUnit != null ? parseFloat(body.depositPerUnit) : null;
+    if (body.caseDeposit   !== undefined) updates.caseDeposit   = body.caseDeposit   != null ? parseFloat(body.caseDeposit)   : null;
+    if (body.itemCode      !== undefined) updates.itemCode       = body.itemCode || null;
 
     const product = await prisma.masterProduct.update({
       where: { id, orgId },
@@ -1291,6 +1317,202 @@ export const evaluatePromotions = async (req, res) => {
     }
 
     res.json({ success: true, data: { lineAdjustments, totalSaving: round2(totalSaving), appliedPromos } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// PRODUCT UPCs  (multiple barcodes per product)
+// ═══════════════════════════════════════════════════════
+
+export const getProductUpcs = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const upcs = await prisma.productUpc.findMany({
+      where: { orgId, masterProductId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    });
+    res.json({ success: true, data: upcs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const addProductUpc = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const { upc, label, isDefault } = req.body;
+
+    if (!upc) return res.status(400).json({ success: false, error: 'upc is required' });
+
+    // Verify product belongs to org
+    const product = await prisma.masterProduct.findFirst({ where: { id: masterProductId, orgId } });
+    if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
+
+    // If setting as default, clear existing default
+    if (isDefault) {
+      await prisma.productUpc.updateMany({ where: { orgId, masterProductId }, data: { isDefault: false } });
+    }
+
+    const row = await prisma.productUpc.create({
+      data: { orgId, masterProductId, upc, label: label || null, isDefault: Boolean(isDefault) },
+    });
+    res.status(201).json({ success: true, data: row });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ success: false, error: 'This UPC is already registered to another product' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const deleteProductUpc = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const upcId = req.params.upcId;
+    await prisma.productUpc.deleteMany({ where: { id: upcId, orgId, masterProductId } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// PRODUCT PACK SIZES  (cashier picker at scan time)
+// ═══════════════════════════════════════════════════════
+
+export const getProductPackSizes = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const sizes = await prisma.productPackSize.findMany({
+      where: { orgId, masterProductId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    res.json({ success: true, data: sizes });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const addProductPackSize = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const { label, unitCount, packsPerCase, retailPrice, costPrice, isDefault, sortOrder } = req.body;
+
+    if (!label || retailPrice == null) return res.status(400).json({ success: false, error: 'label and retailPrice are required' });
+
+    const product = await prisma.masterProduct.findFirst({ where: { id: masterProductId, orgId } });
+    if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
+
+    if (isDefault) {
+      await prisma.productPackSize.updateMany({ where: { orgId, masterProductId }, data: { isDefault: false } });
+    }
+
+    const row = await prisma.productPackSize.create({
+      data: {
+        orgId, masterProductId, label,
+        unitCount:    unitCount    ? parseInt(unitCount)    : 1,
+        packsPerCase: packsPerCase ? parseInt(packsPerCase) : null,
+        retailPrice:  parseFloat(retailPrice),
+        costPrice:    costPrice    ? parseFloat(costPrice)  : null,
+        isDefault:    Boolean(isDefault),
+        sortOrder:    sortOrder    ? parseInt(sortOrder)    : 0,
+      },
+    });
+    res.status(201).json({ success: true, data: row });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const updateProductPackSize = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const sizeId = req.params.sizeId;
+    const { label, unitCount, packsPerCase, retailPrice, costPrice, isDefault, sortOrder } = req.body;
+
+    if (isDefault) {
+      await prisma.productPackSize.updateMany({ where: { orgId, masterProductId }, data: { isDefault: false } });
+    }
+
+    const row = await prisma.productPackSize.update({
+      where: { id: sizeId },
+      data: {
+        ...(label        !== undefined && { label }),
+        ...(unitCount    !== undefined && { unitCount: parseInt(unitCount) }),
+        ...(packsPerCase !== undefined && { packsPerCase: packsPerCase ? parseInt(packsPerCase) : null }),
+        ...(retailPrice  !== undefined && { retailPrice: parseFloat(retailPrice) }),
+        ...(costPrice    !== undefined && { costPrice: costPrice ? parseFloat(costPrice) : null }),
+        ...(isDefault    !== undefined && { isDefault: Boolean(isDefault) }),
+        ...(sortOrder    !== undefined && { sortOrder: parseInt(sortOrder) }),
+      },
+    });
+    res.json({ success: true, data: row });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Pack size not found' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const deleteProductPackSize = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const sizeId = req.params.sizeId;
+    await prisma.productPackSize.deleteMany({ where: { id: sizeId, orgId } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// BULK REPLACE PACK SIZES
+// Deletes all existing pack sizes for a product and creates new ones.
+// Body: { sizes: [{ label, unitCount, packsPerCase, retailPrice, costPrice, isDefault, sortOrder }] }
+// ═══════════════════════════════════════════════════════
+
+export const bulkReplacePackSizes = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
+    const { sizes = [] } = req.body;
+
+    // Verify product belongs to org
+    const product = await prisma.masterProduct.findFirst({ where: { id: masterProductId, orgId } });
+    if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
+
+    // Delete all existing pack sizes and insert new ones atomically
+    await prisma.$transaction([
+      prisma.productPackSize.deleteMany({ where: { orgId, masterProductId } }),
+      ...(sizes.length > 0 ? [
+        prisma.productPackSize.createMany({
+          data: sizes.map((s, idx) => ({
+            orgId,
+            masterProductId,
+            label:        s.label || `Pack ${idx + 1}`,
+            unitCount:    s.unitCount    ? parseInt(s.unitCount)    : 1,
+            packsPerCase: s.packsPerCase ? parseInt(s.packsPerCase) : null,
+            retailPrice:  parseFloat(s.retailPrice || 0),
+            costPrice:    s.costPrice    ? parseFloat(s.costPrice)  : null,
+            isDefault:    Boolean(s.isDefault),
+            sortOrder:    idx,
+          })),
+        }),
+      ] : []),
+    ]);
+
+    // Return the newly created pack sizes
+    const created = await prisma.productPackSize.findMany({
+      where: { orgId, masterProductId },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    res.json({ success: true, data: created });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

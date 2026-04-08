@@ -45,6 +45,16 @@ import {
   updateMasterProduct,
   deleteMasterProduct,
   bulkUpdateMasterProducts,
+  // Product UPCs
+  getProductUpcs,
+  addProductUpc,
+  deleteProductUpc,
+  // Product Pack Sizes
+  getProductPackSizes,
+  addProductPackSize,
+  updateProductPackSize,
+  deleteProductPackSize,
+  bulkReplacePackSizes,
   // Store Products
   getStoreProducts,
   upsertStoreProduct,
@@ -119,6 +129,18 @@ router.post('/products',           authorize('superadmin', 'admin', 'owner', 'ma
 router.get('/products/:id',        authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getMasterProduct);
 router.put('/products/:id',        authorize('superadmin', 'admin', 'owner', 'manager'), updateMasterProduct);
 router.delete('/products/:id',     authorize('superadmin', 'admin', 'owner'), deleteMasterProduct);
+
+// ─── Product UPCs ─────────────────────────────────────
+router.get('/products/:id/upcs',               authorize('superadmin', 'admin', 'owner', 'manager'), getProductUpcs);
+router.post('/products/:id/upcs',              authorize('superadmin', 'admin', 'owner', 'manager'), addProductUpc);
+router.delete('/products/:id/upcs/:upcId',     authorize('superadmin', 'admin', 'owner', 'manager'), deleteProductUpc);
+
+// ─── Product Pack Sizes ───────────────────────────────
+router.get('/products/:id/pack-sizes',              authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getProductPackSizes);
+router.post('/products/:id/pack-sizes',             authorize('superadmin', 'admin', 'owner', 'manager'), addProductPackSize);
+router.put('/products/:id/pack-sizes/bulk-replace', authorize('superadmin', 'admin', 'owner', 'manager'), bulkReplacePackSizes);
+router.put('/products/:id/pack-sizes/:sizeId',      authorize('superadmin', 'admin', 'owner', 'manager'), updateProductPackSize);
+router.delete('/products/:id/pack-sizes/:sizeId',   authorize('superadmin', 'admin', 'owner', 'manager'), deleteProductPackSize);
 
 // ─── Store Products ──────────────────────────────────────
 router.get('/store-products',      authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getStoreProducts);

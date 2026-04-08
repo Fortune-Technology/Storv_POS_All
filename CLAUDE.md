@@ -919,6 +919,9 @@ Fix: moved `const isRefundTx = totals.grandTotal < -0.005;` to immediately befor
   - Verify cash drawer opens on refund completion
   - Add bottle rules management in portal (admin can set deposit amounts per container type)
 
+- [ ] **Keyboard in Cashier App** *(Need modal based implementation)*
+  - Full keyboard on screen for cashier to type anything in text fields when searching text
+  - Keypad for cashier always for quick numbers punchin for quick produst lookups/shortcuts
 - [ ] **Export / download all products** — portal Products page needs a CSV/XLSX export button; mandatory columns: Name, UPC, Price; all others optional. Backend `GET /catalog/products/export` endpoint.
 
 - [ ] **Create new product from cashier app** — when a barcode is not found, show a "Create Product" shortcut that opens a minimal form (Name, UPC, Price, Department). Requires manager-level PIN verification.
@@ -1284,6 +1287,64 @@ function isoToDatetimeLocal(iso) {
 
 ---
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 8)
+
+### Full Support Tickets Module — Admin Panel + Store Portal
+
+**Schema (existing `SupportTicket` model — no migration needed):**
+- `responses Json? @default("[]")` — array of `{ by, byType ('admin'|'store'), message, date }` — now fully used
+
+**Backend — New Endpoints:**
+
+| Method | Route | Auth | Purpose |
+|--------|-------|------|---------|
+| `POST` | `/api/admin/tickets` | superadmin | Create ticket on behalf of a user |
+| `DELETE` | `/api/admin/tickets/:id` | superadmin | Delete a ticket |
+| `POST` | `/api/admin/tickets/:id/reply` | superadmin | Add admin reply (auto-sets status to `in_progress` if was `open`) |
+| `GET` | `/api/tickets` | manager+ | List org's own tickets |
+| `POST` | `/api/tickets` | manager+ | Create ticket (userId + orgId auto-attached) |
+| `GET` | `/api/tickets/:id` | manager+ | Get single ticket with full thread |
+| `POST` | `/api/tickets/:id/reply` | manager+ | Store adds reply to thread |
+
+**New files:**
+- `backend/src/controllers/ticketController.js` — store-side CRUD
+- `backend/src/routes/ticketRoutes.js` — mounted at `/api/tickets`
+
+**Admin Panel (`admin-app/src/pages/AdminTickets.jsx`) — full rewrite:**
+- Split view: ticket list (left) + detail panel (right, sticky)
+- Search by subject/email, filter tabs by status
+- Create ticket modal (email, name, subject, body, priority)
+- Per-ticket: status/priority inline dropdowns, delete button with confirm
+- Conversation thread: original message + all responses, colour-coded by type (admin = purple, store = grey)
+- Reply input (Ctrl+Enter to send) — sends via `POST /admin/tickets/:id/reply`
+- Internal admin notes section (amber background, not visible to store)
+- `AdminTickets.css` — new file with `at-` prefix
+
+**Portal (`frontend/src/pages/SupportTickets.jsx`) — new page:**
+- List view with status filter tabs, ticket preview cards
+- Create ticket modal (subject, body, priority) — auto-attaches user email/name/orgId
+- Detail view with full conversation thread — admin replies shown with "Support Team" tag
+- Store can reply to open/in-progress tickets
+- Closed tickets show a notice, reply disabled
+- `SupportTickets.css` — new file with `spt-` prefix
+- Route: `/portal/support-tickets`
+- Sidebar: new "Support" group with "Support Tickets" link
+
+**Updated files:**
+| File | Change |
+|------|--------|
+| `backend/src/controllers/adminController.js` | Added `createSupportTicket`, `deleteSupportTicket`, `addAdminTicketReply` |
+| `backend/src/routes/adminRoutes.js` | Added POST, DELETE, POST reply routes |
+| `backend/src/server.js` | Mounted `/api/tickets` route |
+| `admin-app/src/services/api.js` | Added `createAdminTicket`, `deleteAdminTicket`, `addAdminTicketReply` |
+| `frontend/src/services/api.js` | Added `getOrgTickets`, `createOrgTicket`, `getOrgTicket`, `addOrgTicketReply` |
+| `frontend/src/components/Sidebar.jsx` | Added "Support" group with Support Tickets link + `MessageSquare` icon import |
+| `frontend/src/App.jsx` | Added `/portal/support-tickets` route |
+
+---
+
 ## 📦 Recent Feature Additions (April 2026 — Session 8)
 
 ### Admin Panel Extracted into Standalone App (`admin-app/`)
@@ -1480,3 +1541,96 @@ Centralized email service using nodemailer. All email sending goes through this 
 | `admin-app/src/App.jsx` | Added /stores route |
 | `frontend/src/App.jsx` | Added /impersonate route |
 | `backend/.env` | Added FRONTEND_URL, ADMIN_URL |
+
+---
+
+## Session 9 — P2 Features: Multi-UPC, Multi-Pack-Size, Simplified Pack/Deposit
+
+### Schema Changes (`backend/prisma/schema.prisma`)
+
+**MasterProduct** — 3 new fields added:
+- `unitPack Int?` — units per sell unit (1=single, 6=6-pack, 12=12-pack, etc.)
+- `packInCase Int?` — how many sell units per vendor case
+- `depositPerUnit Decimal? @db.Decimal(10,4)` — flat per-unit deposit (replaces complex DepositRule volume-matching)
+
+**`@@unique([orgId, upc])` removed** — replaced with `@@index` (upc no longer unique on master table; uniqueness enforced in ProductUpc table).
+
+**New model `ProductUpc`** (`product_upcs` table):
+- Links multiple barcodes to one product
+- `@@unique([orgId, upc])` — each barcode unique per org
+- Fields: `id`, `orgId`, `masterProductId`, `upc`, `label`, `isDefault`, `createdAt`
+- Relation: `MasterProduct @relation(onDelete: Cascade)`
+
+**New model `ProductPackSize`** (`product_pack_sizes` table):
+- Defines selectable sizes shown in cashier picker modal at scan
+- Fields: `id`, `orgId`, `masterProductId`, `label`, `unitCount`, `retailPrice`, `costPrice`, `isDefault`, `sortOrder`, `createdAt`, `updatedAt`
+- Relation: `MasterProduct @relation(onDelete: Cascade)`
+
+### Backend API Changes
+
+**`catalogController.js`** — 6 new exported functions:
+| Function | Route | Description |
+|----------|-------|-------------|
+| `getProductUpcs` | GET /products/:id/upcs | List all UPCs for a product |
+| `addProductUpc` | POST /products/:id/upcs | Add UPC; blocks duplicate per org |
+| `deleteProductUpc` | DELETE /products/:id/upcs/:upcId | Remove UPC |
+| `getProductPackSizes` | GET /products/:id/pack-sizes | List pack sizes ordered by sortOrder |
+| `addProductPackSize` | POST /products/:id/pack-sizes | Add pack size |
+| `updateProductPackSize` | PUT /products/:id/pack-sizes/:sizeId | Update pack size |
+| `deleteProductPackSize` | DELETE /products/:id/pack-sizes/:sizeId | Remove pack size |
+
+**`searchMasterProducts`** — now checks `ProductUpc` table first before falling back to `MasterProduct.upc`; includes `upcs` and `packSizes` in all search/get responses.
+
+**`getMasterProduct`**, **`getMasterProducts`** — include `upcs` and `packSizes` in response.
+
+**`createMasterProduct` / `updateMasterProduct`** — handle `unitPack`, `packInCase`, `depositPerUnit` fields.
+
+**`catalogRoutes.js`** — 7 new routes added under `/api/catalog/products/:id/upcs` and `/api/catalog/products/:id/pack-sizes`.
+
+### Frontend (Portal) Changes
+
+**`frontend/src/pages/ProductForm.css`** (NEW):
+- Prefix: `pf-`
+- Covers: page layout, cards, form elements, chip selectors, dollar inputs, margin bar, pack visual, deposit section, UPC manager, pack sizes manager, deals, right sidebar
+
+**`frontend/src/pages/ProductForm.jsx`**:
+- Imports `ProductForm.css` and new API functions
+- New state: `upcs`, `newUpc`, `newUpcLabel`, `packSizes`, `psLabel`, `psUnits`, `psPrice`, `psDefault`
+- New form fields: `unitPack`, `packInCase`, `depositPerUnit`
+- New handlers: `handleAddUpc`, `handleDeleteUpc`, `handleAddPackSize`, `handleDeletePackSize`
+- **New section "Additional UPCs / Barcodes"** — shows existing UPCs, add row, delete button
+- **New section "Pack Sizes (Cashier Picker)"** — shows existing pack sizes, add row with label/unitCount/price/default
+- **Simplified pack config** — added `unitPack` + `packInCase` chip selectors above existing complex selectors (synced bidirectionally)
+- **Simplified deposit** — flat `depositPerUnit` field with quick-set buttons ($0.05/$0.10/$0.15/$0.20); old container type/volume auto-match collapsed to `<details>` (advanced)
+- UPCs and pack sizes loaded via API on edit; saved individually via their own endpoints
+
+**`frontend/src/services/api.js`** — 7 new exports:
+- `getProductUpcs`, `addProductUpc`, `deleteProductUpc`
+- `getProductPackSizes`, `addProductPackSize`, `updateProductPackSize`, `deleteProductPackSize`
+
+### Cashier App Changes
+
+**`cashier-app/src/components/modals/PackSizePickerModal.jsx`** (NEW):
+- Shows when scanned product has 2+ pack sizes
+- Grid of tappable buttons: label, unit count, price
+- `isDefault` size is highlighted and auto-focused
+- Props: `product`, `onSelect(size)`, `onCancel()`
+
+**`cashier-app/src/components/modals/PackSizePickerModal.css`** (NEW):
+- Prefix: `pspm-`
+- Dark POS theme, large tappable buttons, accent color on hover
+
+**`cashier-app/src/screens/POSScreen.jsx`**:
+- Imports `PackSizePickerModal`
+- New state: `packPickerProduct` (pending product)
+- New handler: `handlePackSizeSelect(product, size)` — adds product with size's price/label/unitCount
+- `handleScan` updated: if `product.packSizes.length > 1` → show picker; if exactly 1 → use silently; otherwise → normal flow
+
+### Scan flow with pack sizes
+1. Cashier scans barcode
+2. Backend checks `ProductUpc` table first → finds product
+3. API response includes `packSizes` array
+4. If `packSizes.length > 1`: `PackSizePickerModal` opens, cashier taps a size
+5. If `packSizes.length === 1`: size applied silently
+6. If `packSizes.length === 0`: normal flow (use `defaultRetailPrice`)
+
