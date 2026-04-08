@@ -5,7 +5,7 @@
       "name": "Frontend (Vite)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 5175,
+      "port": 5173,
       "cwd": "frontend"
     },
     {
@@ -21,6 +21,20 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5175,
       "cwd": "admin-app"
+    },
+    {
+      "name": "Ecom Backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5005,
+      "cwd": "ecom-backend"
+    },
+    {
+      "name": "Storefront (Next.js)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "cwd": "storefront"
     }
   ]
 }

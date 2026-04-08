@@ -1,0 +1,122 @@
+/* EcomSetup — e-commerce store configuration (prefix: es-) */
+
+.es-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.es-title { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.es-status { padding: 4px 14px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.es-status--on { background: var(--success-bg); color: var(--success); }
+.es-status--off { background: var(--warning-bg); color: var(--warning); }
+
+.es-section { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
+.es-section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); }
+
+.es-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.es-field { margin-bottom: 14px; }
+.es-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.es-input { width: 100%; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 14px; outline: none; transition: border-color 0.2s; font-family: inherit; }
+.es-input:focus { border-color: var(--brand-primary); box-shadow: 0 0 0 3px rgba(61, 86, 181, 0.1); }
+.es-textarea { min-height: 60px; resize: vertical; }
+
+.es-toggle-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.es-toggle { width: 44px; height: 24px; border-radius: 12px; border: none; cursor: pointer; position: relative; transition: background 0.2s; }
+.es-toggle--on { background: var(--success); }
+.es-toggle--off { background: var(--text-muted); }
+.es-toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.es-toggle--on::after { transform: translateX(20px); }
+.es-toggle-label { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+
+.es-url-preview { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.es-url-preview a { color: var(--brand-primary); text-decoration: underline; }
+
+.es-color-row { display: flex; align-items: center; gap: 8px; }
+.es-color-input { width: 40px; height: 34px; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; padding: 2px; }
+.es-color-hex { font-size: 13px; color: var(--text-muted); }
+
+.es-enable-card { text-align: center; padding: 60px 24px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 16px; }
+.es-enable-card h2 { font-size: 22px; margin-bottom: 8px; color: var(--text-primary); }
+.es-enable-card p { color: var(--text-muted); margin-bottom: 24px; font-size: 15px; }
+.es-enable-btn { padding: 12px 36px; background: var(--brand-primary); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+.es-enable-btn:hover { opacity: 0.9; }
+
+.es-save-bar { position: sticky; bottom: 0; background: var(--bg-primary); border-top: 1px solid var(--border-color); padding: 16px 0; display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; z-index: 10; }
+.es-save-btn { padding: 10px 32px; background: var(--brand-primary); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-brand); }
+.es-save-btn:hover { opacity: 0.9; }
+.es-save-btn:disabled { opacity: 0.5; cursor: default; }
+.es-disable-btn { padding: 10px 20px; background: transparent; color: var(--error); border: 1px solid var(--error); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.es-disable-btn:hover { background: var(--error-bg); }
+
+/* ─── Tabs ─────────────────────────────────────────────── */
+
+.es-tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg-tertiary); border-radius: 10px; padding: 4px; overflow-x: auto; }
+.es-tab { padding: 9px 16px; border-radius: 8px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+.es-tab:hover { background: var(--bg-secondary); }
+.es-tab--active { background: var(--bg-secondary); color: var(--brand-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+.es-tab-icon { font-size: 14px; }
+
+/* ─── Preview Bar ──────────────────────────────────────── */
+
+.es-preview-bar { margin-top: 20px; padding: 16px 20px; border-radius: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-light); }
+.es-preview-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 10px; }
+
+/* ─── Image Uploader ───────────────────────────────────── */
+
+.es-img-uploader { margin-top: 4px; }
+.es-img-preview { width: 100%; max-width: 200px; height: 80px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 8px; display: block; }
+.es-img-actions { display: flex; gap: 8px; }
+.es-img-btn { display: flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+.es-img-btn:hover { background: var(--bg-tertiary); }
+.es-img-btn:disabled { opacity: 0.5; }
+.es-img-remove { padding: 7px 10px; border: 1px solid var(--error); border-radius: 6px; background: transparent; color: var(--error); cursor: pointer; display: flex; align-items: center; }
+.es-img-remove:hover { background: var(--error-bg); }
+
+/* ─── Section Editor ───────────────────────────────────── */
+
+.es-sect { border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+.es-sect-header { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 16px; background: var(--bg-tertiary); border: none; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.es-sect-header:hover { background: var(--bg-secondary); }
+.es-sect-body { padding: 16px; }
+
+/* ─── Template Grid ────────────────────────────────────── */
+
+.es-tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+.es-tpl-card { display: flex; flex-direction: column; border: 2px solid var(--border-color); border-radius: 10px; cursor: pointer; background: var(--bg-secondary); transition: all 0.2s; overflow: hidden; text-align: left; padding: 0; }
+.es-tpl-card:hover { border-color: var(--brand-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.es-tpl-preview-box { padding: 12px; background: #fff; border-bottom: 1px solid var(--border-light); }
+.es-tpl-svg { width: 100%; height: auto; border-radius: 4px; }
+.es-tpl-info { display: flex; align-items: center; gap: 8px; padding: 10px 12px 4px; }
+.es-tpl-icon { color: var(--brand-primary); flex-shrink: 0; }
+.es-tpl-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.es-tpl-desc { font-size: 11px; color: var(--text-muted); padding: 0 12px 10px; line-height: 1.3; }
+
+/* ─── Page Edit Button ─────────────────────────────────── */
+
+.es-page-edit-btn { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid var(--brand-primary); border-radius: 6px; background: transparent; color: var(--brand-primary); font-size: 12px; font-weight: 600; cursor: pointer; }
+.es-page-edit-btn:hover { background: rgba(61, 86, 181, 0.05); }
+
+/* ─── Page Type Sections ───────────────────────────────── */
+
+.es-page-type-section { padding: 16px 0; border-bottom: 1px solid var(--border-light); }
+.es-page-type-section:last-child { border-bottom: none; }
+.es-page-type-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.es-page-type-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.es-page-type-status { font-size: 12px; font-weight: 600; margin-left: 10px; padding: 2px 10px; border-radius: 10px; }
+.es-page-type-status--created { background: var(--success-bg); color: var(--success); }
+.es-page-type-status--missing { background: var(--warning-bg); color: var(--warning); }
+.es-page-type-delete { background: none; border: 1px solid var(--error); color: var(--error); padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.es-page-type-delete:hover { background: var(--error-bg); }
+
+/* ─── Template Grid ────────────────────────────────────── */
+
+.es-template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+.es-template-card { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 16px 10px; border: 2px solid var(--border-color); border-radius: 10px; cursor: pointer; background: var(--bg-primary); transition: all 0.2s; }
+.es-template-card:hover { border-color: var(--brand-primary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.es-template-icon { font-size: 28px; margin-bottom: 6px; }
+.es-template-name { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.es-template-desc { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
+
+.es-spin { animation: es-spin 1s linear infinite; }
+@keyframes es-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+@media (max-width: 768px) {
+  .es-grid { grid-template-columns: 1fr; }
+  .es-tabs { flex-wrap: wrap; }
+}

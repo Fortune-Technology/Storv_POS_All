@@ -1633,3 +1633,148 @@ Centralized email service using nodemailer. All email sending goes through this 
 5. If `packSizes.length === 1`: size applied silently
 6. If `packSizes.length === 0`: normal flow (use `defaultRetailPrice`)
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 10)
+
+### E-Commerce Module — Phase 1 Foundation
+
+Complete infrastructure for the e-commerce add-on module. Each organization can optionally enable e-commerce; each store gets its own branded online storefront.
+
+#### Architecture Overview
+```
+POS Backend (:5000)  ──► BullMQ (Redis) ──► ecom-backend (:5005) ──► Ecom DB
+                                                                  ──► Next.js Storefront (:3000)
+```
+
+- **POS is source of truth** for products, inventory, pricing
+- **Event-driven sync** via BullMQ (Redis-backed) — POS emits events on every product/department/inventory mutation
+- **Separate PostgreSQL database** (`storeveu_ecom`) for e-commerce data
+- **ISR (Incremental Static Regeneration)** via Next.js — SSG + short TTL invalidation
+- **Redis cache** for real-time inventory (60s TTL)
+- **Synchronous stock check** at online checkout (ecom-backend → POS backend HTTP call)
+
+#### New Apps
+
+| App | Directory | Port | Tech |
+|-----|-----------|------|------|
+| E-com Backend | `ecom-backend/` | 5005 | Express + Prisma (own DB) |
+| Storefront | `storefront/` | 3000 | Next.js (JavaScript, ISR) |
+
+#### New Shared Packages
+
+| Package | Directory | Purpose |
+|---------|-----------|---------|
+| `@storv/redis` | `packages/redis/` | Shared ioredis singleton client |
+| `@storv/queue` | `packages/queue/` | BullMQ queue definitions + producer helpers |
+
+#### E-Commerce Prisma Schema (`ecom-backend/prisma/schema.prisma`)
+
+| Model | Purpose |
+|-------|---------|
+| `EcomStore` | Per-store config (slug, customDomain, branding, fulfillment, SSL status) |
+| `EcomProduct` | Synced from POS MasterProduct + StoreProduct, `@@unique([storeId, posProductId])` |
+| `EcomDepartment` | Synced from POS Department, `@@unique([storeId, posDepartmentId])` |
+| `EcomPage` | CMS pages (website builder), `@@unique([storeId, slug])` |
+| `EcomCart` | Server-side shopping cart with 7-day expiry |
+| `EcomOrder` | Online orders with full lifecycle (pending → confirmed → preparing → ready → completed) |
+| `EcomCustomer` | Online store customer accounts, optionally linked to POS Customer |
+| `SyncEvent` | Audit trail for data sync pipeline |
+
+#### E-com Backend API Routes
+
+**Public (no auth):** `GET /api/store/:slug`, `/products`, `/departments`, `/pages`, `/cart`, `POST /checkout`
+**Management (portal JWT):** `GET/PUT /api/manage/ecom-store`, `/products`, `/orders`, `/pages`, `/sync/status`
+
+#### Sync Pipeline
+
+**Producer (POS backend `catalogController.js`):**
+- `emitProductSync()` on create/update/delete MasterProduct
+- `emitDepartmentSync()` on create/update/delete Department
+- `emitInventorySync()` on upsert/adjust StoreProduct
+
+**Consumer (ecom-backend `syncWorker.js`):**
+- BullMQ worker processes events, upserts into ecom DB
+- Updates Redis inventory cache
+- Triggers Next.js on-demand ISR revalidation
+- Records audit trail in SyncEvent table
+
+#### Stock Check Endpoint (POS Backend)
+
+`POST /api/catalog/ecom-stock-check` — no auth (internal service call)
+- Input: `{ storeId, items: [{ posProductId, requestedQty }] }`
+- Output: `{ available: boolean, items: [{ posProductId, quantityOnHand, available }] }`
+
+#### Next.js Storefront
+
+- Multi-tenant via hostname middleware (subdomain or custom domain)
+- ISR pages: Home (5min), Products (60s), Product Detail (60s)
+- On-demand revalidation: `POST /api/revalidate?secret=TOKEN&path=/products/slug`
+- Components: Header, Footer, ProductCard, ProductGrid
+
+#### Infrastructure Changes
+
+| File | Change |
+|------|--------|
+| `package.json` (root) | Added `"workspaces": ["packages/*"]`, 6-app `dev` script, `dev:ecom`, `dev:storefront` |
+| `backend/docker-compose.yml` | Added Redis 7-alpine service on :6379 |
+| `backend/package.json` | Added `@storv/redis`, `@storv/queue` dependencies |
+| `backend/src/controllers/catalogController.js` | Import + emit sync events on all product/dept/inventory mutations |
+| `backend/src/routes/catalogRoutes.js` | Added `POST /ecom-stock-check` route |
+| `backend/.env.example` | Added `http://localhost:5005` to CORS_ORIGIN |
+| `.claude/launch.json` | Added Ecom Backend (:5005) and Storefront (:3000) configs |
+
+#### New File Map
+
+| File | Purpose |
+|------|---------|
+| `packages/redis/index.js` | Shared Redis client singleton (ioredis) |
+| `packages/queue/index.js` | BullMQ queue definitions (ecom-sync, ecom-orders, ecom-revalidate) |
+| `packages/queue/producers.js` | `emitProductSync`, `emitDepartmentSync`, `emitInventorySync`, `emitPromotionSync` |
+| `ecom-backend/src/server.js` | Express app + BullMQ worker startup |
+| `ecom-backend/src/middleware/auth.js` | JWT validation (shared secret with POS) |
+| `ecom-backend/src/middleware/storeResolver.js` | Resolve EcomStore from URL slug or hostname |
+| `ecom-backend/src/middleware/requireEcomEnabled.js` | Guard: store must have ecom enabled |
+| `ecom-backend/src/controllers/storefrontController.js` | Public: products, departments, pages |
+| `ecom-backend/src/controllers/orderController.js` | Cart, checkout, order management |
+| `ecom-backend/src/controllers/ecomStoreController.js` | Store setup, branding, fulfillment config |
+| `ecom-backend/src/controllers/productManageController.js` | Product visibility, ecom descriptions |
+| `ecom-backend/src/controllers/pageController.js` | CMS page CRUD |
+| `ecom-backend/src/controllers/syncController.js` | Sync pipeline status |
+| `ecom-backend/src/services/stockCheckService.js` | Synchronous HTTP call to POS backend |
+| `ecom-backend/src/services/revalidationService.js` | Calls Next.js on-demand ISR |
+| `ecom-backend/src/workers/syncWorker.js` | BullMQ consumer: product/dept/inventory sync |
+| `ecom-backend/src/config/redis.js` | Redis inventory cache helpers |
+| `storefront/middleware.js` | Multi-tenant hostname → storeId routing |
+| `storefront/pages/index.js` | Home page (ISR, 5min revalidation) |
+| `storefront/pages/products/index.js` | Product listing (ISR, 60s) |
+| `storefront/pages/products/[slug].js` | Product detail (ISR, 60s, fallback: blocking) |
+| `storefront/pages/api/revalidate.js` | On-demand ISR trigger endpoint |
+| `storefront/lib/api.js` | ecom-backend API client |
+| `storefront/lib/store.js` | Store context provider |
+| `storefront/styles/globals.css` | Global storefront CSS (`sf-` prefix) |
+
+#### Dev Start (all 6 apps)
+
+```bash
+# Start Redis first
+cd backend && docker compose up redis -d
+
+# Then all apps at once (from root)
+npm run dev
+
+# Or individually
+npm run dev:ecom        # E-com backend on :5005
+npm run dev:storefront  # Next.js storefront on :3000
+```
+
+#### Setup for new ecom database
+
+```bash
+# Create the ecom database
+# (In your PostgreSQL, create a database named storeveu_ecom)
+
+# Push the schema
+cd ecom-backend && npx prisma db push
+```
+

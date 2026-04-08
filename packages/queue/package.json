@@ -1,0 +1,15 @@
+{
+  "name": "@storv/queue",
+  "version": "1.0.0",
+  "description": "Shared BullMQ queue definitions and producers for Storv POS platform",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./producers": "./producers.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.34.8",
+    "@storv/redis": "file:../redis"
+  }
+}

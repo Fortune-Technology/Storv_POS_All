@@ -59,6 +59,8 @@ import {
   getStoreProducts,
   upsertStoreProduct,
   adjustStoreStock,
+  // E-commerce stock check
+  ecomStockCheck,
   // Promotions
   getPromotions,
   createPromotion,
@@ -166,5 +168,9 @@ router.get('/import/history/:id',     authorize('superadmin','admin','owner','ma
 router.get('/vendor-payments',     authorize('superadmin', 'admin', 'owner', 'manager'), listVendorPayments);
 router.post('/vendor-payments',    authorize('superadmin', 'admin', 'owner', 'manager'), createVendorPayment);
 router.put('/vendor-payments/:id', authorize('superadmin', 'admin', 'owner'),           updateVendorPayment);
+
+// ─── E-commerce Stock Check (called by ecom-backend) ─────────────
+// No auth — internal service-to-service call. In production, restrict by IP or shared secret.
+router.post('/ecom-stock-check', ecomStockCheck);
 
 export default router;

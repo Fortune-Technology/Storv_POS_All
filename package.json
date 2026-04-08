@@ -1,16 +1,22 @@
 {
-  "name": "csv-filter-project",
+  "name": "storv-pos-platform",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "concurrently --names \"BACKEND,FRONTEND,CASHIER,ADMIN\" --prefix-colors \"cyan,magenta,yellow,green\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"npm run dev --prefix cashier-app\" \"npm run dev --prefix admin-app\"",
+    "dev": "concurrently --names \"BACKEND,FRONTEND,CASHIER,ADMIN,ECOM,STORE\" --prefix-colors \"cyan,magenta,yellow,green,blue,red\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\" \"npm run dev --prefix cashier-app\" \"npm run dev --prefix admin-app\" \"npm run dev --prefix ecom-backend\" \"npm run dev --prefix storefront\"",
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:cashier": "npm run dev --prefix cashier-app",
     "dev:admin": "npm run dev --prefix admin-app",
-    "install:all": "npm install --prefix backend && npm install --prefix frontend && npm install --prefix cashier-app && npm install --prefix admin-app",
+    "dev:ecom": "npm run dev --prefix ecom-backend",
+    "dev:storefront": "npm run dev --prefix storefront",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend && npm install --prefix cashier-app && npm install --prefix admin-app && npm install --prefix ecom-backend && npm install --prefix storefront",
     "db:generate": "npm run db:generate --prefix backend",
     "db:push": "npm run db:push --prefix backend",
+    "db:push:ecom": "npm run db:push --prefix ecom-backend",
     "db:seed": "npm run db:seed --prefix backend",
     "seed:all": "npm run db:generate && npm run db:push && npm run db:seed"
   },

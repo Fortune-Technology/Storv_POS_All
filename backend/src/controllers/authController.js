@@ -56,7 +56,7 @@ export const signup = async (req, res, next) => {
       phone: user.phone,
       role: user.role,
       status: user.status,
-      token: generateToken(user.id, { name: user.name, email: user.email, role: user.role }),
+      token: generateToken(user.id, { name: user.name, email: user.email, role: user.role, orgId: user.orgId }),
     });
   } catch (error) {
     next(error);
@@ -99,7 +99,7 @@ export const login = async (req, res, next) => {
       status:           user.status,
       orgId:            user.orgId,
       tenantId:         user.orgId, // legacy alias used by Onboarding page
-      token: generateToken(user.id, { name: user.name, email: user.email, role: user.role }),
+      token: generateToken(user.id, { name: user.name, email: user.email, role: user.role, orgId: user.orgId }),
     });
   } catch (error) {
     next(error);

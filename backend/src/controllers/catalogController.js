@@ -16,6 +16,20 @@
 
 import prisma from '../config/postgres.js';
 
+// E-commerce sync — optional. If Redis / @storv/queue is not installed, all emit
+// functions are silent no-ops. POS operations are never blocked.
+let emitProductSync = async () => {};
+let emitDepartmentSync = async () => {};
+let emitInventorySync = async () => {};
+try {
+  const producers = await import('@storv/queue/producers');
+  emitProductSync = producers.emitProductSync;
+  emitDepartmentSync = producers.emitDepartmentSync;
+  emitInventorySync = producers.emitInventorySync;
+} catch {
+  console.log('⚠ @storv/queue not available — e-commerce sync disabled (this is fine if not using e-commerce)');
+}
+
 // ─────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────
@@ -73,6 +87,7 @@ export const createDepartment = async (req, res) => {
       },
     });
 
+    emitDepartmentSync(orgId, dept.id, 'create', dept);
     res.status(201).json({ success: true, data: dept });
   } catch (err) {
     if (err.code === 'P2002') {
@@ -106,6 +121,7 @@ export const updateDepartment = async (req, res) => {
       },
     });
 
+    emitDepartmentSync(orgId, dept.id, 'update', dept);
     res.json({ success: true, data: dept });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Department not found' });
@@ -120,6 +136,7 @@ export const deleteDepartment = async (req, res) => {
 
     // Soft delete — set active: false
     await prisma.department.update({ where: { id, orgId }, data: { active: false } });
+    emitDepartmentSync(orgId, id, 'delete');
     res.json({ success: true, message: 'Department deactivated' });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Department not found' });
@@ -755,6 +772,16 @@ export const createMasterProduct = async (req, res) => {
       },
     });
 
+    emitProductSync(orgId, product.id, 'create', {
+      name: product.name, description: product.description, brand: product.brand,
+      imageUrl: product.imageUrl, defaultRetailPrice: product.defaultRetailPrice,
+      defaultCostPrice: product.defaultCostPrice, taxable: product.taxable,
+      taxClass: product.taxClass, ebtEligible: product.ebtEligible,
+      ageRequired: product.ageRequired, trackInventory: product.trackInventory,
+      hideFromEcom: product.hideFromEcom, ecomDescription: product.ecomDescription,
+      ecomTags: product.ecomTags, size: product.size, weight: product.weight,
+      departmentName: product.department?.name,
+    });
     res.status(201).json({ success: true, data: product });
   } catch (err) {
     if (err.code === 'P2002') {
@@ -824,6 +851,16 @@ export const updateMasterProduct = async (req, res) => {
       },
     });
 
+    emitProductSync(orgId, product.id, 'update', {
+      name: product.name, description: product.description, brand: product.brand,
+      imageUrl: product.imageUrl, defaultRetailPrice: product.defaultRetailPrice,
+      defaultCostPrice: product.defaultCostPrice, taxable: product.taxable,
+      taxClass: product.taxClass, ebtEligible: product.ebtEligible,
+      ageRequired: product.ageRequired, trackInventory: product.trackInventory,
+      hideFromEcom: product.hideFromEcom, ecomDescription: product.ecomDescription,
+      ecomTags: product.ecomTags, size: product.size, weight: product.weight,
+      departmentName: product.department?.name,
+    });
     res.json({ success: true, data: product });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Product not found' });
@@ -842,6 +879,7 @@ export const deleteMasterProduct = async (req, res) => {
       data: { deleted: true, active: false },
     });
 
+    emitProductSync(orgId, id, 'delete');
     res.json({ success: true, message: 'Product deleted' });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Product not found' });
@@ -973,6 +1011,10 @@ export const upsertStoreProduct = async (req, res) => {
       },
     });
 
+    emitInventorySync(orgId, storeId, parseInt(masterProductId), 'update', {
+      quantityOnHand: storeProduct.quantityOnHand, inStock: storeProduct.inStock,
+      retailPrice: storeProduct.retailPrice, salePrice: storeProduct.salePrice,
+    });
     res.json({ success: true, data: storeProduct });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1025,6 +1067,9 @@ export const adjustStoreStock = async (req, res) => {
       },
     });
 
+    emitInventorySync(orgId, storeId, parseInt(masterProductId), 'update', {
+      quantityOnHand: newQty, inStock: updated.inStock,
+    });
     res.json({
       success: true,
       data: updated,
@@ -1035,6 +1080,68 @@ export const adjustStoreStock = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────
+// E-COMMERCE STOCK CHECK
+// ─────────────────────────────────────────────────
+
+/**
+ * Synchronous stock check for the ecom-backend.
+ * Called during online checkout to verify product availability.
+ * Body: { storeId, items: [{ posProductId, requestedQty }] }
+ */
+export const ecomStockCheck = async (req, res) => {
+  try {
+    const { storeId, items } = req.body;
+
+    if (!storeId || !Array.isArray(items)) {
+      return res.status(400).json({ available: false, error: 'storeId and items[] required' });
+    }
+
+    const productIds = items.map(i => parseInt(i.posProductId));
+
+    // Fetch current store-level inventory
+    const storeProducts = await prisma.storeProduct.findMany({
+      where: {
+        storeId,
+        masterProductId: { in: productIds },
+      },
+      select: {
+        masterProductId: true,
+        quantityOnHand: true,
+        inStock: true,
+        retailPrice: true,
+      },
+    });
+
+    const spMap = {};
+    for (const sp of storeProducts) {
+      spMap[sp.masterProductId] = sp;
+    }
+
+    let allAvailable = true;
+    const result = items.map(item => {
+      const sp = spMap[parseInt(item.posProductId)];
+      const qty = sp ? parseFloat(sp.quantityOnHand ?? 0) : 0;
+      const requested = parseFloat(item.requestedQty);
+      // If store doesn't track inventory (no StoreProduct), treat as available
+      const available = !sp || qty >= requested || !sp.inStock === false;
+
+      if (!available) allAvailable = false;
+
+      return {
+        posProductId: parseInt(item.posProductId),
+        requestedQty: requested,
+        quantityOnHand: qty,
+        available,
+      };
+    });
+
+    res.json({ available: allAvailable, items: result });
+  } catch (err) {
+    res.status(500).json({ available: false, error: err.message });
   }
 };
 

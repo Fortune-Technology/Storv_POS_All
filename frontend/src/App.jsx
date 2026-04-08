@@ -58,6 +58,10 @@ import VendorDetail   from './pages/VendorDetail';
 import Promotions        from './pages/Promotions';
 import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
+import EcomSetup         from './pages/EcomSetup';
+import EcomPages         from './pages/EcomPages';
+import EcomOrders        from './pages/EcomOrders';
+import EcomDomain        from './pages/EcomDomain';
 import Lottery from './pages/Lottery';
 import SupportTickets from './pages/SupportTickets';
 
@@ -210,6 +214,12 @@ function App() {
         {/* ── Lottery ─────────────────────────────────────────────────── */}
         <Route path="/portal/lottery"          element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
         <Route path="/portal/support-tickets"  element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />
+
+        {/* ── Online Store (E-commerce) ────────────────────────────── */}
+        <Route path="/portal/ecom/setup"   element={<ProtectedRoute><EcomSetup /></ProtectedRoute>} />
+        <Route path="/portal/ecom/pages"   element={<ProtectedRoute><EcomPages /></ProtectedRoute>} />
+        <Route path="/portal/ecom/orders"  element={<ProtectedRoute><EcomOrders /></ProtectedRoute>} />
+        <Route path="/portal/ecom/domain"  element={<ProtectedRoute><EcomDomain /></ProtectedRoute>} />
 
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />

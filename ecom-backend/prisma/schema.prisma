@@ -1,0 +1,310 @@
+// ─── E-Commerce Database Schema ────────────────────────────────────────────
+// Separate PostgreSQL database (storeveu_ecom) for the e-commerce module.
+// POS database remains the source of truth for products/inventory.
+// Data flows one-way: POS → BullMQ → this DB.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Store Configuration ───────────────────────────────────────────────────
+
+model EcomStore {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String   @unique                // Maps to POS Store.id
+  storeName       String
+  slug            String   @unique                // URL: {slug}.shop.thefortunetech.com
+  customDomain    String?  @unique                // e.g. shop.joesmarket.com
+  domainVerified  Boolean  @default(false)
+  sslStatus       String   @default("pending")    // "pending" | "active" | "error"
+  enabled         Boolean  @default(false)
+
+  // Branding & appearance
+  branding        Json     @default("{}")          // { logo, primaryColor, secondaryColor, fontFamily, heroImage }
+  seoDefaults     Json     @default("{}")          // { metaTitle, metaDescription, ogImage }
+  socialLinks     Json     @default("{}")          // { instagram, facebook, twitter }
+
+  // Fulfillment configuration
+  fulfillmentConfig Json   @default("{}")          // { pickupEnabled, deliveryEnabled, pickupHours, deliveryZones, minOrderAmount }
+
+  timezone        String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  products        EcomProduct[]
+  departments     EcomDepartment[]
+  pages           EcomPage[]
+  carts           EcomCart[]
+  orders          EcomOrder[]
+  customers       EcomCustomer[]
+
+  @@index([orgId])
+  @@map("ecom_stores")
+}
+
+// ─── Products (synced from POS) ────────────────────────────────────────────
+
+model EcomProduct {
+  id               String    @id @default(cuid())
+  orgId            String
+  storeId          String
+  posProductId     Int                              // FK concept → MasterProduct.id
+  posStoreProductId Int?                            // FK concept → StoreProduct.id
+
+  // Core product info
+  name             String
+  slug             String
+  description      String?   @db.Text
+  shortDescription String?
+  brand            String?
+  imageUrl         String?
+  images           Json      @default("[]")         // Additional image URLs
+
+  // Categorisation
+  tags             String[]
+  departmentName   String?
+  departmentSlug   String?
+
+  // Pricing
+  retailPrice      Decimal   @db.Decimal(10, 4)
+  salePrice        Decimal?  @db.Decimal(10, 4)
+  saleStart        DateTime?
+  saleEnd          DateTime?
+  costPrice        Decimal?  @db.Decimal(10, 4)     // Hidden from storefront
+
+  // Inventory
+  inStock          Boolean   @default(true)
+  quantityOnHand   Decimal?  @db.Decimal(10, 2)
+  trackInventory   Boolean   @default(true)
+
+  // Attributes
+  taxable          Boolean   @default(true)
+  taxClass         String?
+  ebtEligible      Boolean   @default(false)
+  ageRequired      Int?
+  size             String?
+  weight           Decimal?  @db.Decimal(10, 4)
+
+  // Visibility
+  visible          Boolean   @default(true)         // Admin can hide without deleting
+  sortOrder        Int       @default(0)
+
+  // Sync metadata
+  lastSyncedAt     DateTime?
+  syncVersion      Int       @default(0)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  store            EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@unique([storeId, posProductId])
+  @@unique([storeId, slug])
+  @@index([orgId, storeId, visible, inStock])
+  @@index([storeId, departmentSlug])
+  @@map("ecom_products")
+}
+
+// ─── Departments (synced from POS) ─────────────────────────────────────────
+
+model EcomDepartment {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String
+  posDepartmentId Int                              // FK concept → Department.id
+
+  name            String
+  slug            String
+  description     String?
+  imageUrl        String?
+  sortOrder       Int      @default(0)
+  visible         Boolean  @default(true)
+
+  lastSyncedAt    DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  store           EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@unique([storeId, posDepartmentId])
+  @@unique([storeId, slug])
+  @@map("ecom_departments")
+}
+
+// ─── CMS Pages (website builder) ───────────────────────────────────────────
+
+model EcomPage {
+  id             String   @id @default(cuid())
+  orgId          String
+  storeId        String
+
+  slug           String                             // "home", "about", "contact", "my-custom-page"
+  title          String
+  pageType       String                             // "home" | "about" | "contact" | "custom" | "policy"
+  templateId     String?                            // Which pre-built template is applied
+  content        Json     @default("{}")             // Structured section/block data from page editor
+
+  seoTitle       String?
+  seoDescription String?
+
+  published      Boolean  @default(false)
+  sortOrder      Int      @default(0)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  store          EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@index([orgId, storeId])
+  @@map("ecom_pages")
+}
+
+// ─── Shopping Cart ─────────────────────────────────────────────────────────
+
+model EcomCart {
+  id          String   @id @default(cuid())
+  orgId       String
+  storeId     String
+
+  sessionId   String   @unique                     // Anonymous cart by session cookie
+  customerId  String?                              // Linked EcomCustomer if logged in
+
+  items       Json     @default("[]")              // [{ productId, name, qty, price, imageUrl }]
+  subtotal    Decimal  @db.Decimal(10, 4) @default(0)
+  expiresAt   DateTime                             // Carts expire after 7 days
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  store       EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@index([storeId, sessionId])
+  @@index([expiresAt])
+  @@map("ecom_carts")
+}
+
+// ─── Orders ────────────────────────────────────────────────────────────────
+
+model EcomOrder {
+  id              String    @id @default(cuid())
+  orgId           String
+  storeId         String
+
+  orderNumber     String    @unique                 // "ORD-20260408-001234"
+  status          String    @default("pending")     // pending | confirmed | preparing | ready | out_for_delivery | completed | cancelled | refunded
+  fulfillmentType String                            // "pickup" | "delivery"
+
+  // Customer info
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  customerId      String?                           // EcomCustomer.id if linked
+
+  // Delivery
+  shippingAddress Json?                             // { street, city, state, zip, instructions }
+
+  // Line items (denormalized snapshot at order time)
+  lineItems       Json                              // [{ productId, name, qty, price, total, imageUrl }]
+
+  // Financials
+  subtotal        Decimal   @db.Decimal(10, 4)
+  taxTotal        Decimal   @db.Decimal(10, 4) @default(0)
+  deliveryFee     Decimal   @db.Decimal(10, 4) @default(0)
+  tipAmount       Decimal   @db.Decimal(10, 4) @default(0)
+  grandTotal      Decimal   @db.Decimal(10, 4)
+
+  // Payment
+  paymentStatus   String    @default("pending")     // pending | paid | failed | refunded
+  paymentMethod   String?                           // "card" | "cash_on_pickup"
+  paymentExternalId String?                         // Processor-specific ID (Stripe, Square, etc.)
+
+  // Scheduling
+  scheduledAt     DateTime?                         // Scheduled pickup/delivery time
+
+  // Lifecycle
+  confirmedAt     DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+
+  notes           String?
+
+  // POS linkage
+  posTransactionId String?                          // Linked POS Transaction after fulfillment
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  store           EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@index([orgId, storeId, status])
+  @@index([storeId, orderNumber])
+  @@index([storeId, createdAt])
+  @@map("ecom_orders")
+}
+
+// ─── Customers (online store accounts) ─────────────────────────────────────
+
+model EcomCustomer {
+  id            String    @id @default(cuid())
+  orgId         String
+  storeId       String
+  posCustomerId String?                             // Linked POS Customer.id
+
+  email         String
+  name          String?
+  phone         String?
+  passwordHash  String?                             // Optional account (bcrypt)
+  addresses     Json      @default("[]")            // Saved delivery addresses
+
+  lastOrderAt   DateTime?
+  orderCount    Int       @default(0)
+  totalSpent    Decimal   @db.Decimal(10, 4) @default(0)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  store         EcomStore @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+
+  @@unique([storeId, email])
+  @@index([orgId, storeId])
+  @@map("ecom_customers")
+}
+
+// ─── Sync Audit Trail ──────────────────────────────────────────────────────
+
+model SyncEvent {
+  id          Int       @id @default(autoincrement())
+  orgId       String
+  storeId     String?
+  entityType  String                                // "product" | "department" | "inventory" | "promotion"
+  entityId    String                                // The POS record ID
+  action      String                                // "create" | "update" | "delete"
+  payload     Json?                                 // The changed data
+  status      String    @default("pending")         // "pending" | "processed" | "failed"
+  attempts    Int       @default(0)
+  error       String?
+  processedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([orgId, entityType])
+  @@map("sync_events")
+}

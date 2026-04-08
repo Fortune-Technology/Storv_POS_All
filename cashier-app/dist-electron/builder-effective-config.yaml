@@ -4,6 +4,7 @@ directories:
 appId: com.storeveu.pos
 productName: StoreVeu POS
 copyright: Copyright © 2025 StoreVeu
+forceCodeSigning: false
 files:
   - filter:
       - dist/**/*
@@ -22,8 +23,6 @@ nsis:
   shortcutName: StoreVeu POS
 mac:
   target: dmg
-  icon: public/icon.icns
 linux:
   target: AppImage
-  icon: public/icon.png
 electronVersion: 33.4.11
