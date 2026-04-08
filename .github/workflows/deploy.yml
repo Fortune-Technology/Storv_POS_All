@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: Deploy web apps + backend to server
+  # ──────────────────────────────────────────────────────────────────────────
   deploy:
     runs-on: [self-hosted, Linux, X64]
 
@@ -47,7 +50,7 @@ jobs:
         run: |
           sleep 5
           curl -f http://localhost:5002/health || exit 1
-          echo "✅ Backend is healthy"
+          echo "Backend is healthy"
 
       - name: Deploy frontend
         shell: bash
@@ -61,7 +64,7 @@ jobs:
           npm run build
           sudo systemctl reload nginx
 
-      - name: Deploy cashier-app
+      - name: Deploy cashier-app (web)
         shell: bash
         run: |
           set -e
@@ -90,17 +93,17 @@ jobs:
         run: |
           set -e
           echo "Checking all services..."
-          curl -f https://api-pos.thefortunetech.com/health && echo "✅ API is up"
-          curl -f https://dashboard.thefortunetech.com && echo "✅ Dashboard is up"
-          curl -f https://pos.thefortunetech.com && echo "✅ POS is up"
-          curl -f https://admin.thefortunetech.com && echo "✅ Admin is up"
+          curl -f https://api-pos.thefortunetech.com/health && echo "API is up"
+          curl -f https://dashboard.thefortunetech.com && echo "Dashboard is up"
+          curl -f https://pos.thefortunetech.com && echo "POS is up"
+          curl -f https://admin.thefortunetech.com && echo "Admin is up"
           pm2 list
 
       - name: Notify success
         if: success()
         shell: bash
         run: |
-          echo "🚀 Storv POS deployed successfully!"
+          echo "Storv POS deployed successfully!"
           echo "Backend:    https://api-pos.thefortunetech.com"
           echo "Dashboard:  https://dashboard.thefortunetech.com"
           echo "POS:        https://pos.thefortunetech.com"
@@ -110,5 +113,92 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          echo "❌ Deployment failed! Check logs above."
+          echo "Deployment failed! Check logs above."
           pm2 logs storv-pos-backend --lines 50 --nostream
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: Build Electron desktop installer (Windows NSIS)
+  # Runs in parallel with deploy. Builds on GitHub-hosted Windows runner,
+  # deletes the previous "latest-desktop" release, then uploads the new .exe.
+  # ──────────────────────────────────────────────────────────────────────────
+  build-electron:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cashier-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: cashier-app
+        run: npm ci
+
+      - name: Build Vite + Electron installer
+        working-directory: cashier-app
+        run: npm run electron:build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find installer file
+        id: find-exe
+        working-directory: cashier-app/dist-electron
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "No .exe found in dist-electron"; exit 1 }
+          $version = (Get-Content ../package.json | ConvertFrom-Json).version
+          $date = Get-Date -Format "yyyy-MM-dd"
+          echo "EXE_PATH=cashier-app/dist-electron/$($exe.Name)" >> $env:GITHUB_OUTPUT
+          echo "EXE_NAME=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "DATE=$date" >> $env:GITHUB_OUTPUT
+
+      - name: Delete old "latest-desktop" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete the release (also deletes its assets)
+          gh release delete latest-desktop --yes --cleanup-tag 2>/dev/null || true
+
+      - name: Create new "latest-desktop" release with installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create latest-desktop \
+            "${{ steps.find-exe.outputs.EXE_PATH }}" \
+            --title "StoreVeu POS Desktop v${{ steps.find-exe.outputs.VERSION }} (${{ steps.find-exe.outputs.DATE }})" \
+            --notes "$(cat <<'EOF'
+          ## StoreVeu POS — Windows Desktop Installer
+
+          **Version:** ${{ steps.find-exe.outputs.VERSION }}
+          **Built:** ${{ steps.find-exe.outputs.DATE }}
+          **Commit:** ${{ github.sha }}
+
+          ### Installation
+          1. Download **${{ steps.find-exe.outputs.EXE_NAME }}** below
+          2. Run the installer on your Windows POS machine
+          3. Launch "StoreVeu POS" from the desktop shortcut
+          4. Select your store and register the station on first launch
+
+          ### What's included
+          - Full POS terminal with offline support
+          - USB and network receipt printing (ESC/POS)
+          - Cash drawer integration
+          - Barcode scanner support
+          - Fullscreen kiosk mode in production
+
+          > This release is automatically rebuilt on every push to main.
+          > Previous installer is deleted and replaced.
+          EOF
+          )" \
+            --latest
