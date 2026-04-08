@@ -132,7 +132,8 @@ const AdminUsers = () => {
       const res = await impersonateUser(u.id);
       const d = res.data || res;
       const userParam = encodeURIComponent(JSON.stringify(d.user));
-      window.open(`http://localhost:5173/impersonate?token=${d.token}&user=${userParam}`, '_blank');
+      const portalBase = import.meta.env.VITE_PORTAL_URL || window.location.origin.replace('admin.', 'dashboard.');
+      window.open(`${portalBase}/impersonate?token=${d.token}&user=${userParam}`, '_blank');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Impersonation failed');
     }
