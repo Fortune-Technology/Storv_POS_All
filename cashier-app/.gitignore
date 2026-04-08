@@ -22,7 +22,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
-.env.production
 dist-electron/
 
 # package-lock.json must be committed so CI can run `npm ci`
