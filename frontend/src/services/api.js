@@ -281,4 +281,22 @@ export const getPublishedCareers        = ()               => api.get('/public/c
 export const getPublishedCmsPage        = (slug)           => api.get(`/public/cms/${slug}`).then(r => r.data);
 export const createPublicTicket         = (data)           => api.post('/public/tickets', data).then(r => r.data);
 
+// ── Product UPCs ──────────────────────────────────────────────────────────
+export const getProductUpcs    = (id)       => api.get(`/catalog/products/${id}/upcs`).then(r => r.data);
+export const addProductUpc     = (id, data) => api.post(`/catalog/products/${id}/upcs`, data).then(r => r.data);
+export const deleteProductUpc  = (id, upcId)=> api.delete(`/catalog/products/${id}/upcs/${upcId}`).then(r => r.data);
+
+// ── Product Pack Sizes ────────────────────────────────────────────────────
+export const getProductPackSizes       = (id)           => api.get(`/catalog/products/${id}/pack-sizes`).then(r => r.data);
+export const addProductPackSize        = (id, data)     => api.post(`/catalog/products/${id}/pack-sizes`, data).then(r => r.data);
+export const updateProductPackSize     = (id, sid, data)=> api.put(`/catalog/products/${id}/pack-sizes/${sid}`, data).then(r => r.data);
+export const deleteProductPackSize     = (id, sid)      => api.delete(`/catalog/products/${id}/pack-sizes/${sid}`).then(r => r.data);
+export const bulkReplaceProductPackSizes = (id, sizes)  => api.put(`/catalog/products/${id}/pack-sizes/bulk-replace`, { sizes }).then(r => r.data);
+
+// ── Store Support Tickets ─────────────────────────────────────────────────
+export const getOrgTickets      = (params)    => api.get('/tickets',            { params }).then(r => r.data);
+export const createOrgTicket    = (data)      => api.post('/tickets',           data).then(r => r.data);
+export const getOrgTicket       = (id)        => api.get(`/tickets/${id}`).then(r => r.data);
+export const addOrgTicketReply  = (id, data)  => api.post(`/tickets/${id}/reply`, data).then(r => r.data);
+
 export default api;

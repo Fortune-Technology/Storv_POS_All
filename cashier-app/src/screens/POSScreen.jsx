@@ -41,6 +41,7 @@ import LotteryModal            from '../components/modals/LotteryModal.jsx';
 import LotteryShiftModal       from '../components/modals/LotteryShiftModal.jsx';
 import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
+import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding } from '../api/pos.js';
 
@@ -313,6 +314,22 @@ export default function POSScreen() {
   }, []);
   useEffect(() => () => clearTimeout(scanErrorTimer.current), []);
 
+  // ── Pack size picker ──────────────────────────────────────────────────────
+  const [packPickerProduct, setPackPickerProduct] = useState(null); // pending product awaiting size selection
+
+  const handlePackSizeSelect = useCallback((product, size) => {
+    setPackPickerProduct(null);
+    addWithAgeCheck({
+      ...product,
+      retailPrice: Number(size.retailPrice),
+      qty: 1,
+      packSizeLabel: size.label,
+      packSizeId: size.id,
+      unitCount: size.unitCount,
+    });
+    flash('hit');
+  }, [addWithAgeCheck, flash]);
+
   // ── Barcode scan ─────────────────────────────────────────────────────────
   const handleScan = useCallback(async (raw) => {
     if (scanMode !== 'normal') return;
@@ -320,6 +337,24 @@ export default function POSScreen() {
     if (!product) {
       flash('miss');
       showScanError(raw);
+      return;
+    }
+    // If multiple pack sizes are configured, show picker instead of adding immediately
+    if (Array.isArray(product.packSizes) && product.packSizes.length > 1) {
+      setPackPickerProduct(product);
+      return;
+    }
+    // If exactly one pack size, use it silently
+    if (Array.isArray(product.packSizes) && product.packSizes.length === 1) {
+      const size = product.packSizes[0];
+      addWithAgeCheck({
+        ...product,
+        retailPrice: Number(size.retailPrice),
+        packSizeLabel: size.label,
+        packSizeId: size.id,
+        unitCount: size.unitCount,
+      });
+      flash('hit');
       return;
     }
     addWithAgeCheck({ ...product, retailPrice: product.retailPrice });
@@ -1455,6 +1490,15 @@ export default function POSScreen() {
         <VendorPayoutModal
           onClose={() => setShowVendorPayout(false)}
           onComplete={(tx) => { setShowVendorPayout(false); }}
+        />
+      )}
+
+      {/* ── Pack Size Picker Modal ── */}
+      {packPickerProduct && (
+        <PackSizePickerModal
+          product={packPickerProduct}
+          onSelect={(size) => handlePackSizeSelect(packPickerProduct, size)}
+          onCancel={() => { setPackPickerProduct(null); flash('miss'); }}
         />
       )}
     </div>

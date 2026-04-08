@@ -1,0 +1,8 @@
+node_modules/
+uploads/
+.env
+*.log
+coverage/
+.DS_Store
+# package-lock.json must be committed so CI can run `npm ci`
+# Do NOT add package-lock.json here

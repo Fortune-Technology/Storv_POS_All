@@ -61,8 +61,11 @@ export const getAdminCareerApplications = (careerPostingId) => api.get(`/admin/c
 export const updateAdminJobApplication  = (id, data)        => api.put(`/admin/applications/${id}`, data).then(r => r.data);
 
 // ── Admin Tickets ────────────────────────────────────────────────────────────
-export const getAdminTickets     = (params)    => api.get('/admin/tickets', { params }).then(r => r.data);
-export const updateAdminTicket   = (id, data)  => api.put(`/admin/tickets/${id}`, data).then(r => r.data);
+export const getAdminTickets       = (params)    => api.get('/admin/tickets', { params }).then(r => r.data);
+export const createAdminTicket     = (data)      => api.post('/admin/tickets', data).then(r => r.data);
+export const updateAdminTicket     = (id, data)  => api.put(`/admin/tickets/${id}`, data).then(r => r.data);
+export const deleteAdminTicket     = (id)        => api.delete(`/admin/tickets/${id}`).then(r => r.data);
+export const addAdminTicketReply   = (id, data)  => api.post(`/admin/tickets/${id}/reply`, data).then(r => r.data);
 
 // ── Admin System Config ──────────────────────────────────────────────────────
 export const getAdminSystemConfig    = ()      => api.get('/admin/config').then(r => r.data);

@@ -33,7 +33,7 @@ function createWindow() {
 
   if (isDev) {
     // Load from Vite dev server
-    win.loadURL('http://localhost:5174');
+    win.loadURL('https://pos.stoerveu.com');
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
     // Load built app

@@ -150,6 +150,8 @@ App ID: `com.storeveu.pos` | Persistent config: `%APPDATA%/storeveu_station.json
 - **Cash Drawer:** Auto-kick on cash tender via ESC/POS command, manual via No Sale button.
 - **Weight Scales:** Magellan/Datalogic serial scales via Web Serial API with auto-fill quantity.
 - **PAX Terminals:** Card payment integration via backend API proxy (A920, A35, A80, S300).
+- **Multi-UPC Support:** Products can have multiple barcodes; scan any linked UPC to find the product.
+- **Pack Size Picker:** Products with multiple sizes (Single, 6-Pack, 12-Pack) show a picker modal at scan.
 - **Hold/Recall:** Unlimited simultaneous parked transactions stored in IndexedDB.
 - **Offline Mode:** Full offline sales capability with batch sync on reconnect.
 - **Promotion Engine:** Client-side evaluation of sales, BOGO, volume, mix & match, and combo deals.
@@ -385,6 +387,116 @@ Past transactions are accessible from two places:
 |---|---|---|
 | **Cashier App** | Tap **History** button in bottom action bar | Browse by date, view detail, reprint to hardware |
 | **Back Office** | Point of Sale → Transactions | Browse by date, search by TXN#/cashier/item, view full breakdown |
+
+---
+
+## 🚀 Electron Production Deployment (Step-by-Step)
+
+### Prerequisites
+- **Node.js 18+** installed on the build machine
+- **Windows 10/11 x64** (for building the NSIS installer)
+- Backend API deployed and accessible (e.g. `https://api-pos.thefortunetech.com`)
+
+### Step 1: Configure Production API URL
+
+Edit `cashier-app/electron/main.cjs` — update the production URL that the Electron app loads:
+
+```js
+// In createWindow(), the production branch:
+if (isDev) {
+  win.loadURL('http://localhost:5174');  // dev
+} else {
+  win.loadFile(path.join(__dirname, '../dist/index.html'));  // production
+}
+```
+
+Ensure `cashier-app/.env` (or `.env.production`) has the correct API base:
+```env
+VITE_API_URL=https://api-pos.thefortunetech.com/api
+```
+
+### Step 2: Install Dependencies
+
+```bash
+cd cashier-app
+npm install
+```
+
+### Step 3: Build the Vite Frontend + Electron Installer
+
+```bash
+npm run electron:build
+```
+
+This runs two steps sequentially:
+1. `vite build` — compiles React app into `cashier-app/dist/`
+2. `electron-builder` — packages `dist/` + `electron/` into a Windows NSIS installer
+
+### Step 4: Locate the Installer
+
+After the build completes, find the output in:
+
+```
+cashier-app/dist-electron/
+├── StoreVeu POS Setup 1.0.0.exe    ← NSIS installer (distribute this)
+├── win-unpacked/                     ← Unpacked app (for testing)
+└── builder-effective-config.yaml     ← Build config used
+```
+
+### Step 5: Install on Target POS Machine
+
+1. Copy `StoreVeu POS Setup 1.0.0.exe` to the target Windows PC
+2. Run the installer — it allows choosing the install directory
+3. After installation, a desktop shortcut **"StoreVeu POS"** is created
+4. Launch the app — it opens fullscreen (kiosk mode) in production
+
+### Step 6: Station Setup (First Launch)
+
+1. App loads the built-in web UI from `dist/index.html`
+2. Cashier/manager selects their store and registers the station
+3. Hardware settings (printer IP, cash drawer, scale) are configured
+4. Config is persisted to `%APPDATA%/storeveu_station.json`
+
+---
+
+### Build Configuration Reference
+
+| Setting | Value |
+|---------|-------|
+| **App ID** | `com.storeveu.pos` |
+| **Product Name** | `StoreVeu POS` |
+| **Output Dir** | `dist-electron/` |
+| **Windows Target** | NSIS installer (x64) |
+| **Persistent Config** | `%APPDATA%/storeveu_station.json` |
+| **Window** | 1280x800, fullscreen in production |
+| **Context Isolation** | Enabled (secure IPC via preload) |
+| **Node Integration** | Disabled (all IPC through `window.electronAPI`) |
+
+### Available npm Scripts
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| `npm run dev` | `vite` | Web-only dev server on `:5174` |
+| `npm run electron:dev` | `concurrently "vite" "wait-on ... && electron ..."` | Vite + Electron dev mode |
+| `npm run electron:build` | `vite build && electron-builder` | Production NSIS installer |
+| `npm run electron:pack` | `electron-builder --dir` | Unpacked app (no installer, for testing) |
+
+### Updating a Deployed App
+
+Currently, auto-update is not configured. To update:
+1. Build a new installer with `npm run electron:build`
+2. Distribute the new `.exe` to each POS machine
+3. Run the installer — it overwrites the previous installation
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|---------|
+| **Blank screen after build** | Check `VITE_API_URL` in `.env.production`; ensure `base: './'` in `vite.config.js` |
+| **Printer not found** | Verify printer name matches exactly in Windows **Devices and Printers** |
+| **First USB print slow (~3s)** | Normal — PowerShell compiles `sv_rawprint_v2.dll` on first use; cached after |
+| **Network printer timeout** | Confirm printer IP is reachable; check port 9100 not blocked by firewall |
+| **App not fullscreen** | In production `fullscreen: true` is set; in dev it's windowed for debugging |
 
 ---
 

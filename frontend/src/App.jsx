@@ -59,6 +59,7 @@ import Promotions        from './pages/Promotions';
 import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
 import Lottery from './pages/Lottery';
+import SupportTickets from './pages/SupportTickets';
 
 
 // Public Marketing Pages (dynamic)
@@ -207,7 +208,8 @@ function App() {
         <Route path="/portal/import" element={<ProtectedRoute><BulkImport /></ProtectedRoute>} />
 
         {/* ── Lottery ─────────────────────────────────────────────────── */}
-        <Route path="/portal/lottery" element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
+        <Route path="/portal/lottery"          element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
+        <Route path="/portal/support-tickets"  element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />
 
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />

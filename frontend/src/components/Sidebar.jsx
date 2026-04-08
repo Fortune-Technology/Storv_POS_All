@@ -33,6 +33,7 @@ import {
   Percent,
   LayoutGrid,
   Settings2,
+  MessageSquare,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -98,6 +99,12 @@ const menuGroups = [
       { name: 'Deposit Rules',    icon: <Recycle size={13} />,     path: '/portal/deposit-rules' },
       { name: 'Tax Rules',        icon: <Percent size={13} />,     path: '/portal/tax-rules' },
       { name: 'Quick Access',     icon: <LayoutGrid size={13} />,  path: '/portal/quick-access' },
+    ],
+  },
+  {
+    label: 'Support',
+    items: [
+      { name: 'Support Tickets', icon: <MessageSquare size={13} />, path: '/portal/support-tickets' },
     ],
   },
   {

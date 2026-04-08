@@ -1,43 +1,300 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader, X, MessageSquare } from 'lucide-react';
+import {
+  Loader, X, MessageSquare, Plus, Trash2, Search,
+  ChevronLeft, ChevronRight, Send, AlertCircle,
+} from 'lucide-react';
 import { toast } from 'react-toastify';
 import AdminSidebar from '../components/AdminSidebar';
-import { getAdminTickets, updateAdminTicket } from '../services/api';
+import {
+  getAdminTickets,
+  createAdminTicket,
+  updateAdminTicket,
+  deleteAdminTicket,
+  addAdminTicketReply,
+} from '../services/api';
 import '../styles/admin.css';
+import './AdminTickets.css';
 
-const STATUS_OPTS = ['open', 'in_progress', 'resolved', 'closed'];
+const STATUS_OPTS   = ['open', 'in_progress', 'resolved', 'closed'];
 const PRIORITY_OPTS = ['low', 'normal', 'high', 'urgent'];
 
+const STATUS_COLORS = {
+  open:        'at-badge--open',
+  in_progress: 'at-badge--progress',
+  resolved:    'at-badge--resolved',
+  closed:      'at-badge--closed',
+};
+const PRIORITY_COLORS = {
+  low:    'at-badge--low',
+  normal: 'at-badge--normal',
+  high:   'at-badge--high',
+  urgent: 'at-badge--urgent',
+};
+
+function fmtDate(d) {
+  return new Date(d).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// ── Create Ticket Modal ────────────────────────────────────────────────────
+const CreateModal = ({ onClose, onCreated }) => {
+  const [form, setForm] = useState({ email: '', name: '', subject: '', body: '', priority: 'normal' });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.email.trim() || !form.subject.trim() || !form.body.trim()) {
+      toast.error('Email, subject and message are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await createAdminTicket(form);
+      toast.success('Ticket created');
+      onCreated(res.data);
+      onClose();
+    } catch { toast.error('Failed to create ticket'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="at-overlay" onClick={onClose}>
+      <div className="at-modal" onClick={e => e.stopPropagation()}>
+        <div className="at-modal-header">
+          <h2 className="at-modal-title"><Plus size={16} /> New Ticket</h2>
+          <button className="at-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="at-modal-body">
+          <div className="at-form-row">
+            <div className="at-form-field">
+              <label>Email *</label>
+              <input type="email" placeholder="customer@example.com"
+                value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+            </div>
+            <div className="at-form-field">
+              <label>Name</label>
+              <input type="text" placeholder="Customer name"
+                value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+          </div>
+          <div className="at-form-field">
+            <label>Subject *</label>
+            <input type="text" placeholder="Brief description of the issue"
+              value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required />
+          </div>
+          <div className="at-form-row">
+            <div className="at-form-field">
+              <label>Priority</label>
+              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+                {PRIORITY_OPTS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="at-form-field">
+            <label>Message *</label>
+            <textarea rows={5} placeholder="Describe the issue in detail..."
+              value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))} required />
+          </div>
+          <div className="at-modal-actions">
+            <button type="button" className="at-btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="at-btn-primary" disabled={saving}>
+              {saving ? <Loader size={14} className="at-spin" /> : 'Create Ticket'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ── Ticket Detail Panel ────────────────────────────────────────────────────
+const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }) => {
+  const [local, setLocal]     = useState(ticket);
+  const [reply, setReply]     = useState('');
+  const [sending, setSending] = useState(false);
+  const [saving, setSaving]   = useState(false);
+
+  useEffect(() => { setLocal(ticket); }, [ticket]);
+
+  const handleField = async (field, value) => {
+    try {
+      const updated = await updateAdminTicket(local.id, { [field]: value });
+      setLocal(updated.data);
+      onUpdated(updated.data);
+      toast.success('Updated');
+    } catch { toast.error('Update failed'); }
+  };
+
+  const handleSaveNotes = async () => {
+    setSaving(true);
+    try {
+      const updated = await updateAdminTicket(local.id, { adminNotes: local.adminNotes });
+      setLocal(updated.data);
+      onUpdated(updated.data);
+      toast.success('Notes saved');
+    } catch { toast.error('Failed to save notes'); }
+    finally { setSaving(false); }
+  };
+
+  const handleReply = async () => {
+    if (!reply.trim()) return;
+    setSending(true);
+    try {
+      const updated = await addAdminTicketReply(local.id, { message: reply.trim() });
+      setLocal(updated.data);
+      onUpdated(updated.data);
+      setReply('');
+      toast.success('Reply sent');
+    } catch { toast.error('Failed to send reply'); }
+    finally { setSending(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Delete this ticket? This cannot be undone.')) return;
+    try {
+      await deleteAdminTicket(local.id);
+      toast.success('Ticket deleted');
+      onDeleted(local.id);
+      onClose();
+    } catch { toast.error('Failed to delete ticket'); }
+  };
+
+  const responses = Array.isArray(local.responses) ? local.responses : [];
+
+  return (
+    <div className="at-detail">
+      {/* Header */}
+      <div className="at-detail-header">
+        <div className="at-detail-title-row">
+          <h3 className="at-detail-title">{local.subject}</h3>
+          <button className="at-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="at-detail-meta">
+          <span>{local.email}{local.name ? ` (${local.name})` : ''}</span>
+          <span>{fmtDate(local.createdAt)}</span>
+        </div>
+        <div className="at-detail-controls">
+          <div className="at-form-field at-inline-field">
+            <label>Status</label>
+            <select value={local.status} onChange={e => handleField('status', e.target.value)}>
+              {STATUS_OPTS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div className="at-form-field at-inline-field">
+            <label>Priority</label>
+            <select value={local.priority} onChange={e => handleField('priority', e.target.value)}>
+              {PRIORITY_OPTS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <button className="at-btn-delete" onClick={handleDelete} title="Delete ticket">
+            <Trash2 size={14} /> Delete
+          </button>
+        </div>
+      </div>
+
+      {/* Conversation thread */}
+      <div className="at-thread">
+        {/* Original message */}
+        <div className="at-msg at-msg--store">
+          <div className="at-msg-author">{local.name || local.email} <span className="at-msg-tag at-msg-tag--store">Store</span></div>
+          <div className="at-msg-body">{local.body}</div>
+          <div className="at-msg-date">{fmtDate(local.createdAt)}</div>
+        </div>
+
+        {/* Responses */}
+        {responses.map((r, i) => (
+          <div key={i} className={`at-msg ${r.byType === 'admin' ? 'at-msg--admin' : 'at-msg--store'}`}>
+            <div className="at-msg-author">
+              {r.by}
+              <span className={`at-msg-tag ${r.byType === 'admin' ? 'at-msg-tag--admin' : 'at-msg-tag--store'}`}>
+                {r.byType === 'admin' ? 'Support' : 'Store'}
+              </span>
+            </div>
+            <div className="at-msg-body">{r.message}</div>
+            <div className="at-msg-date">{fmtDate(r.date)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Reply input */}
+      {local.status !== 'closed' && (
+        <div className="at-reply-box">
+          <textarea
+            className="at-reply-input"
+            rows={3}
+            placeholder="Write a reply to the store..."
+            value={reply}
+            onChange={e => setReply(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleReply(); }}
+          />
+          <button className="at-btn-send" onClick={handleReply} disabled={sending || !reply.trim()}>
+            {sending ? <Loader size={14} className="at-spin" /> : <><Send size={14} /> Send Reply</>}
+          </button>
+        </div>
+      )}
+
+      {/* Admin notes (internal) */}
+      <div className="at-notes-box">
+        <label className="at-notes-label">📋 Internal Notes (not visible to store)</label>
+        <textarea
+          className="at-notes-input"
+          rows={3}
+          placeholder="Internal notes for the support team..."
+          value={local.adminNotes || ''}
+          onChange={e => setLocal(l => ({ ...l, adminNotes: e.target.value }))}
+        />
+        <button className="at-btn-secondary at-btn-sm" onClick={handleSaveNotes} disabled={saving}>
+          {saving ? <Loader size={12} className="at-spin" /> : 'Save Notes'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Page ──────────────────────────────────────────────────────────────
 const AdminTickets = () => {
-  const [tickets, setTickets] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [detail, setDetail] = useState(null);
-  const limit = 25;
+  const [tickets, setTickets]   = useState([]);
+  const [total, setTotal]       = useState(0);
+  const [loading, setLoading]   = useState(true);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch]     = useState('');
+  const [page, setPage]         = useState(1);
+  const [selected, setSelected] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const limit = 20;
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, limit };
-      if (filter) params.status = filter;
+      if (statusFilter) params.status = statusFilter;
+      if (search.trim()) params.search = search.trim();
       const res = await getAdminTickets(params);
       setTickets(res.data);
       setTotal(res.total);
     } catch { toast.error('Failed to load tickets'); }
     finally { setLoading(false); }
-  }, [page, filter]);
+  }, [page, statusFilter, search]);
 
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
 
-  const handleUpdateTicket = async (id, data) => {
-    try {
-      await updateAdminTicket(id, data);
-      toast.success('Ticket updated');
-      fetchTickets();
-      if (detail?.id === id) setDetail(d => ({ ...d, ...data }));
-    } catch { toast.error('Update failed'); }
+  const handleCreated = (ticket) => {
+    setTickets(prev => [ticket, ...prev]);
+    setTotal(t => t + 1);
+    setSelected(ticket);
+  };
+
+  const handleUpdated = (updated) => {
+    setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
+    if (selected?.id === updated.id) setSelected(updated);
+  };
+
+  const handleDeleted = (id) => {
+    setTickets(prev => prev.filter(t => t.id !== id));
+    setTotal(t => t - 1);
+    if (selected?.id === id) setSelected(null);
   };
 
   const totalPages = Math.ceil(total / limit);
@@ -46,100 +303,110 @@ const AdminTickets = () => {
     <div className="layout-container">
       <AdminSidebar />
       <main className="main-content admin-page">
+
+        {/* Page header */}
         <div className="admin-header">
           <div className="admin-header-left">
             <h1>Support Tickets</h1>
-            <p>Manage customer support requests</p>
+            <p>{total} ticket{total !== 1 ? 's' : ''} total</p>
           </div>
-        </div>
-
-        {/* Filter tabs */}
-        <div className="admin-tabs">
-          <button onClick={() => { setFilter(''); setPage(1); }}
-            className={`admin-tab${!filter ? ' active' : ''}`}>
-            All
+          <button className="at-btn-primary" onClick={() => setShowCreate(true)}>
+            <Plus size={15} /> New Ticket
           </button>
-          {STATUS_OPTS.map(s => (
-            <button key={s} onClick={() => { setFilter(s); setPage(1); }}
-              className={`admin-tab${filter === s ? ' active' : ''}`}>
-              {s.replace('_', ' ')}
-            </button>
-          ))}
         </div>
 
-        {loading ? (
-          <div className="admin-loading"><Loader className="animate-spin" size={20} /></div>
-        ) : tickets.length === 0 ? (
-          <div className="admin-empty"><span className="admin-empty-text">No tickets found</span></div>
-        ) : (
-          <div className="admin-card-list" style={{ gap: '0.5rem' }}>
-            {tickets.map(t => (
-              <div key={t.id} className="admin-ticket-card" onClick={() => setDetail(t)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div className="admin-ticket-subject">{t.subject}</div>
-                    <div className="admin-ticket-from">{t.email} {t.name && `(${t.name})`}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                    <span className={`admin-badge sm ${t.priority}`}>{t.priority}</span>
-                    <span className={`admin-badge sm ${t.status}`}>{t.status.replace('_', ' ')}</span>
-                  </div>
-                </div>
-                <div className="admin-ticket-date">{new Date(t.createdAt).toLocaleString()}</div>
-              </div>
+        {/* Toolbar */}
+        <div className="at-toolbar">
+          <div className="at-search-wrap">
+            <Search size={15} className="at-search-icon" />
+            <input
+              className="at-search-input"
+              placeholder="Search by subject or email…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
+          </div>
+          <div className="at-filter-tabs">
+            <button className={`at-filter-tab ${!statusFilter ? 'active' : ''}`}
+              onClick={() => { setStatusFilter(''); setPage(1); }}>All</button>
+            {STATUS_OPTS.map(s => (
+              <button key={s}
+                className={`at-filter-tab ${statusFilter === s ? 'active' : ''}`}
+                onClick={() => { setStatusFilter(s); setPage(1); }}>
+                {s.replace('_', ' ')}
+              </button>
             ))}
           </div>
-        )}
+        </div>
 
-        {totalPages > 1 && (
-          <div className="admin-pagination">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
-            <span className="page-info">Page {page} of {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
-          </div>
-        )}
+        {/* Split layout */}
+        <div className={`at-split ${selected ? 'at-split--open' : ''}`}>
 
-        {/* Detail modal */}
-        {detail && (
-          <div className="admin-modal-overlay" onClick={() => setDetail(null)}>
-            <div className="admin-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '550px' }}>
-              <div className="admin-modal-header">
-                <div className="admin-header-icon">
-                  <MessageSquare size={18} style={{ color: 'var(--accent-primary)' }} />
-                  <h2 className="admin-modal-title">Ticket Detail</h2>
-                </div>
-                <button onClick={() => setDetail(null)} className="admin-modal-close"><X size={18} /></button>
+          {/* Ticket list */}
+          <div className="at-list-col">
+            {loading ? (
+              <div className="at-loading"><Loader size={22} className="at-spin" /></div>
+            ) : tickets.length === 0 ? (
+              <div className="at-empty">
+                <AlertCircle size={32} />
+                <p>No tickets found</p>
               </div>
-              <div className="admin-modal-form">
-                <div style={{ fontSize: '0.85rem' }}><strong>Subject:</strong> {detail.subject}</div>
-                <div style={{ fontSize: '0.85rem' }}><strong>From:</strong> {detail.email} {detail.name && `(${detail.name})`}</div>
-                <div style={{ fontSize: '0.85rem' }}><strong>Date:</strong> {new Date(detail.createdAt).toLocaleString()}</div>
-                <div style={{ background: '#f9fafb', borderRadius: '8px', padding: '1rem', fontSize: '0.85rem', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{detail.body}</div>
-                <div className="admin-modal-row">
-                  <div className="admin-modal-field">
-                    <label>Status</label>
-                    <select value={detail.status} onChange={e => handleUpdateTicket(detail.id, { status: e.target.value })}>
-                      {STATUS_OPTS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                    </select>
+            ) : (
+              tickets.map(t => (
+                <div
+                  key={t.id}
+                  className={`at-ticket-row ${selected?.id === t.id ? 'at-ticket-row--active' : ''}`}
+                  onClick={() => setSelected(t)}
+                >
+                  <div className="at-ticket-row-top">
+                    <span className="at-ticket-subject">{t.subject}</span>
+                    <div className="at-ticket-badges">
+                      <span className={`at-badge ${PRIORITY_COLORS[t.priority]}`}>{t.priority}</span>
+                      <span className={`at-badge ${STATUS_COLORS[t.status]}`}>{t.status.replace('_', ' ')}</span>
+                    </div>
                   </div>
-                  <div className="admin-modal-field">
-                    <label>Priority</label>
-                    <select value={detail.priority} onChange={e => handleUpdateTicket(detail.id, { priority: e.target.value })}>
-                      {PRIORITY_OPTS.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
+                  <div className="at-ticket-from">{t.email}{t.name ? ` — ${t.name}` : ''}</div>
+                  <div className="at-ticket-date">{fmtDate(t.createdAt)}</div>
+                  {Array.isArray(t.responses) && t.responses.length > 0 && (
+                    <div className="at-ticket-replies">
+                      <MessageSquare size={11} /> {t.responses.length} repl{t.responses.length === 1 ? 'y' : 'ies'}
+                    </div>
+                  )}
                 </div>
-                <div className="admin-modal-field">
-                  <label>Admin Notes</label>
-                  <textarea value={detail.adminNotes || ''} onChange={e => setDetail(d => ({ ...d, adminNotes: e.target.value }))} rows={3} />
-                  <button onClick={() => handleUpdateTicket(detail.id, { adminNotes: detail.adminNotes })}
-                    className="admin-btn-primary" style={{ marginTop: '0.5rem' }}>
-                    Save Notes
-                  </button>
-                </div>
+              ))
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="at-pagination">
+                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  <ChevronLeft size={15} />
+                </button>
+                <span>{page} / {totalPages}</span>
+                <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                  <ChevronRight size={15} />
+                </button>
               </div>
-            </div>
+            )}
           </div>
+
+          {/* Detail panel */}
+          {selected && (
+            <DetailPanel
+              ticket={selected}
+              onClose={() => setSelected(null)}
+              onUpdated={handleUpdated}
+              onDeleted={handleDeleted}
+            />
+          )}
+        </div>
+
+        {/* Create modal */}
+        {showCreate && (
+          <CreateModal
+            onClose={() => setShowCreate(false)}
+            onCreated={handleCreated}
+          />
         )}
       </main>
     </div>

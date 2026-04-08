@@ -294,17 +294,69 @@ model MasterProduct {
   active              Boolean       @default(true)
   deleted             Boolean       @default(false)
 
+  // Simplified pack config (v2)
+  unitPack            Int?          // individual units in one sell unit (1=single, 6=6-pk, 12=12-pk)
+  packInCase          Int?          // sell units per vendor case (e.g. 4 means "4 × 6-packs per case")
+
+  // Simplified deposit (v2)
+  depositPerUnit      Decimal?      @db.Decimal(10, 4)  // flat per-unit deposit
+  caseDeposit         Decimal?      @db.Decimal(10, 4)  // total deposit for a full vendor case
+
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
   storeProducts       StoreProduct[]
+  upcs                ProductUpc[]
+  packSizes           ProductPackSize[]
 
-  @@unique([orgId, upc])
+  @@index([orgId, upc])
   @@index([orgId, deleted, active])
   @@index([orgId, departmentId])
   @@index([orgId, vendorId])
   @@index([orgId, name])
   @@map("master_products")
+}
+
+// ─────────────────────────────────────────────────
+// PRODUCT UPC  (multiple barcodes per product)
+// ─────────────────────────────────────────────────
+model ProductUpc {
+  id              String        @id @default(cuid())
+  orgId           String
+  masterProductId Int
+  upc             String
+  label           String?       // optional description e.g. "12-Pack box"
+  isDefault       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, upc])
+  @@index([orgId, masterProductId])
+  @@map("product_upcs")
+}
+
+// ─────────────────────────────────────────────────
+// PRODUCT PACK SIZE  (cashier picker at scan time)
+// ─────────────────────────────────────────────────
+model ProductPackSize {
+  id              String        @id @default(cuid())
+  orgId           String
+  masterProductId Int
+  label           String        // "Single", "6-Pack", "12-Pack"
+  unitCount       Int           @default(1)   // individual units in this pack
+  packsPerCase    Int?                        // how many of this pack come in one vendor case
+  retailPrice     Decimal       @db.Decimal(10, 4)
+  costPrice       Decimal?      @db.Decimal(10, 4)
+  isDefault       Boolean       @default(false)
+  sortOrder       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, masterProductId])
+  @@map("product_pack_sizes")
 }
 
 // ─────────────────────────────────────────────────

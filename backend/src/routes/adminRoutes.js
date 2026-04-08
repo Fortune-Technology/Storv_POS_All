@@ -34,6 +34,9 @@ import {
   deleteCareerPosting,
   getSupportTickets,
   updateSupportTicket,
+  createSupportTicket,
+  deleteSupportTicket,
+  addAdminTicketReply,
   getSystemConfig,
   updateSystemConfig,
   getAnalyticsDashboard,
@@ -96,8 +99,11 @@ router.get('/careers/:id/applications',   getJobApplications);
 router.put('/applications/:id',           updateJobApplication);
 
 // Support tickets
-router.get('/tickets',            getSupportTickets);
-router.put('/tickets/:id',        updateSupportTicket);
+router.get('/tickets',              getSupportTickets);
+router.post('/tickets',             createSupportTicket);
+router.put('/tickets/:id',          updateSupportTicket);
+router.delete('/tickets/:id',       deleteSupportTicket);
+router.post('/tickets/:id/reply',   addAdminTicketReply);
 
 // System config
 router.get('/config',             getSystemConfig);

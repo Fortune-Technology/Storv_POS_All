@@ -20,15 +20,17 @@ import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
   getCatalogVendors, createCatalogVendor, updateCatalogVendor, deleteCatalogVendor,
-  getCatalogDepositRules,
   upsertStoreInventory,
   getCatalogPromotions, createCatalogPromotion, updateCatalogPromotion, deleteCatalogPromotion,
+  getProductUpcs, addProductUpc, deleteProductUpc,
+  getProductPackSizes, bulkReplaceProductPackSizes,
 } from '../services/api';
+import './ProductForm.css';
 import { toast } from 'react-toastify';
 import {
   ChevronLeft, Save, Package, Building2, Truck, X, Plus,
   Trash2, Settings, DollarSign, Info, Check, Tag, Percent,
-  Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle,
+  Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle, Barcode, Layers,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -665,71 +667,80 @@ const sectionTitle = {
 // Main ProductForm page
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 export default function ProductForm() {
-  const { id }   = useParams();
-  const navigate = useNavigate();
-  const isEdit   = Boolean(id);
-  const setup    = useSetupStatus();
+  const { id }    = useParams();
+  const navigate  = useNavigate();
+  const isEdit    = Boolean(id);
+  const setup     = useSetupStatus();
 
-  const [saving,         setSaving]         = useState(false);
-  const [loading,        setLoading]        = useState(isEdit);
-  const [departments,    setDepartments]    = useState([]);
-  const [vendors,        setVendors]        = useState([]);
-  const [depositRules,   setDepositRules]   = useState([]);
-  const [selectedStores, setSelectedStores] = useState(null);
-  const [showDeptMgr,    setShowDeptMgr]    = useState(false);
-  const [showVendMgr,    setShowVendMgr]    = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [loading,     setLoading]     = useState(isEdit);
+  const [departments, setDepartments] = useState([]);
+  const [vendors,     setVendors]     = useState([]);
+  const [showDeptMgr, setShowDeptMgr] = useState(false);
+  const [showVendMgr, setShowVendMgr] = useState(false);
 
-  // ── Deposit toggle ─────────────────────────────────────────────────────────
-  const [depositToggle, setDepositToggle] = useState(false);
+  // ── Pack Configuration ───────────────────────────────────────────────────────
+  const [packEnabled, setPackEnabled] = useState(false);
+  const [packRows,    setPackRows]    = useState([
+    { id: 'new-0', label: 'Single', unitPack: '1', packsPerCase: '', packPrice: '', isDefault: true },
+  ]);
 
-  // ── Deals state ────────────────────────────────────────────────────────────
-  const [deals,       setDeals]       = useState([]);   // existing/new deals
-  const [dealForm,    setDealForm]    = useState(null); // null=hidden, obj=editing
-  const [editDealIdx, setEditDealIdx] = useState(null); // index in deals[] being edited
+  // ── Bottle Deposit ───────────────────────────────────────────────────────────
+  const [depositEnabled, setDepositEnabled] = useState(false);
+  const [caseDeposit,    setCaseDeposit]    = useState('');
 
+  // ── Product UPCs ─────────────────────────────────────────────────────────────
+  const [upcs,        setUpcs]        = useState([]);
+  const [newUpc,      setNewUpc]      = useState('');
+  const [newUpcLabel, setNewUpcLabel] = useState('');
+  const [upcSaving,   setUpcSaving]   = useState(false);
+
+  // ── Deals ─────────────────────────────────────────────────────────────────────
+  const [deals,       setDeals]       = useState([]);
+  const [dealForm,    setDealForm]    = useState(null);
+  const [editDealIdx, setEditDealIdx] = useState(null);
+
+  // ── Core form ────────────────────────────────────────────────────────────────
   const blank = {
-    name:'', brand:'', upc:'', description:'',
-    departmentId:'', vendorId:'',
-    taxClass:'grocery', taxable:true,
-    sellUnit:'each', casePacks:1, sellUnitSize:1,
-    defaultCasePrice:'', defaultCostPrice:'', defaultRetailPrice:'',
-    containerType:'', containerVolumeOz:'', depositRuleId:'',
-    ebtEligible:false, ageRequired:'', discountEligible:true, byWeight:false, byUnit:true,
-    active:true,
-    size:'', sizeUnit:'oz',
+    name: '', brand: '', upc: '', description: '',
+    departmentId: '', vendorId: '', itemCode: '',
+    taxClass: 'grocery', taxable: true,
+    defaultCasePrice: '', defaultCostPrice: '', defaultRetailPrice: '',
+    ebtEligible: false, ageRequired: '', discountEligible: true,
+    byWeight: false, byUnit: true, active: true,
+    size: '', sizeUnit: 'oz',
   };
 
   const [form, setForm] = useState(blank);
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // ── Load support data ──────────────────────────────────────────────────────
+  // ── Load support data ────────────────────────────────────────────────────────
   const loadSupport = useCallback(async () => {
     try {
-      const [d, v, dep] = await Promise.all([
-        getCatalogDepartments(), getCatalogVendors(), getCatalogDepositRules(),
+      const [d, v] = await Promise.all([
+        getCatalogDepartments(), getCatalogVendors(),
       ]);
       setDepartments((d?.data || d) ?? []);
       setVendors((v?.data || v) ?? []);
-      setDepositRules((dep?.data || dep) ?? []);
     } catch { /* non-fatal */ }
   }, []);
 
   useEffect(() => { loadSupport(); }, []);
 
-  // ── Load existing product ──────────────────────────────────────────────────
+  // ── Load existing product ────────────────────────────────────────────────────
   useEffect(() => {
     if (!isEdit) return;
     (async () => {
       try {
-        const [res, promoRes] = await Promise.all([
+        const [res, promoRes, upcRes, sizeRes] = await Promise.all([
           getCatalogProduct(id),
           getCatalogPromotions({ masterProductId: id }).catch(() => null),
+          getProductUpcs(id).catch(() => ({ data: [] })),
+          getProductPackSizes(id).catch(() => ({ data: [] })),
         ]);
         const p = res?.data || res;
-        const cp  = p.casePacks    ?? p.innerPack    ?? 1;
-        const sus = p.sellUnitSize ?? p.unitsPerPack ?? 1;
-        const su  = p.sellUnit || (sus > 1 ? 'pack' : 'each');
         setForm({
           name:               p.name              ?? '',
           brand:              p.brand             ?? '',
@@ -737,17 +748,12 @@ export default function ProductForm() {
           description:        p.description       ?? '',
           departmentId:       p.departmentId      ?? '',
           vendorId:           p.vendorId          ?? '',
+          itemCode:           p.itemCode          ?? '',
           taxClass:           p.taxClass          ?? 'grocery',
           taxable:            p.taxable           ?? true,
-          sellUnit:           su,
-          casePacks:          cp,
-          sellUnitSize:       sus,
-          defaultCasePrice:   p.defaultCasePrice  != null ? Number(p.defaultCasePrice).toFixed(2)  : '',
-          defaultCostPrice:   p.defaultCostPrice  != null ? Number(p.defaultCostPrice).toFixed(2)  : '',
-          defaultRetailPrice: p.defaultRetailPrice!= null ? Number(p.defaultRetailPrice).toFixed(2): '',
-          containerType:      p.containerType     ?? '',
-          containerVolumeOz:  p.containerVolumeOz ?? '',
-          depositRuleId:      p.depositRuleId     ?? '',
+          defaultCasePrice:   p.defaultCasePrice  != null ? Number(p.defaultCasePrice).toFixed(2)   : '',
+          defaultCostPrice:   p.defaultCostPrice  != null ? Number(p.defaultCostPrice).toFixed(2)   : '',
+          defaultRetailPrice: p.defaultRetailPrice!= null ? Number(p.defaultRetailPrice).toFixed(2) : '',
           ebtEligible:        p.ebtEligible       ?? false,
           ageRequired:        p.ageRequired       ?? '',
           discountEligible:   p.discountEligible  ?? true,
@@ -757,12 +763,27 @@ export default function ProductForm() {
           size:               p.size              ?? '',
           sizeUnit:           p.sizeUnit          ?? 'oz',
         });
-        // Auto-enable deposit toggle if product already has deposit data
-        if (p.containerVolumeOz || p.containerType || p.depositRuleId) {
-          setDepositToggle(true);
+
+        if (p.caseDeposit) {
+          setDepositEnabled(true);
+          setCaseDeposit(Number(p.caseDeposit).toFixed(2));
         }
 
-        // Load existing promotions for this product
+        setUpcs(upcRes?.data ?? []);
+
+        const sizes = sizeRes?.data ?? [];
+        if (sizes.length > 0) {
+          setPackEnabled(true);
+          setPackRows(sizes.map(s => ({
+            id:          s.id,
+            label:       s.label ?? '',
+            unitPack:    String(s.unitCount ?? 1),
+            packsPerCase: s.packsPerCase ? String(s.packsPerCase) : '',
+            packPrice:   s.retailPrice != null ? Number(s.retailPrice).toFixed(2) : '',
+            isDefault:   s.isDefault ?? false,
+          })));
+        }
+
         const promoData = promoRes?.data || [];
         if (Array.isArray(promoData) && promoData.length) {
           setDeals(promoData.map(pr => ({
@@ -772,145 +793,130 @@ export default function ProductForm() {
             value:     pr.rebateAmount != null ? String(pr.rebateAmount) : '',
             minQty:    pr.minQtyPerMonth || 1,
             getQty:    1,
-            startDate: pr.startDate ? pr.startDate.slice(0,10) : '',
-            endDate:   pr.endDate   ? pr.endDate.slice(0,10)   : '',
+            startDate: pr.startDate ? pr.startDate.slice(0, 10) : '',
+            endDate:   pr.endDate   ? pr.endDate.slice(0, 10)   : '',
             active:    pr.active ?? true,
           })));
         }
       } catch { toast.error('Failed to load product'); }
-      finally { setLoading(false); }
+      finally  { setLoading(false); }
     })();
   }, [id]);
 
-  // ── Derived pack values ────────────────────────────────────────────────────
-  const casePacks    = parseInt(form.casePacks)    || 1;
-  const sellUnitSize = parseInt(form.sellUnitSize) || 1;
-  const totalUnitsPerCase = casePacks * sellUnitSize;
-  const sellUnitsPerCase  = casePacks;
+  // ── Derived pricing ──────────────────────────────────────────────────────────
+  const caseCostVal  = parseFloat(form.defaultCasePrice)   || null;
+  const unitCostVal  = parseFloat(form.defaultCostPrice)   || null;
+  const retailVal    = parseFloat(form.defaultRetailPrice) || null;
+  const margin       = calcMargin(unitCostVal, retailVal);
+  const mColor       = marginColor(margin);
+  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
+  const priceWarning = unitCostVal && retailVal && retailVal < unitCostVal ? 'Retail price is below cost' : null;
 
-  const sellUnitLabel =
-    form.sellUnit === 'case' ? `${sellUnitSize}-pk case` :
-    form.sellUnit === 'pack' ? `${sellUnitSize}-pk` :
-    'each';
-
-  // ── Pricing derived values ─────────────────────────────────────────────────
-  const caseCost    = parseFloat(form.defaultCasePrice)  || null;
-  const unitCost    = parseFloat(form.defaultCostPrice)  || null;
-  const retailPrice = parseFloat(form.defaultRetailPrice)|| null;
-
-  const handleCaseCostChange = (val) => {
-    setF('defaultCasePrice', val);
-    const cc = parseFloat(val);
-    if (cc > 0 && sellUnitsPerCase > 0) {
-      setF('defaultCostPrice', (cc / sellUnitsPerCase).toFixed(2));
-    }
-  };
-
-  const applyMargin = (pct) => {
-    const cost = unitCost;
-    if (!cost) { toast.error('Enter cost price first'); return; }
-    setF('defaultRetailPrice', (cost / (1 - pct / 100)).toFixed(2));
-  };
-
-  const margin = calcMargin(unitCost, retailPrice);
-  const mColor = marginColor(margin);
-
-  // ── Deposit auto-match ─────────────────────────────────────────────────────
-  const volOz = parseFloat(form.containerVolumeOz) || null;
-  const matchedDepositRule = volOz
-    ? depositRules.find(r =>
-        (!r.minVolumeOz || volOz >= r.minVolumeOz) &&
-        (!r.maxVolumeOz || volOz <  r.maxVolumeOz)
-      )
-    : form.depositRuleId
-      ? depositRules.find(r => r.id === parseInt(form.depositRuleId))
-      : null;
-
-  const depositPerUnit     = matchedDepositRule ? parseFloat(matchedDepositRule.depositAmount) : null;
-  const depositPerSellUnit = depositPerUnit != null ? depositPerUnit * sellUnitSize  : null;
-  const depositPerCase     = depositPerUnit != null ? depositPerUnit * totalUnitsPerCase : null;
-
-  // ── Dept auto-fill ─────────────────────────────────────────────────────────
+  // ── Dept auto-fill ───────────────────────────────────────────────────────────
   const handleDeptChange = (deptId) => {
     setF('departmentId', deptId);
     const dept = departments.find(d => d.id === parseInt(deptId));
     if (dept) {
-      if (dept.taxClass)   setF('taxClass',   dept.taxClass);
-      if (dept.ebtEligible)setF('ebtEligible',true);
-      if (dept.ageRequired)setF('ageRequired', String(dept.ageRequired));
+      if (dept.taxClass)    setF('taxClass',    dept.taxClass);
+      if (dept.ebtEligible) setF('ebtEligible', true);
+      if (dept.ageRequired) setF('ageRequired', String(dept.ageRequired));
     }
   };
 
-  // ── Deal handlers ──────────────────────────────────────────────────────────
+  // ── Pack row handlers ────────────────────────────────────────────────────────
+  const addPackRow = () => {
+    const newId = 'new-' + Date.now();
+    setPackRows(rows => [...rows, { id: newId, label: '', unitPack: '1', packsPerCase: '', packPrice: '', isDefault: false }]);
+  };
+
+  const updatePackRow = (idx, field, value) => {
+    setPackRows(rows => rows.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  };
+
+  const removePackRow = (idx) => {
+    setPackRows(rows => {
+      const next = rows.filter((_, i) => i !== idx);
+      if (next.length > 0 && !next.some(r => r.isDefault)) next[0] = { ...next[0], isDefault: true };
+      return next;
+    });
+  };
+
+  const setPackDefault = (idx) => {
+    setPackRows(rows => rows.map((r, i) => ({ ...r, isDefault: i === idx })));
+  };
+
+  // ── Deal handlers ────────────────────────────────────────────────────────────
   const openDealForm = (idx) => {
-    if (idx === null) {
-      setDealForm({ ...DEAL_BLANK });
-      setEditDealIdx(null);
-    } else {
-      setDealForm({ ...deals[idx] });
-      setEditDealIdx(idx);
-    }
+    if (idx === null) { setDealForm({ ...DEAL_BLANK }); setEditDealIdx(null); }
+    else { setDealForm({ ...deals[idx] }); setEditDealIdx(idx); }
   };
 
   const saveDealLocal = () => {
-    if (!dealForm.value && dealForm.type !== 'bogo') {
-      toast.error('Enter a deal value'); return;
-    }
-    if (editDealIdx !== null) {
-      setDeals(ds => ds.map((d, i) => i === editDealIdx ? { ...dealForm } : d));
-    } else {
-      setDeals(ds => [...ds, { ...dealForm }]);
-    }
-    setDealForm(null);
-    setEditDealIdx(null);
+    if (!dealForm.value && dealForm.type !== 'bogo') { toast.error('Enter a deal value'); return; }
+    if (editDealIdx !== null) setDeals(ds => ds.map((d, i) => i === editDealIdx ? { ...dealForm } : d));
+    else setDeals(ds => [...ds, { ...dealForm }]);
+    setDealForm(null); setEditDealIdx(null);
   };
 
-  const removeDeal = (idx) => {
-    setDeals(ds => ds.filter((_, i) => i !== idx));
+  const removeDeal = (idx) => setDeals(ds => ds.filter((_, i) => i !== idx));
+
+  // ── UPC handlers ─────────────────────────────────────────────────────────────
+  const handleAddUpc = async () => {
+    if (!newUpc.trim()) return;
+    if (!isEdit) { toast.error('Save the product first before adding extra UPCs'); return; }
+    setUpcSaving(true);
+    try {
+      const res = await addProductUpc(id, { upc: newUpc.trim(), label: newUpcLabel.trim() || null, isDefault: upcs.length === 0 });
+      setUpcs(u => [...u, res.data]);
+      setNewUpc(''); setNewUpcLabel('');
+      toast.success('UPC added');
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed to add UPC'); }
+    finally { setUpcSaving(false); }
   };
 
-  // ── Validation ────────────────────────────────────────────────────────────
-  const upcWarning = form.upc && !isValidUPC(form.upc)
-    ? 'UPC should be 7–14 digits' : null;
-  const priceWarning = unitCost && retailPrice && retailPrice < unitCost
-    ? 'Retail price is below cost — negative margin' : null;
+  const handleDeleteUpc = async (upcId) => {
+    try {
+      await deleteProductUpc(id, upcId);
+      setUpcs(u => u.filter(x => x.id !== upcId));
+    } catch { toast.error('Failed to remove UPC'); }
+  };
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // ── Save ─────────────────────────────────────────────────────────────────────
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name.trim())     { toast.error('Product name is required'); return; }
-    if (!form.departmentId)    { toast.error('Department is required'); return; }
-    if (upcWarning)            { toast.error(upcWarning); return; }
+    if (!form.name.trim())  { toast.error('Product name is required'); return; }
+    if (!form.departmentId) { toast.error('Department is required');   return; }
+    if (upcWarning)         { toast.error(upcWarning);                 return; }
+
+    let derivedRetailPrice = form.defaultRetailPrice || null;
+    if (packEnabled && packRows.length > 0) {
+      const defaultRow = packRows.find(r => r.isDefault) || packRows[0];
+      if (defaultRow?.packPrice) derivedRetailPrice = defaultRow.packPrice;
+    }
+
     setSaving(true);
     try {
       const payload = {
         name:               form.name,
-        brand:              form.brand              || null,
-        upc:                form.upc               || null,
-        description:        form.description       || null,
-        departmentId:       form.departmentId      ? parseInt(form.departmentId) : null,
-        vendorId:           form.vendorId          ? parseInt(form.vendorId)     : null,
+        brand:              form.brand            || null,
+        upc:                form.upc              || null,
+        description:        form.description      || null,
+        departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
+        vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
+        itemCode:           form.itemCode         || null,
         taxClass:           form.taxClass,
         taxable:            form.taxable,
-        sellUnit:           form.sellUnit,
-        casePacks:          casePacks,
-        sellUnitSize:       sellUnitSize,
-        pack:               totalUnitsPerCase,
-        innerPack:          casePacks,
-        unitsPerPack:       sellUnitSize,
-        defaultCasePrice:   form.defaultCasePrice  || null,
-        defaultCostPrice:   form.defaultCostPrice  || null,
-        defaultRetailPrice: form.defaultRetailPrice|| null,
-        containerType:      form.containerType     || null,
-        containerVolumeOz:  form.containerVolumeOz ? parseFloat(form.containerVolumeOz) : null,
-        depositRuleId:      matchedDepositRule?.id  ?? (form.depositRuleId ? parseInt(form.depositRuleId) : null),
+        defaultCasePrice:   form.defaultCasePrice || null,
+        defaultCostPrice:   form.defaultCostPrice || null,
+        defaultRetailPrice: derivedRetailPrice    || null,
+        caseDeposit:        depositEnabled && caseDeposit ? parseFloat(caseDeposit) : null,
         ebtEligible:        form.ebtEligible,
-        ageRequired:        form.ageRequired       ? parseInt(form.ageRequired) : null,
+        ageRequired:        form.ageRequired      ? parseInt(form.ageRequired) : null,
         discountEligible:   form.discountEligible,
         byWeight:           form.byWeight,
         byUnit:             form.byUnit,
-        size:               form.size              || null,
-        sizeUnit:           form.sizeUnit          || null,
+        size:               form.size             || null,
+        sizeUnit:           form.sizeUnit         || null,
         active:             form.active,
       };
 
@@ -935,19 +941,32 @@ export default function ProductForm() {
         }
       }
 
-      // Save deals (non-fatal)
+      if (productId) {
+        const sizes = packEnabled
+          ? packRows.map((r, i) => ({
+              label:       r.label || `Pack ${i + 1}`,
+              unitCount:   parseInt(r.unitPack) || 1,
+              packsPerCase: r.packsPerCase ? parseInt(r.packsPerCase) : null,
+              retailPrice:  parseFloat(r.packPrice) || 0,
+              isDefault:   r.isDefault,
+              sortOrder:   i,
+            }))
+          : [];
+        await bulkReplaceProductPackSizes(productId, sizes).catch(() => {});
+      }
+
       if (productId && deals.length > 0) {
         const newDeals = deals.filter(d => !d.id);
         await Promise.all(newDeals.map(d =>
           createCatalogPromotion({
-            name:           d.name || `${DEAL_TYPES.find(t=>t.value===d.type)?.label} deal`,
+            name:            d.name || `${DEAL_TYPES.find(t => t.value === d.type)?.label} deal`,
             masterProductId: productId,
-            rebateType:     d.type,
-            rebateAmount:   parseFloat(d.value) || 0,
-            minQtyPerMonth: d.minQty || null,
-            startDate:      d.startDate || null,
-            endDate:        d.endDate   || null,
-            active:         d.active,
+            rebateType:      d.type,
+            rebateAmount:    parseFloat(d.value) || 0,
+            minQtyPerMonth:  d.minQty || null,
+            startDate:       d.startDate || null,
+            endDate:         d.endDate   || null,
+            active:          d.active,
           }).catch(() => {})
         ));
       }
@@ -958,10 +977,7 @@ export default function ProductForm() {
     } finally { setSaving(false); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
-
+  // ── Loading state ────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="layout-container">
@@ -974,7 +990,6 @@ export default function ProductForm() {
   }
 
   const selDept = departments.find(d => d.id === parseInt(form.departmentId));
-  const needsDeposit = depositToggle || selDept?.bottleDeposit || form.containerVolumeOz || form.containerType;
 
   return (
     <div className="layout-container">
@@ -995,9 +1010,7 @@ export default function ProductForm() {
               {isEdit ? 'Edit Product' : 'Add New Product'}
             </h1>
             <div style={{ display:'flex', gap:8 }}>
-              <button type="button" onClick={() => navigate('/portal/catalog')} style={btnSecondary}>
-                Cancel
-              </button>
+              <button type="button" onClick={() => navigate('/portal/catalog')} style={btnSecondary}>Cancel</button>
               <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity:saving?0.7:1 }}>
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>
@@ -1018,70 +1031,119 @@ export default function ProductForm() {
             {/* ══ LEFT COLUMN ══════════════════════════════════════════════════ */}
             <div>
 
-              {/* ── 1. Product Info ── */}
+              {/* ── 1. Product Info (2-col: product fields | vendor fields) ── */}
               <div style={card}>
                 <div style={sectionTitle}>Product Info</div>
+                <div className="pf-product-info-grid">
 
-                {/* Row 1: Name (full width) */}
-                <div style={{ marginBottom:'0.75rem' }}>
-                  <label style={lbl}>Product Name *</label>
-                  <input className="form-input" style={{ width:'100%', fontSize:'0.95rem', fontWeight:600 }}
-                    value={form.name} onChange={e => setF('name', e.target.value)}
-                    placeholder="e.g. Bud Light 12oz Can" required />
-                  {form.name.trim().length > 0 && form.name.trim().length < 3 && (
-                    <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                      <AlertCircle size={10} /> Name should be at least 3 characters
+                  {/* Left: Core product fields */}
+                  <div>
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <label style={lbl}>UPC / Barcode</label>
+                      <input className="form-input"
+                        style={{ width:'100%', fontFamily:'monospace', borderColor: upcWarning ? '#ef4444' : undefined }}
+                        value={form.upc} onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
+                        placeholder="012345678901" maxLength={14} />
+                      {upcWarning && (
+                        <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
+                          <AlertCircle size={10} /> {upcWarning}
+                        </div>
+                      )}
+                      {form.upc && isValidUPC(form.upc) && (
+                        <div style={{ fontSize:'0.7rem', color:'#10b981', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
+                          <Check size={10} /> {form.upc.length} digits
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Row 2: Brand + UPC */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem', marginBottom:'0.75rem' }}>
-                  <div>
-                    <label style={lbl}>Brand</label>
-                    <input className="form-input" style={{ width:'100%' }}
-                      value={form.brand} onChange={e => setF('brand', e.target.value)}
-                      placeholder="e.g. Anheuser-Busch" />
-                  </div>
-                  <div>
-                    <label style={lbl}>UPC / Barcode</label>
-                    <input className="form-input"
-                      style={{ width:'100%', fontFamily:'monospace', borderColor: upcWarning ? '#ef4444' : undefined }}
-                      value={form.upc} onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
-                      placeholder="012345678901" maxLength={14} />
-                    {upcWarning && (
-                      <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                        <AlertCircle size={10} /> {upcWarning}
-                      </div>
-                    )}
-                    {form.upc && isValidUPC(form.upc) && (
-                      <div style={{ fontSize:'0.7rem', color:'#10b981', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                        <Check size={10} /> {form.upc.length} digits
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <label style={lbl}>Product Name *</label>
+                      <input className="form-input" style={{ width:'100%', fontWeight:600 }}
+                        value={form.name} onChange={e => setF('name', e.target.value)}
+                        placeholder="e.g. Bud Light 12oz Can" required />
+                      {form.name.trim().length > 0 && form.name.trim().length < 3 && (
+                        <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
+                          <AlertCircle size={10} /> Name should be at least 3 characters
+                        </div>
+                      )}
+                    </div>
 
-                {/* Row 3: Size + Description */}
-                <div style={{ display:'grid', gridTemplateColumns:'180px 1fr', gap:'0.75rem' }}>
-                  <div>
-                    <label style={lbl}>Size</label>
-                    <div style={{ display:'flex', gap:5 }}>
-                      <input className="form-input" style={{ flex:1, minWidth:0 }}
-                        type="number" min="0" step="0.01"
-                        value={form.size} onChange={e => setF('size', e.target.value)} placeholder="12" />
-                      <select className="form-input" style={{ width:68 }}
-                        value={form.sizeUnit} onChange={e => setF('sizeUnit', e.target.value)}>
-                        {SIZE_UNITS.map(u => <option key={u}>{u}</option>)}
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
+                        <label style={{ ...lbl, marginBottom:0 }}>Department *</label>
+                        <button type="button" onClick={() => setShowDeptMgr(true)}
+                          style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
+                            cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
+                          <Settings size={10} /> Manage
+                        </button>
+                      </div>
+                      <select className="form-input" style={{ width:'100%' }}
+                        value={form.departmentId} onChange={e => handleDeptChange(e.target.value)}>
+                        <option value="">— No department —</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                      {selDept && (
+                        <div style={{ marginTop:4, display:'inline-flex', alignItems:'center', gap:5,
+                          padding:'2px 8px', borderRadius:4,
+                          background:(selDept.color||'#6366f1')+'20', color:selDept.color||'#6366f1' }}>
+                          <div style={{ width:7, height:7, borderRadius:'50%', background:selDept.color||'#6366f1' }} />
+                          <span style={{ fontSize:'0.72rem', fontWeight:600 }}>{selDept.name}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label style={lbl}>Tax Class</label>
+                      <select className="form-input" style={{ width:'100%' }}
+                        value={form.taxClass} onChange={e => setF('taxClass', e.target.value)}>
+                        {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label} — {t.note}</option>)}
                       </select>
                     </div>
                   </div>
+
+                  {/* Right: Vendor fields */}
                   <div>
-                    <label style={lbl}>Description</label>
-                    <textarea className="form-input" style={{ width:'100%', minHeight:40, resize:'vertical', lineHeight:1.4 }}
-                      value={form.description} onChange={e => setF('description', e.target.value)}
-                      placeholder="Short description for shelf tags / eComm" />
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
+                        <label style={{ ...lbl, marginBottom:0 }}>Vendor / Supplier</label>
+                        <button type="button" onClick={() => setShowVendMgr(true)}
+                          style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
+                            cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
+                          <Settings size={10} /> Manage
+                        </button>
+                      </div>
+                      <select className="form-input" style={{ width:'100%' }}
+                        value={form.vendorId} onChange={e => setF('vendorId', e.target.value)}>
+                        <option value="">— No vendor —</option>
+                        {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <label style={lbl}>Vendor Code / Item #</label>
+                      <input className="form-input" style={{ width:'100%', fontFamily:'monospace' }}
+                        value={form.itemCode} onChange={e => setF('itemCode', e.target.value)}
+                        placeholder="e.g. BL-12OZ-24" />
+                    </div>
+
+                    <div style={{ marginBottom:'0.875rem' }}>
+                      <label style={lbl}>Case Cost (invoice)</label>
+                      <div style={{ position:'relative' }}>
+                        <span style={dollarSign}>$</span>
+                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
+                          type="number" step="0.01" min="0"
+                          value={form.defaultCasePrice} placeholder="0.00"
+                          onChange={e => setF('defaultCasePrice', e.target.value)}
+                          onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
+                      </div>
+                    </div>
+
+                    <button type="button" onClick={() => setShowVendMgr(true)}
+                      style={{ ...btnSecondary, width:'100%', justifyContent:'center', fontSize:'0.78rem' }}>
+                      <Plus size={12} /> Add Vendor
+                    </button>
                   </div>
+
                 </div>
               </div>
 
@@ -1089,60 +1151,16 @@ export default function ProductForm() {
               <div style={card}>
                 <div style={sectionTitle}>Pricing</div>
 
-                {/* Case cost → unit cost calculator */}
-                <div style={{ background:'var(--bg-tertiary)', borderRadius:8, padding:'1rem', marginBottom:'1rem',
-                  border:'1px solid var(--border-color)' }}>
-                  <div style={{ fontSize:'0.68rem', fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', marginBottom:'0.75rem' }}>
-                    CASE COST CALCULATOR
-                  </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 24px 1fr 24px 1fr', alignItems:'center', gap:'0.5rem' }}>
-                    <div>
-                      <label style={lbl}>Case Cost (invoice)</label>
-                      <div style={{ position:'relative' }}>
-                        <span style={dollarSign}>$</span>
-                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
-                          type="number" step="0.01" min="0"
-                          value={form.defaultCasePrice}
-                          placeholder="0.00"
-                          onChange={e => handleCaseCostChange(e.target.value)}
-                          onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
-                      </div>
-                    </div>
-                    <div style={{ textAlign:'center', color:'var(--text-muted)', fontSize:'1rem', paddingTop:18 }}>÷</div>
-                    <div>
-                      <label style={lbl}>{sellUnitsPerCase} {sellUnitLabel}{sellUnitsPerCase>1?'s':''} / case</label>
-                      <input className="form-input" style={{ width:'100%', background:'var(--bg-secondary)',
-                        textAlign:'center', fontWeight:700, color:'var(--accent-primary)' }}
-                        value={sellUnitsPerCase} readOnly />
-                    </div>
-                    <div style={{ textAlign:'center', color:'var(--text-muted)', fontSize:'1rem', paddingTop:18 }}>=</div>
-                    <div>
-                      <label style={lbl}>Cost per {sellUnitLabel}</label>
-                      <div style={{ position:'relative' }}>
-                        <span style={dollarSign}>$</span>
-                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
-                          type="number" step="0.01" min="0"
-                          value={form.defaultCostPrice}
-                          placeholder="0.00"
-                          onChange={e => setF('defaultCostPrice', e.target.value)}
-                          onBlur={e => e.target.value && setF('defaultCostPrice', parseFloat(e.target.value).toFixed(2))} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Retail + margin */}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
                   <div>
-                    <label style={lbl}>Retail Price (per {sellUnitLabel})</label>
+                    <label style={lbl}>Retail Price</label>
                     <div style={{ position:'relative' }}>
                       <span style={dollarSign}>$</span>
                       <input className="form-input"
                         style={{ width:'100%', paddingLeft:22, fontSize:'1.05rem', fontWeight:700,
                           borderColor: priceWarning ? '#ef4444' : undefined }}
                         type="number" step="0.01" min="0"
-                        value={form.defaultRetailPrice}
-                        placeholder="0.00"
+                        value={form.defaultRetailPrice} placeholder="0.00"
                         onChange={e => setF('defaultRetailPrice', e.target.value)}
                         onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
@@ -1153,32 +1171,46 @@ export default function ProductForm() {
                     )}
                   </div>
                   <div>
-                    <label style={lbl}>Quick-set margin</label>
-                    <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                      {MARGIN_PRESETS.map(m => (
-                        <button key={m} type="button" onClick={() => applyMargin(m)}
-                          style={{ padding:'0.3rem 0.6rem', borderRadius:5, fontSize:'0.78rem', fontWeight:600, cursor:'pointer',
-                            border: Math.abs((margin||0)-m) < 0.5 ? 'none' : '1px solid var(--border-color)',
-                            background: Math.abs((margin||0)-m) < 0.5 ? mColor : 'var(--bg-tertiary)',
-                            color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)' }}>
-                          {m}%
-                        </button>
-                      ))}
+                    <label style={lbl}>Cost per unit</label>
+                    <div style={{ position:'relative' }}>
+                      <span style={dollarSign}>$</span>
+                      <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
+                        type="number" step="0.01" min="0"
+                        value={form.defaultCostPrice} placeholder="0.00"
+                        onChange={e => setF('defaultCostPrice', e.target.value)}
+                        onBlur={e => e.target.value && setF('defaultCostPrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
                 </div>
 
-                {/* Margin summary bar */}
-                {unitCost && retailPrice ? (
+                <div style={{ marginBottom:'0.875rem' }}>
+                  <label style={lbl}>Quick-set margin</label>
+                  <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                    {MARGIN_PRESETS.map(m => (
+                      <button key={m} type="button"
+                        onClick={() => {
+                          const cost = unitCostVal;
+                          if (!cost) { toast.error('Enter cost price first'); return; }
+                          setF('defaultRetailPrice', (cost / (1 - m / 100)).toFixed(2));
+                        }}
+                        style={{ padding:'0.3rem 0.6rem', borderRadius:5, fontSize:'0.78rem', fontWeight:600, cursor:'pointer',
+                          border: Math.abs((margin||0)-m) < 0.5 ? 'none' : '1px solid var(--border-color)',
+                          background: Math.abs((margin||0)-m) < 0.5 ? mColor : 'var(--bg-tertiary)',
+                          color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)' }}>
+                        {m}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {unitCostVal && retailVal ? (
                   <div style={{ display:'flex', gap:'1.5rem', padding:'0.75rem 1rem',
                     background:'var(--bg-tertiary)', borderRadius:8, flexWrap:'wrap', alignItems:'center' }}>
                     {[
-                      ['Cost / unit',   fmt$(unitCost)],
-                      ['Retail / unit', fmt$(retailPrice)],
+                      ['Cost / unit',   fmt$(unitCostVal)],
+                      ['Retail / unit', fmt$(retailVal)],
                       ['Margin',        margin != null ? fmtPct(margin) : '—'],
-                      ['Markup',        unitCost && retailPrice ? fmtPct((retailPrice-unitCost)/unitCost*100) : '—'],
-                      ...(caseCost ? [['Case cost', fmt$(caseCost)]] : []),
-                      ...(caseCost ? [['Case retail', fmt$(retailPrice * sellUnitsPerCase)]] : []),
+                      ...(caseCostVal ? [['Case cost', fmt$(caseCostVal)]] : []),
                     ].map(([label, val]) => (
                       <div key={label} style={{ textAlign:'center' }}>
                         <div style={{ fontSize:'0.62rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase' }}>{label}</div>
@@ -1187,7 +1219,7 @@ export default function ProductForm() {
                       </div>
                     ))}
                     {margin !== null && (
-                      <div style={{ marginLeft:'auto', display:'flex', alignItems:'center' }}>
+                      <div style={{ marginLeft:'auto' }}>
                         <span style={{ fontSize:'1.1rem', fontWeight:800, padding:'4px 12px', borderRadius:6,
                           background: mColor+'20', color: mColor }}>
                           {fmtPct(margin)} margin
@@ -1198,137 +1230,106 @@ export default function ProductForm() {
                 ) : (
                   <div style={{ padding:'0.75rem 1rem', background:'var(--bg-tertiary)', borderRadius:8,
                     color:'var(--text-muted)', fontSize:'0.8rem', display:'flex', alignItems:'center', gap:6 }}>
-                    <Info size={14} /> Enter case cost and retail price to see margin analysis
+                    <Info size={14} /> Enter cost and retail price to see margin analysis
                   </div>
                 )}
               </div>
 
               {/* ── 3. Pack Configuration ── */}
               <div style={card}>
-                <div style={sectionTitle}>Pack Configuration</div>
-
-                {/* Sell Unit Type */}
-                <div style={{ marginBottom:'1rem' }}>
-                  <label style={lbl}>What do you sell at the register?</label>
-                  <div style={{ display:'flex', gap:8 }}>
-                    {SELL_UNIT_TYPES.map(t => (
-                      <button key={t.value} type="button" onClick={() => {
-                          setF('sellUnit', t.value);
-                          if (t.value === 'case') setF('casePacks', 1);
-                          if (t.value === 'each') setF('sellUnitSize', 1);
-                        }}
-                        style={{ flex:1, padding:'0.65rem', borderRadius:8, cursor:'pointer', textAlign:'left',
-                          border: form.sellUnit===t.value ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
-                          background: form.sellUnit===t.value ? 'var(--accent-primary)0d' : 'var(--bg-tertiary)' }}>
-                        <div style={{ fontSize:'0.82rem', fontWeight:700,
-                          color: form.sellUnit===t.value ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
-                          {t.label}
-                        </div>
-                        <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', marginTop:2 }}>{t.desc}</div>
-                      </button>
-                    ))}
-                  </div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                  marginBottom: packEnabled ? '1rem' : 0 }}>
+                  <div style={sectionTitle}>Pack Configuration</div>
+                  <Tog value={packEnabled} onChange={v => setPackEnabled(v)} />
                 </div>
 
-                {/* Pack size (pack/case only) */}
-                {(form.sellUnit === 'pack' || form.sellUnit === 'case') && (
-                  <div style={{ marginBottom:'1rem' }}>
-                    <label style={lbl}>
-                      {form.sellUnit === 'pack' ? 'Units per pack (cans/bottles per pack sold)' : 'Units in the case you sell'}
-                    </label>
-                    <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                      {[4,6,8,12,18,24].map(n => (
-                        <button key={n} type="button" onClick={() => setF('sellUnitSize', n)}
-                          style={{ padding:'0.3rem 0.75rem', borderRadius:6, fontSize:'0.82rem', fontWeight:600, cursor:'pointer',
-                            border: sellUnitSize===n ? 'none' : '1px solid var(--border-color)',
-                            background: sellUnitSize===n ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                            color: sellUnitSize===n ? '#fff' : 'var(--text-secondary)' }}>
-                          {n}
-                        </button>
-                      ))}
-                      <input className="form-input" type="number" min="1"
-                        style={{ width:75 }} placeholder="Custom"
-                        value={![4,6,8,12,18,24].includes(sellUnitSize) ? sellUnitSize : ''}
-                        onChange={e => setF('sellUnitSize', parseInt(e.target.value)||1)} />
-                    </div>
+                {!packEnabled && (
+                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                    Enable to sell this product in multiple sizes (Single, 6‑Pack, 12‑Pack…).
+                    Cashier sees a picker modal when multiple sizes are configured.
                   </div>
                 )}
 
-                {/* Qty per case */}
-                {form.sellUnit !== 'case' && (
-                  <div style={{ marginBottom:'1rem' }}>
-                    <label style={lbl}>
-                      How many {sellUnitLabel}s come in a vendor case?
-                    </label>
-                    <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
-                      {[2,4,6,12,15,24].map(n => (
-                        <button key={n} type="button" onClick={() => setF('casePacks', n)}
-                          style={{ padding:'0.3rem 0.75rem', borderRadius:6, fontSize:'0.82rem', fontWeight:600, cursor:'pointer',
-                            border: casePacks===n ? 'none' : '1px solid var(--border-color)',
-                            background: casePacks===n ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                            color: casePacks===n ? '#fff' : 'var(--text-secondary)' }}>
-                          {n}
-                        </button>
-                      ))}
-                      <input className="form-input" type="number" min="1"
-                        style={{ width:75 }} placeholder="Custom"
-                        value={![2,4,6,12,15,24].includes(casePacks) ? casePacks : ''}
-                        onChange={e => setF('casePacks', parseInt(e.target.value)||1)} />
+                {packEnabled && (
+                  <>
+                    {/* Table header */}
+                    <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
+                      <span>Label</span>
+                      <span>Unit Pack</span>
+                      <span>Packs / Case</span>
+                      <span>Pack Price</span>
+                      <span>Margin</span>
+                      {depositEnabled && <span>Deposit</span>}
+                      <span>Def.</span>
+                      <span></span>
                     </div>
-                  </div>
-                )}
 
-                {/* Quick presets */}
-                <div style={{ marginBottom:'1rem' }}>
-                  <label style={lbl}>Quick presets</label>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {PACK_PRESETS.map(p => {
-                      const isActive = form.sellUnit===p.sellUnit && casePacks===p.casePacks && sellUnitSize===p.sellUnitSize;
+                    {/* Pack rows */}
+                    {packRows.map((row, idx) => {
+                      const ppc        = parseInt(row.packsPerCase) || null;
+                      const pp         = parseFloat(row.packPrice)  || null;
+                      const unitCost   = caseCostVal && ppc ? caseCostVal / ppc : null;
+                      const rowMargin  = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
+                      const rowDeposit = depositEnabled && caseDeposit && ppc
+                        ? parseFloat(caseDeposit) / ppc : null;
                       return (
-                        <button key={p.id} type="button"
-                          onClick={() => {
-                            setF('sellUnit', p.sellUnit);
-                            setF('casePacks', p.casePacks);
-                            setF('sellUnitSize', p.sellUnitSize);
-                          }}
-                          title={p.desc}
-                          style={{ padding:'0.3rem 0.7rem', borderRadius:6, fontSize:'0.75rem', fontWeight:600, cursor:'pointer',
-                            border: isActive ? 'none' : '1px solid var(--border-color)',
-                            background: isActive ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                            color: isActive ? '#fff' : 'var(--text-secondary)' }}>
-                          {p.label}
-                        </button>
+                        <div key={row.id} className={`pf-pack-row${depositEnabled ? ' with-deposit' : ''}`}>
+                          <input className="form-input pf-pack-input"
+                            placeholder='e.g. "Single"'
+                            value={row.label}
+                            onChange={e => updatePackRow(idx, 'label', e.target.value)} />
+                          <input className="form-input pf-pack-input" type="number" min="1"
+                            placeholder="1"
+                            value={row.unitPack}
+                            onChange={e => updatePackRow(idx, 'unitPack', e.target.value)} />
+                          <input className="form-input pf-pack-input" type="number" min="1"
+                            placeholder="—"
+                            value={row.packsPerCase}
+                            onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)} />
+                          <div style={{ position:'relative' }}>
+                            <span style={dollarSign}>$</span>
+                            <input className="form-input pf-pack-input" type="number" step="0.01" min="0"
+                              style={{ paddingLeft:22 }}
+                              placeholder="0.00"
+                              value={row.packPrice}
+                              onChange={e => updatePackRow(idx, 'packPrice', e.target.value)} />
+                          </div>
+                          <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
+                            {rowMargin != null ? fmtPct(rowMargin) : '—'}
+                          </div>
+                          {depositEnabled && (
+                            <div className="pf-pack-deposit-cell">
+                              {rowDeposit != null ? `$${rowDeposit.toFixed(2)}` : '—'}
+                            </div>
+                          )}
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <input type="radio"
+                              checked={row.isDefault}
+                              onChange={() => setPackDefault(idx)}
+                              title="Set as default" />
+                          </div>
+                          <button type="button" className="pf-pack-delete-btn"
+                            onClick={() => removePackRow(idx)}
+                            disabled={packRows.length === 1}
+                            title="Remove">
+                            <X size={13} />
+                          </button>
+                        </div>
                       );
                     })}
-                  </div>
-                </div>
 
-                {/* Case summary pill */}
-                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'0.65rem 0.875rem',
-                  background:'var(--accent-primary)0d', borderRadius:8, border:'1px solid var(--accent-primary)30' }}>
-                  <Package size={15} color="var(--accent-primary)" />
-                  <div>
-                    <span style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--accent-primary)' }}>
-                      {form.sellUnit === 'each'
-                        ? `${casePacks} individual units per case`
-                        : form.sellUnit === 'pack'
-                        ? `${casePacks} × ${sellUnitSize}-pack per case = ${totalUnitsPerCase} units total`
-                        : `${sellUnitSize}-unit case sold as one item`}
-                    </span>
-                    <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', marginTop:1 }}>
-                      You sell <strong>{sellUnitLabel}</strong> at the register
-                      {' · '}Case contains {totalUnitsPerCase} unit{totalUnitsPerCase>1?'s':''}
-                    </div>
-                  </div>
-                </div>
+                    <button type="button" className="pf-pack-add-btn" onClick={addPackRow}>
+                      <Plus size={13} /> Add Pack Size
+                    </button>
 
-                {/* Animated Pack Visualization */}
-                <PackVisual
-                  sellUnit={form.sellUnit}
-                  sellUnitSize={sellUnitSize}
-                  casePacks={casePacks}
-                  depositPerUnit={depositPerUnit}
-                />
+                    {packRows.length > 0 && (
+                      <p style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:'0.5rem',
+                        display:'flex', alignItems:'center', gap:4, marginBottom:0 }}>
+                        <Info size={11} /> {packRows.length} size{packRows.length > 1 ? 's' : ''} configured — cashier sees a picker modal on scan
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* ── 4. Store Deals & Offers ── */}
@@ -1365,17 +1366,15 @@ export default function ProductForm() {
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                               <span style={{ fontSize:'0.72rem', fontWeight:800, padding:'1px 6px', borderRadius:3,
-                                background: dt.color+'22', color: dt.color }}>
-                                {dt.label}
-                              </span>
-                              {deal.name && <span style={{ fontSize:'0.8rem', fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{deal.name}</span>}
+                                background: dt.color+'22', color: dt.color }}>{dt.label}</span>
+                              {deal.name && <span style={{ fontSize:'0.8rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{deal.name}</span>}
                             </div>
                             <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:2 }}>
-                              {deal.type === 'percent_off'  && `${deal.value}% off`}
-                              {deal.type === 'amount_off'   && `$${deal.value} off`}
-                              {deal.type === 'fixed_price'  && `Sale: $${deal.value}`}
-                              {deal.type === 'multi_buy'    && `${deal.minQty} for $${deal.value}`}
-                              {deal.type === 'bogo'         && `Buy ${deal.minQty} get ${deal.getQty} free`}
+                              {deal.type === 'percent_off' && `${deal.value}% off`}
+                              {deal.type === 'amount_off'  && `$${deal.value} off`}
+                              {deal.type === 'fixed_price' && `Sale: $${deal.value}`}
+                              {deal.type === 'multi_buy'   && `${deal.minQty} for $${deal.value}`}
+                              {deal.type === 'bogo'        && `Buy ${deal.minQty} get ${deal.getQty} free`}
                               {deal.startDate && ` · from ${deal.startDate}`}
                               {deal.endDate   && ` to ${deal.endDate}`}
                             </div>
@@ -1407,14 +1406,11 @@ export default function ProductForm() {
                   </div>
                 )}
 
-                {/* Inline deal form */}
                 {dealForm !== null && (
-                  <div style={{ padding:'1rem', borderRadius:8, background:'var(--bg-tertiary)', border:'1px solid var(--border-color)', marginTop: deals.length ? 0 : 0 }}>
+                  <div style={{ padding:'1rem', borderRadius:8, background:'var(--bg-tertiary)', border:'1px solid var(--border-color)' }}>
                     <div style={{ fontSize:'0.7rem', fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', marginBottom:'0.75rem' }}>
                       {editDealIdx !== null ? 'EDIT DEAL' : 'NEW DEAL'}
                     </div>
-
-                    {/* Deal type selector */}
                     <div style={{ marginBottom:'0.75rem' }}>
                       <label style={lbl}>Deal Type</label>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
@@ -1429,18 +1425,14 @@ export default function ProductForm() {
                                 borderRadius:6, fontSize:'0.75rem', fontWeight:700, cursor:'pointer',
                                 border: active ? 'none' : '1px solid var(--border-color)',
                                 background: active ? dt.color : 'var(--bg-secondary)',
-                                color: active ? '#fff' : 'var(--text-secondary)',
-                                transition:'all .12s',
-                              }}>
+                                color: active ? '#fff' : 'var(--text-secondary)', transition:'all .12s' }}>
                               <Icon size={11} /> {dt.label}
                             </button>
                           );
                         })}
                       </div>
                     </div>
-
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.75rem' }}>
-                      {/* Deal name */}
                       <div style={{ gridColumn:'span 2' }}>
                         <label style={lbl}>Deal Label (shelf tag)</label>
                         <input className="form-input" style={{ width:'100%' }}
@@ -1453,8 +1445,6 @@ export default function ProductForm() {
                             'e.g. Weekend Special'
                           } />
                       </div>
-
-                      {/* Value */}
                       {dealForm.type !== 'bogo' && (
                         <div>
                           <label style={lbl}>
@@ -1478,8 +1468,6 @@ export default function ProductForm() {
                           </div>
                         </div>
                       )}
-
-                      {/* Min qty / buy qty */}
                       <div>
                         <label style={lbl}>
                           {dealForm.type === 'multi_buy' ? 'Buy qty (e.g. 2)' :
@@ -1490,8 +1478,6 @@ export default function ProductForm() {
                           value={dealForm.minQty}
                           onChange={e => setDealForm(f => ({ ...f, minQty: parseInt(e.target.value)||1 }))} />
                       </div>
-
-                      {/* Get qty (BOGO) */}
                       {dealForm.type === 'bogo' && (
                         <div>
                           <label style={lbl}>Get qty (free)</label>
@@ -1501,30 +1487,23 @@ export default function ProductForm() {
                             onChange={e => setDealForm(f => ({ ...f, getQty: parseInt(e.target.value)||1 }))} />
                         </div>
                       )}
-
-                      {/* Dates */}
                       <div>
                         <label style={lbl}>Start Date</label>
-                        <input className="form-input" style={{ width:'100%' }}
-                          type="date"
+                        <input className="form-input" style={{ width:'100%' }} type="date"
                           value={dealForm.startDate}
                           onChange={e => setDealForm(f => ({ ...f, startDate: e.target.value }))} />
                       </div>
                       <div>
                         <label style={lbl}>End Date</label>
-                        <input className="form-input" style={{ width:'100%' }}
-                          type="date"
+                        <input className="form-input" style={{ width:'100%' }} type="date"
                           value={dealForm.endDate}
                           onChange={e => setDealForm(f => ({ ...f, endDate: e.target.value }))} />
                       </div>
                     </div>
-
-                    {/* Active */}
                     <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'0.875rem' }}>
                       <Tog value={dealForm.active} onChange={v => setDealForm(f => ({ ...f, active: v }))} />
                       <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>Deal is active</span>
                     </div>
-
                     <div style={{ display:'flex', gap:8 }}>
                       <button type="button" onClick={saveDealLocal} style={{ ...btnPrimary, padding:'0.45rem 1rem' }}>
                         <Check size={13} /> {editDealIdx !== null ? 'Update Deal' : 'Add Deal'}
@@ -1538,116 +1517,51 @@ export default function ProductForm() {
                 )}
               </div>
 
-              {/* ── 5. Container & Bottle Deposit ── */}
-              <div style={card}>
-                {/* Section header with ON/OFF toggle */}
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: needsDeposit ? '0.875rem' : 0 }}>
-                  <div style={sectionTitle}>Container &amp; Bottle Deposit</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !depositToggle;
-                      setDepositToggle(next);
-                      // Clear deposit fields when toggling off (unless dept forces it)
-                      if (!next && !selDept?.bottleDeposit) {
-                        setF('containerType', '');
-                        setF('containerVolumeOz', '');
-                        setF('depositRuleId', '');
-                      }
-                    }}
-                    style={{
-                      display:'flex', alignItems:'center', gap:6,
-                      padding:'0.3rem 0.875rem', borderRadius:20, border:'none',
-                      cursor:'pointer', fontSize:'0.75rem', fontWeight:700,
-                      background: needsDeposit ? '#06b6d415' : 'var(--bg-tertiary)',
-                      color: needsDeposit ? '#06b6d4' : 'var(--text-muted)',
-                      transition:'all 0.15s',
-                    }}
-                  >
-                    <span style={{ fontSize:'0.85rem' }}>{needsDeposit ? '💧' : '○'}</span>
-                    {needsDeposit ? 'Deposit ON' : 'No deposit'}
-                  </button>
+              {/* ── 5. Additional UPCs / Barcodes ── */}
+              <div className="pf-card">
+                <div className="pf-upc-header">
+                  <div className="pf-section-title" style={{ marginBottom: 0 }}>
+                    Additional UPCs / Barcodes
+                  </div>
+                  {!isEdit && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Save product first to add extra barcodes
+                    </span>
+                  )}
                 </div>
-
-                {needsDeposit ? (
-                  <>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
-                      <div>
-                        <label style={lbl}>Container Type</label>
-                        <select className="form-input" style={{ width:'100%' }}
-                          value={form.containerType}
-                          onChange={e => setF('containerType', e.target.value)}>
-                          <option value="">— Select —</option>
-                          {CONTAINER_TYPES.map(c => <option key={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={lbl}>Container Size (oz)</label>
-                        <div style={{ display:'flex', gap:5 }}>
-                          {[12, 16, 22, 24, 32, 40].map(n => (
-                            <button key={n} type="button"
-                              onClick={() => setF('containerVolumeOz', String(n))}
-                              style={{ flex:1, padding:'0.35rem 0', borderRadius:5, fontSize:'0.75rem', fontWeight:700, cursor:'pointer',
-                                border: parseFloat(form.containerVolumeOz)===n?'none':'1px solid var(--border-color)',
-                                background: parseFloat(form.containerVolumeOz)===n?'var(--accent-primary)':'var(--bg-tertiary)',
-                                color: parseFloat(form.containerVolumeOz)===n?'#fff':'var(--text-secondary)' }}>
-                              {n}
-                            </button>
-                          ))}
-                        </div>
-                        <input className="form-input" style={{ width:'100%', marginTop:5 }}
-                          type="number" step="0.5" min="0"
-                          value={form.containerVolumeOz} placeholder="Custom oz"
-                          onChange={e => setF('containerVolumeOz', e.target.value)} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Deposit Rule</label>
-                        <select className="form-input" style={{ width:'100%' }}
-                          value={form.depositRuleId}
-                          onChange={e => setF('depositRuleId', e.target.value)}>
-                          <option value="">Auto-match by volume</option>
-                          {depositRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    {depositPerUnit != null ? (
-                      <div style={{ display:'flex', gap:'1rem', padding:'0.75rem 1rem',
-                        background:'#06b6d415', borderRadius:8, border:'1px solid #06b6d430', flexWrap:'wrap' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                          <Check size={14} color="#06b6d4" />
-                          <span style={{ fontSize:'0.78rem', fontWeight:600, color:'#06b6d4' }}>
-                            {matchedDepositRule.name}
-                          </span>
-                        </div>
-                        {[
-                          [`Per unit`,            fmt$(depositPerUnit)],
-                          [`Per ${sellUnitLabel}`, fmt$(depositPerSellUnit)],
-                          [`Per case (${totalUnitsPerCase} units)`, fmt$(depositPerCase)],
-                        ].map(([label, val]) => (
-                          <div key={label} style={{ textAlign:'center' }}>
-                            <div style={{ fontSize:'0.62rem', color:'#06b6d4', fontWeight:600, textTransform:'uppercase' }}>{label}</div>
-                            <div style={{ fontSize:'0.9rem', fontWeight:700, color:'var(--text-primary)' }}>{val}</div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : volOz ? (
-                      <div style={{ padding:'0.6rem 0.875rem', background:'var(--bg-tertiary)', borderRadius:6,
-                        color:'var(--text-muted)', fontSize:'0.78rem' }}>
-                        No deposit rule matched for {volOz}oz — check deposit rules or select manually.
-                      </div>
-                    ) : (
-                      <div style={{ padding:'0.6rem 0.875rem', background:'var(--bg-tertiary)', borderRadius:6,
-                        color:'var(--text-muted)', fontSize:'0.78rem' }}>
-                        Select container type and enter size (oz) to auto-match a deposit rule.
-                      </div>
-                    )}
-                  </>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.5rem 0 0.75rem' }}>
+                  Add alternate UPCs so the same product is found no matter which barcode is scanned.
+                </p>
+                {upcs.length === 0 ? (
+                  <div className="pf-upc-empty">No extra barcodes yet</div>
                 ) : (
-                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
-                    Toggle <strong>Deposit ON</strong> if this product requires a bottle deposit (CRV, Maine 5¢, etc.).
-                    The deposit amount will appear in the pack visual above and be applied at checkout.
+                  <div className="pf-upc-list">
+                    {upcs.map(u => (
+                      <div key={u.id} className="pf-upc-row">
+                        <Barcode size={13} color="var(--text-muted)" />
+                        <span className="pf-upc-code">{u.upc}</span>
+                        {u.label && <span className="pf-upc-label-text">{u.label}</span>}
+                        {u.isDefault && <span className="pf-upc-default-badge">Default</span>}
+                        <button type="button" className="pf-upc-delete-btn"
+                          onClick={() => handleDeleteUpc(u.id)} title="Remove UPC">
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
+                <div className="pf-upc-add-row">
+                  <input className="form-input" placeholder="Barcode (digits)"
+                    value={newUpc} onChange={e => setNewUpc(e.target.value.replace(/\D/g, ''))}
+                    maxLength={14} style={{ fontFamily: 'monospace' }} />
+                  <input className="form-input" placeholder="Label (optional)"
+                    value={newUpcLabel} onChange={e => setNewUpcLabel(e.target.value)}
+                    style={{ flex: 0.7 }} />
+                  <button type="button" className="pf-btn-primary pf-btn-sm"
+                    onClick={handleAddUpc} disabled={!newUpc || upcSaving}>
+                    <Plus size={13} /> Add
+                  </button>
+                </div>
               </div>
 
             </div>{/* end left column */}
@@ -1655,73 +1569,72 @@ export default function ProductForm() {
             {/* ══ RIGHT SIDEBAR ═══════════════════════════════════════════════ */}
             <div style={{ position:'sticky', top:72, display:'flex', flexDirection:'column', gap:0 }}>
 
-              {/* Classification */}
+              {/* Bottle Deposit */}
               <div style={card}>
-                <div style={sectionTitle}>Classification</div>
-                <div style={{ marginBottom:'0.875rem' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
-                    <label style={{ ...lbl, marginBottom:0 }}>Department</label>
-                    <button type="button" onClick={() => setShowDeptMgr(true)}
-                      style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
-                        cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
-                      <Settings size={10} /> Manage
-                    </button>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                  marginBottom: depositEnabled ? '0.875rem' : 0 }}>
+                  <div style={sectionTitle}>Bottle Deposit</div>
+                  <Tog value={depositEnabled} onChange={v => setDepositEnabled(v)} />
+                </div>
+
+                {!depositEnabled && (
+                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                    Enable if this product has a bottle / can deposit (CRV, Maine 5¢, etc.)
                   </div>
-                  <select className="form-input" style={{ width:'100%' }}
-                    value={form.departmentId}
-                    onChange={e => handleDeptChange(e.target.value)}>
-                    <option value="">— No department —</option>
-                    {departments.map(d => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                  {selDept && (
-                    <div style={{ marginTop:5, display:'inline-flex', alignItems:'center', gap:5,
-                      padding:'2px 8px', borderRadius:4,
-                      background:(selDept.color||'#6366f1')+'20', color:selDept.color||'#6366f1' }}>
-                      <div style={{ width:7, height:7, borderRadius:'50%', background:selDept.color||'#6366f1' }} />
-                      <span style={{ fontSize:'0.72rem', fontWeight:600 }}>{selDept.name}</span>
+                )}
+
+                {depositEnabled && (
+                  <>
+                    <div style={{ marginBottom:'0.75rem' }}>
+                      <label style={lbl}>Case Deposit Total</label>
+                      <div style={{ position:'relative' }}>
+                        <span style={dollarSign}>$</span>
+                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
+                          type="number" step="0.01" min="0"
+                          value={caseDeposit}
+                          onChange={e => setCaseDeposit(e.target.value)}
+                          onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))}
+                          placeholder="e.g. 1.20" />
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                <div style={{ marginBottom:'0.875rem' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
-                    <label style={{ ...lbl, marginBottom:0 }}>Vendor / Supplier</label>
-                    <button type="button" onClick={() => setShowVendMgr(true)}
-                      style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
-                        cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
-                      <Settings size={10} /> Manage
-                    </button>
-                  </div>
-                  <select className="form-input" style={{ width:'100%' }}
-                    value={form.vendorId}
-                    onChange={e => setF('vendorId', e.target.value)}>
-                    <option value="">— No vendor —</option>
-                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
-                </div>
+                    {packEnabled && packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
+                      <div style={{ padding:'0.6rem 0.75rem', background:'#06b6d408', borderRadius:7,
+                        border:'1px solid #06b6d425', marginBottom:'0.5rem' }}>
+                        <div style={{ fontSize:'0.65rem', fontWeight:700, color:'#06b6d4',
+                          textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.4rem' }}>
+                          Per-Pack Deposit
+                        </div>
+                        {packRows.map((row, idx) => {
+                          const ppc = parseInt(row.packsPerCase) || null;
+                          const dep = ppc ? (parseFloat(caseDeposit) / ppc).toFixed(2) : null;
+                          return (
+                            <div key={idx} style={{ display:'flex', justifyContent:'space-between',
+                              fontSize:'0.78rem', color:'var(--text-secondary)', marginBottom:2 }}>
+                              <span>{row.label || `Pack ${idx + 1}`}</span>
+                              <span style={{ fontWeight:600 }}>
+                                {dep != null ? `$${dep}` : '— set Packs/Case'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
-                <div>
-                  <label style={lbl}>Tax Class</label>
-                  <select className="form-input" style={{ width:'100%' }}
-                    value={form.taxClass}
-                    onChange={e => setF('taxClass', e.target.value)}>
-                    {TAX_CLASSES.map(t => (
-                      <option key={t.value} value={t.value}>{t.label} — {t.note}</option>
-                    ))}
-                  </select>
-                </div>
+                    <p style={{ fontSize:'0.7rem', color:'var(--text-muted)', margin:0, lineHeight:1.4 }}>
+                      Deposit per pack = Case deposit ÷ Packs per case
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Compliance */}
               <div style={card}>
                 <div style={sectionTitle}>Compliance</div>
-
                 <div style={{ marginBottom:'0.875rem' }}>
                   <label style={lbl}>Age Verification</label>
                   <div style={{ display:'flex', gap:6 }}>
-                    {[['None',''],['18+','18'],['21+','21']].map(([label,val])=>(
+                    {[['None',''],['18+','18'],['21+','21']].map(([label,val]) => (
                       <button key={val} type="button" onClick={() => setF('ageRequired', val)}
                         style={{ flex:1, padding:'0.35rem', borderRadius:5, fontSize:'0.8rem', fontWeight:700, cursor:'pointer',
                           border: String(form.ageRequired)===val?'none':'1px solid var(--border-color)',
@@ -1732,14 +1645,12 @@ export default function ProductForm() {
                     ))}
                   </div>
                 </div>
-
                 {[
                   ['EBT / SNAP Eligible', 'ebtEligible'],
                   ['Discount Eligible',    'discountEligible'],
                   ['Sold by Weight',       'byWeight'],
                 ].map(([label, key]) => (
-                  <div key={key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                    marginBottom:'0.65rem' }}>
+                  <div key={key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.65rem' }}>
                     <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)', fontWeight:500 }}>{label}</span>
                     <Tog value={!!form[key]} onChange={v => setF(key, v)} />
                   </div>
@@ -1766,7 +1677,7 @@ export default function ProductForm() {
                 ) : setup.storeCount === 0 ? (
                   <div style={{ fontSize:'0.78rem', color:'var(--text-secondary)', lineHeight:1.5 }}>
                     <span style={{ display:'block', fontWeight:600, color:'#f59e0b', marginBottom:4 }}>No stores yet</span>
-                    Product saved in catalog. Once you add a store, it will be available there automatically.
+                    Product saved in catalog. Once you add a store it will be available there automatically.
                   </div>
                 ) : (
                   <div>
@@ -1781,9 +1692,7 @@ export default function ProductForm() {
                           style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px',
                             borderRadius:5, background:'#10b98115', border:'1px solid #10b98130' }}>
                           <Check size={11} color="#10b981" />
-                          <span style={{ fontSize:'0.75rem', fontWeight:500, color:'var(--text-primary)' }}>
-                            {store.name}
-                          </span>
+                          <span style={{ fontSize:'0.75rem', fontWeight:500, color:'var(--text-primary)' }}>{store.name}</span>
                         </div>
                       ))}
                     </div>
@@ -1818,19 +1727,18 @@ export default function ProductForm() {
                 style={{ ...btnPrimary, width:'100%', justifyContent:'center', opacity:saving?0.7:1 }}>
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>
-            </div>
+
+            </div>{/* end right sidebar */}
 
           </div>{/* end body grid */}
         </form>
       </main>
 
       {showDeptMgr && (
-        <DeptManager departments={departments} onClose={() => setShowDeptMgr(false)}
-          onRefresh={loadSupport} />
+        <DeptManager departments={departments} onClose={() => setShowDeptMgr(false)} onRefresh={loadSupport} />
       )}
       {showVendMgr && (
-        <VendorManager vendors={vendors} onClose={() => setShowVendMgr(false)}
-          onRefresh={loadSupport} />
+        <VendorManager vendors={vendors} onClose={() => setShowVendMgr(false)} onRefresh={loadSupport} />
       )}
     </div>
   );
