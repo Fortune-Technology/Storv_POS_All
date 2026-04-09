@@ -58,7 +58,7 @@
 | `backend/src/middleware/auth.js` | JWT `protect` + `authorize()` |
 | `backend/src/middleware/scopeToTenant.js` | `req.orgId`, `req.storeId` injection |
 | `backend/src/controllers/lotteryController.js` | Full lottery module logic |
-| `backend/src/controllers/posTerminalController.js` | Cashier app API (creates transactions, handles lottery items) |
+| `backend/src/controllers/posTerminalController.js` | Cashier app API (creates transactions, deducts stock on sale, handles lottery items). `listTransactions` supports: dateFrom/dateTo, cashierId, stationId, status, amountMin, amountMax; returns subtotal/taxTotal/depositTotal/ebtTotal |
 | `backend/src/controllers/feeMappingController.js` | Service fees and delivery charges |
 | `backend/src/controllers/catalogController.js` | Product catalog CRUD |
 | `backend/src/controllers/salesController.js` | Analytics + Holt-Winters predictions |
@@ -79,6 +79,8 @@
 | `frontend/src/pages/VendorPayouts.css` | Styles for VendorPayouts page (`vp-` prefix) |
 | `frontend/src/pages/QuickAccess.jsx` | Back-office quick folder config (folder + product management) |
 | `frontend/src/pages/QuickAccess.css` | Styles for QuickAccess page (`qa-` prefix) |
+| `frontend/src/pages/Transactions.jsx` | Full transaction browser — advanced filters, receipt modal, real-time refresh |
+| `frontend/src/pages/Transactions.css` | Styles for Transactions page (`txn-` prefix) — includes `@media print` receipt styles |
 
 ### Admin Panel (admin-app/)
 | File | Purpose |

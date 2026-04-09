@@ -20,7 +20,7 @@ import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
   getCatalogVendors, createCatalogVendor, updateCatalogVendor, deleteCatalogVendor,
-  upsertStoreInventory,
+  upsertStoreInventory, getStoreInventory,
   getCatalogPromotions, createCatalogPromotion, updateCatalogPromotion, deleteCatalogPromotion,
   getProductUpcs, addProductUpc, deleteProductUpc,
   getProductPackSizes, bulkReplaceProductPackSizes,
@@ -187,24 +187,24 @@ function DeptManager({ departments, onClose, onRefresh }) {
               <>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem' }}>
                   <div style={{ gridColumn:'span 2' }}>
-                    <label style={lbl}>Name *</label>
+                    <label className="pf-label">Name *</label>
                     <input className="form-input" style={{ width:'100%' }} value={form.name}
                       onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
                   </div>
                   <div>
-                    <label style={lbl}>Code</label>
+                    <label className="pf-label">Code</label>
                     <input className="form-input" style={{ width:'100%' }} value={form.code}
                       onChange={e=>setForm(f=>({...f,code:e.target.value.toUpperCase()}))} maxLength={8} />
                   </div>
                   <div>
-                    <label style={lbl}>Tax Class</label>
+                    <label className="pf-label">Tax Class</label>
                     <select className="form-input" style={{ width:'100%' }} value={form.taxClass}
                       onChange={e=>setForm(f=>({...f,taxClass:e.target.value}))}>
                       {TAX_CLASSES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={lbl}>Age Required</label>
+                    <label className="pf-label">Age Required</label>
                     <select className="form-input" style={{ width:'100%' }} value={form.ageRequired}
                       onChange={e=>setForm(f=>({...f,ageRequired:e.target.value}))}>
                       <option value="">None</option><option value="18">18+</option><option value="21">21+</option>
@@ -212,7 +212,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
                   </div>
                 </div>
                 <div style={{ marginTop:'0.75rem' }}>
-                  <label style={lbl}>Color</label>
+                  <label className="pf-label">Color</label>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
                     {DEPT_COLORS.map(c => (
                       <button key={c} type="button" onClick={()=>setForm(f=>({...f,color:c}))}
@@ -224,17 +224,16 @@ function DeptManager({ departments, onClose, onRefresh }) {
                 <div style={{ display:'flex', gap:'1.25rem', marginTop:'0.875rem' }}>
                   {[['EBT','ebtEligible'],['Bottle Deposit','bottleDeposit'],['Active','active']].map(([label,key])=>(
                     <div key={key}>
-                      <div style={lbl}>{label}</div>
+                      <div className="pf-label">{label}</div>
                       <Tog value={!!form[key]} onChange={v=>setForm(f=>({...f,[key]:v}))} />
                     </div>
                   ))}
                 </div>
                 <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
-                  <button onClick={save} disabled={saving}
-                    style={{ ...btnPrimary, padding:'0.45rem 1rem' }}>
+                  <button onClick={save} disabled={saving} className="pf-btn-primary pf-btn-sm">
                     {saving ? 'Saving…' : editing==='new' ? 'Add' : 'Save'}
                   </button>
-                  <button onClick={()=>setEditing(null)} style={{ ...btnSecondary, padding:'0.45rem 0.875rem' }}>Cancel</button>
+                  <button onClick={()=>setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
                 </div>
               </>
             ) : (
@@ -346,13 +345,13 @@ function VendorManager({ vendors, onClose, onRefresh }) {
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem' }}>
                   {[['Vendor Name *','name','span 2'],['Short Code','code',''],['Contact','contactName','']].map(([label,key,col])=>(
                     <div key={key} style={{ gridColumn: col||'span 1' }}>
-                      <label style={lbl}>{label}</label>
+                      <label className="pf-label">{label}</label>
                       <input className="form-input" style={{ width:'100%' }} value={form[key]??''}
                         onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} />
                     </div>
                   ))}
                   <div style={{ gridColumn:'span 1' }}>
-                    <label style={lbl}>Email</label>
+                    <label className="pf-label">Email</label>
                     <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.email ? 'var(--error)' : undefined }}
                       value={form.email??''}
                       onChange={e=>setForm(f=>({...f,email:e.target.value}))}
@@ -366,7 +365,7 @@ function VendorManager({ vendors, onClose, onRefresh }) {
                     {vendorErrors.email && <p style={{ color:'var(--error)', fontSize:'0.7rem', margin:'0.2rem 0 0' }}>{vendorErrors.email}</p>}
                   </div>
                   <div style={{ gridColumn:'span 1' }}>
-                    <label style={lbl}>Phone</label>
+                    <label className="pf-label">Phone</label>
                     <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.phone ? 'var(--error)' : undefined }}
                       value={form.phone??''}
                       onChange={e=>setForm(f=>({...f,phone:e.target.value}))}
@@ -381,20 +380,20 @@ function VendorManager({ vendors, onClose, onRefresh }) {
                   </div>
                   {[['Terms','terms','Net 30'],['Account #','accountNo','']].map(([label,key,col])=>(
                     <div key={key} style={{ gridColumn: col||'span 1' }}>
-                      <label style={lbl}>{label}</label>
+                      <label className="pf-label">{label}</label>
                       <input className="form-input" style={{ width:'100%' }} value={form[key]??''}
                         onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} />
                     </div>
                   ))}
                 </div>
                 <div style={{ marginTop:'0.875rem' }}>
-                  <div style={lbl}>Active</div><Tog value={form.active} onChange={v=>setForm(f=>({...f,active:v}))} />
+                  <div className="pf-label">Active</div><Tog value={form.active} onChange={v=>setForm(f=>({...f,active:v}))} />
                 </div>
                 <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
-                  <button onClick={save} disabled={saving} style={{ ...btnPrimary, padding:'0.45rem 1rem' }}>
+                  <button onClick={save} disabled={saving} className="pf-btn-primary pf-btn-sm">
                     {saving?'Saving…':editing==='new'?'Add':'Save'}
                   </button>
-                  <button onClick={()=>setEditing(null)} style={{ ...btnSecondary, padding:'0.45rem 0.875rem' }}>Cancel</button>
+                  <button onClick={()=>setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
                 </div>
               </>
             ) : (
@@ -633,35 +632,8 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared micro-styles
+// Shared micro-styles — moved to ProductForm.css (pf-label, pf-card, etc.)
 // ─────────────────────────────────────────────────────────────────────────────
-
-const lbl = {
-  display:'block', fontSize:'0.72rem', fontWeight:600,
-  color:'var(--text-secondary)', marginBottom:'0.3rem',
-};
-
-const card = {
-  background:'var(--bg-secondary)', border:'1px solid var(--border-color)',
-  borderRadius:10, padding:'1.25rem', marginBottom:'1rem',
-};
-
-const btnPrimary = {
-  display:'flex', alignItems:'center', gap:6, padding:'0.55rem 1.5rem',
-  borderRadius:6, border:'none', cursor:'pointer', fontWeight:600, fontSize:'0.85rem',
-  background:'var(--accent-primary)', color:'#fff',
-};
-
-const btnSecondary = {
-  display:'flex', alignItems:'center', gap:6, padding:'0.55rem 1rem',
-  borderRadius:6, border:'1px solid var(--border-color)', cursor:'pointer',
-  fontWeight:600, fontSize:'0.85rem', background:'none', color:'var(--text-secondary)',
-};
-
-const sectionTitle = {
-  fontSize:'0.65rem', fontWeight:700, textTransform:'uppercase',
-  letterSpacing:'0.1em', color:'var(--text-muted)', marginBottom:'0.875rem',
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main ProductForm page
@@ -690,6 +662,14 @@ export default function ProductForm() {
   // ── Bottle Deposit ───────────────────────────────────────────────────────────
   const [depositEnabled, setDepositEnabled] = useState(false);
   const [caseDeposit,    setCaseDeposit]    = useState('');
+
+  // ── Vendor / Order fields ────────────────────────────────────────────────────
+  const [reorderQty,  setReorderQty]  = useState('');
+  const [defaultUnitPack,    setDefaultUnitPack]    = useState('1');
+  const [defaultPacksPerCase,setDefaultPacksPerCase] = useState('');
+
+  // ── Per-store Qty on Hand ────────────────────────────────────────────────────
+  const [storeQty,    setStoreQty]    = useState({}); // { [storeId]: string }
 
   // ── Product UPCs ─────────────────────────────────────────────────────────────
   const [upcs,        setUpcs]        = useState([]);
@@ -769,6 +749,8 @@ export default function ProductForm() {
           setCaseDeposit(Number(p.caseDeposit).toFixed(2));
         }
 
+        if (p.reorderQty != null) setReorderQty(String(p.reorderQty));
+
         setUpcs(upcRes?.data ?? []);
 
         const sizes = sizeRes?.data ?? [];
@@ -782,6 +764,13 @@ export default function ProductForm() {
             packPrice:   s.retailPrice != null ? Number(s.retailPrice).toFixed(2) : '',
             isDefault:   s.isDefault ?? false,
           })));
+        }
+
+        // Populate base pricing unit/pack from the default pack size if it exists
+        const defaultSize = sizes.find(s => s.isDefault) || sizes[0];
+        if (defaultSize) {
+          if (defaultSize.unitCount) setDefaultUnitPack(String(defaultSize.unitCount));
+          if (defaultSize.packsPerCase) setDefaultPacksPerCase(String(defaultSize.packsPerCase));
         }
 
         const promoData = promoRes?.data || [];
@@ -803,10 +792,39 @@ export default function ProductForm() {
     })();
   }, [id]);
 
+  // ── Load per-store Qty on Hand ───────────────────────────────────────────────
+  // Use storeCount + loading as stable deps to avoid array reference churn
+  useEffect(() => {
+    if (!isEdit || !id || setup.loading || !setup.stores?.length) return;
+    const stores = setup.stores;
+    (async () => {
+      const qtyMap = {};
+      await Promise.all(
+        stores.map(async store => {
+          try {
+            const invRes = await getStoreInventory({ masterProductId: id, storeId: store.id });
+            const items = invRes?.data ?? [];
+            const inv = Array.isArray(items) ? items[0] : items;
+            if (inv?.quantityOnHand != null) {
+              qtyMap[store.id] = String(Number(inv.quantityOnHand));
+            }
+          } catch {}
+        })
+      );
+      setStoreQty(qtyMap);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, id, setup.loading, setup.storeCount]);
+
   // ── Derived pricing ──────────────────────────────────────────────────────────
   const caseCostVal  = parseFloat(form.defaultCasePrice)   || null;
-  const unitCostVal  = parseFloat(form.defaultCostPrice)   || null;
   const retailVal    = parseFloat(form.defaultRetailPrice) || null;
+
+  // Unit cost: always derived from Case Cost ÷ Packs/Case ÷ Unit-Pack
+  const ppcVal       = parseFloat(defaultPacksPerCase) || null;
+  const upVal        = parseFloat(defaultUnitPack)     || 1;
+  const unitCostVal  = caseCostVal && ppcVal ? caseCostVal / ppcVal / upVal : null;
+
   const margin       = calcMargin(unitCostVal, retailVal);
   const mColor       = marginColor(margin);
   const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
@@ -907,9 +925,10 @@ export default function ProductForm() {
         taxClass:           form.taxClass,
         taxable:            form.taxable,
         defaultCasePrice:   form.defaultCasePrice || null,
-        defaultCostPrice:   form.defaultCostPrice || null,
+        defaultCostPrice:   unitCostVal != null ? unitCostVal : (form.defaultCostPrice || null),
         defaultRetailPrice: derivedRetailPrice    || null,
         caseDeposit:        depositEnabled && caseDeposit ? parseFloat(caseDeposit) : null,
+        reorderQty:         reorderQty ? parseInt(reorderQty) : null,
         ebtEligible:        form.ebtEligible,
         ageRequired:        form.ageRequired      ? parseInt(form.ageRequired) : null,
         discountEligible:   form.discountEligible,
@@ -955,6 +974,20 @@ export default function ProductForm() {
         await bulkReplaceProductPackSizes(productId, sizes).catch(() => {});
       }
 
+      // Save per-store Qty on Hand
+      const storeQtyEntries = Object.entries(storeQty).filter(([, q]) => q !== '' && !isNaN(parseFloat(q)));
+      if (productId && storeQtyEntries.length > 0) {
+        await Promise.all(
+          storeQtyEntries.map(([storeId, qty]) =>
+            upsertStoreInventory({
+              masterProductId: productId,
+              storeId,
+              quantityOnHand: parseFloat(qty),
+            }).catch(() => {})
+          )
+        );
+      }
+
       if (productId && deals.length > 0) {
         const newDeals = deals.filter(d => !d.id);
         await Promise.all(newDeals.map(d =>
@@ -982,8 +1015,8 @@ export default function ProductForm() {
     return (
       <div className="layout-container">
         <Sidebar />
-        <main className="main-content" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <span style={{ color:'var(--text-muted)' }}>Loading…</span>
+        <main className="main-content pf-main">
+          <div className="pf-loading">Loading…</div>
         </main>
       </div>
     );
@@ -994,24 +1027,20 @@ export default function ProductForm() {
   return (
     <div className="layout-container">
       <Sidebar />
-      <main className="main-content" style={{ padding:0, display:'flex', flexDirection:'column', minHeight:'100vh' }}>
-        <form onSubmit={handleSave} style={{ flex:1, display:'flex', flexDirection:'column' }}>
+      <main className="main-content pf-main">
+        <form onSubmit={handleSave} className="pf-form">
 
           {/* ── Top Bar ── */}
-          <div style={{ padding:'0.875rem 1.75rem', borderBottom:'1px solid var(--border-color)',
-            display:'flex', alignItems:'center', justifyContent:'space-between',
-            background:'var(--bg-secondary)', flexShrink:0, position:'sticky', top:0, zIndex:10 }}>
-            <button type="button" onClick={() => navigate('/portal/catalog')}
-              style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none',
-                cursor:'pointer', color:'var(--text-muted)', fontSize:'0.85rem', fontWeight:500 }}>
+          <div className="pf-topbar-inner">
+            <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-topbar-back">
               <ChevronLeft size={16} /> Catalog
             </button>
-            <h1 style={{ margin:0, fontSize:'1rem', fontWeight:700 }}>
-              {isEdit ? 'Edit Product' : 'Add New Product'}
+            <h1 className="pf-topbar-title">
+              {isEdit ? `Edit Product — ${form.name || '…'}` : 'Add New Product'}
             </h1>
-            <div style={{ display:'flex', gap:8 }}>
-              <button type="button" onClick={() => navigate('/portal/catalog')} style={btnSecondary}>Cancel</button>
-              <button type="submit" disabled={saving} style={{ ...btnPrimary, opacity:saving?0.7:1 }}>
+            <div className="pf-topbar-actions">
+              <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-btn-secondary">Cancel</button>
+              <button type="submit" disabled={saving} className="pf-btn-primary">
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>
             </div>
@@ -1019,173 +1048,178 @@ export default function ProductForm() {
 
           {/* ── No-store banner ── */}
           {(!setup.loading && !setup.hasStores) && (
-            <div style={{ padding:'0.75rem 1.75rem 0' }}>
+            <div className="pf-banner-wrap">
               <NoStoreBanner onGoToStores={() => navigate('/portal/stores')} />
             </div>
           )}
 
           {/* ── Body ── */}
-          <div style={{ flex:1, overflowY:'auto', padding:'1.5rem 1.75rem 2rem', display:'grid',
-            gridTemplateColumns:'1fr 310px', gap:'1.25rem', alignItems:'start' }}>
+          <div className="pf-body">
 
             {/* ══ LEFT COLUMN ══════════════════════════════════════════════════ */}
             <div>
 
-              {/* ── 1. Product Info (2-col: product fields | vendor fields) ── */}
-              <div style={card}>
-                <div style={sectionTitle}>Product Info</div>
+              {/* ── 1. Product Info (2-col: UPC+Name | Department+Tax) ── */}
+              <div className="pf-card">
+                <div className="pf-section-title">Product Info</div>
                 <div className="pf-product-info-grid">
 
-                  {/* Left: Core product fields */}
+                  {/* Left: UPC + Name */}
                   <div>
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <label style={lbl}>UPC / Barcode</label>
-                      <input className="form-input"
-                        style={{ width:'100%', fontFamily:'monospace', borderColor: upcWarning ? '#ef4444' : undefined }}
-                        value={form.upc} onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
-                        placeholder="012345678901" maxLength={14} />
-                      {upcWarning && (
-                        <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                          <AlertCircle size={10} /> {upcWarning}
-                        </div>
-                      )}
-                      {form.upc && isValidUPC(form.upc) && (
-                        <div style={{ fontSize:'0.7rem', color:'#10b981', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                          <Check size={10} /> {form.upc.length} digits
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <label style={lbl}>Product Name *</label>
-                      <input className="form-input" style={{ width:'100%', fontWeight:600 }}
-                        value={form.name} onChange={e => setF('name', e.target.value)}
-                        placeholder="e.g. Bud Light 12oz Can" required />
-                      {form.name.trim().length > 0 && form.name.trim().length < 3 && (
-                        <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                          <AlertCircle size={10} /> Name should be at least 3 characters
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
-                        <label style={{ ...lbl, marginBottom:0 }}>Department *</label>
-                        <button type="button" onClick={() => setShowDeptMgr(true)}
-                          style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
-                            cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
-                          <Settings size={10} /> Manage
-                        </button>
+                    <div className="pf-row">
+                      <label className="pf-label">UPC / Barcode</label>
+                      <div className="pf-upc-wrap">
+                        <input className={`form-input pf-full pf-input-mono${upcWarning ? ' pf-input-error' : ''}`}
+                          value={form.upc} onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
+                          placeholder="012345678901" maxLength={14} />
+                        {form.upc && isValidUPC(form.upc) && (
+                          <span className="pf-upc-digits">
+                            <Check size={9} /> {form.upc.length} digits
+                          </span>
+                        )}
                       </div>
-                      <select className="form-input" style={{ width:'100%' }}
-                        value={form.departmentId} onChange={e => handleDeptChange(e.target.value)}>
-                        <option value="">— No department —</option>
-                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                      </select>
-                      {selDept && (
-                        <div style={{ marginTop:4, display:'inline-flex', alignItems:'center', gap:5,
-                          padding:'2px 8px', borderRadius:4,
-                          background:(selDept.color||'#6366f1')+'20', color:selDept.color||'#6366f1' }}>
-                          <div style={{ width:7, height:7, borderRadius:'50%', background:selDept.color||'#6366f1' }} />
-                          <span style={{ fontSize:'0.72rem', fontWeight:600 }}>{selDept.name}</span>
+                      {upcWarning && (
+                        <div className="pf-warn">
+                          <AlertCircle size={10} /> {upcWarning}
                         </div>
                       )}
                     </div>
 
                     <div>
-                      <label style={lbl}>Tax Class</label>
-                      <select className="form-input" style={{ width:'100%' }}
+                      <label className="pf-label">Product Name *</label>
+                      <input className="form-input pf-full pf-input-bold"
+                        value={form.name} onChange={e => setF('name', e.target.value)}
+                        placeholder="e.g. Bud Light 12oz Can" required />
+                      {form.name.trim().length > 0 && form.name.trim().length < 3 && (
+                        <div className="pf-warn">
+                          <AlertCircle size={10} /> Name should be at least 3 characters
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Department + Tax Class */}
+                  <div>
+                    <div className="pf-row">
+                      <div className="pf-label-row">
+                        <label className="pf-label">Department *</label>
+                        <button type="button" onClick={() => setShowDeptMgr(true)} className="pf-manage-link">
+                          <Settings size={10} /> Manage
+                        </button>
+                      </div>
+                      <select className="form-input pf-full"
+                        value={form.departmentId} onChange={e => handleDeptChange(e.target.value)}>
+                        <option value="">— No department —</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="pf-label">Tax Class</label>
+                      <select className="form-input pf-full"
                         value={form.taxClass} onChange={e => setF('taxClass', e.target.value)}>
                         {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label} — {t.note}</option>)}
                       </select>
                     </div>
                   </div>
 
-                  {/* Right: Vendor fields */}
-                  <div>
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.3rem' }}>
-                        <label style={{ ...lbl, marginBottom:0 }}>Vendor / Supplier</label>
-                        <button type="button" onClick={() => setShowVendMgr(true)}
-                          style={{ fontSize:'0.68rem', color:'var(--accent-primary)', background:'none', border:'none',
-                            cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
-                          <Settings size={10} /> Manage
-                        </button>
-                      </div>
-                      <select className="form-input" style={{ width:'100%' }}
-                        value={form.vendorId} onChange={e => setF('vendorId', e.target.value)}>
-                        <option value="">— No vendor —</option>
-                        {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    </div>
-
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <label style={lbl}>Vendor Code / Item #</label>
-                      <input className="form-input" style={{ width:'100%', fontFamily:'monospace' }}
-                        value={form.itemCode} onChange={e => setF('itemCode', e.target.value)}
-                        placeholder="e.g. BL-12OZ-24" />
-                    </div>
-
-                    <div style={{ marginBottom:'0.875rem' }}>
-                      <label style={lbl}>Case Cost (invoice)</label>
-                      <div style={{ position:'relative' }}>
-                        <span style={dollarSign}>$</span>
-                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
-                          type="number" step="0.01" min="0"
-                          value={form.defaultCasePrice} placeholder="0.00"
-                          onChange={e => setF('defaultCasePrice', e.target.value)}
-                          onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
-                      </div>
-                    </div>
-
-                    <button type="button" onClick={() => setShowVendMgr(true)}
-                      style={{ ...btnSecondary, width:'100%', justifyContent:'center', fontSize:'0.78rem' }}>
-                      <Plus size={12} /> Add Vendor
-                    </button>
-                  </div>
-
                 </div>
               </div>
 
               {/* ── 2. Pricing ── */}
-              <div style={card}>
-                <div style={sectionTitle}>Pricing</div>
+              <div className="pf-card">
+                <div className="pf-section-title">Pricing</div>
 
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.875rem', marginBottom:'0.875rem' }}>
+                {/* Single row: Retail | Case Cost | Unit-Pack | Packs/Case | Unit Cost | Margin */}
+                <div className="pf-pricing-row">
+
+                  {/* Retail Price */}
                   <div>
-                    <label style={lbl}>Retail Price</label>
-                    <div style={{ position:'relative' }}>
-                      <span style={dollarSign}>$</span>
-                      <input className="form-input"
-                        style={{ width:'100%', paddingLeft:22, fontSize:'1.05rem', fontWeight:700,
-                          borderColor: priceWarning ? '#ef4444' : undefined }}
+                    <label className="pf-label">Retail Price</label>
+                    <div className="pf-dollar-wrap">
+                      <span className="pf-dollar-sign">$</span>
+                      <input className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
                         type="number" step="0.01" min="0"
                         value={form.defaultRetailPrice} placeholder="0.00"
                         onChange={e => setF('defaultRetailPrice', e.target.value)}
                         onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
-                    {priceWarning && (
-                      <div style={{ fontSize:'0.7rem', color:'#ef4444', marginTop:3, display:'flex', alignItems:'center', gap:4 }}>
-                        <AlertCircle size={10} /> {priceWarning}
-                      </div>
-                    )}
                   </div>
+
+                  {/* Case Cost — synced with Vendor sidebar */}
                   <div>
-                    <label style={lbl}>Cost per unit</label>
-                    <div style={{ position:'relative' }}>
-                      <span style={dollarSign}>$</span>
-                      <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
+                    <label className="pf-label pf-label-sm">Case Cost</label>
+                    <div className="pf-dollar-wrap">
+                      <span className="pf-dollar-sign">$</span>
+                      <input className="form-input pf-dollar-input pf-compact-input"
                         type="number" step="0.01" min="0"
-                        value={form.defaultCostPrice} placeholder="0.00"
-                        onChange={e => setF('defaultCostPrice', e.target.value)}
-                        onBlur={e => e.target.value && setF('defaultCostPrice', parseFloat(e.target.value).toFixed(2))} />
+                        value={form.defaultCasePrice} placeholder="0.00"
+                        onChange={e => setF('defaultCasePrice', e.target.value)}
+                        onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
+
+                  {/* Unit-Pack */}
+                  <div>
+                    <label className="pf-label pf-label-sm">Unit-Pack</label>
+                    <input className="form-input pf-compact-input pf-center-input"
+                      type="number" min="1" step="1"
+                      value={defaultUnitPack} placeholder="1"
+                      onChange={e => setDefaultUnitPack(e.target.value || '1')} />
+                  </div>
+
+                  {/* Packs/Case */}
+                  <div>
+                    <label className="pf-label pf-label-sm">Packs/Case</label>
+                    <input className="form-input pf-compact-input pf-center-input"
+                      type="number" min="1" step="1"
+                      value={defaultPacksPerCase} placeholder="—"
+                      onChange={e => setDefaultPacksPerCase(e.target.value)} />
+                  </div>
+
+                  {/* Unit Cost — read-only, auto-calculated */}
+                  <div>
+                    <label className="pf-label pf-label-sm">Unit Cost</label>
+                    <div className={`pf-unit-cost-display${unitCostVal ? '' : ' pf-unit-cost-empty'}`}>
+                      {unitCostVal ? fmt$(unitCostVal) : '—'}
+                    </div>
+                  </div>
+
+                  {/* Margin — inline at end */}
+                  <div className="pf-margin-inline-col">
+                    {margin !== null ? (
+                      <span className="pf-margin-inline-pill" style={{ background: mColor+'20', color: mColor }}>
+                        {fmtPct(margin)}
+                      </span>
+                    ) : (
+                      <span className="pf-margin-inline-empty">—</span>
+                    )}
+                    {depositEnabled && caseDeposit && ppcVal && (
+                      <span className="pf-deposit-inline">
+                        <span className="pf-deposit-inline-label">dep/pk</span>
+                        {fmt$(parseFloat(caseDeposit) / ppcVal)}
+                      </span>
+                    )}
+                  </div>
+
                 </div>
 
-                <div style={{ marginBottom:'0.875rem' }}>
-                  <label style={lbl}>Quick-set margin</label>
-                  <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                {/* Warnings */}
+                {priceWarning && (
+                  <div className="pf-warn pf-mb-2">
+                    <AlertCircle size={10} /> {priceWarning}
+                  </div>
+                )}
+                {!ppcVal && caseCostVal && (
+                  <div className="pf-hint pf-mb-2">
+                    <Info size={10} /> Enter Packs/Case to auto-calculate unit cost
+                  </div>
+                )}
+
+                {/* Quick-set margin */}
+                <div>
+                  <label className="pf-label">Quick-set margin</label>
+                  <div className="pf-quick-margins">
                     {MARGIN_PRESETS.map(m => (
                       <button key={m} type="button"
                         onClick={() => {
@@ -1193,58 +1227,28 @@ export default function ProductForm() {
                           if (!cost) { toast.error('Enter cost price first'); return; }
                           setF('defaultRetailPrice', (cost / (1 - m / 100)).toFixed(2));
                         }}
-                        style={{ padding:'0.3rem 0.6rem', borderRadius:5, fontSize:'0.78rem', fontWeight:600, cursor:'pointer',
+                        className="pf-margin-preset-btn"
+                        style={{
                           border: Math.abs((margin||0)-m) < 0.5 ? 'none' : '1px solid var(--border-color)',
                           background: Math.abs((margin||0)-m) < 0.5 ? mColor : 'var(--bg-tertiary)',
-                          color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)' }}>
+                          color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)'
+                        }}>
                         {m}%
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {unitCostVal && retailVal ? (
-                  <div style={{ display:'flex', gap:'1.5rem', padding:'0.75rem 1rem',
-                    background:'var(--bg-tertiary)', borderRadius:8, flexWrap:'wrap', alignItems:'center' }}>
-                    {[
-                      ['Cost / unit',   fmt$(unitCostVal)],
-                      ['Retail / unit', fmt$(retailVal)],
-                      ['Margin',        margin != null ? fmtPct(margin) : '—'],
-                      ...(caseCostVal ? [['Case cost', fmt$(caseCostVal)]] : []),
-                    ].map(([label, val]) => (
-                      <div key={label} style={{ textAlign:'center' }}>
-                        <div style={{ fontSize:'0.62rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase' }}>{label}</div>
-                        <div style={{ fontSize:'0.95rem', fontWeight:700,
-                          color: label==='Margin' ? mColor : 'var(--text-primary)' }}>{val}</div>
-                      </div>
-                    ))}
-                    {margin !== null && (
-                      <div style={{ marginLeft:'auto' }}>
-                        <span style={{ fontSize:'1.1rem', fontWeight:800, padding:'4px 12px', borderRadius:6,
-                          background: mColor+'20', color: mColor }}>
-                          {fmtPct(margin)} margin
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ padding:'0.75rem 1rem', background:'var(--bg-tertiary)', borderRadius:8,
-                    color:'var(--text-muted)', fontSize:'0.8rem', display:'flex', alignItems:'center', gap:6 }}>
-                    <Info size={14} /> Enter cost and retail price to see margin analysis
-                  </div>
-                )}
               </div>
 
               {/* ── 3. Pack Configuration ── */}
-              <div style={card}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                  marginBottom: packEnabled ? '1rem' : 0 }}>
-                  <div style={sectionTitle}>Pack Configuration</div>
+              <div className="pf-card">
+                <div className="pf-pack-toggle-header" style={{ marginBottom: packEnabled ? '1rem' : 0 }}>
+                  <div className="pf-section-title">Pack Configuration</div>
                   <Tog value={packEnabled} onChange={v => setPackEnabled(v)} />
                 </div>
 
                 {!packEnabled && (
-                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                  <div className="pf-muted-hint">
                     Enable to sell this product in multiple sizes (Single, 6‑Pack, 12‑Pack…).
                     Cashier sees a picker modal when multiple sizes are configured.
                   </div>
@@ -1255,21 +1259,22 @@ export default function ProductForm() {
                     {/* Table header */}
                     <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
                       <span>Label</span>
-                      <span>Unit Pack</span>
-                      <span>Packs / Case</span>
-                      <span>Pack Price</span>
+                      <span>Retail Price</span>
+                      <span>Unit-Pack</span>
+                      <span>Packs/Case</span>
+                      <span>Unit Cost</span>
                       <span>Margin</span>
-                      {depositEnabled && <span>Deposit</span>}
-                      <span>Def.</span>
+                      {depositEnabled && <span>Deposit/Pack</span>}
                       <span></span>
                     </div>
 
                     {/* Pack rows */}
                     {packRows.map((row, idx) => {
-                      const ppc        = parseInt(row.packsPerCase) || null;
-                      const pp         = parseFloat(row.packPrice)  || null;
-                      const unitCost   = caseCostVal && ppc ? caseCostVal / ppc : null;
-                      const rowMargin  = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
+                      const ppc       = parseInt(row.packsPerCase)  || null;
+                      const up        = parseFloat(row.unitPack)    || 1;
+                      const pp        = parseFloat(row.packPrice)   || null;
+                      const unitCost  = caseCostVal && ppc ? caseCostVal / ppc / up : null;
+                      const rowMargin = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
                       const rowDeposit = depositEnabled && caseDeposit && ppc
                         ? parseFloat(caseDeposit) / ppc : null;
                       return (
@@ -1278,6 +1283,13 @@ export default function ProductForm() {
                             placeholder='e.g. "Single"'
                             value={row.label}
                             onChange={e => updatePackRow(idx, 'label', e.target.value)} />
+                          <div className="pf-dollar-wrap">
+                            <span className="pf-dollar-sign">$</span>
+                            <input className="form-input pf-pack-input pf-dollar-input" type="number" step="0.01" min="0"
+                              placeholder="0.00"
+                              value={row.packPrice}
+                              onChange={e => updatePackRow(idx, 'packPrice', e.target.value)} />
+                          </div>
                           <input className="form-input pf-pack-input" type="number" min="1"
                             placeholder="1"
                             value={row.unitPack}
@@ -1286,32 +1298,21 @@ export default function ProductForm() {
                             placeholder="—"
                             value={row.packsPerCase}
                             onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)} />
-                          <div style={{ position:'relative' }}>
-                            <span style={dollarSign}>$</span>
-                            <input className="form-input pf-pack-input" type="number" step="0.01" min="0"
-                              style={{ paddingLeft:22 }}
-                              placeholder="0.00"
-                              value={row.packPrice}
-                              onChange={e => updatePackRow(idx, 'packPrice', e.target.value)} />
+                          <div className="pf-cost-cell">
+                            {unitCost != null ? fmt$(unitCost) : '—'}
                           </div>
                           <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
                             {rowMargin != null ? fmtPct(rowMargin) : '—'}
                           </div>
                           {depositEnabled && (
                             <div className="pf-pack-deposit-cell">
-                              {rowDeposit != null ? `$${rowDeposit.toFixed(2)}` : '—'}
+                              {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
                             </div>
                           )}
-                          <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <input type="radio"
-                              checked={row.isDefault}
-                              onChange={() => setPackDefault(idx)}
-                              title="Set as default" />
-                          </div>
                           <button type="button" className="pf-pack-delete-btn"
                             onClick={() => removePackRow(idx)}
                             disabled={packRows.length === 1}
-                            title="Remove">
+                            title="Remove row">
                             <X size={13} />
                           </button>
                         </div>
@@ -1323,8 +1324,7 @@ export default function ProductForm() {
                     </button>
 
                     {packRows.length > 0 && (
-                      <p style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:'0.5rem',
-                        display:'flex', alignItems:'center', gap:4, marginBottom:0 }}>
+                      <p className="pf-hint">
                         <Info size={11} /> {packRows.length} size{packRows.length > 1 ? 's' : ''} configured — cashier sees a picker modal on scan
                       </p>
                     )}
@@ -1333,43 +1333,36 @@ export default function ProductForm() {
               </div>
 
               {/* ── 4. Store Deals & Offers ── */}
-              <div style={card}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.875rem' }}>
-                  <div style={sectionTitle}>Store Deals &amp; Offers</div>
+              <div className="pf-card">
+                <div className="pf-deals-header">
+                  <div className="pf-section-title">Store Deals &amp; Offers</div>
                   <button type="button" onClick={() => { setDealForm({ ...DEAL_BLANK }); setEditDealIdx(null); }}
-                    style={{ ...btnSecondary, padding:'0.3rem 0.7rem', fontSize:'0.75rem', gap:4 }}>
+                    className="pf-btn-secondary pf-btn-sm">
                     <Plus size={11} /> Add Deal
                   </button>
                 </div>
 
                 {deals.length === 0 && !dealForm ? (
-                  <div style={{ padding:'1.25rem', textAlign:'center', border:'1px dashed var(--border-color)',
-                    borderRadius:8, color:'var(--text-muted)', fontSize:'0.8rem', lineHeight:1.6 }}>
+                  <div className="pf-deal-empty">
                     <Zap size={18} style={{ opacity:0.35, marginBottom:6, display:'block', margin:'0 auto 8px' }} />
                     No deals configured. Add a BOGO, % off, multi-buy, or sale price offer.
                   </div>
                 ) : (
-                  <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom: dealForm ? '0.875rem' : 0 }}>
+                  <div className="pf-deal-list" style={{ marginBottom: dealForm ? '0.875rem' : 0 }}>
                     {deals.map((deal, idx) => {
                       const dt = DEAL_TYPES.find(t => t.value === deal.type) || DEAL_TYPES[0];
                       const Icon = dt.icon;
                       return (
-                        <div key={idx} style={{
-                          display:'flex', alignItems:'center', gap:10, padding:'0.625rem 0.875rem',
-                          borderRadius:8, background:'var(--bg-tertiary)', border:'1px solid var(--border-color)',
-                        }}>
-                          <div style={{ width:30, height:30, borderRadius:7, flexShrink:0,
-                            background: dt.color+'18', border:`1px solid ${dt.color}33`,
-                            display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <div key={idx} className="pf-deal-row">
+                          <div className="pf-deal-icon-wrap" style={{ background: dt.color+'18', border:`1px solid ${dt.color}33` }}>
                             <Icon size={13} color={dt.color} />
                           </div>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                              <span style={{ fontSize:'0.72rem', fontWeight:800, padding:'1px 6px', borderRadius:3,
-                                background: dt.color+'22', color: dt.color }}>{dt.label}</span>
-                              {deal.name && <span style={{ fontSize:'0.8rem', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{deal.name}</span>}
+                          <div className="pf-deal-info">
+                            <div className="pf-deal-badges">
+                              <span className="pf-deal-type-badge" style={{ background: dt.color+'22', color: dt.color }}>{dt.label}</span>
+                              {deal.name && <span className="pf-deal-name">{deal.name}</span>}
                             </div>
-                            <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:2 }}>
+                            <div className="pf-deal-sub">
                               {deal.type === 'percent_off' && `${deal.value}% off`}
                               {deal.type === 'amount_off'  && `$${deal.value} off`}
                               {deal.type === 'fixed_price' && `Sale: $${deal.value}`}
@@ -1379,24 +1372,16 @@ export default function ProductForm() {
                               {deal.endDate   && ` to ${deal.endDate}`}
                             </div>
                           </div>
-                          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                            <span style={{ fontSize:'0.65rem', fontWeight:700, padding:'2px 6px', borderRadius:3,
+                          <div className="pf-deal-actions">
+                            <span className="pf-deal-status" style={{
                               background: deal.active ? 'rgba(16,185,129,.1)' : 'rgba(100,116,139,.1)',
                               color: deal.active ? '#10b981' : '#64748b' }}>
                               {deal.active ? 'Active' : 'Off'}
                             </span>
-                            <button type="button" onClick={() => openDealForm(idx)}
-                              style={{ padding:5, borderRadius:5, border:'none', background:'rgba(255,255,255,.04)',
-                                cursor:'pointer', color:'var(--text-muted)', display:'flex' }}
-                              onMouseEnter={e=>{e.currentTarget.style.background='var(--brand-12)';e.currentTarget.style.color='var(--accent-primary)';}}
-                              onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,.04)';e.currentTarget.style.color='var(--text-muted)';}}>
+                            <button type="button" onClick={() => openDealForm(idx)} className="pf-deal-icon-btn">
                               <Edit2 size={12} />
                             </button>
-                            <button type="button" onClick={() => removeDeal(idx)}
-                              style={{ padding:5, borderRadius:5, border:'none', background:'rgba(255,255,255,.04)',
-                                cursor:'pointer', color:'var(--text-muted)', display:'flex' }}
-                              onMouseEnter={e=>{e.currentTarget.style.background='rgba(224,63,63,.12)';e.currentTarget.style.color='#ef4444';}}
-                              onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,.04)';e.currentTarget.style.color='var(--text-muted)';}}>
+                            <button type="button" onClick={() => removeDeal(idx)} className="pf-deal-icon-btn delete">
                               <Trash2 size={12} />
                             </button>
                           </div>
@@ -1407,13 +1392,13 @@ export default function ProductForm() {
                 )}
 
                 {dealForm !== null && (
-                  <div style={{ padding:'1rem', borderRadius:8, background:'var(--bg-tertiary)', border:'1px solid var(--border-color)' }}>
-                    <div style={{ fontSize:'0.7rem', fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', marginBottom:'0.75rem' }}>
+                  <div className="pf-deal-form">
+                    <div className="pf-deal-form-title">
                       {editDealIdx !== null ? 'EDIT DEAL' : 'NEW DEAL'}
                     </div>
                     <div style={{ marginBottom:'0.75rem' }}>
-                      <label style={lbl}>Deal Type</label>
-                      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                      <label className="pf-label">Deal Type</label>
+                      <div className="pf-deal-type-row">
                         {DEAL_TYPES.map(dt => {
                           const Icon = dt.icon;
                           const active = dealForm.type === dt.value;
@@ -1421,20 +1406,17 @@ export default function ProductForm() {
                             <button key={dt.value} type="button"
                               onClick={() => setDealForm(f => ({ ...f, type: dt.value }))}
                               title={dt.desc}
-                              style={{ display:'flex', alignItems:'center', gap:5, padding:'0.3rem 0.65rem',
-                                borderRadius:6, fontSize:'0.75rem', fontWeight:700, cursor:'pointer',
-                                border: active ? 'none' : '1px solid var(--border-color)',
-                                background: active ? dt.color : 'var(--bg-secondary)',
-                                color: active ? '#fff' : 'var(--text-secondary)', transition:'all .12s' }}>
+                              className={`pf-deal-type-btn ${active ? 'active' : ''}`}
+                              style={{ background: active ? dt.color : undefined }}>
                               <Icon size={11} /> {dt.label}
                             </button>
                           );
                         })}
                       </div>
                     </div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.75rem' }}>
+                    <div className="pf-deal-form-grid">
                       <div style={{ gridColumn:'span 2' }}>
-                        <label style={lbl}>Deal Label (shelf tag)</label>
+                        <label className="pf-label">Deal Label (shelf tag)</label>
                         <input className="form-input" style={{ width:'100%' }}
                           value={dealForm.name}
                           onChange={e => setDealForm(f => ({ ...f, name: e.target.value }))}
@@ -1447,16 +1429,16 @@ export default function ProductForm() {
                       </div>
                       {dealForm.type !== 'bogo' && (
                         <div>
-                          <label style={lbl}>
+                          <label className="pf-label">
                             {dealForm.type === 'percent_off' ? 'Discount %' :
                              dealForm.type === 'amount_off'  ? 'Discount $' :
                              dealForm.type === 'multi_buy'   ? `Price for ${dealForm.minQty || 'N'} units` :
                              'Sale Price $'}
                           </label>
-                          <div style={{ position:'relative' }}>
-                            {dealForm.type !== 'percent_off' && <span style={dollarSign}>$</span>}
-                            <input className="form-input"
-                              style={{ width:'100%', paddingLeft: dealForm.type !== 'percent_off' ? 22 : undefined }}
+                          <div className={dealForm.type !== 'percent_off' ? 'pf-dollar-wrap' : undefined} style={{ position: dealForm.type === 'percent_off' ? 'relative' : undefined }}>
+                            {dealForm.type !== 'percent_off' && <span className="pf-dollar-sign">$</span>}
+                            <input className={`form-input${dealForm.type !== 'percent_off' ? ' pf-dollar-input' : ''}`}
+                              style={{ width:'100%' }}
                               type="number" step="0.01" min="0"
                               value={dealForm.value}
                               onChange={e => setDealForm(f => ({ ...f, value: e.target.value }))}
@@ -1469,7 +1451,7 @@ export default function ProductForm() {
                         </div>
                       )}
                       <div>
-                        <label style={lbl}>
+                        <label className="pf-label">
                           {dealForm.type === 'multi_buy' ? 'Buy qty (e.g. 2)' :
                            dealForm.type === 'bogo'      ? 'Buy qty' : 'Min qty'}
                         </label>
@@ -1480,7 +1462,7 @@ export default function ProductForm() {
                       </div>
                       {dealForm.type === 'bogo' && (
                         <div>
-                          <label style={lbl}>Get qty (free)</label>
+                          <label className="pf-label">Get qty (free)</label>
                           <input className="form-input" style={{ width:'100%' }}
                             type="number" min="1"
                             value={dealForm.getQty}
@@ -1488,13 +1470,13 @@ export default function ProductForm() {
                         </div>
                       )}
                       <div>
-                        <label style={lbl}>Start Date</label>
+                        <label className="pf-label">Start Date</label>
                         <input className="form-input" style={{ width:'100%' }} type="date"
                           value={dealForm.startDate}
                           onChange={e => setDealForm(f => ({ ...f, startDate: e.target.value }))} />
                       </div>
                       <div>
-                        <label style={lbl}>End Date</label>
+                        <label className="pf-label">End Date</label>
                         <input className="form-input" style={{ width:'100%' }} type="date"
                           value={dealForm.endDate}
                           onChange={e => setDealForm(f => ({ ...f, endDate: e.target.value }))} />
@@ -1504,12 +1486,12 @@ export default function ProductForm() {
                       <Tog value={dealForm.active} onChange={v => setDealForm(f => ({ ...f, active: v }))} />
                       <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>Deal is active</span>
                     </div>
-                    <div style={{ display:'flex', gap:8 }}>
-                      <button type="button" onClick={saveDealLocal} style={{ ...btnPrimary, padding:'0.45rem 1rem' }}>
+                    <div className="pf-deal-form-btns">
+                      <button type="button" onClick={saveDealLocal} className="pf-btn-primary pf-btn-sm">
                         <Check size={13} /> {editDealIdx !== null ? 'Update Deal' : 'Add Deal'}
                       </button>
                       <button type="button" onClick={() => { setDealForm(null); setEditDealIdx(null); }}
-                        style={{ ...btnSecondary, padding:'0.45rem 0.875rem' }}>
+                        className="pf-btn-secondary pf-btn-sm">
                         Cancel
                       </button>
                     </div>
@@ -1567,13 +1549,92 @@ export default function ProductForm() {
             </div>{/* end left column */}
 
             {/* ══ RIGHT SIDEBAR ═══════════════════════════════════════════════ */}
-            <div style={{ position:'sticky', top:72, display:'flex', flexDirection:'column', gap:0 }}>
+            <div className="pf-right-col" style={{ position:'sticky', top:72 }}>
+
+              {/* ── Qty on Hand (active store) ── */}
+              {(() => {
+                const activeStoreId = localStorage.getItem('activeStoreId');
+                const activeStore = setup.stores?.find(s =>
+                  String(s.id) === String(activeStoreId)
+                ) || setup.stores?.[0];
+                if (!activeStore) return null;
+                return (
+                  <div className="pf-card">
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.625rem' }}>
+                      <div className="pf-section-title">Qty on Hand</div>
+                      <span className="pf-store-badge">
+                        {activeStore.name}
+                      </span>
+                    </div>
+                    <div className="pf-qty-row">
+                      <input className="form-input pf-qty-input"
+                        type="number" step="1" placeholder="0"
+                        value={storeQty[activeStore.id] ?? ''}
+                        onChange={e => setStoreQty(q => ({ ...q, [activeStore.id]: e.target.value }))} />
+                      <span className="pf-qty-unit">units</span>
+                    </div>
+                    <p style={{ fontSize:'0.68rem', color:'var(--text-muted)', margin:'0.4rem 0 0', lineHeight:1.4 }}>
+                      Updates on save. Switch store to edit other locations.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* ── Vendor / Supplier ── */}
+              <div className="pf-card">
+                <div className="pf-sidebar-header-row">
+                  <div className="pf-section-title">Vendor Details</div>
+                  <button type="button" onClick={() => setShowVendMgr(true)} className="pf-manage-link">
+                    <Settings size={10} /> Manage
+                  </button>
+                </div>
+
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pf-label">Vendor / Supplier</label>
+                  <select className="form-input" style={{ width:'100%' }}
+                    value={form.vendorId} onChange={e => setF('vendorId', e.target.value)}>
+                    <option value="">— No vendor —</option>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pf-label">Vendor Code / Item #</label>
+                  <input className="form-input" style={{ width:'100%', fontFamily:'monospace' }}
+                    value={form.itemCode} onChange={e => setF('itemCode', e.target.value)}
+                    placeholder="e.g. BL-12OZ-24" />
+                </div>
+
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pf-label">Case Cost (invoice)</label>
+                  <div className="pf-dollar-wrap">
+                    <span className="pf-dollar-sign">$</span>
+                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
+                      type="number" step="0.01" min="0"
+                      value={form.defaultCasePrice} placeholder="0.00"
+                      onChange={e => setF('defaultCasePrice', e.target.value)}
+                      onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom:'0.875rem' }}>
+                  <label className="pf-label">Reorder Qty</label>
+                  <input className="form-input" style={{ width:'100%' }}
+                    type="number" min="0" step="1"
+                    value={reorderQty} placeholder="e.g. 24"
+                    onChange={e => setReorderQty(e.target.value)} />
+                </div>
+
+                <button type="button" onClick={() => setShowVendMgr(true)}
+                  className="pf-btn-secondary" style={{ width:'100%', justifyContent:'center', fontSize:'0.78rem' }}>
+                  <Plus size={12} /> Add Vendor
+                </button>
+              </div>
 
               {/* Bottle Deposit */}
-              <div style={card}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                  marginBottom: depositEnabled ? '0.875rem' : 0 }}>
-                  <div style={sectionTitle}>Bottle Deposit</div>
+              <div className="pf-card">
+                <div className="pf-pack-toggle-header" style={{ marginBottom: depositEnabled ? '0.875rem' : 0 }}>
+                  <div className="pf-section-title">Bottle Deposit</div>
                   <Tog value={depositEnabled} onChange={v => setDepositEnabled(v)} />
                 </div>
 
@@ -1586,10 +1647,10 @@ export default function ProductForm() {
                 {depositEnabled && (
                   <>
                     <div style={{ marginBottom:'0.75rem' }}>
-                      <label style={lbl}>Case Deposit Total</label>
-                      <div style={{ position:'relative' }}>
-                        <span style={dollarSign}>$</span>
-                        <input className="form-input" style={{ width:'100%', paddingLeft:22 }}
+                      <label className="pf-label">Case Deposit Total</label>
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <input className="form-input pf-dollar-input" style={{ width:'100%' }}
                           type="number" step="0.01" min="0"
                           value={caseDeposit}
                           onChange={e => setCaseDeposit(e.target.value)}
@@ -1629,17 +1690,14 @@ export default function ProductForm() {
               </div>
 
               {/* Compliance */}
-              <div style={card}>
-                <div style={sectionTitle}>Compliance</div>
+              <div className="pf-card">
+                <div className="pf-section-title">Compliance</div>
                 <div style={{ marginBottom:'0.875rem' }}>
-                  <label style={lbl}>Age Verification</label>
-                  <div style={{ display:'flex', gap:6 }}>
+                  <label className="pf-label">Age Verification</label>
+                  <div className="pf-age-btns">
                     {[['None',''],['18+','18'],['21+','21']].map(([label,val]) => (
                       <button key={val} type="button" onClick={() => setF('ageRequired', val)}
-                        style={{ flex:1, padding:'0.35rem', borderRadius:5, fontSize:'0.8rem', fontWeight:700, cursor:'pointer',
-                          border: String(form.ageRequired)===val?'none':'1px solid var(--border-color)',
-                          background: String(form.ageRequired)===val?'var(--accent-primary)':'var(--bg-tertiary)',
-                          color: String(form.ageRequired)===val?'#fff':'var(--text-secondary)' }}>
+                        className={`pf-age-btn ${String(form.ageRequired)===val ? 'active' : 'inactive'}`}>
                         {label}
                       </button>
                     ))}
@@ -1650,19 +1708,18 @@ export default function ProductForm() {
                   ['Discount Eligible',    'discountEligible'],
                   ['Sold by Weight',       'byWeight'],
                 ].map(([label, key]) => (
-                  <div key={key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.65rem' }}>
-                    <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)', fontWeight:500 }}>{label}</span>
+                  <div key={key} className="pf-sb-toggle-row">
+                    <span className="pf-toggle-label">{label}</span>
                     <Tog value={!!form[key]} onChange={v => setF(key, v)} />
                   </div>
                 ))}
               </div>
 
               {/* Status */}
-              <div style={card}>
-                <div style={sectionTitle}>Status</div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <span style={{ fontSize:'0.85rem', fontWeight:600,
-                    color: form.active ? '#10b981' : 'var(--text-muted)' }}>
+              <div className="pf-card">
+                <div className="pf-section-title">Status</div>
+                <div className="pf-sb-toggle-row" style={{ marginBottom:0 }}>
+                  <span className="pf-status-text" style={{ color: form.active ? '#10b981' : 'var(--text-muted)' }}>
                     {form.active ? 'Active — visible in catalog' : 'Inactive — hidden from POS'}
                   </span>
                   <Tog value={form.active} onChange={v => setF('active', v)} />
@@ -1670,8 +1727,8 @@ export default function ProductForm() {
               </div>
 
               {/* Store Availability */}
-              <div style={card}>
-                <div style={sectionTitle}>Store Availability</div>
+              <div className="pf-card">
+                <div className="pf-section-title">Store Availability</div>
                 {setup.loading ? (
                   <div style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>Checking stores…</div>
                 ) : setup.storeCount === 0 ? (
@@ -1688,11 +1745,9 @@ export default function ProductForm() {
                     </div>
                     <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                       {setup.stores.map(store => (
-                        <div key={store.id || store._id}
-                          style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px',
-                            borderRadius:5, background:'#10b98115', border:'1px solid #10b98130' }}>
+                        <div key={store.id || store._id} className="pf-store-chip">
                           <Check size={11} color="#10b981" />
-                          <span style={{ fontSize:'0.75rem', fontWeight:500, color:'var(--text-primary)' }}>{store.name}</span>
+                          <span className="pf-store-chip-name">{store.name}</span>
                         </div>
                       ))}
                     </div>
@@ -1702,8 +1757,8 @@ export default function ProductForm() {
 
               {/* Active deals summary */}
               {deals.filter(d => d.active).length > 0 && (
-                <div style={{ ...card, background:'rgba(16,185,129,.04)', borderColor:'rgba(16,185,129,.2)' }}>
-                  <div style={sectionTitle}>Active Deals</div>
+                <div className="pf-card pf-active-deals-card">
+                  <div className="pf-section-title">Active Deals</div>
                   {deals.filter(d => d.active).map((deal, idx) => {
                     const dt = DEAL_TYPES.find(t => t.value === deal.type) || DEAL_TYPES[0];
                     return (
@@ -1723,8 +1778,7 @@ export default function ProductForm() {
               )}
 
               {/* Save */}
-              <button type="submit" disabled={saving}
-                style={{ ...btnPrimary, width:'100%', justifyContent:'center', opacity:saving?0.7:1 }}>
+              <button type="submit" disabled={saving} className="pf-btn-primary" style={{ width:'100%', justifyContent:'center' }}>
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>
 
@@ -1750,7 +1804,3 @@ export default function ProductForm() {
 
 const fmtPct = (v) => v == null ? '—' : Number(v).toFixed(1) + '%';
 
-const dollarSign = {
-  position:'absolute', left:8, top:'50%', transform:'translateY(-50%)',
-  color:'var(--text-muted)', fontSize:'0.9rem', pointerEvents:'none',
-};

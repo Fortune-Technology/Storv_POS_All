@@ -927,7 +927,8 @@ export const bulkUpdateMasterProducts = async (req, res) => {
 export const getStoreProducts = async (req, res) => {
   try {
     const orgId  = getOrgId(req);
-    const storeId = getStoreId(req) || req.params.storeId;
+    // Allow storeId from header (via middleware), URL params, or query params
+    const storeId = getStoreId(req) || req.params.storeId || req.query.storeId || null;
     const { skip, take, page, limit } = paginationParams(req.query);
 
     if (!storeId) return res.status(400).json({ success: false, error: 'storeId is required' });
@@ -937,6 +938,7 @@ export const getStoreProducts = async (req, res) => {
       orgId,
       ...(req.query.active !== undefined && { active: req.query.active === 'true' }),
       ...(req.query.inStock !== undefined && { inStock: req.query.inStock === 'true' }),
+      ...(req.query.masterProductId && { masterProductId: parseInt(req.query.masterProductId) }),
     };
 
     const [products, total] = await Promise.all([

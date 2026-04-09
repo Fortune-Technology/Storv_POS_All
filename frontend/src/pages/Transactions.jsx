@@ -1,34 +1,47 @@
 /**
- * Transactions.jsx — Store Dashboard: browse and search all POS transactions
+ * Transactions.jsx — Full transaction browser with advanced filters + receipt view.
+ *
+ * Filter architecture
+ *   Server-side  : dateFrom, dateTo, cashierId, stationId, status, amountMin, amountMax
+ *   Client-side  : search (txn#/cashier/item), timeFrom, timeTo, tenderType, dept, product
+ *
+ * Detail modal   : two-panel — thermal receipt (printable) + transaction metadata
  */
-import React, { useState, useEffect, useCallback } from 'react';
-import Sidebar from '../components/Sidebar';
-import { getTransactions } from '../services/api';
-import {
-  Receipt, Search, ChevronLeft, ChevronRight,
-  Calendar, RefreshCw, X, AlertCircle,
-} from 'lucide-react';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Sidebar from '../components/Sidebar';
+import { useSetupStatus } from '../hooks/useSetupStatus';
+import { getTransactions, getStoreEmployees } from '../services/api';
+import {
+  Receipt, Search, ChevronLeft, ChevronRight, RefreshCw, X,
+  AlertCircle, Filter, ChevronDown, ChevronUp, Printer,
+} from 'lucide-react';
+import './Transactions.css';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 const fmt$ = (v) => {
-  if (v == null) return '—';
+  if (v == null || v === '') return '—';
   const n = Number(v);
   return (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2);
 };
 
-const fmtTxNumber = (n) => n ? String(n) : '—';
-
 const toLocalDateStr = (d = new Date()) => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 };
 
-const shiftDate = (dateStr, days) => {
+const shiftDays = (dateStr, n) => {
   const d = new Date(dateStr + 'T12:00:00');
-  d.setDate(d.getDate() + days);
+  d.setDate(d.getDate() + n);
   return toLocalDateStr(d);
+};
+
+const startOfMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
 const METHOD_LABELS = {
@@ -36,133 +49,390 @@ const METHOD_LABELS = {
   manual_card: 'Manual Card', manual_ebt: 'Manual EBT', other: 'Other',
 };
 
-const paymentSummary = (tx) => {
-  const lines = tx.tenderLines || [];
-  if (!lines.length) return '—';
-  return lines.map(t => METHOD_LABELS[t.method] || t.method).join(' + ');
+const TENDER_PILL_CLASS = (method) => {
+  if (method === 'cash') return 'txn-tender-cash';
+  if (method === 'card' || method === 'manual_card') return 'txn-tender-card';
+  if (method === 'ebt'  || method === 'manual_ebt')  return 'txn-tender-ebt';
+  return 'txn-tender-other';
 };
 
-// ── Detail panel ─────────────────────────────────────────────────────────────
-function TxDetail({ tx, onClose }) {
-  if (!tx) return null;
-  const lines = tx.tenderLines || [];
-  const items = tx.lineItems   || [];
+const STATUS_CLASS = (s) => {
+  if (s === 'complete') return 'txn-status-complete';
+  if (s === 'refund')   return 'txn-status-refund';
+  if (s === 'voided')   return 'txn-status-voided';
+  return 'txn-status-pending';
+};
+
+const STATUS_LABEL = { complete: 'Sale', refund: 'Refund', voided: 'Void' };
+
+const itemCount = (tx) =>
+  (tx.lineItems || []).reduce((s, i) => s + (i.qty || 1), 0);
+
+// ── FinRow ────────────────────────────────────────────────────────────────────
+
+function FinRow({ label, value, bold, muted }) {
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 400,
-      background: 'rgba(0,0,0,.45)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '1rem',
-    }}>
-      <div style={{
-        width: '100%', maxWidth: 480,
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: '0 24px 64px rgba(0,0,0,.3)',
-        display: 'flex', flexDirection: 'column',
-        maxHeight: '90vh', overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '1rem 1.25rem',
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          flexShrink: 0,
-        }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-              {fmtTxNumber(tx.txNumber)}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-              {new Date(tx.createdAt).toLocaleString()} · {tx.cashierName || 'Unknown'}
-            </div>
+    <div className={`txn-fin-row${bold ? ' bold' : muted ? ' muted' : ''}`}>
+      <span>{label}</span>
+      <span className="txn-fin-val">{value}</span>
+    </div>
+  );
+}
+
+// ── Receipt (printable) ───────────────────────────────────────────────────────
+
+function TxReceipt({ tx, storeInfo }) {
+  const items   = tx.lineItems   || [];
+  const tenders = tx.tenderLines || [];
+  const divider = '─'.repeat(36);
+
+  return (
+    <div className="txn-receipt-paper">
+      {/* Store header */}
+      <div className="txn-receipt-store-name">{storeInfo?.name || 'Store'}</div>
+      {storeInfo?.address && (
+        <div className="txn-receipt-store-addr">{storeInfo.address}</div>
+      )}
+      {storeInfo?.phone && (
+        <div className="txn-receipt-store-phone">{storeInfo.phone}</div>
+      )}
+
+      <div className="txn-receipt-div">{divider}</div>
+
+      {/* Meta */}
+      <div className="txn-receipt-two-col">
+        <span className="txn-receipt-label">Date</span>
+        <span className="txn-receipt-val">{new Date(tx.createdAt).toLocaleDateString()}</span>
+      </div>
+      <div className="txn-receipt-two-col">
+        <span className="txn-receipt-label">Time</span>
+        <span className="txn-receipt-val">
+          {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      </div>
+      <div className="txn-receipt-two-col">
+        <span className="txn-receipt-label">Receipt #</span>
+        <span className="txn-receipt-val">{tx.txNumber}</span>
+      </div>
+      <div className="txn-receipt-two-col">
+        <span className="txn-receipt-label">Cashier</span>
+        <span className="txn-receipt-val">{tx.cashierName || '—'}</span>
+      </div>
+      {tx.stationId && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">Lane</span>
+          <span className="txn-receipt-val">{tx.stationId}</span>
+        </div>
+      )}
+
+      <div className="txn-receipt-div">{divider}</div>
+      <div className="txn-receipt-section-hdr">Items</div>
+
+      {items.map((item, i) => (
+        <div key={i} className="txn-receipt-item">
+          <div className="txn-receipt-item-name">{item.name || 'Item'}</div>
+          <div className="txn-receipt-item-detail">
+            <span>
+              {item.qty > 1
+                ? `${item.qty} × ${fmt$(item.unitPrice)}`
+                : `  ${fmt$(item.unitPrice)}`}
+            </span>
+            <span>{fmt$(item.lineTotal)}</span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 6, display: 'flex' }}>
-            <X size={16} />
-          </button>
+          {item.depositAmount > 0 && (
+            <div className="txn-receipt-item-deposit">
+              <span>  Deposit</span>
+              <span>{fmt$(item.depositAmount)}</span>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="txn-receipt-div">{divider}</div>
+
+      {/* Totals */}
+      {tx.subtotal > 0 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">Subtotal</span>
+          <span className="txn-receipt-val">{fmt$(tx.subtotal)}</span>
+        </div>
+      )}
+      {tx.taxTotal > 0 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">Tax</span>
+          <span className="txn-receipt-val">{fmt$(tx.taxTotal)}</span>
+        </div>
+      )}
+      {tx.depositTotal > 0 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">Deposit</span>
+          <span className="txn-receipt-val">{fmt$(tx.depositTotal)}</span>
+        </div>
+      )}
+
+      <div className="txn-receipt-grand">
+        <span>TOTAL</span>
+        <span>{fmt$(Math.abs(tx.grandTotal))}</span>
+      </div>
+
+      <div className="txn-receipt-div">{divider}</div>
+
+      {/* Tender */}
+      {tenders.map((t, i) => (
+        <div key={i} className="txn-receipt-two-col">
+          <span className="txn-receipt-label">{METHOD_LABELS[t.method] || t.method}</span>
+          <span className="txn-receipt-val">{fmt$(t.amount)}</span>
+        </div>
+      ))}
+      {tx.changeGiven > 0 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">Change</span>
+          <span className="txn-receipt-val">-{fmt$(tx.changeGiven)}</span>
+        </div>
+      )}
+
+      {/* Status notices */}
+      {tx.status === 'refund' && (
+        <>
+          <div className="txn-receipt-div">{divider}</div>
+          <div className="txn-receipt-notice refund">** REFUND **</div>
+        </>
+      )}
+      {tx.status === 'voided' && (
+        <>
+          <div className="txn-receipt-div">{divider}</div>
+          <div className="txn-receipt-notice voided">** VOIDED **</div>
+        </>
+      )}
+
+      {/* Footer */}
+      <div className="txn-receipt-div">{divider}</div>
+      <div className="txn-receipt-footer-text">
+        {storeInfo?.receiptFooter || 'Thank you for shopping with us!'}
+      </div>
+    </div>
+  );
+}
+
+// ── Detail Modal ──────────────────────────────────────────────────────────────
+
+function TxDetail({ tx, onClose, storeInfo }) {
+  if (!tx) return null;
+
+  const items   = tx.lineItems   || [];
+  const tenders = tx.tenderLines || [];
+
+  // Dept breakdown
+  const deptMap = {};
+  items.forEach(item => {
+    const dept = item.departmentName || 'Uncategorized';
+    deptMap[dept] = (deptMap[dept] || 0) + (Number(item.lineTotal) || 0);
+  });
+  const depts    = Object.entries(deptMap).sort((a, b) => b[1] - a[1]);
+  const maxDept  = depts[0]?.[1] || 1;
+
+  return (
+    <div className="txn-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="txn-modal">
+
+        {/* Header */}
+        <div className="txn-modal-header">
+          <div className="txn-modal-title-group">
+            <span className="txn-modal-txnum">{tx.txNumber}</span>
+            <span className={`txn-status-badge ${STATUS_CLASS(tx.status)}`}>
+              {STATUS_LABEL[tx.status] || tx.status}
+            </span>
+            <span className="txn-modal-date">
+              {new Date(tx.createdAt).toLocaleString()}
+            </span>
+          </div>
+          <div className="txn-modal-actions">
+            <button className="txn-btn txn-btn-icon" onClick={() => window.print()} title="Print receipt">
+              <Printer size={15} />
+            </button>
+            <button className="txn-btn txn-btn-icon" onClick={onClose} title="Close">
+              <X size={15} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
-        <div style={{ padding: '1rem 1.25rem', overflowY: 'auto', flex: 1 }}>
-          {/* Line items */}
-          <div style={{ marginBottom: '1rem' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6, textTransform: 'uppercase' }}>Items</div>
-            {items.map((item, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', marginBottom: 4, color: 'var(--text-primary)' }}>
-                <span>{item.qty > 1 ? `${item.qty}× ` : ''}{item.name}</span>
-                <span style={{ fontWeight: 600 }}>{fmt$(item.lineTotal)}</span>
-              </div>
-            ))}
+        <div className="txn-modal-body">
+
+          {/* Left — Receipt */}
+          <div className="txn-receipt-panel">
+            <TxReceipt tx={tx} storeInfo={storeInfo} />
           </div>
 
-          {/* Totals */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginBottom: '0.75rem' }}>
-            {tx.subtotal   != null && <Row label="Subtotal" value={fmt$(tx.subtotal)} />}
-            {tx.taxTotal   != null && tx.taxTotal > 0 && <Row label="Tax" value={fmt$(tx.taxTotal)} />}
-            {tx.depositTotal != null && tx.depositTotal > 0 && <Row label="Deposit" value={fmt$(tx.depositTotal)} />}
-            {tx.discountTotal != null && tx.discountTotal > 0 && <Row label="Discount" value={`-${fmt$(tx.discountTotal)}`} muted />}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', marginTop: 4, color: 'var(--text-primary)' }}>
-              <span>TOTAL</span>
-              <span style={{ color: 'var(--accent-primary)' }}>{fmt$(Math.abs(tx.grandTotal))}</span>
+          {/* Right — Details */}
+          <div className="txn-detail-panel">
+
+            <div className="txn-detail-section-title">Transaction Details</div>
+            <div className="txn-detail-grid">
+              <div className="txn-detail-item full">
+                <div className="txn-detail-lbl">Transaction ID</div>
+                <div className="txn-detail-val mono">{tx.id}</div>
+              </div>
+              <div className="txn-detail-item">
+                <div className="txn-detail-lbl">Cashier</div>
+                <div className="txn-detail-val">{tx.cashierName || '—'}</div>
+              </div>
+              <div className="txn-detail-item">
+                <div className="txn-detail-lbl">Lane / Station</div>
+                <div className="txn-detail-val">{tx.stationId || '—'}</div>
+              </div>
+              <div className="txn-detail-item">
+                <div className="txn-detail-lbl">Items Sold</div>
+                <div className="txn-detail-val">
+                  {itemCount(tx)} units · {items.length} line{items.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <div className="txn-detail-item">
+                <div className="txn-detail-lbl">Status</div>
+                <div className="txn-detail-val">
+                  <span className={`txn-status-badge ${STATUS_CLASS(tx.status)}`}>
+                    {STATUS_LABEL[tx.status] || tx.status}
+                  </span>
+                </div>
+              </div>
+              {tx.offlineCreatedAt && new Date(tx.offlineCreatedAt).getTime() !== new Date(tx.createdAt).getTime() && (
+                <div className="txn-detail-item full">
+                  <div className="txn-detail-lbl">Offline Created</div>
+                  <div className="txn-detail-val">{new Date(tx.offlineCreatedAt).toLocaleString()}</div>
+                </div>
+              )}
+              {tx.refundOf && (
+                <div className="txn-detail-item full">
+                  <div className="txn-detail-lbl">Refund Of (Transaction ID)</div>
+                  <div className="txn-detail-val mono">{tx.refundOf}</div>
+                </div>
+              )}
+              {tx.voidedAt && (
+                <div className="txn-detail-item full">
+                  <div className="txn-detail-lbl">Voided At</div>
+                  <div className="txn-detail-val">{new Date(tx.voidedAt).toLocaleString()}</div>
+                </div>
+              )}
+              {tx.notes && (
+                <div className="txn-detail-item full">
+                  <div className="txn-detail-lbl">Notes</div>
+                  <div className="txn-detail-val">{tx.notes}</div>
+                </div>
+              )}
             </div>
-          </div>
 
-          {/* Tender */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6, textTransform: 'uppercase' }}>Payment</div>
-            {lines.map((t, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', color: 'var(--text-secondary)', marginBottom: 3 }}>
-                <span>{METHOD_LABELS[t.method] || t.method}</span>
-                <span>{fmt$(t.amount)}</span>
-              </div>
+            {/* Financial summary */}
+            <div className="txn-detail-section-title">Financial Summary</div>
+            {tx.subtotal > 0    && <FinRow label="Subtotal"           value={fmt$(tx.subtotal)} />}
+            {tx.taxTotal > 0    && <FinRow label="Tax"                value={fmt$(tx.taxTotal)} />}
+            {tx.depositTotal > 0 && <FinRow label="Container Deposit" value={fmt$(tx.depositTotal)} />}
+            {tx.ebtTotal > 0    && <FinRow label="EBT Eligible"       value={fmt$(tx.ebtTotal)} muted />}
+            <FinRow label="Grand Total" value={fmt$(Math.abs(tx.grandTotal))} bold />
+
+            {/* Payment breakdown */}
+            <div className="txn-detail-section-title">Payment Breakdown</div>
+            {tenders.map((t, i) => (
+              <FinRow key={i} label={METHOD_LABELS[t.method] || t.method} value={fmt$(t.amount)} />
             ))}
             {tx.changeGiven > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: 4 }}>
-                <span>Change</span>
-                <span>{fmt$(tx.changeGiven)}</span>
-              </div>
+              <FinRow label="Change Given" value={`-${fmt$(tx.changeGiven)}`} muted />
             )}
-          </div>
-        </div>
 
-        {/* Footer */}
-        <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
-          <button onClick={onClose} className="btn btn-primary" style={{ width: '100%' }}>Close</button>
+            {/* By department */}
+            {depts.length > 1 && (
+              <>
+                <div className="txn-detail-section-title">By Department</div>
+                {depts.map(([name, total]) => (
+                  <div key={name} className="txn-dept-row">
+                    <div className="txn-dept-label">{name}</div>
+                    <div className="txn-dept-bar-wrap">
+                      <div
+                        className="txn-dept-bar"
+                        style={{ width: `${(total / maxDept) * 100}%` }}
+                      />
+                    </div>
+                    <div className="txn-dept-amt">{fmt$(total)}</div>
+                  </div>
+                ))}
+              </>
+            )}
+
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, value, muted }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', color: muted ? 'var(--text-muted)' : 'var(--text-secondary)', marginBottom: 3 }}>
-      <span>{label}</span><span>{value}</span>
-    </div>
-  );
-}
+// ── Main Page ─────────────────────────────────────────────────────────────────
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+const PER_PAGE = 50;
+
 export default function Transactions() {
-  const today = toLocalDateStr();
-  const [date,    setDate]    = useState(today);
-  const [txs,     setTxs]     = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
-  const [search,  setSearch]  = useState('');
-  const [detail,  setDetail]  = useState(null);
-  const [page,    setPage]    = useState(1);
-  const PER_PAGE = 50;
+  const today   = toLocalDateStr();
+  const setup   = useSetupStatus();
 
-  const load = useCallback(async (d) => {
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [dateFrom,    setDateFrom]    = useState(today);
+  const [dateTo,      setDateTo]      = useState(today);
+  const [search,      setSearch]      = useState('');
+  const [showAdv,     setShowAdv]     = useState(false);
+  const [fCashierId,  setFCashierId]  = useState('');
+  const [fStation,    setFStation]    = useState('');
+  const [fStatus,     setFStatus]     = useState('');
+  const [fAmountMin,  setFAmountMin]  = useState('');
+  const [fAmountMax,  setFAmountMax]  = useState('');
+  const [fTimeFrom,   setFTimeFrom]   = useState('');
+  const [fTimeTo,     setFTimeTo]     = useState('');
+  const [fTender,     setFTender]     = useState('');
+  const [fDept,       setFDept]       = useState('');
+  const [fProduct,    setFProduct]    = useState('');
+
+  // ── Data state ───────────────────────────────────────────────────────────────
+  const [txs,      setTxs]      = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState(null);
+  const [page,     setPage]     = useState(1);
+  const [detail,   setDetail]   = useState(null);
+  const [cashiers, setCashiers] = useState([]);
+
+  const isToday    = dateFrom === today && dateTo === today;
+  const refreshRef = useRef(null);
+
+  // ── Store info for receipt header ────────────────────────────────────────────
+  const activeStoreId = localStorage.getItem('activeStoreId');
+  const activeStore   = setup.stores?.find(s => String(s.id) === String(activeStoreId))
+                     || setup.stores?.[0];
+
+  const storeInfo = activeStore ? {
+    name:          activeStore.name,
+    address:       activeStore.address,
+    phone:         activeStore.phone,
+    receiptFooter: activeStore.branding?.receiptFooter || activeStore.receiptFooter,
+  } : null;
+
+  // ── Load cashiers ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    getStoreEmployees({ limit: 200 })
+      .then(d => setCashiers(Array.isArray(d) ? d : (d.employees || [])))
+      .catch(() => {});
+  }, []);
+
+  // ── Server fetch ─────────────────────────────────────────────────────────────
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setPage(1);
     try {
-      const data = await getTransactions({ date: d, limit: 300 });
+      const params = { dateFrom, dateTo, limit: 500 };
+      if (fCashierId) params.cashierId = fCashierId;
+      if (fStation)   params.stationId = fStation;
+      if (fStatus)    params.status    = fStatus;
+      if (fAmountMin) params.amountMin = fAmountMin;
+      if (fAmountMax) params.amountMax = fAmountMax;
+
+      const data = await getTransactions(params);
       const list = Array.isArray(data) ? data : (data.transactions || data.data || []);
-      // Newest first
       setTxs([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch (err) {
       setError(err?.response?.data?.error || err.message || 'Failed to load transactions');
@@ -170,157 +440,503 @@ export default function Transactions() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateFrom, dateTo, fCashierId, fStation, fStatus, fAmountMin, fAmountMax]);
 
-  useEffect(() => { load(date); }, [date, load]);
+  useEffect(() => { load(); }, [load]);
 
-  const filtered = txs.filter(tx => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (tx.txNumber && String(tx.txNumber).toLowerCase().includes(q)) ||
-      (tx.cashierName && tx.cashierName.toLowerCase().includes(q)) ||
-      (tx.lineItems || []).some(i => i.name?.toLowerCase().includes(q))
-    );
-  });
+  // Auto-refresh every 60 s when viewing today
+  useEffect(() => {
+    if (!isToday) return;
+    refreshRef.current = setInterval(load, 60_000);
+    return () => clearInterval(refreshRef.current);
+  }, [isToday, load]);
 
+  // ── Client-side filter ───────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    return txs.filter(tx => {
+      // text search: TXN #, cashier, item name
+      if (search.trim()) {
+        const q   = search.toLowerCase();
+        const ok  =
+          String(tx.txNumber || '').toLowerCase().includes(q) ||
+          (tx.cashierName || '').toLowerCase().includes(q) ||
+          (tx.lineItems || []).some(i => (i.name || '').toLowerCase().includes(q));
+        if (!ok) return false;
+      }
+      // time-of-day
+      if (fTimeFrom || fTimeTo) {
+        const d    = new Date(tx.createdAt);
+        const mins = d.getHours() * 60 + d.getMinutes();
+        if (fTimeFrom) {
+          const [h, m] = fTimeFrom.split(':').map(Number);
+          if (mins < h * 60 + m) return false;
+        }
+        if (fTimeTo) {
+          const [h, m] = fTimeTo.split(':').map(Number);
+          if (mins > h * 60 + m) return false;
+        }
+      }
+      // tender type
+      if (fTender) {
+        const has = (tx.tenderLines || []).some(t =>
+          t.method === fTender ||
+          (fTender === 'card' && t.method === 'manual_card') ||
+          (fTender === 'ebt'  && t.method === 'manual_ebt')
+        );
+        if (!has) return false;
+      }
+      // department
+      if (fDept.trim()) {
+        const q  = fDept.toLowerCase();
+        const ok = (tx.lineItems || []).some(i =>
+          (i.departmentName || '').toLowerCase().includes(q)
+        );
+        if (!ok) return false;
+      }
+      // product
+      if (fProduct.trim()) {
+        const q  = fProduct.toLowerCase();
+        const ok = (tx.lineItems || []).some(i =>
+          (i.name || '').toLowerCase().includes(q)
+        );
+        if (!ok) return false;
+      }
+      return true;
+    });
+  }, [txs, search, fTimeFrom, fTimeTo, fTender, fDept, fProduct]);
+
+  // ── Summary stats ────────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const sales = filtered.filter(t => t.status !== 'voided');
+    const rev   = sales.reduce((s, t) => s + Math.abs(t.grandTotal || 0), 0);
+    const cash  = sales.reduce((s, t) =>
+      s + (t.tenderLines || []).filter(l => l.method === 'cash')
+           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
+    const card  = sales.reduce((s, t) =>
+      s + (t.tenderLines || []).filter(l => l.method === 'card' || l.method === 'manual_card')
+           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
+    const ebt   = sales.reduce((s, t) =>
+      s + (t.tenderLines || []).filter(l => l.method === 'ebt' || l.method === 'manual_ebt')
+           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
+    return {
+      count:    filtered.length,
+      revenue:  rev,
+      avg:      sales.length ? rev / sales.length : 0,
+      cash, card, ebt,
+      refunds:  filtered.filter(t => t.status === 'refund').length,
+      voided:   filtered.filter(t => t.status === 'voided').length,
+    };
+  }, [filtered]);
+
+  // ── Pagination ───────────────────────────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
-  const dailyTotal = txs.reduce((sum, tx) => sum + (tx.grandTotal || 0), 0);
+  // ── Active advanced filters (for chips) ───────────────────────────────────────
+  const advChips = useMemo(() => {
+    const chips = [];
+    if (fCashierId) {
+      const c = cashiers.find(u => u.id === fCashierId);
+      chips.push({ key: 'cashier', label: `Cashier: ${c?.name || fCashierId}`, clear: () => setFCashierId('') });
+    }
+    if (fStation)   chips.push({ key: 'station',   label: `Lane: ${fStation}`,            clear: () => setFStation('') });
+    if (fStatus)    chips.push({ key: 'status',    label: `Status: ${STATUS_LABEL[fStatus] || fStatus}`, clear: () => setFStatus('') });
+    if (fTimeFrom)  chips.push({ key: 'timeFrom',  label: `From: ${fTimeFrom}`,             clear: () => setFTimeFrom('') });
+    if (fTimeTo)    chips.push({ key: 'timeTo',    label: `To: ${fTimeTo}`,                 clear: () => setFTimeTo('') });
+    if (fTender)    chips.push({ key: 'tender',    label: `Tender: ${METHOD_LABELS[fTender] || fTender}`, clear: () => setFTender('') });
+    if (fAmountMin) chips.push({ key: 'amtMin',    label: `Min $${fAmountMin}`,             clear: () => setFAmountMin('') });
+    if (fAmountMax) chips.push({ key: 'amtMax',    label: `Max $${fAmountMax}`,             clear: () => setFAmountMax('') });
+    if (fDept)      chips.push({ key: 'dept',      label: `Dept: ${fDept}`,                 clear: () => setFDept('') });
+    if (fProduct)   chips.push({ key: 'product',   label: `Product: ${fProduct}`,           clear: () => setFProduct('') });
+    return chips;
+  }, [fCashierId, fStation, fStatus, fTimeFrom, fTimeTo, fTender, fAmountMin, fAmountMax, fDept, fProduct, cashiers]);
 
+  const clearAll = () => {
+    setFCashierId(''); setFStation(''); setFStatus('');
+    setFTimeFrom(''); setFTimeTo(''); setFTender('');
+    setFAmountMin(''); setFAmountMax('');
+    setFDept(''); setFProduct(''); setSearch('');
+  };
+
+  // ── Preset date ranges ────────────────────────────────────────────────────────
+  const setPreset = (preset) => {
+    setPage(1);
+    if (preset === 'today')     { setDateFrom(today);             setDateTo(today); }
+    if (preset === 'yesterday') { const y = shiftDays(today, -1); setDateFrom(y); setDateTo(y); }
+    if (preset === '7d')        { setDateFrom(shiftDays(today, -6)); setDateTo(today); }
+    if (preset === '30d')       { setDateFrom(shiftDays(today, -29)); setDateTo(today); }
+    if (preset === 'month')     { setDateFrom(startOfMonth());    setDateTo(today); }
+  };
+
+  const activePreset = (() => {
+    if (dateFrom === today && dateTo === today) return 'today';
+    const yest = shiftDays(today, -1);
+    if (dateFrom === yest && dateTo === yest) return 'yesterday';
+    if (dateFrom === shiftDays(today, -6)  && dateTo === today) return '7d';
+    if (dateFrom === shiftDays(today, -29) && dateTo === today) return '30d';
+    if (dateFrom === startOfMonth()        && dateTo === today) return 'month';
+    return 'custom';
+  })();
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="layout-container">
       <Sidebar />
-      <div className="main-content" style={{ padding: '2rem', background: 'var(--bg-primary)', minHeight: '100vh' }}>
+      <div className="main-content txn-page">
 
         {/* Page header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Receipt size={22} color="var(--accent-primary)" />
+        <div className="txn-header">
+          <div className="txn-header-left">
+            <Receipt size={22} className="txn-header-icon" />
             <div>
-              <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>Transactions</h1>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Browse all POS sales by date</p>
+              <h1 className="txn-title">Transactions</h1>
+              <p className="txn-subtitle">
+                {isToday && <span className="txn-live-dot" />}
+                {isToday ? 'Live · auto-refreshes every 60 s' : `${dateFrom} → ${dateTo}`}
+              </p>
             </div>
           </div>
-
-          {/* Date nav */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button onClick={() => setDate(d => shiftDate(d, -1))} style={navBtn}>
-              <ChevronLeft size={16} />
+          <div className="txn-header-right">
+            <button className="txn-btn" onClick={load} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'txn-spin' : ''} />
+              {loading ? 'Loading…' : 'Refresh'}
             </button>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+          </div>
+        </div>
+
+        {/* ── Filter card ── */}
+        <div className="txn-filter-card">
+          <div className="txn-filter-quick">
+
+            {/* Search */}
+            <div className="txn-search-wrap">
+              <Search size={13} className="txn-search-icon" />
               <input
-                type="date" value={date}
-                onChange={e => setDate(e.target.value)}
-                style={{ paddingLeft: 28, paddingRight: 10, paddingTop: 7, paddingBottom: 7, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.85rem', cursor: 'pointer' }}
+                className="txn-input"
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Search TXN #, cashier, item…"
               />
             </div>
-            <button onClick={() => setDate(d => shiftDate(d, 1))} disabled={date >= today} style={{ ...navBtn, opacity: date >= today ? 0.4 : 1 }}>
-              <ChevronRight size={16} />
-            </button>
-            {date !== today && (
-              <button onClick={() => setDate(today)} style={{ ...navBtn, fontSize: '0.72rem', padding: '6px 10px', fontWeight: 600 }}>Today</button>
-            )}
-            <button onClick={() => load(date)} style={navBtn}>
-              <RefreshCw size={14} />
+
+            {/* Date range */}
+            <div className="txn-date-group">
+              <input
+                type="date" className="txn-input-date"
+                value={dateFrom} max={today}
+                onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+              />
+              <span className="txn-date-sep">→</span>
+              <input
+                type="date" className="txn-input-date"
+                value={dateTo} min={dateFrom} max={today}
+                onChange={e => { setDateTo(e.target.value); setPage(1); }}
+              />
+            </div>
+
+            {/* Presets */}
+            <div className="txn-presets">
+              {[
+                { id: 'today',     label: 'Today' },
+                { id: 'yesterday', label: 'Yesterday' },
+                { id: '7d',        label: '7d' },
+                { id: '30d',       label: '30d' },
+                { id: 'month',     label: 'Month' },
+              ].map(p => (
+                <button
+                  key={p.id}
+                  className={`txn-preset${activePreset === p.id ? ' active' : ''}`}
+                  onClick={() => setPreset(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Status quick pick */}
+            <select
+              className="txn-select"
+              value={fStatus}
+              onChange={e => { setFStatus(e.target.value); setPage(1); }}
+            >
+              <option value="">All Status</option>
+              <option value="complete">Sales</option>
+              <option value="refund">Refunds</option>
+              <option value="voided">Voided</option>
+            </select>
+
+            {/* Advanced toggle */}
+            <button
+              className={`txn-adv-toggle${showAdv ? ' open' : ''}`}
+              onClick={() => setShowAdv(v => !v)}
+            >
+              <Filter size={12} />
+              Advanced
+              {showAdv ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {advChips.length > 0 && (
+                <span style={{ marginLeft: 2, background: 'var(--accent-primary)', color: '#fff',
+                  borderRadius: '99px', padding: '0 5px', fontSize: '0.65rem', fontWeight: 800 }}>
+                  {advChips.length}
+                </span>
+              )}
             </button>
           </div>
-        </div>
 
-        {/* Summary cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: '1.5rem' }}>
-          <SummaryCard label="Transactions" value={txs.length} />
-          <SummaryCard label="Daily Total" value={fmt$(dailyTotal)} accent />
-          <SummaryCard label="Avg Sale" value={txs.length ? fmt$(dailyTotal / txs.length) : '—'} />
-          <SummaryCard
-            label="Cash"
-            value={fmt$(txs.filter(tx => tx.tenderLines?.some(t => t.method === 'cash')).reduce((s, tx) => s + (tx.grandTotal || 0), 0))}
-          />
-        </div>
+          {/* ── Advanced panel ── */}
+          {showAdv && (
+            <div className="txn-filter-adv">
 
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: '1rem' }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          <input
-            value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search by TXN #, cashier, or item…"
-            style={{ width: '100%', paddingLeft: 36, paddingRight: 12, paddingTop: 9, paddingBottom: 9, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.875rem', boxSizing: 'border-box' }}
-          />
+              {/* Cashier */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Cashier</div>
+                <select
+                  className="txn-select"
+                  value={fCashierId}
+                  onChange={e => { setFCashierId(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Cashiers</option>
+                  {cashiers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Station / Lane */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Lane / Station</div>
+                <input
+                  className={`txn-input txn-input-plain`}
+                  value={fStation}
+                  onChange={e => { setFStation(e.target.value); setPage(1); }}
+                  placeholder="Station ID"
+                />
+              </div>
+
+              {/* Time From */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Time From</div>
+                <input
+                  type="time" className="txn-input txn-input-plain"
+                  value={fTimeFrom}
+                  onChange={e => { setFTimeFrom(e.target.value); setPage(1); }}
+                />
+              </div>
+
+              {/* Time To */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Time To</div>
+                <input
+                  type="time" className="txn-input txn-input-plain"
+                  value={fTimeTo}
+                  onChange={e => { setFTimeTo(e.target.value); setPage(1); }}
+                />
+              </div>
+
+              {/* Tender Type */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Tender Type</div>
+                <select
+                  className="txn-select"
+                  value={fTender}
+                  onChange={e => { setFTender(e.target.value); setPage(1); }}
+                >
+                  <option value="">All Tenders</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card (incl. manual)</option>
+                  <option value="ebt">EBT (incl. manual)</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              {/* Amount range */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Amount ($)</div>
+                <div className="txn-filter-row-group">
+                  <input
+                    type="number" step="0.01" min="0"
+                    className="txn-input txn-input-plain"
+                    value={fAmountMin}
+                    onChange={e => { setFAmountMin(e.target.value); setPage(1); }}
+                    placeholder="Min"
+                  />
+                  <span className="txn-date-sep">–</span>
+                  <input
+                    type="number" step="0.01" min="0"
+                    className="txn-input txn-input-plain"
+                    value={fAmountMax}
+                    onChange={e => { setFAmountMax(e.target.value); setPage(1); }}
+                    placeholder="Max"
+                  />
+                </div>
+              </div>
+
+              {/* Department */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Department</div>
+                <input
+                  className="txn-input txn-input-plain"
+                  value={fDept}
+                  onChange={e => { setFDept(e.target.value); setPage(1); }}
+                  placeholder="e.g. Grocery"
+                />
+              </div>
+
+              {/* Product */}
+              <div className="txn-filter-field">
+                <div className="txn-filter-label">Product</div>
+                <input
+                  className="txn-input txn-input-plain"
+                  value={fProduct}
+                  onChange={e => { setFProduct(e.target.value); setPage(1); }}
+                  placeholder="Product name"
+                />
+              </div>
+
+            </div>
+          )}
+
+          {/* Active filter chips */}
+          {advChips.length > 0 && (
+            <div className="txn-chip-strip">
+              {advChips.map(chip => (
+                <span key={chip.key} className="txn-chip">
+                  {chip.label}
+                  <span className="txn-chip-x" onClick={chip.clear}><X size={10} /></span>
+                </span>
+              ))}
+              <button className="txn-clear-all" onClick={clearAll}>Clear all</button>
+            </div>
+          )}
         </div>
 
         {/* Error */}
         {error && (
-          <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 'var(--radius-md)', padding: '0.75rem 1rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem', fontSize: '0.85rem' }}>
-            <AlertCircle size={16} /> {error}
+          <div className="txn-error">
+            <AlertCircle size={15} /> {error}
           </div>
         )}
 
-        {/* Table */}
-        <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+        {/* ── Summary cards ── */}
+        <div className="txn-summary-grid">
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Transactions</div>
+            <div className="txn-summary-value">{stats.count}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Total Revenue</div>
+            <div className="txn-summary-value accent">{fmt$(stats.revenue)}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Avg Sale</div>
+            <div className="txn-summary-value">{stats.avg ? fmt$(stats.avg) : '—'}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Cash</div>
+            <div className="txn-summary-value green">{fmt$(stats.cash)}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Card</div>
+            <div className="txn-summary-value blue">{fmt$(stats.card)}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">EBT</div>
+            <div className="txn-summary-value purple">{fmt$(stats.ebt)}</div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Refunds</div>
+            <div className={`txn-summary-value${stats.refunds > 0 ? ' red' : ' muted'}`}>
+              {stats.refunds}
+            </div>
+          </div>
+          <div className="txn-summary-card">
+            <div className="txn-summary-label">Voided</div>
+            <div className={`txn-summary-value${stats.voided > 0 ? ' red' : ' muted'}`}>
+              {stats.voided}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Table ── */}
+        <div className="txn-table-card">
           {loading ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              <RefreshCw size={22} style={{ animation: 'spin 1s linear infinite', marginBottom: 10 }} /><br />Loading transactions…
+            <div className="txn-empty">
+              <div className="txn-empty-icon"><RefreshCw size={30} className="txn-spin" /></div>
+              Loading transactions…
             </div>
           ) : paginated.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              <Receipt size={32} style={{ marginBottom: 12, opacity: 0.3 }} /><br />
-              {txs.length === 0 ? 'No transactions found for this date.' : 'No results match your search.'}
+            <div className="txn-empty">
+              <div className="txn-empty-icon"><Receipt size={34} /></div>
+              {txs.length === 0 ? 'No transactions for this period.' : 'No results match your filters.'}
             </div>
           ) : (
             <>
-              {/* Table header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', padding: '0.6rem 1.1rem', borderBottom: '1px solid var(--border-color)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                <span>Time</span>
+              <div className="txn-table-header">
+                <span>Date / Time</span>
                 <span>TXN #</span>
                 <span>Cashier</span>
+                <span>Station</span>
+                <span>Items</span>
                 <span>Payment</span>
                 <span style={{ textAlign: 'right' }}>Total</span>
               </div>
 
-              {paginated.map((tx) => (
+              {paginated.map(tx => (
                 <div
                   key={tx.id}
+                  className={`txn-table-row${tx.status === 'voided' ? ' voided' : ''}`}
                   onClick={() => setDetail(tx)}
-                  style={{
-                    display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr',
-                    padding: '0.7rem 1.1rem',
-                    borderBottom: '1px solid var(--border-color)',
-                    cursor: 'pointer', transition: 'background .1s',
-                    alignItems: 'center',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
-                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent-primary)' }}>
-                    {fmtTxNumber(tx.txNumber)}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    {tx.cashierName || '—'}
-                  </span>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    {paymentSummary(tx)}
-                  </span>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'right' }}>
-                    {fmt$(Math.abs(tx.grandTotal))}
-                  </span>
+                  <div>
+                    <div className="txn-cell-time">
+                      {new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </div>
+                    <div className="txn-cell-time">
+                      {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="txn-cell-txnum">{tx.txNumber}</div>
+                    {tx.status !== 'complete' && (
+                      <span className={`txn-status-badge ${STATUS_CLASS(tx.status)}`} style={{ marginTop: 2, display: 'inline-block' }}>
+                        {STATUS_LABEL[tx.status] || tx.status}
+                      </span>
+                    )}
+                  </div>
+                  <div className="txn-cell-cashier">{tx.cashierName || '—'}</div>
+                  <div className="txn-cell-station">{tx.stationId || '—'}</div>
+                  <div className="txn-cell-items">{itemCount(tx)}</div>
+                  <div className="txn-cell-payment">
+                    {[...new Set((tx.tenderLines || []).map(t => t.method))].map(m => (
+                      <span key={m} className={`txn-tender-pill ${TENDER_PILL_CLASS(m)}`}>
+                        {METHOD_LABELS[m] || m}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="txn-cell-total">
+                    {tx.status === 'voided'
+                      ? <span style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>{fmt$(Math.abs(tx.grandTotal))}</span>
+                      : fmt$(Math.abs(tx.grandTotal))}
+                  </div>
                 </div>
               ))}
 
-              {/* Pagination */}
               {totalPages > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0.875rem', borderTop: '1px solid var(--border-color)' }}>
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={navBtn}>
+                <div className="txn-pagination">
+                  <button
+                    className="txn-btn txn-btn-icon"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
                     <ChevronLeft size={14} />
                   </button>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <span className="txn-page-info">
                     Page {page} of {totalPages} · {filtered.length} results
                   </span>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={navBtn}>
+                  <button
+                    className="txn-btn txn-btn-icon"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                  >
                     <ChevronRight size={14} />
                   </button>
                 </div>
@@ -330,28 +946,14 @@ export default function Transactions() {
         </div>
 
         {/* Detail modal */}
-        {detail && <TxDetail tx={detail} onClose={() => setDetail(null)} />}
+        {detail && (
+          <TxDetail
+            tx={detail}
+            onClose={() => setDetail(null)}
+            storeInfo={storeInfo}
+          />
+        )}
       </div>
     </div>
   );
 }
-
-function SummaryCard({ label, value, accent }) {
-  return (
-    <div className="card" style={{ padding: '0.875rem 1rem' }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: '1.25rem', fontWeight: 800, color: accent ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{value}</div>
-    </div>
-  );
-}
-
-const navBtn = {
-  background: 'var(--bg-secondary)',
-  border: '1px solid var(--border-color)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-secondary)',
-  cursor: 'pointer',
-  padding: '6px 10px',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: '0.8rem',
-};

@@ -186,6 +186,26 @@ export const createTransaction = async (req, res) => {
       });
     }
 
+    // ── Deduct stock for each sold line item (fire-and-forget) ────────────
+    // Only deduct for real products (skip lottery, bottle-return, price-override lines without productId)
+    if (Array.isArray(lineItems) && lineItems.length) {
+      const stockUpdates = lineItems
+        .filter(li => li.productId && !li.isLottery && !li.isBottleReturn && li.qty > 0)
+        .map(li =>
+          prisma.storeProduct.updateMany({
+            where: { storeId, masterProductId: li.productId, orgId },
+            data:  {
+              quantityOnHand: { decrement: li.qty },
+              lastStockUpdate: new Date(),
+            },
+          })
+        );
+      // Non-blocking — don't hold up the response if stock update fails
+      Promise.all(stockUpdates).catch(err =>
+        console.error('[createTransaction] stock deduction error:', err.message)
+      );
+    }
+
     res.status(201).json(tx);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -236,6 +256,19 @@ export const batchCreateTransactions = async (req, res) => {
           },
         });
         results.push({ localId: tx.localId, id: saved.id, txNumber: saved.txNumber });
+
+        // Deduct stock for this offline transaction
+        if (Array.isArray(tx.lineItems) && tx.lineItems.length) {
+          const updates = tx.lineItems
+            .filter(li => li.productId && !li.isLottery && !li.isBottleReturn && li.qty > 0)
+            .map(li =>
+              prisma.storeProduct.updateMany({
+                where: { storeId: tx.storeId, masterProductId: li.productId, orgId },
+                data:  { quantityOnHand: { decrement: li.qty }, lastStockUpdate: new Date() },
+              })
+            );
+          Promise.all(updates).catch(() => {});
+        }
       } catch (e) {
         errors.push({ localId: tx.localId, error: e.message });
       }
@@ -369,19 +402,33 @@ export const savePOSConfig = async (req, res) => {
 };
 
 // ── GET /api/pos-terminal/transactions ────────────────────────────────────
-// List transactions with filters: date, dateFrom, dateTo, cashierId, status, limit, offset
+// List transactions with filters: date, dateFrom, dateTo, cashierId, stationId,
+// status, amountMin, amountMax, limit, offset
 export const listTransactions = async (req, res) => {
   try {
     const orgId = getOrgId(req);
-    const { storeId, date, dateFrom, dateTo, cashierId, status, limit = 50, offset = 0 } = req.query;
+    const {
+      storeId, date, dateFrom, dateTo,
+      cashierId, stationId, status,
+      amountMin, amountMax,
+      limit = 200, offset = 0,
+    } = req.query;
 
     const where = { orgId };
     if (storeId)   where.storeId   = storeId;
     if (cashierId) where.cashierId = cashierId;
+    if (stationId) where.stationId = stationId;
     if (status)    where.status    = status;
 
+    // Amount range filter on grandTotal
+    if (amountMin || amountMax) {
+      where.grandTotal = {};
+      if (amountMin) where.grandTotal.gte = parseFloat(amountMin);
+      if (amountMax) where.grandTotal.lte = parseFloat(amountMax);
+    }
+
+    // Date/time window
     if (dateFrom || dateTo) {
-      // Date range query (used by refund modal "7 days", "30 days", etc.)
       where.createdAt = {};
       if (dateFrom) {
         const d = new Date(dateFrom);
@@ -403,14 +450,16 @@ export const listTransactions = async (req, res) => {
       prisma.transaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take:    Math.min(parseInt(limit) || 50, 500),
+        take:    Math.min(parseInt(limit) || 200, 1000),
         skip:    parseInt(offset) || 0,
         select: {
           id: true, txNumber: true, status: true,
-          grandTotal: true, tenderLines: true, changeGiven: true,
+          subtotal: true, taxTotal: true, depositTotal: true,
+          ebtTotal: true, grandTotal: true,
+          tenderLines: true, changeGiven: true,
           lineItems: true, cashierId: true, stationId: true,
           refundOf: true, voidedAt: true, notes: true,
-          createdAt: true,
+          offlineCreatedAt: true, createdAt: true,
         },
       }),
     ]);
@@ -427,9 +476,13 @@ export const listTransactions = async (req, res) => {
       total,
       transactions: txs.map(t => ({
         ...t,
-        grandTotal:  Number(t.grandTotal),
-        changeGiven: Number(t.changeGiven),
-        cashierName: userMap[t.cashierId] || 'Unknown',
+        subtotal:     Number(t.subtotal     ?? 0),
+        taxTotal:     Number(t.taxTotal     ?? 0),
+        depositTotal: Number(t.depositTotal ?? 0),
+        ebtTotal:     Number(t.ebtTotal     ?? 0),
+        grandTotal:   Number(t.grandTotal),
+        changeGiven:  Number(t.changeGiven),
+        cashierName:  userMap[t.cashierId] || 'Unknown',
       })),
     });
   } catch (err) {
