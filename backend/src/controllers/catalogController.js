@@ -15,6 +15,7 @@
  */
 
 import prisma from '../config/postgres.js';
+import { normalizeUPC, upcVariants } from '../utils/upc.js';
 
 // E-commerce sync — optional. If Redis / @storv/queue is not installed, all emit
 // functions are silent no-ops. POS operations are never blocked.
@@ -580,38 +581,32 @@ export const getMasterProducts = async (req, res) => {
 export const searchMasterProducts = async (req, res) => {
   try {
     const orgId = getOrgId(req);
-    const query = req.query.q?.trim() || '';
+    const rawQuery = req.query.q?.trim() || '';
     const { skip, take, page, limit } = paginationParams(req.query);
 
-    if (!query) {
+    if (!rawQuery) {
       return res.status(400).json({ success: false, error: 'Search query (q) is required' });
     }
 
+    // Strip spaces/dashes/dots that scanners or humans may include in a UPC
+    // e.g. "0 80686 00637 4" → "0806860063 74" → digits only → "080686006374"
+    const digitsOnlyQuery = rawQuery.replace(/[\s\-\.]/g, '').replace(/\D/g, '');
+    const isUpcLike = digitsOnlyQuery.length >= 6 && digitsOnlyQuery.length <= 14;
+
     // Exact UPC match first (fastest, for barcode scanner)
-    // Try all common UPC variants so storage format differences don't cause misses.
-    // e.g. scanner emits "082928223365" (12-digit) → also try 14-digit padded, etc.
-    if (/^\d{6,14}$/.test(query)) {
-      const stripped = query.replace(/^0+/, '') || '0';
-      const upcVariants = [...new Set([
-        query,
-        stripped,
-        stripped.padStart(12, '0'),
-        stripped.padStart(13, '0'),
-        stripped.padStart(14, '0'),
-        ...(query.length === 14 ? [query.slice(-12), query.slice(-13)] : []),
-        ...(query.length === 13 && query[0] === '0' ? [query.slice(1)] : []),
-        ...(query.length === 12 ? ['0' + query] : []),
-      ])].filter(v => v.length >= 6);
+    // Build all plausible variants so storage format differences never cause a miss.
+    if (isUpcLike) {
+      const variants = upcVariants(digitsOnlyQuery);
 
       // First check ProductUpc table (multiple-UPC support)
       const upcRow = await prisma.productUpc.findFirst({
-        where: { orgId, upc: { in: upcVariants } },
+        where: { orgId, upc: { in: variants } },
         select: { masterProductId: true },
       });
 
       const exactWhere = upcRow
         ? { id: upcRow.masterProductId, orgId, deleted: false }
-        : { orgId, deleted: false, upc: { in: upcVariants } };
+        : { orgId, deleted: false, upc: { in: variants } };
 
       const exact = await prisma.masterProduct.findFirst({
         where: exactWhere,
@@ -626,12 +621,9 @@ export const searchMasterProducts = async (req, res) => {
       if (exact) return res.json({ success: true, data: [exact], pagination: { page: 1, limit: 1, total: 1, pages: 1 } });
     }
 
-    // Build variant list for fallback text search too (if query is all digits)
-    const isDigitQuery = /^\d{6,14}$/.test(query);
-    const digitVariants = isDigitQuery ? (() => {
-      const stripped = query.replace(/^0+/, '') || '0';
-      return [...new Set([query, stripped, stripped.padStart(12, '0'), stripped.padStart(13, '0'), stripped.padStart(14, '0')])].filter(v => v.length >= 6);
-    })() : null;
+    // Use the original raw query for text search (name, brand, SKU)
+    const query = rawQuery;
+    const digitVariants = isUpcLike ? upcVariants(digitsOnlyQuery) : null;
 
     // Full-text / fuzzy search — PostgreSQL ILIKE
     const where = {
@@ -639,7 +631,7 @@ export const searchMasterProducts = async (req, res) => {
       deleted: false,
       OR: [
         { name:     { contains: query, mode: 'insensitive' } },
-        ...(isDigitQuery && digitVariants
+        ...(isUpcLike && digitVariants
           ? [{ upc: { in: digitVariants } }]
           : [{ upc: { contains: query } }]
         ),
@@ -721,7 +713,7 @@ export const createMasterProduct = async (req, res) => {
     const product = await prisma.masterProduct.create({
       data: {
         orgId,
-        upc:                upc || null,
+        upc:                normalizeUPC(upc) || null,
         plu:                plu || null,
         sku:                sku || null,
         itemCode:           itemCode || null,
@@ -801,7 +793,7 @@ export const updateMasterProduct = async (req, res) => {
     const body = req.body;
 
     if (body.name          !== undefined) updates.name          = body.name;
-    if (body.upc           !== undefined) updates.upc           = body.upc || null;
+    if (body.upc           !== undefined) updates.upc           = normalizeUPC(body.upc) || null;
     if (body.plu           !== undefined) updates.plu           = body.plu || null;
     if (body.sku           !== undefined) updates.sku           = body.sku || null;
     if (body.itemCode      !== undefined) updates.itemCode      = body.itemCode || null;
@@ -1462,6 +1454,8 @@ export const addProductUpc = async (req, res) => {
 
     if (!upc) return res.status(400).json({ success: false, error: 'upc is required' });
 
+    const normalizedUpc = normalizeUPC(upc) || upc.replace(/[\s\-\.]/g, '');
+
     // Verify product belongs to org
     const product = await prisma.masterProduct.findFirst({ where: { id: masterProductId, orgId } });
     if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
@@ -1472,7 +1466,7 @@ export const addProductUpc = async (req, res) => {
     }
 
     const row = await prisma.productUpc.create({
-      data: { orgId, masterProductId, upc, label: label || null, isDefault: Boolean(isDefault) },
+      data: { orgId, masterProductId, upc: normalizedUpc, label: label || null, isDefault: Boolean(isDefault) },
     });
     res.status(201).json({ success: true, data: row });
   } catch (err) {

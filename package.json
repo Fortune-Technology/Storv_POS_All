@@ -13,7 +13,7 @@
     "dev:admin": "npm run dev --prefix admin-app",
     "dev:ecom": "npm run dev --prefix ecom-backend",
     "dev:storefront": "npm run dev --prefix storefront",
-    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend && npm install --prefix cashier-app && npm install --prefix admin-app && npm install --prefix ecom-backend && npm install --prefix storefront",
+    "install:all": "npm install && && npm install --prefix frontend && npm install --prefix cashier-app && npm install --prefix admin-app && npm install --prefix ecom-backend && npm install --prefix storefront",
     "db:generate": "npm run db:generate --prefix backend",
     "db:push": "npm run db:push --prefix backend",
     "db:push:ecom": "npm run db:push --prefix ecom-backend",

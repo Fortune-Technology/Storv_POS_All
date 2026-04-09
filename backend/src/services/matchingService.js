@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import prisma from '../config/postgres.js';
+import { upcVariants as sharedUpcVariants } from '../utils/upc.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -69,42 +70,10 @@ export const loadCatalogProductsForMatching = async (orgId) => {
 };
 
 // ─── UPC NORMALIZATION ────────────────────────────────────────────────────────
+// Delegates to the shared utility which handles spaces, dashes, UPC-E expansion,
+// EAN-8/UPC-A/EAN-13/ITF-14 normalization, and check-digit truncation.
 
-const digitsOnly = (s) => String(s || '').replace(/\D/g, '');
-
-/**
- * Generate every plausible UPC variant for matching.
- * Handles: leading zeros, EAN-13 ↔ UPC-A, missing check digit, truncated codes.
- */
-const upcVariants = (upc) => {
-  const s = digitsOnly(upc);
-  if (!s || s.length < 6) return [];
-
-  const variants = new Set();
-  variants.add(s);
-
-  // Strip all leading zeros
-  const stripped = s.replace(/^0+/, '');
-  if (stripped) variants.add(stripped);
-
-  // EAN-13 starting with 0 → UPC-A (12 digits)
-  if (s.length === 13 && s[0] === '0') {
-    variants.add(s.slice(1));
-    variants.add(s.slice(1).replace(/^0+/, ''));
-  }
-
-  // UPC-A (12 digits) → EAN-13 (pad leading 0)
-  if (s.length === 12) variants.add('0' + s);
-
-  // Without check digit (last digit) — handles invoices that truncate it
-  if (s.length >= 8) {
-    const noCheck = s.slice(0, -1);
-    variants.add(noCheck);
-    variants.add(noCheck.replace(/^0+/, ''));
-  }
-
-  return [...variants].filter((v) => v.length >= 6);
-};
+const upcVariants = sharedUpcVariants;
 
 /**
  * Build a map from every UPC variant of every POS product → product.

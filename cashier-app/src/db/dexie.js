@@ -84,16 +84,26 @@ export async function setLastSync(key, isoString) {
 
 export async function lookupByUPC(upc, storeId) {
   if (!upc) return null;
-  // Try store-specific first, fall back to any storeId
-  const exact = await db.products
-    .where('upc').equals(upc)
-    .and(p => p.storeId === storeId && p.active !== false)
-    .first();
-  if (exact) return exact;
-  return db.products
-    .where('upc').equals(upc)
-    .and(p => p.active !== false)
-    .first();
+  const { upcVariants } = await import('../utils/upc.js');
+  const variants = upcVariants(upc);
+  if (!variants.length) return null;
+
+  // Try store-specific first across all variants, then fall back to any storeId
+  for (const v of variants) {
+    const hit = await db.products
+      .where('upc').equals(v)
+      .and(p => p.storeId === storeId && p.active !== false)
+      .first();
+    if (hit) return hit;
+  }
+  for (const v of variants) {
+    const hit = await db.products
+      .where('upc').equals(v)
+      .and(p => p.active !== false)
+      .first();
+    if (hit) return hit;
+  }
+  return null;
 }
 
 export async function searchProducts(query, storeId, limit = 30) {

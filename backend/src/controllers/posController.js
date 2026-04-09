@@ -1,4 +1,5 @@
 import prisma from '../config/postgres.js';
+import { upcVariants } from '../utils/upc.js';
 
 /**
  * posController.js
@@ -147,10 +148,15 @@ export const getLocalProducts = async (req, res, next) => {
     };
 
     if (search) {
+      const digitsOnly = search.replace(/[\s\-\.]/g, '').replace(/\D/g, '');
+      const isUpcLike  = digitsOnly.length >= 6 && digitsOnly.length <= 14;
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
-        { upc:  { contains: search } },
-        { sku:  { contains: search } },
+        ...(isUpcLike
+          ? [{ upc: { in: upcVariants(digitsOnly) } }]
+          : [{ upc: { contains: search } }]
+        ),
+        { sku: { contains: search, mode: 'insensitive' } },
       ];
     }
 

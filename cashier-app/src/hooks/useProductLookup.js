@@ -12,30 +12,37 @@ import { lookupByUPC, upsertProducts } from '../db/dexie.js';
 import { lookupProductByUPC } from '../api/pos.js';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useSyncStore } from '../stores/useSyncStore.js';
+import { normalizeUPC } from '../utils/upc.js';
 
 export function useProductLookup() {
   const storeId  = useAuthStore(s => s.cashier?.storeId || s.cashier?.stores?.[0]?.storeId);
   const isOnline = useSyncStore(s => s.isOnline);
 
-  const lookup = useCallback(async (upc) => {
-    // 1. Try IndexedDB
+  const lookup = useCallback(async (rawUpc) => {
+    // Normalize at entry — strips spaces/dashes, pads to EAN-13.
+    // This means "0 80686 00637 4" and "0080686006374" both become
+    // the same key before touching IndexedDB or the API.
+    const upc = normalizeUPC(rawUpc) || rawUpc;
+
+    // 1. Try IndexedDB (handles format variants internally)
     const cached = await lookupByUPC(upc, storeId);
     if (cached) return { product: cached, source: 'cache' };
 
-    // 2. API fallback (online only)
+    // 2. API fallback (online only) — send normalized UPC so the backend
+    //    variant-matching logic works on clean input.
     if (isOnline) {
       try {
         const remote = await lookupProductByUPC(upc, storeId);
         if (remote) {
-          // Cache it for future scans
+          // Cache with normalized UPC so future scans hit IndexedDB
           await upsertProducts([{
             ...remote,
-            id:           remote.id,
-            upc:          remote.upc,
-            retailPrice:  Number(remote.defaultRetailPrice || 0),
-            storeId:      storeId || null,
-            orgId:        remote.orgId,
-            updatedAt:    remote.updatedAt || new Date().toISOString(),
+            id:          remote.id,
+            upc:         normalizeUPC(remote.upc) || remote.upc,
+            retailPrice: Number(remote.defaultRetailPrice || 0),
+            storeId:     storeId || null,
+            orgId:       remote.orgId,
+            updatedAt:   remote.updatedAt || new Date().toISOString(),
           }]);
           return { product: remote, source: 'api' };
         }
