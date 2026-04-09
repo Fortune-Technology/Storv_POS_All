@@ -12,6 +12,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/ecom/, '/api'),
       },
+      // Proxy ecom uploads (images) to ecom-backend
+      '/ecom-uploads': {
+        target: 'http://localhost:5005',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ecom-uploads/, '/uploads'),
+      },
     },
   },
 })

@@ -95,7 +95,7 @@ function StoreDiscovery({ stores }) {
                 const branding = s.branding || {};
                 const fulfillment = s.fulfillmentConfig || {};
                 const seo = s.seoDefaults || {};
-                const logoUrl = branding.logoUrl ? (branding.logoUrl.startsWith('http') ? branding.logoUrl : `http://localhost:5005${branding.logoUrl}`) : null;
+                const logoUrl = branding.logoUrl ? (branding.logoUrl.startsWith('http') ? branding.logoUrl : `${process.env.NEXT_PUBLIC_ECOM_URL || 'http://localhost:5005'}${branding.logoUrl}`) : null;
                 return (
                   <div key={s.slug} className="sd-card">
                     <div className="sd-card-banner" style={logoUrl ? {} : { background: branding.primaryColor || 'var(--sf-primary)' }}>

@@ -158,7 +158,7 @@ function ImageUploader({ value, onChange }) {
 
   return (
     <div className="es-img-uploader">
-      {value && <img src={`http://localhost:5005${value}`} alt="" className="es-img-preview" />}
+      {value && <img src={`/ecom-uploads${value}`} alt="" className="es-img-preview" />}
       <div className="es-img-actions">
         <button type="button" className="es-img-btn" onClick={() => ref.current?.click()} disabled={uploading}>
           <Upload size={14} /> {uploading ? 'Uploading...' : value ? 'Replace' : 'Upload Image'}
@@ -599,7 +599,7 @@ export default function EcomSetup() {
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>Upload a banner image for your store card on the directory (recommended: 800×450px, 16:9 ratio). Shown on store discovery and as hero fallback.</p>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
             {form.branding.logoUrl ? (
-              <img src={`http://localhost:5005${form.branding.logoUrl}`} alt="Logo" style={{ width: 180, height: 100, borderRadius: 10, objectFit: 'cover', border: '1px solid var(--border-color)' }} />
+              <img src={`/ecom-uploads${form.branding.logoUrl}`} alt="Logo" style={{ width: 180, height: 100, borderRadius: 10, objectFit: 'cover', border: '1px solid var(--border-color)' }} />
             ) : (
               <div style={{ width: 180, height: 100, borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No image</div>
             )}
