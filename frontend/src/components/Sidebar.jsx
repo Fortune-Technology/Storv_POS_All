@@ -85,9 +85,11 @@ const menuGroups = [
   {
     label: 'Online Store',
     items: [
-      { name: 'Store Setup', icon: <Settings2 size={13} />, path: '/portal/ecom/setup' },
-      { name: 'Online Orders', icon: <ShoppingCart size={13} />, path: '/portal/ecom/orders' },
-      { name: 'Custom Domain', icon: <Globe size={13} />, path: '/portal/ecom/domain' },
+      { name: 'Store Setup',     icon: <Settings2 size={13} />,    path: '/portal/ecom/setup' },
+      { name: 'Online Orders',   icon: <ShoppingCart size={13} />,  path: '/portal/ecom/orders' },
+      { name: 'Custom Domain',   icon: <Globe size={13} />,        path: '/portal/ecom/domain' },
+      { name: 'Analytics',       icon: <BarChart2 size={13} />,    path: '/portal/ecom/analytics' },
+      { name: 'Customers',       icon: <Users size={13} />,        path: '/portal/ecom/customers' },
     ],
   },
   {

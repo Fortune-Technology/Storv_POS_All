@@ -1,13 +1,8 @@
-/**
- * Home Template 4: Full-Width Overlay
- * Full-width background image with bottom text overlay + gradient.
- */
-
 import Link from 'next/link';
 import ProductCard from '../products/ProductCard';
+import { DeptIcon } from '../icons';
 
 const ECOM_URL = process.env.NEXT_PUBLIC_ECOM_URL || 'http://localhost:5005';
-const DEPT_ICONS = { beverages: '🥤', snacks: '🍿', 'dairy-frozen': '🧊', grocery: '🛒', 'health-beauty': '💊', household: '🏠', default: '📦' };
 
 export default function HomeOverlay({ content, store, products = [], departments = [], storeSlug }) {
   const s = content?.sections || {};
@@ -30,28 +25,18 @@ export default function HomeOverlay({ content, store, products = [], departments
           </div>
         </div>
       </section>
-
       <div className="sf-container">
         {departments.length > 0 && (
           <section className="tpl-section">
             <h2 className="tpl-section-title">{s.departments?.heading || 'Browse Categories'}</h2>
             <div className="tpl-dept-grid">
-              {departments.map(d => (
-                <Link key={d.slug} href={`/products?${sq}&department=${d.slug}`} className="tpl-dept-card">
-                  <span className="tpl-dept-icon">{DEPT_ICONS[d.slug] || DEPT_ICONS.default}</span>
-                  <span className="tpl-dept-name">{d.name}</span>
-                </Link>
-              ))}
+              {departments.map(d => (<Link key={d.slug} href={`/products?${sq}&department=${d.slug}`} className="tpl-dept-card"><DeptIcon slug={d.slug} size={28} className="tpl-dept-lucide" /><span className="tpl-dept-name">{d.name}</span></Link>))}
             </div>
           </section>
         )}
-
         {products.length > 0 && (
           <section className="tpl-section">
-            <div className="tpl-section-header">
-              <h2 className="tpl-section-title">{s.products?.heading || 'Featured Products'}</h2>
-              <Link href={`/products?${sq}`} className="tpl-section-link">View All →</Link>
-            </div>
+            <div className="tpl-section-header"><h2 className="tpl-section-title">{s.products?.heading || 'Featured Products'}</h2><Link href={`/products?${sq}`} className="tpl-section-link">View All →</Link></div>
             <div className="sf-product-grid">{products.map(p => <ProductCard key={p.id} product={p} />)}</div>
           </section>
         )}

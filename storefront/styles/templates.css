@@ -165,6 +165,8 @@
 }
 .tpl-dept-card:hover { border-color: var(--sf-primary); box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); }
 .tpl-dept-icon { font-size: 32px; }
+.tpl-dept-lucide { color: var(--sf-primary); opacity: 0.8; }
+.tpl-trust-lucide { color: var(--sf-primary); margin-bottom: 10px; display: block; }
 .tpl-dept-name { font-size: 13px; font-weight: 600; color: var(--sf-text); }
 
 /* ── Trust Section ───────────────────────────────────────────────────────── */
@@ -172,11 +174,13 @@
 .tpl-trust { padding: 48px 0 20px; }
 .tpl-trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .tpl-trust-item {
-  text-align: center;
-  padding: 28px 16px;
-  background: var(--sf-bg-secondary);
-  border-radius: 12px;
-  border: 1px solid var(--sf-border-light);
+    text-align: center;
+    padding: 28px 16px;
+    background: var(--sf-bg-secondary);
+    border-radius: 12px;
+    border: 1px solid var(--sf-border-light);
+    display: grid;
+    justify-items: center;
 }
 .tpl-trust-icon { font-size: 32px; margin-bottom: 10px; display: block; }
 .tpl-trust-item h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
@@ -450,4 +454,29 @@
   .tpl-timeline-item--right { padding-left: 40px; padding-right: 0; justify-content: flex-start; }
   .tpl-timeline-line { left: 12px; }
   .tpl-timeline-dot { left: 12px; }
+}
+
+@media (max-width: 480px) {
+  .tpl-hero--centered .tpl-hero-title { font-size: 26px; }
+  .tpl-hero--centered .tpl-hero-desc { font-size: 15px; }
+  .tpl-hero--centered { min-height: 300px; padding: 32px 16px; }
+  .tpl-split-text .tpl-hero-title { font-size: 26px; }
+  .tpl-hero--split { padding: 32px 0; }
+  .tpl-hero--typo { padding: 48px 0 24px; }
+  .tpl-typo-title { font-size: 32px; }
+  .tpl-dept-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .tpl-dept-card { padding: 14px 8px; }
+  .tpl-trust-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .tpl-trust-item { padding: 16px 8px; }
+  .tpl-about-heading { font-size: 24px; }
+  .tpl-mission-card { padding: 24px 20px; }
+  .tpl-contact-heading { font-size: 24px; }
+  .tpl-stats-row { gap: 16px; flex-wrap: wrap; }
+  .tpl-stat-num { font-size: 28px; }
+  .tpl-contact-floating-card { padding: 24px 20px; }
+  .tpl-contact-floating-header h1 { font-size: 22px; }
+  .tpl-hero--overlay { min-height: 380px; }
+  .tpl-overlay-content .tpl-hero-title { font-size: 32px; }
+  .tpl-btn { padding: 11px 20px; font-size: 14px; }
+  .tpl-btn--lg { padding: 13px 24px; }
 }

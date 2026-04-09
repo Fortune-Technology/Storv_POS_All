@@ -1,51 +1,119 @@
 /**
- * E-commerce database seed script.
+ * E-commerce Seed Script
  *
- * Creates a demo store with sample departments and products
- * so the storefront can be tested immediately.
+ * Creates a demo ecom store with products synced from the POS database,
+ * sample CMS pages, and a test customer.
  *
- * Usage: cd ecom-backend && node prisma/seed.js
+ * Usage:
+ *   cd ecom-backend && node prisma/seed.js
  *
- * Prerequisites:
- *   - ecom database exists and schema is pushed (npx prisma db push)
- *   - POS database has at least one org + store (run POS seed first)
+ * Options:
+ *   SEED_ORG_ID=xxx    — POS org ID (auto-detected if not set)
+ *   SEED_STORE_ID=xxx  — POS store ID (auto-detected if not set)
+ *   POS_DATABASE_URL=xxx — POS database URL (reads from ../backend/.env if not set)
  */
 
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-const prisma = new PrismaClient();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+const ecom = new PrismaClient();
+
+// Try to load POS database URL from backend/.env
+let POS_DB_URL = process.env.POS_DATABASE_URL;
+if (!POS_DB_URL) {
+  try {
+    const backendEnv = fs.readFileSync(path.join(__dirname, '../../backend/.env'), 'utf-8');
+    const match = backendEnv.match(/DATABASE_URL\s*=\s*"?([^"\n]+)"?/);
+    if (match) POS_DB_URL = match[1];
+  } catch {}
+}
+
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
 
 async function main() {
-  console.log('🌱 Seeding e-commerce database...\n');
+  console.log('\n🌱 Seeding e-commerce database...\n');
 
-  // ── 1. Check if POS has an org/store we can reference ──────────────
-  // We'll use dummy IDs — in production these come from the POS database.
-  // Replace with your actual orgId and storeId if you have POS data.
-  const ORG_ID = process.env.SEED_ORG_ID || 'demo-org';
-  const STORE_ID = process.env.SEED_STORE_ID || 'demo-store';
+  // ── 1. Try to connect to POS database to auto-detect org/store ─────
+  let orgId = process.env.SEED_ORG_ID;
+  let storeId = process.env.SEED_STORE_ID;
+  let storeName = 'Demo Store';
+  let posProducts = [];
+  let posDepartments = [];
 
-  console.log(`  Using orgId:   ${ORG_ID}`);
-  console.log(`  Using storeId: ${STORE_ID}\n`);
+  if (POS_DB_URL) {
+    try {
+      const { PrismaClient: POSClient } = await import('../../backend/node_modules/@prisma/client/index.js');
+      const pos = new POSClient({ datasources: { db: { url: POS_DB_URL } } });
 
-  // ── 2. Create or update the EcomStore ──────────────────────────────
-  const store = await prisma.ecomStore.upsert({
-    where: { storeId: STORE_ID },
-    update: { enabled: true },
+      // Get first org + store
+      if (!orgId) {
+        const org = await pos.organization.findFirst({ where: { isActive: true } });
+        if (org) orgId = org.id;
+      }
+      if (!storeId && orgId) {
+        const store = await pos.store.findFirst({ where: { orgId, isActive: true } });
+        if (store) { storeId = store.id; storeName = store.name; }
+      }
+
+      // Fetch departments + products
+      if (orgId) {
+        posDepartments = await pos.department.findMany({ where: { orgId, active: true }, orderBy: { sortOrder: 'asc' } });
+        posProducts = await pos.masterProduct.findMany({
+          where: { orgId, active: true, deleted: false, hideFromEcom: false },
+          include: { department: { select: { name: true } } },
+          take: 200,
+        });
+
+        // Get store-level prices if available
+        if (storeId) {
+          const storeProducts = await pos.storeProduct.findMany({ where: { orgId, storeId } });
+          const spMap = {};
+          storeProducts.forEach(sp => { spMap[sp.masterProductId] = sp; });
+          posProducts = posProducts.map(p => ({ ...p, _sp: spMap[p.id] }));
+        }
+      }
+
+      await pos.$disconnect();
+      console.log(`  ✓ Connected to POS database — found ${posProducts.length} products, ${posDepartments.length} departments`);
+    } catch (err) {
+      console.log(`  ⚠ Could not connect to POS database: ${err.message}`);
+      console.log('  → Using demo data instead\n');
+    }
+  }
+
+  // Fallback IDs
+  if (!orgId) orgId = 'demo-org';
+  if (!storeId) storeId = 'demo-store';
+
+  console.log(`  Org ID:   ${orgId}`);
+  console.log(`  Store ID: ${storeId}`);
+  console.log(`  Store:    ${storeName}\n`);
+
+  const slug = slugify(storeName);
+
+  // ── 2. Create EcomStore ────────────────────────────────────────────
+  const store = await ecom.ecomStore.upsert({
+    where: { storeId },
+    update: { enabled: true, storeName },
     create: {
-      orgId: ORG_ID,
-      storeId: STORE_ID,
-      storeName: 'Demo Convenience Store',
-      slug: 'demo',
-      enabled: true,
+      orgId, storeId, storeName, slug, enabled: true,
       branding: {
-        logoText: 'Demo Store',
+        logoText: storeName,
         primaryColor: '#16a34a',
-        secondaryColor: '#0f172a',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Inter', sans-serif",
       },
       seoDefaults: {
-        metaTitle: 'Demo Convenience Store — Shop Online',
-        metaDescription: 'Fresh groceries, snacks, beverages and more. Order online for pickup or delivery.',
+        metaTitle: `${storeName} — Shop Online`,
+        metaDescription: `Fresh groceries, snacks, beverages and more from ${storeName}. Order online for pickup or delivery.`,
       },
       fulfillmentConfig: {
         pickupEnabled: true,
@@ -56,165 +124,148 @@ async function main() {
       },
     },
   });
-  console.log(`  ✓ EcomStore created: "${store.storeName}" (slug: ${store.slug})`);
+  console.log(`  ✓ EcomStore: "${store.storeName}" (slug: ${store.slug})`);
 
-  // ── 3. Create departments ──────────────────────────────────────────
-  const departments = [
-    { name: 'Beverages', slug: 'beverages', posDepartmentId: 1 },
-    { name: 'Snacks', slug: 'snacks', posDepartmentId: 2 },
-    { name: 'Dairy & Frozen', slug: 'dairy-frozen', posDepartmentId: 3 },
-    { name: 'Grocery', slug: 'grocery', posDepartmentId: 4 },
-    { name: 'Health & Beauty', slug: 'health-beauty', posDepartmentId: 5 },
-    { name: 'Household', slug: 'household', posDepartmentId: 6 },
+  // ── 3. Sync departments ────────────────────────────────────────────
+  const deptSources = posDepartments.length > 0 ? posDepartments : [
+    { id: 1, name: 'Beverages', active: true },
+    { id: 2, name: 'Snacks', active: true },
+    { id: 3, name: 'Dairy & Frozen', active: true },
+    { id: 4, name: 'Grocery', active: true },
+    { id: 5, name: 'Health & Beauty', active: true },
+    { id: 6, name: 'Household', active: true },
   ];
 
-  for (const dept of departments) {
-    await prisma.ecomDepartment.upsert({
-      where: { storeId_posDepartmentId: { storeId: STORE_ID, posDepartmentId: dept.posDepartmentId } },
-      update: { name: dept.name, slug: dept.slug, visible: true },
-      create: {
-        orgId: ORG_ID,
-        storeId: STORE_ID,
-        posDepartmentId: dept.posDepartmentId,
-        name: dept.name,
-        slug: dept.slug,
-        visible: true,
-      },
+  let deptCount = 0;
+  for (const d of deptSources) {
+    await ecom.ecomDepartment.upsert({
+      where: { storeId_posDepartmentId: { storeId, posDepartmentId: d.id } },
+      update: { name: d.name, slug: slugify(d.name), visible: d.active !== false, lastSyncedAt: new Date() },
+      create: { orgId, storeId, posDepartmentId: d.id, name: d.name, slug: slugify(d.name), visible: d.active !== false, lastSyncedAt: new Date() },
     });
+    deptCount++;
   }
-  console.log(`  ✓ ${departments.length} departments created`);
+  console.log(`  ✓ ${deptCount} departments synced`);
 
-  // ── 4. Create sample products ──────────────────────────────────────
-  const products = [
-    // Beverages
-    { name: 'Coca-Cola 2L', slug: 'coca-cola-2l', brand: 'Coca-Cola', retailPrice: 2.49, departmentName: 'Beverages', departmentSlug: 'beverages', posProductId: 101, tags: ['soda', 'drink'] },
-    { name: 'Pepsi 12-Pack Cans', slug: 'pepsi-12-pack', brand: 'Pepsi', retailPrice: 6.99, departmentName: 'Beverages', departmentSlug: 'beverages', posProductId: 102, tags: ['soda', 'drink', 'value-pack'] },
-    { name: 'Poland Spring Water 24-Pack', slug: 'poland-spring-24', brand: 'Poland Spring', retailPrice: 4.99, departmentName: 'Beverages', departmentSlug: 'beverages', posProductId: 103, tags: ['water', 'hydration'] },
-    { name: 'Red Bull Energy Drink', slug: 'red-bull-energy', brand: 'Red Bull', retailPrice: 3.49, departmentName: 'Beverages', departmentSlug: 'beverages', posProductId: 104, tags: ['energy', 'drink'] },
-    { name: 'Tropicana Orange Juice 52oz', slug: 'tropicana-oj-52', brand: 'Tropicana', retailPrice: 4.29, departmentName: 'Beverages', departmentSlug: 'beverages', posProductId: 105, tags: ['juice', 'breakfast'] },
+  // ── 4. Sync products ───────────────────────────────────────────────
+  const prodSources = posProducts.length > 0 ? posProducts : getDemoProducts();
 
-    // Snacks
-    { name: 'Doritos Nacho Cheese Party Size', slug: 'doritos-nacho-party', brand: 'Doritos', retailPrice: 5.49, departmentName: 'Snacks', departmentSlug: 'snacks', posProductId: 201, tags: ['chips', 'party'] },
-    { name: 'Lay\'s Classic Potato Chips', slug: 'lays-classic', brand: 'Lay\'s', retailPrice: 3.99, departmentName: 'Snacks', departmentSlug: 'snacks', posProductId: 202, tags: ['chips'] },
-    { name: 'Snickers Bar King Size', slug: 'snickers-king', brand: 'Snickers', retailPrice: 2.29, departmentName: 'Snacks', departmentSlug: 'snacks', posProductId: 203, tags: ['candy', 'chocolate'] },
-    { name: 'Nature Valley Granola Bars 12ct', slug: 'nature-valley-12', brand: 'Nature Valley', retailPrice: 4.49, departmentName: 'Snacks', departmentSlug: 'snacks', posProductId: 204, tags: ['granola', 'healthy'] },
-    { name: 'Oreo Cookies Family Size', slug: 'oreo-family', brand: 'Oreo', retailPrice: 5.99, departmentName: 'Snacks', departmentSlug: 'snacks', posProductId: 205, tags: ['cookies', 'family'] },
+  let prodCount = 0;
+  for (const p of prodSources) {
+    const sp = p._sp;
+    const retailPrice = Number(sp?.retailPrice || p.defaultRetailPrice || 0);
+    const costPrice = sp?.costPrice || p.defaultCostPrice ? Number(sp?.costPrice || p.defaultCostPrice) : null;
+    const pSlug = slugify(`${p.name}-${p.id}`);
 
-    // Dairy & Frozen
-    { name: 'Whole Milk 1 Gallon', slug: 'whole-milk-gallon', brand: 'Store Brand', retailPrice: 3.79, departmentName: 'Dairy & Frozen', departmentSlug: 'dairy-frozen', posProductId: 301, tags: ['milk', 'dairy'] },
-    { name: 'Large Eggs 12ct', slug: 'large-eggs-12', brand: 'Store Brand', retailPrice: 2.99, departmentName: 'Dairy & Frozen', departmentSlug: 'dairy-frozen', posProductId: 302, tags: ['eggs', 'breakfast'] },
-    { name: 'Ben & Jerry\'s Half Baked Pint', slug: 'ben-jerrys-half-baked', brand: 'Ben & Jerry\'s', retailPrice: 5.99, departmentName: 'Dairy & Frozen', departmentSlug: 'dairy-frozen', posProductId: 303, tags: ['ice-cream', 'frozen'] },
-    { name: 'Greek Yogurt Variety Pack', slug: 'greek-yogurt-variety', brand: 'Chobani', retailPrice: 6.49, departmentName: 'Dairy & Frozen', departmentSlug: 'dairy-frozen', posProductId: 304, tags: ['yogurt', 'healthy'] },
-
-    // Grocery
-    { name: 'Wonder Bread White', slug: 'wonder-bread-white', brand: 'Wonder', retailPrice: 3.49, departmentName: 'Grocery', departmentSlug: 'grocery', posProductId: 401, tags: ['bread', 'bakery'] },
-    { name: 'Barilla Spaghetti 16oz', slug: 'barilla-spaghetti', brand: 'Barilla', retailPrice: 1.79, departmentName: 'Grocery', departmentSlug: 'grocery', posProductId: 402, tags: ['pasta', 'italian'] },
-    { name: 'Prego Traditional Pasta Sauce', slug: 'prego-traditional', brand: 'Prego', retailPrice: 2.99, departmentName: 'Grocery', departmentSlug: 'grocery', posProductId: 403, tags: ['sauce', 'italian'] },
-    { name: 'Campbell\'s Chicken Noodle Soup', slug: 'campbells-chicken-noodle', brand: 'Campbell\'s', retailPrice: 1.49, departmentName: 'Grocery', departmentSlug: 'grocery', posProductId: 404, tags: ['soup', 'canned'] },
-
-    // Health & Beauty
-    { name: 'Advil Ibuprofen 24ct', slug: 'advil-24', brand: 'Advil', retailPrice: 7.99, departmentName: 'Health & Beauty', departmentSlug: 'health-beauty', posProductId: 501, tags: ['medicine', 'pain-relief'] },
-    { name: 'Colgate Toothpaste 6oz', slug: 'colgate-6oz', brand: 'Colgate', retailPrice: 3.49, departmentName: 'Health & Beauty', departmentSlug: 'health-beauty', posProductId: 502, tags: ['dental', 'hygiene'] },
-
-    // Household
-    { name: 'Bounty Paper Towels 6-Roll', slug: 'bounty-6roll', brand: 'Bounty', retailPrice: 12.99, departmentName: 'Household', departmentSlug: 'household', posProductId: 601, tags: ['cleaning', 'paper'] },
-    { name: 'Glad Trash Bags 30ct', slug: 'glad-trash-30', brand: 'Glad', retailPrice: 8.49, departmentName: 'Household', departmentSlug: 'household', posProductId: 602, tags: ['cleaning', 'bags'] },
-  ];
-
-  for (const p of products) {
-    await prisma.ecomProduct.upsert({
-      where: { storeId_posProductId: { storeId: STORE_ID, posProductId: p.posProductId } },
+    await ecom.ecomProduct.upsert({
+      where: { storeId_posProductId: { storeId, posProductId: p.id } },
       update: {
-        name: p.name,
-        slug: p.slug,
-        brand: p.brand,
-        retailPrice: p.retailPrice,
-        departmentName: p.departmentName,
-        departmentSlug: p.departmentSlug,
-        tags: p.tags,
-        visible: true,
-        inStock: true,
-        quantityOnHand: Math.floor(Math.random() * 100) + 10,
+        name: p.name, slug: pSlug, brand: p.brand || null, imageUrl: p.imageUrl || null,
+        description: p.ecomDescription || p.description || null,
+        tags: p.ecomTags || [], departmentName: p.department?.name || null,
+        departmentSlug: p.department?.name ? slugify(p.department.name) : null,
+        retailPrice, costPrice, taxable: p.taxable ?? true, ebtEligible: p.ebtEligible ?? false,
+        ageRequired: p.ageRequired || null, size: p.size || null,
+        visible: true, inStock: true,
+        quantityOnHand: sp?.quantityOnHand != null ? Number(sp.quantityOnHand) : Math.floor(Math.random() * 80) + 10,
         lastSyncedAt: new Date(),
       },
       create: {
-        orgId: ORG_ID,
-        storeId: STORE_ID,
-        posProductId: p.posProductId,
-        name: p.name,
-        slug: p.slug,
-        brand: p.brand,
-        retailPrice: p.retailPrice,
-        departmentName: p.departmentName,
-        departmentSlug: p.departmentSlug,
-        tags: p.tags,
-        visible: true,
-        inStock: true,
-        trackInventory: true,
-        quantityOnHand: Math.floor(Math.random() * 100) + 10,
+        orgId, storeId, posProductId: p.id,
+        name: p.name, slug: pSlug, brand: p.brand || null, imageUrl: p.imageUrl || null,
+        description: p.ecomDescription || p.description || null,
+        tags: p.ecomTags || [], departmentName: p.department?.name || null,
+        departmentSlug: p.department?.name ? slugify(p.department.name) : null,
+        retailPrice, costPrice, taxable: p.taxable ?? true, ebtEligible: p.ebtEligible ?? false,
+        ageRequired: p.ageRequired || null, size: p.size || null,
+        visible: true, inStock: true,
+        quantityOnHand: Math.floor(Math.random() * 80) + 10,
         lastSyncedAt: new Date(),
       },
     });
+    prodCount++;
   }
-  console.log(`  ✓ ${products.length} products created`);
+  console.log(`  ✓ ${prodCount} products synced`);
 
-  // ── 5. Create default CMS pages ────────────────────────────────────
+  // ── 5. Create CMS pages ────────────────────────────────────────────
   const pages = [
     {
-      slug: 'about',
-      title: 'About Us',
-      pageType: 'about',
-      published: true,
-      content: {
-        sections: [
-          { type: 'text', heading: 'Our Story', body: 'We are a family-owned convenience store serving our community since 2010. We offer fresh products, competitive prices, and friendly service.' },
-          { type: 'text', heading: 'Our Mission', body: 'To provide our neighborhood with quality groceries, snacks, and household essentials at affordable prices, with the convenience of online ordering.' },
-        ],
-      },
+      slug: 'home', title: 'Home', pageType: 'home', templateId: 'centered-hero', published: true,
+      content: { sections: {
+        hero: { heading: `Welcome to ${storeName}`, subheading: 'Fresh groceries, snacks, and everyday essentials — delivered to your door or ready for pickup.', ctaText: 'Shop Now', image: '' },
+        departments: { heading: 'Shop by Category' },
+        products: { heading: 'Featured Products' },
+      }},
     },
     {
-      slug: 'contact',
-      title: 'Contact Us',
-      pageType: 'contact',
-      published: true,
-      content: {
-        sections: [
-          { type: 'contact-info', phone: '(555) 123-4567', email: 'hello@demostore.com', address: '123 Main Street, Anytown, USA' },
-          { type: 'hours', hours: 'Monday - Sunday: 8:00 AM - 10:00 PM' },
-        ],
-      },
+      slug: 'about', title: 'About', pageType: 'about', templateId: 'story-mission', published: true,
+      content: { sections: {
+        story: { heading: 'Our Story', text: `${storeName} started as a small family-owned store with a big dream: to bring quality products and genuine care to our neighborhood. Over the years, we have grown into a trusted community hub where families find everything they need.` },
+        mission: { heading: 'Our Mission', text: 'To provide our community with high-quality products at fair prices, delivered with genuine care and exceptional service.' },
+      }},
+    },
+    {
+      slug: 'contact', title: 'Contact', pageType: 'contact', templateId: 'contact-split', published: true,
+      content: { sections: {
+        info: { phone: '(555) 123-4567', email: `hello@${slug}.com`, address: '123 Main Street, Anytown, USA' },
+        hours: { hours: 'Mon-Sat 7AM-10PM, Sun 8AM-9PM' },
+      }},
     },
   ];
 
   for (const pg of pages) {
-    await prisma.ecomPage.upsert({
-      where: { storeId_slug: { storeId: STORE_ID, slug: pg.slug } },
-      update: { title: pg.title, content: pg.content, published: pg.published },
-      create: {
-        orgId: ORG_ID,
-        storeId: STORE_ID,
-        slug: pg.slug,
-        title: pg.title,
-        pageType: pg.pageType,
-        content: pg.content,
-        published: pg.published,
-      },
+    await ecom.ecomPage.upsert({
+      where: { storeId_slug: { storeId, slug: pg.slug } },
+      update: { title: pg.title, templateId: pg.templateId, content: pg.content, published: pg.published },
+      create: { orgId, storeId, ...pg },
     });
   }
-  console.log(`  ✓ ${pages.length} CMS pages created`);
+  console.log(`  ✓ ${pages.length} CMS pages created (Home, About, Contact)`);
 
-  console.log('\n✅ E-commerce seed complete!');
-  console.log(`\n  Visit: http://localhost:3000?store=demo`);
-  console.log(`  API:   http://localhost:5005/api/store/demo`);
-  console.log(`         http://localhost:5005/api/store/demo/products`);
-  console.log(`         http://localhost:5005/api/store/demo/departments\n`);
+  // ── 6. Create test customer ────────────────────────────────────────
+  const testEmail = 'test@example.com';
+  const existing = await ecom.ecomCustomer.findUnique({ where: { storeId_email: { storeId, email: testEmail } } });
+  if (!existing) {
+    await ecom.ecomCustomer.create({
+      data: {
+        orgId, storeId, email: testEmail,
+        firstName: 'Test', lastName: 'User', name: 'Test User',
+        phone: '(555) 000-1234',
+        passwordHash: await bcrypt.hash('test123', 10),
+      },
+    });
+    console.log(`  ✓ Test customer: test@example.com / test123`);
+  } else {
+    console.log(`  ✓ Test customer already exists: test@example.com`);
+  }
+
+  // ── Done ───────────────────────────────────────────────────────────
+  console.log(`\n✅ E-commerce seed complete!`);
+  console.log(`\n  Storefront:  http://localhost:3000?store=${slug}`);
+  console.log(`  Store API:   http://localhost:5005/api/store/${slug}`);
+  console.log(`  Products:    http://localhost:5005/api/store/${slug}/products`);
+  console.log(`  Test login:  test@example.com / test123\n`);
+}
+
+function getDemoProducts() {
+  return [
+    { id: 101, name: 'Coca-Cola 2L', brand: 'Coca-Cola', defaultRetailPrice: 2.49, department: { name: 'Beverages' }, taxable: true, ebtEligible: true, ecomTags: ['soda', 'drink'] },
+    { id: 102, name: 'Pepsi 12-Pack Cans', brand: 'Pepsi', defaultRetailPrice: 6.99, department: { name: 'Beverages' }, taxable: true, ebtEligible: true, ecomTags: ['soda'] },
+    { id: 103, name: 'Poland Spring Water 24-Pack', brand: 'Poland Spring', defaultRetailPrice: 4.99, department: { name: 'Beverages' }, taxable: true, ebtEligible: true, ecomTags: ['water'] },
+    { id: 104, name: 'Red Bull Energy Drink', brand: 'Red Bull', defaultRetailPrice: 3.49, department: { name: 'Beverages' }, taxable: true, ebtEligible: false, ecomTags: ['energy'] },
+    { id: 201, name: 'Doritos Nacho Cheese Party Size', brand: 'Doritos', defaultRetailPrice: 5.49, department: { name: 'Snacks' }, taxable: true, ebtEligible: true, ecomTags: ['chips'] },
+    { id: 202, name: "Lay's Classic Potato Chips", brand: "Lay's", defaultRetailPrice: 3.99, department: { name: 'Snacks' }, taxable: true, ebtEligible: true, ecomTags: ['chips'] },
+    { id: 203, name: 'Snickers Bar King Size', brand: 'Snickers', defaultRetailPrice: 2.29, department: { name: 'Snacks' }, taxable: true, ebtEligible: true, ecomTags: ['candy'] },
+    { id: 204, name: 'Nature Valley Granola Bars 12ct', brand: 'Nature Valley', defaultRetailPrice: 4.49, department: { name: 'Snacks' }, taxable: true, ebtEligible: true, ecomTags: ['granola'] },
+    { id: 301, name: 'Whole Milk 1 Gallon', brand: 'Store Brand', defaultRetailPrice: 3.79, department: { name: 'Dairy & Frozen' }, taxable: false, ebtEligible: true, ecomTags: ['milk'] },
+    { id: 302, name: 'Large Eggs 12ct', brand: 'Store Brand', defaultRetailPrice: 2.99, department: { name: 'Dairy & Frozen' }, taxable: false, ebtEligible: true, ecomTags: ['eggs'] },
+    { id: 401, name: 'Wonder Bread White', brand: 'Wonder', defaultRetailPrice: 3.49, department: { name: 'Grocery' }, taxable: false, ebtEligible: true, ecomTags: ['bread'] },
+    { id: 402, name: 'Barilla Spaghetti 16oz', brand: 'Barilla', defaultRetailPrice: 1.79, department: { name: 'Grocery' }, taxable: false, ebtEligible: true, ecomTags: ['pasta'] },
+    { id: 501, name: 'Advil Ibuprofen 24ct', brand: 'Advil', defaultRetailPrice: 7.99, department: { name: 'Health & Beauty' }, taxable: true, ebtEligible: false, ecomTags: ['medicine'] },
+    { id: 601, name: 'Bounty Paper Towels 6-Roll', brand: 'Bounty', defaultRetailPrice: 12.99, department: { name: 'Household' }, taxable: true, ebtEligible: false, ecomTags: ['cleaning'] },
+  ];
 }
 
 main()
-  .catch((e) => {
-    console.error('Seed failed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch((e) => { console.error('\n❌ Seed failed:', e.message); process.exit(1); })
+  .finally(async () => { await ecom.$disconnect(); });

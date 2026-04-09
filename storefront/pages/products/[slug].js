@@ -45,7 +45,7 @@ export default function ProductDetailPage({ store, storeSlug, product }) {
         </div>
         <div className="sf-pdp">
           <div className="sf-pdp-image">
-            {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="sf-pdp-img" /> : <div className="sf-product-image-placeholder" style={{ borderRadius: 8, height: 400 }}>📦</div>}
+            {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="sf-pdp-img" /> : <div className="sf-product-image-placeholder" style={{ borderRadius: 12, height: 420 }}><span className="sf-placeholder-initial" style={{ fontSize: 64 }}>{product.name?.charAt(0)?.toUpperCase()}</span></div>}
           </div>
           <div className="sf-pdp-info">
             {product.brand && <div className="sf-pdp-brand">{product.brand}</div>}

@@ -371,8 +371,8 @@ async function main() {
 
     // Upsert by orgId + upc (only when upc is present)
     if (p.upc) {
-      const existing = await prisma.masterProduct.findUnique({
-        where: { orgId_upc: { orgId: ORG_ID, upc: p.upc } },
+      const existing = await prisma.masterProduct.findFirst({
+        where: { orgId: ORG_ID, upc: p.upc },
       });
       if (existing) {
         await prisma.masterProduct.update({ where: { id: existing.id }, data });

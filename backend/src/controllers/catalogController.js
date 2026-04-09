@@ -1102,7 +1102,12 @@ export const ecomStockCheck = async (req, res) => {
       return res.status(400).json({ available: false, error: 'storeId and items[] required' });
     }
 
-    const productIds = items.map(i => parseInt(i.posProductId));
+    const productIds = items.map(i => parseInt(i.posProductId)).filter(id => !isNaN(id) && id > 0);
+
+    // If no valid product IDs, treat as available (ecom products may use cuid IDs)
+    if (productIds.length === 0) {
+      return res.json({ available: true, items: items.map(i => ({ posProductId: i.posProductId, requestedQty: i.requestedQty, quantityOnHand: null, available: true })) });
+    }
 
     // Fetch current store-level inventory
     const storeProducts = await prisma.storeProduct.findMany({

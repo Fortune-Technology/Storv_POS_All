@@ -1,5 +1,5 @@
 /**
- * Customer auth controller — signup, login, profile, order history.
+ * Customer auth controller — signup, login, profile, addresses, order history.
  */
 
 import bcrypt from 'bcryptjs';
@@ -8,9 +8,9 @@ import { signCustomerToken } from '../middleware/customerAuth.js';
 
 export const signup = async (req, res) => {
   try {
-    const { name, email, phone, password } = req.body;
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'Name, email, and password are required' });
+    const { name, firstName, lastName, email, phone, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -23,12 +23,17 @@ export const signup = async (req, res) => {
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
+    const fName = firstName || (name ? name.split(' ')[0] : '');
+    const lName = lastName || (name ? name.split(' ').slice(1).join(' ') : '');
+
     const passwordHash = await bcrypt.hash(password, 10);
     const customer = await prisma.ecomCustomer.create({
       data: {
         orgId: req.orgId,
         storeId: req.storeId,
-        name,
+        name: name || `${fName} ${lName}`.trim(),
+        firstName: fName,
+        lastName: lName,
         email: email.toLowerCase(),
         phone: phone || null,
         passwordHash,
@@ -39,7 +44,7 @@ export const signup = async (req, res) => {
     res.status(201).json({
       success: true,
       token,
-      customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone },
+      customer: { id: customer.id, name: customer.name, firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -69,7 +74,7 @@ export const login = async (req, res) => {
     res.json({
       success: true,
       token,
-      customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone },
+      customer: { id: customer.id, name: customer.name, firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -80,7 +85,7 @@ export const getProfile = async (req, res) => {
   try {
     const customer = await prisma.ecomCustomer.findUnique({
       where: { id: req.customer.customerId },
-      select: { id: true, name: true, email: true, phone: true, addresses: true, orderCount: true, totalSpent: true, createdAt: true },
+      select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, addresses: true, orderCount: true, totalSpent: true, createdAt: true },
     });
     if (!customer) return res.status(404).json({ error: 'Account not found' });
     res.json({ success: true, data: customer });
@@ -91,16 +96,21 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, phone, addresses } = req.body;
+    const { firstName, lastName, name, phone, addresses } = req.body;
     const data = {};
-    if (name !== undefined) data.name = name;
+    if (firstName !== undefined) data.firstName = firstName;
+    if (lastName !== undefined) data.lastName = lastName;
+    if (firstName !== undefined || lastName !== undefined) {
+      data.name = `${firstName || ''} ${lastName || ''}`.trim();
+    }
+    if (name !== undefined && !firstName && !lastName) data.name = name;
     if (phone !== undefined) data.phone = phone;
     if (addresses !== undefined) data.addresses = addresses;
 
     const customer = await prisma.ecomCustomer.update({
       where: { id: req.customer.customerId },
       data,
-      select: { id: true, name: true, email: true, phone: true, addresses: true },
+      select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, addresses: true },
     });
     res.json({ success: true, data: customer });
   } catch (err) {
@@ -116,6 +126,20 @@ export const getMyOrders = async (req, res) => {
       take: 50,
     });
     res.json({ success: true, data: orders });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getOrderDetail = async (req, res) => {
+  try {
+    const order = await prisma.ecomOrder.findUnique({
+      where: { id: req.params.orderId },
+    });
+    if (!order || order.customerEmail !== req.customer.email) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    res.json({ success: true, data: order });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

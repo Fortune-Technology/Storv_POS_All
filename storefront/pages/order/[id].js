@@ -26,14 +26,30 @@ export default function OrderConfirmationPage() {
 
   useEffect(() => {
     if (!id || !sq) return;
-    axios.get(`${ECOM_API}/manage/orders/${id}`, {
-      headers: { 'X-Store-Id': 'any' },
-    }).then(r => {
-      setOrder(r.data?.data || r.data);
-    }).catch(() => {
-      // Try public endpoint approach — for now just show generic confirmation
-      setOrder({ id, orderNumber: 'Processing...', status: 'confirmed' });
-    }).finally(() => setLoading(false));
+    // Try customer auth endpoint first, then public lookup
+    const token = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('storv-customer') || '{}')?.token : null;
+    const tryFetch = async () => {
+      // 1. Try customer auth endpoint
+      if (token) {
+        try {
+          const r = await axios.get(`${ECOM_API}/store/${sq}/auth/orders/${id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (r.data?.data) { setOrder(r.data.data); return; }
+        } catch {}
+      }
+      // 2. Try public order lookup by ID + email
+      const email = router.query.email;
+      if (email) {
+        try {
+          const r = await axios.get(`${ECOM_API}/store/${sq}/order/${id}`, { params: { email } });
+          if (r.data?.data) { setOrder(r.data.data); return; }
+        } catch {}
+      }
+      // 3. Fallback — show basic confirmation
+      setOrder({ id, orderNumber: 'Order Placed', status: 'confirmed' });
+    };
+    tryFetch().finally(() => setLoading(false));
   }, [id, sq]);
 
   return (

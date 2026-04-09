@@ -1802,3 +1802,180 @@ npm run dev:storefront  # Next.js storefront on :3000
 cd ecom-backend && npx prisma db push
 ```
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 11)
+
+### E-Commerce Module — Phase 2+3: Complete Shopping Experience
+
+#### Portal — "Online Store" Sidebar Group
+
+**Store Setup (`EcomSetup.jsx`)** — 5-tab wizard:
+1. **General** — store info + "Sync Products Now" button (full sync from POS)
+2. **Branding** — logo text, primary color (picker + swatches), font selector, live preview
+3. **Pages** — 15 templates (5 per page type) with SVG wireframe previews, section editor with image upload
+4. **Fulfillment** — pickup/delivery toggles, hours, fees, min order
+5. **SEO & Social** — meta title/description, Instagram/Facebook/Twitter links
+
+**Online Orders (`EcomOrders.jsx`)** — order list with status filters, detail view, status progression
+**Custom Domain (`EcomDomain.jsx`)** — connect custom domain, DNS verification, SSL status
+
+#### Storefront — Full Shopping Experience
+
+**15 Premium Templates:**
+| Home (5) | About (5) | Contact (5) |
+|----------|-----------|-------------|
+| Centered Hero | Story + Mission | Split Layout |
+| Split Screen | Timeline Journey | Card Layout |
+| Minimal Clean | Card Values | Minimal Form |
+| Image Overlay | Image + Stats | Map + Form |
+| Bold Typography | Multi-Section | Modern Floating |
+
+**Shopping Flow:**
+- Product listing with department filtering, search, sort, pagination
+- Product detail with qty selector + add to cart
+- Cart drawer (slide-in) + full cart page
+- Checkout flow (requires authentication — redirects to login, returns after)
+- Order confirmation page
+- Customer auth: signup, login, my account with order history
+
+**Dynamic Branding:**
+- `_app.js` BrandingInjector — applies primary color + font as CSS vars
+- Google Fonts loaded dynamically via `<link>` injection
+- Each store has unique colors/fonts configured from portal
+
+**Multi-Tenant:**
+- All pages use `getServerSideProps` with `withStore()` helper
+- Store resolved from: `?store=` query → subdomain → custom domain → fallback
+- Each store sees only its own products/branding/pages
+
+#### Backend Infrastructure
+
+**Email Service (`ecom-backend/src/services/emailService.js`):**
+- Contact form: sends notification to store + confirmation to customer
+- Order confirmation: branded email with items, total, fulfillment type
+- Order status update: email when status changes (preparing, ready, completed, cancelled)
+
+**Product Sync Pipeline:**
+- BullMQ (when Redis available) — async with retries
+- HTTP fallback (no Redis) — direct POST to `POST /api/internal/sync`
+- Full sync button — `POST /api/internal/sync/full` pulls all products from POS API
+- Products auto-sync on every create/update/delete in POS portal
+
+**Image Upload:**
+- `POST /api/manage/upload` — multer, 5MB limit, JPEG/PNG/GIF/WebP/SVG
+- Static serving at `/uploads/*`
+
+**Customer Auth:**
+- `POST /store/:slug/auth/signup` — bcrypt password, returns JWT
+- `POST /store/:slug/auth/login` — validates password, returns JWT
+- `GET /store/:slug/auth/me` — customer profile
+- `GET /store/:slug/auth/orders` — order history
+
+**Custom Domain:**
+- `GET /manage/domain/status` — current domain + SSL status
+- `POST /manage/domain` — register custom domain
+- `POST /manage/domain/verify` — DNS verification
+- `DELETE /manage/domain` — remove custom domain
+- Public `GET /store-by-domain?domain=` — resolve store by custom domain
+
+#### Key Files Added/Modified
+
+| File | Purpose |
+|------|---------|
+| `ecom-backend/src/services/emailService.js` | Email: contact form, order confirmation, status updates |
+| `ecom-backend/src/routes/syncRoutes.js` | Direct sync + full sync endpoints (HTTP fallback) |
+| `ecom-backend/src/routes/uploadRoutes.js` | Image upload (multer) |
+| `ecom-backend/src/controllers/domainController.js` | Custom domain management |
+| `ecom-backend/src/controllers/customerAuthController.js` | Customer signup/login/profile |
+| `ecom-backend/src/middleware/customerAuth.js` | Customer JWT middleware |
+| `storefront/lib/cart.js` | Cart context (localStorage + server sync) |
+| `storefront/lib/auth.js` | Customer auth context |
+| `storefront/lib/resolveStore.js` | Multi-tenant store resolver |
+| `storefront/components/templates/*.js` | 15 premium template components |
+| `storefront/styles/templates.css` | 500+ lines of template layout CSS |
+| `frontend/src/pages/EcomSetup.jsx` | 5-tab store setup wizard |
+| `frontend/src/pages/EcomOrders.jsx` | Order management |
+| `frontend/src/pages/EcomDomain.jsx` | Custom domain setup |
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 12)
+
+### E-Commerce Module — Phase 4: Store Discovery, Portal Enhancements, Account Features
+
+#### Store Discovery (`localhost:3000` with no store param)
+- New `GET /api/stores` endpoint returns all enabled EcomStores
+- Discovery page: dark hero with search, 4-column store card grid (16:9 banner, logo, description, tags, "Visit Store" CTA)
+- Responsive: 4 → 3 → 2 → 1 columns across breakpoints
+
+#### Portal — Sidebar Restructured
+- Analytics + Customers moved from EcomSetup tabs to standalone sidebar pages
+- Online Store sidebar: Store Setup, Online Orders, Custom Domain, Analytics, Customers
+
+#### Portal — Analytics (`/portal/ecom/analytics`)
+- KPI cards: Total Revenue, Orders, Customers, Avg Order Value (Lucide icons)
+- Revenue trend bar chart (last 14 days)
+- Orders by status breakdown
+- Top products table (name, qty sold, revenue)
+
+#### Portal — Customers (`/portal/ecom/customers`)
+- Searchable customer list (name, email, phone)
+- Customer detail view: profile + order history
+- Stats: order count, total spent, join date
+
+#### Portal — Real-Time Order Notifications
+- Global `EcomOrderNotifier` component polls every 15s across ALL portal pages
+- Custom MP3 sound alert (`frontend/public/sounds/ordernotification.mp3`)
+- Toast notification with click-to-navigate to orders page
+
+#### Storefront — Lucide Icons (replaced all emojis)
+- `lucide-react` installed in storefront
+- New `components/icons.js` with DeptIcon, TrustIcon, ContactIcon, FulfillmentIcon
+- All 5 Home templates: department + trust sections use Lucide
+- All 5 Contact templates: Phone, Mail, MapPin, Clock icons
+- Account page: FulfillmentIcon for pickup/delivery
+
+#### Storefront — Customer Account Overhaul
+- **Profile tab**: edit first name, last name, phone (email read-only), stats, save button
+- **Orders tab**: order cards with status badges, link to detail page
+- **Addresses tab**: add/edit/remove saved addresses with labels
+- **Order detail** (`/account/orders/[id]`): status timeline, items, totals, fulfillment info
+
+#### Storefront — Full Responsiveness
+- Comprehensive breakpoints: 1024px, 768px (tablet), 640px, 480px (small mobile)
+- Product grid: 4 → 2 columns; PDP stacks vertically; cart/checkout single column
+- Templates: hero text scales, grids collapse, forms stack
+- Touch-friendly buttons and badges on mobile
+
+#### Store Logo / Banner
+- Portal General tab: upload store logo/banner (16:9 recommended)
+- Stored in `branding.logoUrl` (JSONB)
+- Discovery cards show full-cover image or color fallback with initial letter
+
+#### Email Service (`ecom-backend/src/services/emailService.js`)
+- Contact form: notification to store + confirmation to customer
+- Order confirmation: branded email with items, total, fulfillment
+- Order status update: email when status changes
+
+#### Backend Schema
+- `EcomCustomer`: added `firstName`, `lastName` fields
+- Customer auth: signup/login/profile handle first/last name
+- New endpoint: `GET /store/:slug/auth/orders/:orderId` — order detail
+
+#### Key Files Added
+| File | Purpose |
+|------|---------|
+| `frontend/src/pages/EcomAnalytics.jsx` | Standalone analytics page |
+| `frontend/src/pages/EcomCustomers.jsx` | Standalone customers page |
+| `frontend/src/components/EcomOrderNotifier.jsx` | Global order notification polling |
+| `frontend/public/sounds/ordernotification.mp3` | Notification sound file |
+| `storefront/components/icons.js` | Shared Lucide icon mappings |
+| `storefront/pages/account/orders/[id].js` | Order detail page |
+| `storefront/.env.example` | Storefront environment template |
+| `ecom-backend/src/controllers/analyticsController.js` | Analytics KPIs + charts |
+| `ecom-backend/src/controllers/customerManageController.js` | Customer list/detail |
+| `ecom-backend/src/services/emailService.js` | Email notifications |
+
+*Last updated: April 2026 — Session 12: Store Discovery, Analytics, Account Features*
+

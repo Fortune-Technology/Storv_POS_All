@@ -16,7 +16,8 @@
     "react-quill-new": "^3.8.3",
     "react-router-dom": "^6.20.1",
     "react-toastify": "^11.0.5",
-    "recharts": "^3.8.0"
+    "recharts": "^3.8.0",
+    "storv-pos-platform": "file:.."
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",

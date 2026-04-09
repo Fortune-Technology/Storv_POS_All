@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import EcomOrderNotifier from './components/EcomOrderNotifier';
 
 // Marketing Pages
 import Home from './pages/marketing/Home';
@@ -59,9 +60,11 @@ import Promotions        from './pages/Promotions';
 import BulkImport from './pages/BulkImport';
 import EcommIntegration  from './pages/EcommIntegration';
 import EcomSetup         from './pages/EcomSetup';
-import EcomPages         from './pages/EcomPages';
+// EcomPages functionality moved into EcomSetup > Pages tab
 import EcomOrders        from './pages/EcomOrders';
 import EcomDomain        from './pages/EcomDomain';
+import EcomAnalytics     from './pages/EcomAnalytics';
+import EcomCustomers     from './pages/EcomCustomers';
 import Lottery from './pages/Lottery';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
@@ -131,6 +134,7 @@ function App() {
       <ScrollToTop />
       <StoreProvider>
       <ToastContainer theme="dark" position="top-right" />
+      <EcomOrderNotifier />
       <Routes>
         {/* ── Marketing (Public) ────────────────────────────────────────── */}
         <Route path="/"         element={<Home />} />
@@ -221,9 +225,11 @@ function App() {
 
         {/* ── Online Store (E-commerce) ────────────────────────────── */}
         <Route path="/portal/ecom/setup"   element={<ProtectedRoute><EcomSetup /></ProtectedRoute>} />
-        <Route path="/portal/ecom/pages"   element={<ProtectedRoute><EcomPages /></ProtectedRoute>} />
+        {/* EcomPages removed — functionality is inside EcomSetup > Pages tab */}
         <Route path="/portal/ecom/orders"  element={<ProtectedRoute><EcomOrders /></ProtectedRoute>} />
-        <Route path="/portal/ecom/domain"  element={<ProtectedRoute><EcomDomain /></ProtectedRoute>} />
+        <Route path="/portal/ecom/domain"     element={<ProtectedRoute><EcomDomain /></ProtectedRoute>} />
+        <Route path="/portal/ecom/analytics"  element={<ProtectedRoute><EcomAnalytics /></ProtectedRoute>} />
+        <Route path="/portal/ecom/customers"  element={<ProtectedRoute><EcomCustomers /></ProtectedRoute>} />
 
         {/* ── Placeholders ────────────────────────────────────────────── */}
         <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />

@@ -34,6 +34,20 @@ router.get('/store-by-domain', async (req, res) => {
   res.json({ success: true, data: store });
 });
 
+// Store directory — list all enabled stores (for discovery page)
+router.get('/stores', async (req, res) => {
+  const { default: prisma } = await import('../config/postgres.js');
+  const { search } = req.query;
+  const where = { enabled: true };
+  if (search) where.storeName = { contains: search, mode: 'insensitive' };
+  const stores = await prisma.ecomStore.findMany({
+    where,
+    select: { storeName: true, slug: true, branding: true, seoDefaults: true, fulfillmentConfig: true },
+    orderBy: { storeName: 'asc' },
+  });
+  res.json({ success: true, data: stores });
+});
+
 // Store info
 router.get('/store/:slug', resolveStoreBySlug, getStoreInfo);
 
@@ -55,16 +69,33 @@ router.put('/store/:slug/cart', resolveStoreBySlug, createOrUpdateCart);
 // Checkout
 router.post('/store/:slug/checkout', resolveStoreBySlug, checkout);
 
-// Contact form submission
+// Public order lookup (by ID + email verification for order confirmation page)
+router.get('/store/:slug/order/:orderId', resolveStoreBySlug, async (req, res) => {
+  const { default: prisma } = await import('../config/postgres.js');
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'email query param required' });
+  const order = await prisma.ecomOrder.findUnique({ where: { id: req.params.orderId } });
+  if (!order || order.storeId !== req.storeId || order.customerEmail.toLowerCase() !== email.toLowerCase()) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  res.json({ success: true, data: order });
+});
+
+// Contact form submission + email notification
 router.post('/store/:slug/contact', resolveStoreBySlug, async (req, res) => {
   try {
     const { name, email, phone, message } = req.body;
     if (!name || !email || !message) {
       return res.status(400).json({ error: 'Name, email, and message are required' });
     }
-    // Store the message (could also send email notification)
-    // For now, log it and return success
-    console.log(`[contact-form] Store ${req.ecomStore.slug}: ${name} <${email}> — ${message.slice(0, 100)}`);
+
+    console.log(`[contact-form] Store ${req.ecomStore.slug}: ${name} <${email}>`);
+
+    // Send email notifications (non-blocking)
+    import('../services/emailService.js').then(({ sendContactFormEmail }) => {
+      sendContactFormEmail(req.ecomStore.storeName, null, { name, email, phone, message });
+    }).catch(() => {});
+
     res.json({ success: true, message: 'Message received' });
   } catch (err) {
     res.status(500).json({ error: err.message });

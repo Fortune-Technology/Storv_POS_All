@@ -18,7 +18,9 @@
     "db:push": "npm run db:push --prefix backend",
     "db:push:ecom": "npm run db:push --prefix ecom-backend",
     "db:seed": "npm run db:seed --prefix backend",
-    "seed:all": "npm run db:generate && npm run db:push && npm run db:seed"
+    "seed:all": "npm run db:generate && npm run db:push && npm run db:seed",
+    "reset:all": "node scripts/reset-and-seed.js",
+    "seed:ecom": "node ecom-backend/prisma/seed.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

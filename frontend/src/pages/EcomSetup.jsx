@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import { toast } from 'react-toastify';
 import {
-  Settings, Palette, FileText, Truck, Search, RefreshCw,
+  Settings, Palette, FileText, Truck, Search, RefreshCw, BarChart3,
   LayoutGrid, Store, Minus, Columns, PanelTop,
   BookOpen, Users, Type, Map, SplitSquareHorizontal, CreditCard,
-  Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
+  Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, DollarSign, ShoppingCart, TrendingUp,
 } from 'lucide-react';
 import './EcomSetup.css';
 
@@ -248,6 +248,169 @@ function SyncSection() {
   );
 }
 
+/* ── Analytics Tab ────────────────────────────────────────────────────── */
+function AnalyticsTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api('GET', '/manage/analytics').then(d => setData(d.data)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="es-section"><p style={{ color: 'var(--text-muted)' }}>Loading analytics...</p></div>;
+  if (!data) return <div className="es-section"><p style={{ color: 'var(--text-muted)' }}>No data available</p></div>;
+
+  const { kpis, statusCounts, revenueTrend, topProducts } = data;
+
+  return (
+    <>
+      <div className="es-analytics-kpis">
+        <div className="es-kpi"><DollarSign size={20} className="es-kpi-icon" /><div><span className="es-kpi-num">${kpis.totalRevenue.toLocaleString()}</span><span className="es-kpi-label">Total Revenue</span></div></div>
+        <div className="es-kpi"><ShoppingCart size={20} className="es-kpi-icon" /><div><span className="es-kpi-num">{kpis.orderCount}</span><span className="es-kpi-label">Orders</span></div></div>
+        <div className="es-kpi"><Users size={20} className="es-kpi-icon" /><div><span className="es-kpi-num">{kpis.customerCount}</span><span className="es-kpi-label">Customers</span></div></div>
+        <div className="es-kpi"><TrendingUp size={20} className="es-kpi-icon" /><div><span className="es-kpi-num">${kpis.avgOrderValue.toFixed(2)}</span><span className="es-kpi-label">Avg Order Value</span></div></div>
+      </div>
+
+      <div className="es-grid" style={{ marginBottom: 20 }}>
+        <div className="es-section">
+          <div className="es-section-title">Revenue (Last 30 Days)</div>
+          <div className="es-chart-bar">
+            {revenueTrend.slice(-14).map((d, i) => {
+              const max = Math.max(...revenueTrend.slice(-14).map(r => r.revenue), 1);
+              const pct = (d.revenue / max) * 100;
+              return (
+                <div key={i} className="es-bar-col" title={`${d.date}: $${d.revenue}`}>
+                  <div className="es-bar" style={{ height: `${Math.max(pct, 2)}%` }} />
+                  <span className="es-bar-label">{d.date.slice(8)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="es-section">
+          <div className="es-section-title">Orders by Status</div>
+          {Object.entries(statusCounts).length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No orders yet</p> : (
+            <div className="es-status-list">
+              {Object.entries(statusCounts).map(([status, count]) => (
+                <div key={status} className="es-status-row">
+                  <span className="es-status-name">{status}</span>
+                  <span className="es-status-count">{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="es-section">
+        <div className="es-section-title">Top Products</div>
+        {topProducts.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No sales data yet</p> : (
+          <table className="es-top-table">
+            <thead><tr><th>Product</th><th>Sold</th><th>Revenue</th></tr></thead>
+            <tbody>
+              {topProducts.map((p, i) => (
+                <tr key={i}><td>{p.name}</td><td>{p.qty}</td><td>${p.revenue.toFixed(2)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ── Customers Tab ───────────────────────────────────────────────────── */
+function CustomersTab() {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    const params = search ? `?search=${encodeURIComponent(search)}` : '';
+    api('GET', `/manage/customers${params}`).then(d => setCustomers(d.data || [])).catch(() => {}).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [search]);
+
+  if (selected) {
+    return <CustomerDetail customer={selected} onBack={() => { setSelected(null); load(); }} />;
+  }
+
+  return (
+    <div className="es-section">
+      <div className="es-section-title">Customers</div>
+      <input className="es-input" placeholder="Search by name, email, phone..." value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 16, maxWidth: 400 }} />
+      {loading ? <p style={{ color: 'var(--text-muted)' }}>Loading...</p> : customers.length === 0 ? (
+        <p style={{ color: 'var(--text-muted)' }}>No customers found</p>
+      ) : (
+        <table className="es-top-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Orders</th><th>Spent</th><th>Joined</th></tr></thead>
+          <tbody>
+            {customers.map(c => (
+              <tr key={c.id} onClick={() => loadCustomerDetail(c.id, setSelected)} style={{ cursor: 'pointer' }}>
+                <td style={{ fontWeight: 600 }}>{c.firstName || c.name || '—'} {c.lastName || ''}</td>
+                <td>{c.email}</td>
+                <td>{c.orderCount}</td>
+                <td>${Number(c.totalSpent).toFixed(2)}</td>
+                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(c.createdAt).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+async function loadCustomerDetail(id, setter) {
+  try {
+    const d = await api('GET', `/manage/customers/${id}`);
+    setter(d.data);
+  } catch {}
+}
+
+function CustomerDetail({ customer, onBack }) {
+  const orders = customer.orders || [];
+  return (
+    <div className="es-section">
+      <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--brand-primary)', cursor: 'pointer', marginBottom: 16, fontSize: 13 }}>← Back to Customers</button>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--brand-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700 }}>
+          {customer.firstName?.charAt(0) || customer.name?.charAt(0) || '?'}
+        </div>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{customer.firstName} {customer.lastName}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{customer.email} {customer.phone ? `· ${customer.phone}` : ''}</div>
+        </div>
+      </div>
+      <div className="es-analytics-kpis" style={{ marginBottom: 20 }}>
+        <div className="es-kpi"><div><span className="es-kpi-num">{customer.orderCount}</span><span className="es-kpi-label">Orders</span></div></div>
+        <div className="es-kpi"><div><span className="es-kpi-num">${Number(customer.totalSpent).toFixed(2)}</span><span className="es-kpi-label">Total Spent</span></div></div>
+        <div className="es-kpi"><div><span className="es-kpi-num">{new Date(customer.createdAt).toLocaleDateString()}</span><span className="es-kpi-label">Joined</span></div></div>
+      </div>
+      <div className="es-section-title">Order History</div>
+      {orders.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No orders</p> : (
+        <table className="es-top-table">
+          <thead><tr><th>Order</th><th>Status</th><th>Total</th><th>Date</th></tr></thead>
+          <tbody>
+            {orders.map(o => (
+              <tr key={o.id}>
+                <td style={{ fontWeight: 600 }}>{o.orderNumber}</td>
+                <td><span className={`eo-badge eo-badge--${o.status}`}>{o.status}</span></td>
+                <td>${Number(o.grandTotal).toFixed(2)}</td>
+                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(o.createdAt).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /* ── Page Editor View (separate component to avoid hooks rule violation) ── */
 function PageEditorView({ page, onBack, onSave }) {
   const tpl = TEMPLATES[page.pageType]?.find(t => t.id === page.templateId);
@@ -431,6 +594,20 @@ export default function EcomSetup() {
             <div className="es-field"><label className="es-label">URL Slug</label><input className="es-input" value={form.slug} readOnly style={{ opacity: 0.6 }} /><div className="es-url-preview">Store URL: <strong>localhost:3000?store={form.slug}</strong></div></div>
           </div>
         </div>
+        <div className="es-section">
+          <div className="es-section-title">Store Logo / Banner</div>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>Upload a banner image for your store card on the directory (recommended: 800×450px, 16:9 ratio). Shown on store discovery and as hero fallback.</p>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
+            {form.branding.logoUrl ? (
+              <img src={`http://localhost:5005${form.branding.logoUrl}`} alt="Logo" style={{ width: 180, height: 100, borderRadius: 10, objectFit: 'cover', border: '1px solid var(--border-color)' }} />
+            ) : (
+              <div style={{ width: 180, height: 100, borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No image</div>
+            )}
+            <div>
+              <ImageUploader value={form.branding.logoUrl || ''} onChange={v => setB('logoUrl', v)} />
+            </div>
+          </div>
+        </div>
         <SyncSection />
       </>)}
 
@@ -555,6 +732,12 @@ export default function EcomSetup() {
           </div>
         </div>
       )}
+
+      {/* Analytics */}
+      {tab === 'analytics' && <AnalyticsTab />}
+
+      {/* Customers */}
+      {tab === 'customers' && <CustomersTab />}
 
       <div className="es-save-bar">
         <button className="es-disable-btn" onClick={handleDisable}>Disable E-Commerce</button>

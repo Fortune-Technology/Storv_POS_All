@@ -31,6 +31,8 @@ import {
 } from '../controllers/pageController.js';
 import { getSyncStatus } from '../controllers/syncController.js';
 import { getDomainStatus, setCustomDomain, verifyDomain, removeCustomDomain } from '../controllers/domainController.js';
+import { getAnalytics } from '../controllers/analyticsController.js';
+import { listCustomers, getCustomerDetail } from '../controllers/customerManageController.js';
 
 const router = Router();
 const auth = [protect, authorize('owner', 'admin', 'manager', 'superadmin')];
@@ -65,6 +67,13 @@ router.get('/domain/status', auth, getDomainStatus);
 router.post('/domain', writeAuth, setCustomDomain);
 router.post('/domain/verify', writeAuth, verifyDomain);
 router.delete('/domain', writeAuth, removeCustomDomain);
+
+// ── Analytics ───────────────────────────────────────────────────────────
+router.get('/analytics', auth, getAnalytics);
+
+// ── Customer Management ─────────────────────────────────────────────────
+router.get('/customers', auth, listCustomers);
+router.get('/customers/:id', auth, getCustomerDetail);
 
 // ── Sync Status ─────────────────────────────────────────────────────────
 router.get('/sync/status', auth, getSyncStatus);

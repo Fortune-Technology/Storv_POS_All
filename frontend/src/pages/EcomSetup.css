@@ -116,7 +116,32 @@
 .es-spin { animation: es-spin 1s linear infinite; }
 @keyframes es-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+/* ─── Analytics ────────────────────────────────────────── */
+
+.es-analytics-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.es-kpi { display: flex; align-items: center; gap: 12px; padding: 18px 16px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; }
+.es-kpi-icon { color: var(--brand-primary); flex-shrink: 0; }
+.es-kpi-num { display: block; font-size: 20px; font-weight: 800; color: var(--text-primary); }
+.es-kpi-label { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+
+.es-chart-bar { display: flex; align-items: flex-end; gap: 4px; height: 140px; padding-top: 8px; }
+.es-bar-col { display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; justify-content: flex-end; }
+.es-bar { width: 100%; max-width: 24px; background: var(--brand-primary); border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.3s; opacity: 0.8; }
+.es-bar:hover { opacity: 1; }
+.es-bar-label { font-size: 9px; color: var(--text-muted); margin-top: 4px; }
+
+.es-status-list { display: flex; flex-direction: column; gap: 6px; }
+.es-status-row { display: flex; justify-content: space-between; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px; font-size: 13px; text-transform: capitalize; }
+.es-status-name { color: var(--text-secondary); }
+.es-status-count { font-weight: 700; color: var(--text-primary); }
+
+.es-top-table { width: 100%; border-collapse: collapse; }
+.es-top-table th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+.es-top-table td { padding: 10px 12px; font-size: 13px; color: var(--text-primary); border-bottom: 1px solid var(--border-light); }
+.es-top-table tr:hover td { background: var(--bg-tertiary); }
+
 @media (max-width: 768px) {
   .es-grid { grid-template-columns: 1fr; }
   .es-tabs { flex-wrap: wrap; }
+  .es-analytics-kpis { grid-template-columns: repeat(2, 1fr); }
 }

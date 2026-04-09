@@ -29,6 +29,8 @@ function fmtDate(d) { return new Date(d).toLocaleDateString('en-US', { month: 's
 const STATUSES = ['all', 'pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled'];
 const NEXT_STATUS = { pending: 'confirmed', confirmed: 'preparing', preparing: 'ready', ready: 'completed' };
 
+// Notifications handled by global EcomOrderNotifier — no duplicate polling here
+
 export default function EcomOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +47,12 @@ export default function EcomOrders() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [filter]);
+  // Load on mount + auto-refresh every 15s (data only, no sound/toast — global notifier handles that)
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000);
+    return () => clearInterval(interval);
+  }, [filter]);
 
   const updateStatus = async (orderId, status) => {
     try {

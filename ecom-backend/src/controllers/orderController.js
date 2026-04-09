@@ -159,6 +159,12 @@ export const checkout = async (req, res) => {
     // 5. Clean up cart
     await prisma.ecomCart.delete({ where: { sessionId } }).catch(() => {});
 
+    // 6. Send order confirmation email (non-blocking)
+    import('../services/emailService.js').then(({ sendOrderConfirmationEmail }) => {
+      const storeName = req.ecomStore?.storeName || 'Store';
+      sendOrderConfirmationEmail(storeName, order);
+    }).catch(() => {});
+
     res.status(201).json({ success: true, data: order });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -234,6 +240,13 @@ export const updateOrderStatus = async (req, res) => {
       where: { id: req.params.id },
       data,
     });
+
+    // Send status update email (non-blocking)
+    if (['preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'].includes(status)) {
+      import('../services/emailService.js').then(({ sendOrderStatusEmail }) => {
+        sendOrderStatusEmail('Store', order);
+      }).catch(() => {});
+    }
 
     res.json({ success: true, data: order });
   } catch (err) {

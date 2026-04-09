@@ -1,10 +1,10 @@
 /**
- * Contact Template 1: Split Layout
- * Contact info left, form right.
+ * Contact Template 1: Split Layout — Contact info left, form right.
  */
 
 import { useState } from 'react';
 import axios from 'axios';
+import { ContactIcon } from '../icons';
 
 const ECOM_API = process.env.NEXT_PUBLIC_ECOM_API_URL || 'http://localhost:5005/api';
 
@@ -19,15 +19,13 @@ export default function ContactSplit({ content, store, storeSlug }) {
         <div className="tpl-contact-info">
           <h2 className="tpl-contact-heading">Get in Touch</h2>
           <p className="tpl-contact-desc">We'd love to hear from you. Reach out anytime.</p>
-
           <div className="tpl-contact-details">
-            {info.phone && <div className="tpl-contact-item"><div className="tpl-contact-item-icon">📞</div><div><div className="tpl-contact-item-label">Phone</div><div className="tpl-contact-item-value">{info.phone}</div></div></div>}
-            {info.email && <div className="tpl-contact-item"><div className="tpl-contact-item-icon">✉️</div><div><div className="tpl-contact-item-label">Email</div><div className="tpl-contact-item-value">{info.email}</div></div></div>}
-            {info.address && <div className="tpl-contact-item"><div className="tpl-contact-item-icon">📍</div><div><div className="tpl-contact-item-label">Address</div><div className="tpl-contact-item-value">{info.address}</div></div></div>}
-            {(hours.hours || info.hours) && <div className="tpl-contact-item"><div className="tpl-contact-item-icon">🕐</div><div><div className="tpl-contact-item-label">Hours</div><div className="tpl-contact-item-value">{hours.hours || info.hours}</div></div></div>}
+            {info.phone && <div className="tpl-contact-item"><ContactIcon type="phone" /><div><div className="tpl-contact-item-label">Phone</div><div className="tpl-contact-item-value">{info.phone}</div></div></div>}
+            {info.email && <div className="tpl-contact-item"><ContactIcon type="email" /><div><div className="tpl-contact-item-label">Email</div><div className="tpl-contact-item-value">{info.email}</div></div></div>}
+            {info.address && <div className="tpl-contact-item"><ContactIcon type="address" /><div><div className="tpl-contact-item-label">Address</div><div className="tpl-contact-item-value">{info.address}</div></div></div>}
+            {(hours.hours || info.hours) && <div className="tpl-contact-item"><ContactIcon type="hours" /><div><div className="tpl-contact-item-label">Hours</div><div className="tpl-contact-item-value">{hours.hours || info.hours}</div></div></div>}
           </div>
         </div>
-
         <ContactForm storeSlug={storeSlug} />
       </section>
     </div>
@@ -36,7 +34,7 @@ export default function ContactSplit({ content, store, storeSlug }) {
 
 function ContactForm({ storeSlug }) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
-  const [status, setStatus] = useState(null); // null | 'sending' | 'sent' | 'error'
+  const [status, setStatus] = useState(null);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = async (e) => {
@@ -47,16 +45,14 @@ function ContactForm({ storeSlug }) {
       await axios.post(`${ECOM_API}/store/${storeSlug}/contact`, form);
       setStatus('sent');
       setForm({ name: '', email: '', phone: '', message: '' });
-    } catch {
-      setStatus('error');
-    }
+    } catch { setStatus('error'); }
   };
 
   if (status === 'sent') {
     return (
       <div className="tpl-contact-form-wrap">
         <div className="tpl-contact-success">
-          <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+          <div style={{ fontSize: 48, marginBottom: 12, color: 'var(--sf-primary)' }}>✓</div>
           <h3>Message Sent!</h3>
           <p>We'll get back to you as soon as possible.</p>
           <button className="tpl-btn tpl-btn--outline" onClick={() => setStatus(null)} style={{ marginTop: 16 }}>Send Another</button>

@@ -1,8 +1,4 @@
-/**
- * Contact Template 3: Minimal
- * Clean full-width form with floating card design.
- */
-
+import { ContactIcon } from '../icons';
 import { ContactForm } from './ContactSplit';
 
 export default function ContactMinimal({ content, store, storeSlug }) {
@@ -18,9 +14,9 @@ export default function ContactMinimal({ content, store, storeSlug }) {
           <ContactForm storeSlug={storeSlug} />
           {(info.phone || info.email) && (
             <div className="tpl-contact-minimal-footer">
-              {info.phone && <span>📞 {info.phone}</span>}
-              {info.email && <span>✉️ {info.email}</span>}
-              {info.address && <span>📍 {info.address}</span>}
+              {info.phone && <span><ContactIcon type="phone" size={14} /> {info.phone}</span>}
+              {info.email && <span><ContactIcon type="email" size={14} /> {info.email}</span>}
+              {info.address && <span><ContactIcon type="address" size={14} /> {info.address}</span>}
             </div>
           )}
         </div>
