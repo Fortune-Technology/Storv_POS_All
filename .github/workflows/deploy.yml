@@ -9,6 +9,9 @@ on:
       - "frontend/**"
       - "cashier-app/**"
       - "admin-app/**"
+      - "ecom-backend/**"
+      - "storefront/**"
+      - "packages/**"
       - ".github/workflows/deploy.yml"
 
 concurrency:
@@ -31,6 +34,7 @@ jobs:
           git fetch origin
           git reset --hard origin/main
 
+      # ── POS Backend ────────────────────────────────────────────────────
       - name: Deploy backend
         shell: bash
         run: |
@@ -53,6 +57,29 @@ jobs:
           curl -f http://localhost:5002/health || exit 1
           echo "Backend is healthy"
 
+      # ── E-commerce Backend ─────────────────────────────────────────────
+      - name: Deploy ecom-backend
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd /var/www/Storv_POS_All/ecom-backend
+          rm -f package-lock.json
+          npm install
+          npx prisma generate
+          npx prisma db push --accept-data-loss
+          pm2 restart storv-ecom-backend || pm2 start src/server.js --name storv-ecom-backend
+          pm2 save
+
+      - name: Verify ecom-backend is running
+        shell: bash
+        run: |
+          sleep 3
+          curl -f http://localhost:5003/health || exit 1
+          echo "Ecom backend is healthy"
+
+      # ── Frontend (Portal Dashboard) ────────────────────────────────────
       - name: Deploy frontend
         shell: bash
         run: |
@@ -66,6 +93,7 @@ jobs:
           npm run build
           sudo systemctl reload nginx
 
+      # ── Cashier App (POS Web) ──────────────────────────────────────────
       - name: Deploy cashier-app (web)
         shell: bash
         run: |
@@ -79,6 +107,7 @@ jobs:
           npm run build
           sudo systemctl reload nginx
 
+      # ── Admin Panel ────────────────────────────────────────────────────
       - name: Deploy admin-app
         shell: bash
         run: |
@@ -92,33 +121,57 @@ jobs:
           npm run build
           sudo systemctl reload nginx
 
+      # ── Storefront (Next.js) ───────────────────────────────────────────
+      - name: Deploy storefront
+        shell: bash
+        run: |
+          set -e
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          cd /var/www/Storv_POS_All/storefront
+          rm -f package-lock.json
+          npm install
+          npm run build
+          pm2 restart storv-storefront || pm2 start npm --name storv-storefront -- start
+          pm2 save
+
+      # ── Verify All Services ────────────────────────────────────────────
       - name: Verify deployments
         shell: bash
         run: |
           set -e
           echo "Checking all services..."
-          curl -f https://api-pos.thefortunetech.com/health && echo "API is up"
-          curl -f https://dashboard.thefortunetech.com && echo "Dashboard is up"
-          curl -f https://pos.thefortunetech.com && echo "POS is up"
-          curl -f https://admin.thefortunetech.com && echo "Admin is up"
+          curl -f https://api.storeveu.com/health && echo " ✓ Backend API"
+          curl -f https://storeveu.com && echo " ✓ Dashboard"
+          curl -f https://pos.storeveu.com && echo " ✓ POS"
+          curl -f https://admin.storeveu.com && echo " ✓ Admin"
+          curl -f https://shop-api.storeveu.com/health && echo " ✓ Ecom Backend"
+          curl -f https://shop.storeveu.com && echo " ✓ Storefront"
           pm2 list
 
       - name: Notify success
         if: success()
         shell: bash
         run: |
-          echo "Storv POS deployed successfully!"
-          echo "Backend:    https://api-pos.thefortunetech.com"
-          echo "Dashboard:  https://dashboard.thefortunetech.com"
-          echo "POS:        https://pos.thefortunetech.com"
-          echo "Admin:      https://admin.thefortunetech.com"
+          echo "╔══════════════════════════════════════════════╗"
+          echo "║  ✅ Storv POS deployed successfully!          ║"
+          echo "╠══════════════════════════════════════════════╣"
+          echo "║  Backend:      https://api.storeveu.com      ║"
+          echo "║  Dashboard:    https://storeveu.com           ║"
+          echo "║  POS:          https://pos.storeveu.com       ║"
+          echo "║  Admin:        https://admin.storeveu.com     ║"
+          echo "║  Ecom Backend: https://shop-api.storeveu.com  ║"
+          echo "║  Storefront:   https://shop.storeveu.com      ║"
+          echo "╚══════════════════════════════════════════════╝"
 
       - name: Notify failure
         if: failure()
         shell: bash
         run: |
-          echo "Deployment failed! Check logs above."
-          pm2 logs storv-pos-backend --lines 50 --nostream
+          echo "❌ Deployment failed! Check logs above."
+          pm2 logs storv-pos-backend --lines 20 --nostream || true
+          pm2 logs storv-ecom-backend --lines 20 --nostream || true
+          pm2 logs storv-storefront --lines 20 --nostream || true
 
   # ──────────────────────────────────────────────────────────────────────────
   # Job 2: Build Electron desktop installer (Windows NSIS)
@@ -168,7 +221,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Delete the release (also deletes its assets)
           gh release delete latest-desktop --yes --cleanup-tag 2>/dev/null || true
 
       - name: Create new "latest-desktop" release with installer
