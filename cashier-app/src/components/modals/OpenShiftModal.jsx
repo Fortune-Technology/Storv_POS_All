@@ -205,25 +205,30 @@ export default function OpenShiftModal({ storeId, onClose, onOpened }) {
                 </div>
               </div>
             ) : (
-              <>
-                {/* Bills */}
-                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>BILLS</div>
-                {BILLS.map(d => (
-                  <DenomRow key={d.value} denom={d}
-                    count={counts[String(d.value)]}
-                    active={activeKey === String(d.value)}
-                    onClick={() => setActiveKey(String(d.value))}
-                  />
-                ))}
-                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', margin: '8px 0 4px' }}>COINS</div>
-                {COINS.map(d => (
-                  <DenomRow key={d.value} denom={d}
-                    count={counts[String(d.value)]}
-                    active={activeKey === String(d.value)}
-                    onClick={() => setActiveKey(String(d.value))}
-                  />
-                ))}
-              </>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
+                {/* Bills — left column */}
+                <div>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>BILLS</div>
+                  {BILLS.map(d => (
+                    <DenomRow key={d.value} denom={d}
+                      count={counts[String(d.value)]}
+                      active={activeKey === String(d.value)}
+                      onClick={() => setActiveKey(String(d.value))}
+                    />
+                  ))}
+                </div>
+                {/* Coins — right column */}
+                <div>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>COINS</div>
+                  {COINS.map(d => (
+                    <DenomRow key={d.value} denom={d}
+                      count={counts[String(d.value)]}
+                      active={activeKey === String(d.value)}
+                      onClick={() => setActiveKey(String(d.value))}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Note */}

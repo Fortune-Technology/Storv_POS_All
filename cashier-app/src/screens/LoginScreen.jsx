@@ -27,10 +27,10 @@ export default function LoginScreen() {
 
   return (
     <div style={{
-      height: '100vh', display: 'flex', flexDirection: 'column',
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
       background: 'var(--bg-base)',
-      padding: '1rem',
+      padding: '1rem', overflowY: 'auto',
     }}>
       {/* App identifier — top corner so cashier knows which app this is */}
       <div style={{

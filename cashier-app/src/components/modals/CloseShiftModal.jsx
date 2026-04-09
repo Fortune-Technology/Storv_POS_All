@@ -230,30 +230,36 @@ export default function CloseShiftModal({ onClose, onClosed }) {
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Tip: type 5 8 9 to enter $5.89</div>
               </div>
             ) : (
-              <>
-                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>BILLS</div>
-                {BILLS.map(d => (
-                  <DenomRow key={d.value} denom={d}
-                    count={counts[String(d.value)]}
-                    active={activeKey === String(d.value)}
-                    onClick={() => setActiveKey(String(d.value))}
-                    accent="var(--red)"
-                    accentBg="rgba(224,63,63,.06)"
-                    accentBorder="var(--red)"
-                  />
-                ))}
-                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', margin: '8px 0 4px' }}>COINS</div>
-                {COINS.map(d => (
-                  <DenomRow key={d.value} denom={d}
-                    count={counts[String(d.value)]}
-                    active={activeKey === String(d.value)}
-                    onClick={() => setActiveKey(String(d.value))}
-                    accent="var(--red)"
-                    accentBg="rgba(224,63,63,.06)"
-                    accentBorder="var(--red)"
-                  />
-                ))}
-              </>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
+                {/* Bills — left column */}
+                <div>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>BILLS</div>
+                  {BILLS.map(d => (
+                    <DenomRow key={d.value} denom={d}
+                      count={counts[String(d.value)]}
+                      active={activeKey === String(d.value)}
+                      onClick={() => setActiveKey(String(d.value))}
+                      accent="var(--red)"
+                      accentBg="rgba(224,63,63,.06)"
+                      accentBorder="var(--red)"
+                    />
+                  ))}
+                </div>
+                {/* Coins — right column */}
+                <div>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>COINS</div>
+                  {COINS.map(d => (
+                    <DenomRow key={d.value} denom={d}
+                      count={counts[String(d.value)]}
+                      active={activeKey === String(d.value)}
+                      onClick={() => setActiveKey(String(d.value))}
+                      accent="var(--red)"
+                      accentBg="rgba(224,63,63,.06)"
+                      accentBorder="var(--red)"
+                    />
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Note */}

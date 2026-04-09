@@ -232,24 +232,22 @@ export default function TransactionHistoryModal({ onClose, onPrintTx, onViewTx }
 
               {/* Action buttons */}
               <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                {/* View on-screen */}
-                {onViewTx && (
-                  <button
-                    onClick={() => onViewTx(tx)}
-                    title="View receipt"
-                    style={{
-                      display:'flex', alignItems:'center', gap:4,
-                      padding:'0.3rem 0.6rem', borderRadius:7,
-                      background:'var(--bg-input)', border:'1px solid var(--border)',
-                      color:'var(--text-muted)', fontWeight:700, fontSize:'0.7rem',
-                      cursor:'pointer', whiteSpace:'nowrap',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor='var(--border-light)'; e.currentTarget.style.color='var(--text-primary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-muted)'; }}
-                  >
-                    <Eye size={11} /> View
-                  </button>
-                )}
+                {/* View detail — opens inline panel, stays within history modal */}
+                <button
+                  onClick={() => setDetail(tx)}
+                  title="View details"
+                  style={{
+                    display:'flex', alignItems:'center', gap:4,
+                    padding:'0.3rem 0.6rem', borderRadius:7,
+                    background:'var(--bg-input)', border:'1px solid var(--border)',
+                    color:'var(--text-muted)', fontWeight:700, fontSize:'0.7rem',
+                    cursor:'pointer', whiteSpace:'nowrap',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor='var(--border-light)'; e.currentTarget.style.color='var(--text-primary)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-muted)'; }}
+                >
+                  <Eye size={11} /> View
+                </button>
                 {/* Direct print */}
                 {tx.status !== 'voided' && onPrintTx && (
                   <button
@@ -283,16 +281,26 @@ export default function TransactionHistoryModal({ onClose, onPrintTx, onViewTx }
                   {detail.cashierName} · {new Date(detail.createdAt).toLocaleString()}
                 </div>
               </div>
-              <div style={{ display:'flex', gap:8 }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                {onViewTx && detail.status !== 'voided' && (
+                  <button
+                    onClick={() => onViewTx(detail)}
+                    title="View receipt on screen"
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'0.4rem 0.85rem', background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text-secondary)', fontWeight:700, fontSize:'0.78rem', cursor:'pointer' }}
+                  >
+                    <Eye size={13} /> Receipt
+                  </button>
+                )}
                 {detail.status !== 'voided' && onPrintTx && (
                   <button
                     onClick={() => { onPrintTx(detail); setDetail(null); }}
                     style={{ display:'flex', alignItems:'center', gap:6, padding:'0.45rem 1rem', background:'var(--green)', border:'none', borderRadius:8, color:'#fff', fontWeight:700, fontSize:'0.82rem', cursor:'pointer' }}
                   >
-                    <Printer size={14} /> Print Receipt
+                    <Printer size={14} /> Print
                   </button>
                 )}
                 <button onClick={() => setDetail(null)}
+                  title="Back to list"
                   style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:6, display:'flex' }}>
                   <X size={16} />
                 </button>

@@ -80,6 +80,13 @@ export const getDepartmentsForPOS = () =>
     return Array.isArray(d) ? d : (d?.data ?? d?.departments ?? []);
   });
 
+// ── Quick Product Creation (manager at POS) ───────────────────────────────
+export const createProduct = (data) =>
+  api.post('/catalog/products', data).then(r => {
+    const d = r.data;
+    return d?.data ?? d?.product ?? d;
+  });
+
 // ── Transaction list & actions ─────────────────────────────────────────────
 export const listTransactions = (params) =>
   api.get('/pos-terminal/transactions', { params }).then(r => r.data);

@@ -42,6 +42,7 @@ import LotteryShiftModal       from '../components/modals/LotteryShiftModal.jsx'
 import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
+import AddProductModal from '../components/modals/AddProductModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
 
@@ -96,6 +97,7 @@ export default function POSScreen() {
   const station = useStationStore(s => s.station);
   const storeId = station?.storeId;
   const { shift, loading: shiftLoading, loadActiveShift } = useShiftStore();
+  const logout = useAuthStore(s => s.logout);
 
   // ── Lottery store ────────────────────────────────────────────────────────
   const {
@@ -215,6 +217,36 @@ export default function POSScreen() {
 
   // Reset lottery reconciliation flag when shift changes (new shift = fresh start)
   useEffect(() => { setLotteryShiftDone(false); }, [shift?.id]);
+
+  // ── Midnight auto-close ──────────────────────────────────────────────────
+  // When a shift is open and midnight arrives:
+  //   1. Auto-close the shift (note: "Auto-closed at midnight")
+  //   2. Log the cashier out so the next person must open a new shift
+  useEffect(() => {
+    if (!shift?.id) return;
+
+    const now       = new Date();
+    const midnight  = new Date(now);
+    midnight.setDate(midnight.getDate() + 1);
+    midnight.setHours(0, 0, 0, 0);
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+
+    const timerId = setTimeout(async () => {
+      // Re-read current state inside the callback to avoid stale closure
+      const { shift: currentShift, closeShift: closeFn } = useShiftStore.getState();
+      if (!currentShift) return; // Already closed manually
+
+      const result = await closeFn({
+        closingAmount:  0,
+        closingNote:    'Auto-closed at midnight',
+      }).catch(() => null);
+
+      // Log out regardless of close result so the register prompts a new shift open
+      useAuthStore.getState().logout();
+    }, msUntilMidnight);
+
+    return () => clearTimeout(timerId);
+  }, [shift?.id]); // eslint-disable-line
 
   useOnlineStatus();
   useBranding();
@@ -340,13 +372,14 @@ export default function POSScreen() {
   }, [posConfig.ageVerification, verifiedAges, addProduct, requestAgeVerify]);
 
   // ── Scan error toast ──────────────────────────────────────────────────────
-  const [scanError, setScanError] = useState(null);  // { upc, ts }
+  const [scanError, setScanError]           = useState(null);  // { upc, ts }
+  const [addProductUpc, setAddProductUpc]   = useState(null);  // UPC string when manager creates product
   const scanErrorTimer = useRef(null);
 
   const showScanError = useCallback((upc) => {
     clearTimeout(scanErrorTimer.current);
     setScanError({ upc, ts: Date.now() });
-    scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
+    scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
   }, []);
   useEffect(() => () => clearTimeout(scanErrorTimer.current), []);
 
@@ -559,17 +592,35 @@ export default function POSScreen() {
         <div style={{
           position: 'fixed', top: '60px', left: '50%', transform: 'translateX(-50%)',
           zIndex: 9999,
-          background: '#b91c1c', color: '#fff',
-          padding: '0.6rem 1.4rem',
-          borderRadius: '8px',
-          fontSize: '1rem', fontWeight: 600,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          background: '#7f1d1d', color: '#fff',
+          padding: '0.55rem 1rem 0.55rem 1.25rem',
+          borderRadius: '10px',
+          fontSize: '0.9rem', fontWeight: 600,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
           animation: 'slideDown 0.2s ease',
-          pointerEvents: 'none',
+          border: '1px solid rgba(255,255,255,.1)',
         }}>
-          <span style={{ fontSize: '1.1rem' }}>⚠</span>
-          Product not found: <span style={{ fontFamily: 'monospace', marginLeft: '4px' }}>{scanError.upc}</span>
+          <span style={{ fontSize: '1rem' }}>⚠</span>
+          <span>
+            Not found: <span style={{ fontFamily: 'monospace' }}>{scanError.upc}</span>
+          </span>
+          {/* Manager (or active manager session) can create product inline */}
+          <button
+            onClick={() => {
+              const upc = scanError.upc;
+              setScanError(null);
+              requireManager('Add New Product', () => setAddProductUpc(upc));
+            }}
+            style={{
+              background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.25)',
+              borderRadius: 6, color: '#fff', fontSize: '0.78rem', fontWeight: 700,
+              padding: '0.3rem 0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            + Add Product
+          </button>
         </div>
       )}
 
@@ -1590,6 +1641,23 @@ export default function POSScreen() {
           product={packPickerProduct}
           onSelect={(size) => handlePackSizeSelect(packPickerProduct, size)}
           onCancel={() => { setPackPickerProduct(null); flash('miss'); }}
+        />
+      )}
+
+      {/* ── Add Product Modal (manager only, triggered from scan-not-found) ── */}
+      {addProductUpc && (
+        <AddProductModal
+          scannedUpc={addProductUpc}
+          onCreated={(product) => {
+            setAddProductUpc(null);
+            // Add newly created product to cart immediately
+            addWithAgeCheck({
+              ...product,
+              retailPrice: product.retailPrice ?? Number(product.defaultRetailPrice ?? 0),
+            });
+            flash('hit');
+          }}
+          onClose={() => setAddProductUpc(null)}
         />
       )}
     </div>

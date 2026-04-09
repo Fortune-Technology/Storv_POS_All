@@ -139,6 +139,7 @@ export default function PinLoginScreen() {
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
       padding: '2rem', userSelect: 'none',
+      overflowY: 'auto',
     }}>
 
       {/* Store + station identity */}

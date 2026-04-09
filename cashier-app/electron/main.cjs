@@ -45,6 +45,23 @@ function createWindow() {
   registerDrawerIPC(ipcMain);
   registerAppIPC(ipcMain, win);
 
+  // ── Auto-logout on window close ──────────────────────────────────────────
+  // When the Electron window is closed (X button, task kill, power off),
+  // clear the cashier session from localStorage so on next open the register
+  // shows the PIN login screen rather than resuming a stale cashier session.
+  // Station config (pos_station) is intentionally left intact.
+  win.on('close', async () => {
+    try {
+      if (!win.webContents.isDestroyed()) {
+        await win.webContents.executeJavaScript('localStorage.removeItem("pos_user"); true;');
+      }
+    } catch {
+      // Renderer already destroyed — localStorage is about to be cleared with
+      // a fresh session anyway when the app reopens (localStorage persists but
+      // the cashier session will be absent if executeJavaScript succeeded above).
+    }
+  });
+
   return win;
 }
 
