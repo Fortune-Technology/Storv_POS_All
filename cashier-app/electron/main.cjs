@@ -32,8 +32,8 @@ function createWindow() {
   });
 
   if (isDev) {
-    // Load from Vite dev server
-    win.loadURL('https://pos.stoerveu.com');
+    // Load from local Vite dev server (npm run electron:dev starts it on 5174)
+    win.loadURL('http://localhost:5174');
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
     // Load built app

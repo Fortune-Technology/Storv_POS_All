@@ -4,6 +4,11 @@ import api from './client.js';
 export const loginCashier = (email, password) =>
   api.post('/auth/login', { email, password }).then(r => r.data);
 
+// ── Business event log (No Sale, etc.) ────────────────────────────────────
+// Fire-and-forget — never blocks the UI; errors are silently swallowed.
+export const logPosEvent = (body) =>
+  api.post('/pos-terminal/events', body).catch(() => {});
+
 // ── Catalog snapshot (IndexedDB seeding) ────────────────────────────────────
 export const getCatalogSnapshot = (storeId, updatedSince, page = 1) =>
   api.get('/pos-terminal/catalog/snapshot', {
@@ -58,6 +63,13 @@ export const searchCustomers = (query, storeId) =>
     const d = r.data;
     return Array.isArray(d) ? d : (d?.data ?? d?.customers ?? []);
   });
+
+export const createCustomer = (data) =>
+  api.post('/customers', data).then(r => r.data);
+
+// ── Loyalty ───────────────────────────────────────────────────────────────
+export const getLoyaltyConfig = (storeId) =>
+  api.get('/loyalty/config', { params: { storeId } }).then(r => r.data);
 
 export const getPOSConfig = (storeId) =>
   api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);

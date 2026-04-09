@@ -81,6 +81,10 @@ export const useCartStore = create((set, get) => ({
   // Attached customer: { id, name, phone, loyaltyPoints, cardNo }
   customer: null,
 
+  // Loyalty redemption applied to this transaction:
+  // { rewardId, rewardName, pointsCost, discountType: 'dollar_off'|'pct_off', discountValue }
+  loyaltyRedemption: null,
+
   // Ages already verified this transaction (no re-check for same age threshold)
   verifiedAges: [],
 
@@ -239,21 +243,28 @@ export const useCartStore = create((set, get) => ({
   clearSelection: ()      => set({ selectedLineId: null }),
 
   setCustomer:   (c) => set({ customer: c }),
-  clearCustomer: ()  => set({ customer: null }),
+  clearCustomer: ()  => set({ customer: null, loyaltyRedemption: null }),
+
+  // Loyalty redemption
+  applyLoyaltyRedemption: (redemption) => {
+    // redemption: { rewardId, rewardName, pointsCost, discountType, discountValue }
+    set({ loyaltyRedemption: redemption });
+  },
+  removeLoyaltyRedemption: () => set({ loyaltyRedemption: null }),
 
   clearCart: () => set({
     items: [], selectedLineId: null, scanMode: 'normal',
     pendingProduct: null, txNumber: null, flashState: null,
-    orderDiscount: null, customer: null, verifiedAges: [],
+    orderDiscount: null, customer: null, loyaltyRedemption: null, verifiedAges: [],
     promoResults: { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] },
   }),
 
   // ── Hold & Recall ──────────────────────────────────────────────────────
   holdCart: async (label = '') => {
-    const { items, customer, orderDiscount } = get();
+    const { items, customer, orderDiscount, loyaltyRedemption } = get();
     if (!items.length) return;
     await db.heldTransactions.add({
-      items, customer, orderDiscount,
+      items, customer, orderDiscount, loyaltyRedemption,
       label: label || `Hold ${new Date().toLocaleTimeString()}`,
       heldAt: Date.now(),
       storeId: null,
@@ -266,10 +277,11 @@ export const useCartStore = create((set, get) => ({
     const held = await db.heldTransactions.get(id);
     if (!held) return false;
     set({
-      items:         held.items || [],
-      customer:      held.customer || null,
-      orderDiscount: held.orderDiscount || null,
-      selectedLineId: null,
+      items:             held.items || [],
+      customer:          held.customer || null,
+      orderDiscount:     held.orderDiscount || null,
+      loyaltyRedemption: held.loyaltyRedemption || null,
+      selectedLineId:    null,
     });
     await db.heldTransactions.delete(id);
     return true;

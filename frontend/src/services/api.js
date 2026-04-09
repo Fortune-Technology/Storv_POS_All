@@ -59,9 +59,12 @@ export const forgotPassword = (email) => api.post('/auth/forgot-password', { ema
 export const phoneLookup = (phone) => api.post('/auth/phone-lookup', { phone });
 
 // Customers
-export const getCustomers = (params) => api.get('/customers', { params });
-export const getCustomerById = (id) => api.get(`/customers/${id}`);
-export const checkPoints = (phone) => api.post('/customers/check-points', { phone });
+export const getCustomers      = (params)     => api.get('/customers', { params }).then(r => r.data);
+export const getCustomerById   = (id)         => api.get(`/customers/${id}`).then(r => r.data);
+export const createCustomer    = (data)       => api.post('/customers', data).then(r => r.data);
+export const updateCustomer    = (id, data)   => api.put(`/customers/${id}`, data).then(r => r.data);
+export const deleteCustomer    = (id)         => api.delete(`/customers/${id}`).then(r => r.data);
+export const checkPoints       = (phone)      => api.post('/customers/check-points', { phone }).then(r => r.data);
 
 // Invoices
 export const uploadInvoices = (formData) => api.post('/invoice/upload', formData, {
@@ -253,6 +256,9 @@ export const updateVendorPaymentEntry = (id, d)  => api.put(`/catalog/vendor-pay
 // POS Transactions
 export const getTransactions = (params) => api.get('/pos-terminal/transactions', { params }).then(r => r.data);
 
+// POS Event Log (No Sale, etc.)
+export const getPosEvents = (params) => api.get('/pos-terminal/events', { params }).then(r => r.data);
+
 export const getLotteryShiftReports   = (params) => api.get('/lottery/shift-reports', { params }).then(lotteryUnwrap);
 export const getLotteryShiftReport    = (shiftId) => api.get(`/lottery/shift-reports/${shiftId}`).then(lotteryUnwrap);
 
@@ -263,6 +269,22 @@ export const getLotteryCommissionReport = (params) => api.get('/lottery/commissi
 
 export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
 export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
+
+// ── Lottery Ticket Catalog ────────────────────────────────────────────────────
+export const getLotteryCatalog          = (params) => api.get('/lottery/catalog', { params }).then(lotteryUnwrap);
+export const getAllLotteryCatalog       = (params) => api.get('/lottery/catalog/all', { params }).then(lotteryUnwrap);
+export const createLotteryCatalogTicket = (data)   => api.post('/lottery/catalog', data).then(lotteryUnwrap);
+export const updateLotteryCatalogTicket = (id, d)  => api.put(`/lottery/catalog/${id}`, d).then(lotteryUnwrap);
+export const deleteLotteryCatalogTicket = (id)     => api.delete(`/lottery/catalog/${id}`).then(lotteryUnwrap);
+
+// ── Lottery Ticket Requests ───────────────────────────────────────────────────
+export const getLotteryTicketRequests   = (params) => api.get('/lottery/ticket-requests', { params }).then(lotteryUnwrap);
+export const getLotteryPendingCount     = ()        => api.get('/lottery/ticket-requests/pending-count').then(r => r.data?.count ?? 0);
+export const createLotteryTicketRequest = (data)   => api.post('/lottery/ticket-requests', data).then(lotteryUnwrap);
+export const reviewLotteryTicketRequest = (id, d)  => api.put(`/lottery/ticket-requests/${id}/review`, d).then(lotteryUnwrap);
+
+// ── Receive from Catalog ──────────────────────────────────────────────────────
+export const receiveFromLotteryCatalog  = (data)   => api.post('/lottery/boxes/receive-catalog', data).then(lotteryUnwrap);
 
 // ── POS Terminal Config ───────────────────────────────────────────────────────
 export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
@@ -298,5 +320,19 @@ export const getOrgTickets      = (params)    => api.get('/tickets',            
 export const createOrgTicket    = (data)      => api.post('/tickets',           data).then(r => r.data);
 export const getOrgTicket       = (id)        => api.get(`/tickets/${id}`).then(r => r.data);
 export const addOrgTicketReply  = (id, data)  => api.post(`/tickets/${id}/reply`, data).then(r => r.data);
+
+// ── Loyalty ───────────────────────────────────────────────────────────────
+export const getLoyaltyProgram    = (storeId)    => api.get('/loyalty/program', { params: { storeId } }).then(r => r.data);
+export const upsertLoyaltyProgram = (data)       => api.put('/loyalty/program', data).then(r => r.data);
+
+export const getLoyaltyEarnRules   = (storeId)   => api.get('/loyalty/earn-rules', { params: { storeId } }).then(r => r.data);
+export const createLoyaltyEarnRule = (data)      => api.post('/loyalty/earn-rules', data).then(r => r.data);
+export const updateLoyaltyEarnRule = (id, data)  => api.put(`/loyalty/earn-rules/${id}`, data).then(r => r.data);
+export const deleteLoyaltyEarnRule = (id)        => api.delete(`/loyalty/earn-rules/${id}`).then(r => r.data);
+
+export const getLoyaltyRewards    = (storeId)    => api.get('/loyalty/rewards', { params: { storeId } }).then(r => r.data);
+export const createLoyaltyReward  = (data)       => api.post('/loyalty/rewards', data).then(r => r.data);
+export const updateLoyaltyReward  = (id, data)   => api.put(`/loyalty/rewards/${id}`, data).then(r => r.data);
+export const deleteLoyaltyReward  = (id)         => api.delete(`/loyalty/rewards/${id}`).then(r => r.data);
 
 export default api;

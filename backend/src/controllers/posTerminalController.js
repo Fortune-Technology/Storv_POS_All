@@ -10,6 +10,87 @@ import prisma from '../config/postgres.js';
 const getOrgId   = (req) => req.orgId   || req.user?.orgId;
 const getStoreId = (req) => req.query.storeId || req.body?.storeId;
 
+/**
+ * _processLoyaltyPoints
+ * Called fire-and-forget after a transaction is saved.
+ * Awards earned points and deducts redeemed points for the attached customer.
+ */
+async function _processLoyaltyPoints({ orgId, storeId, customerId, lineItems, subtotal, txId, txNumber, loyaltyPointsRedeemed }) {
+  // Load the loyalty program
+  const program = await prisma.loyaltyProgram.findUnique({ where: { storeId } });
+  if (!program || !program.enabled) return;
+
+  // Load earn rules for this store
+  const earnRules = await prisma.loyaltyEarnRule.findMany({
+    where: { storeId, active: true },
+  });
+
+  // Build lookup maps
+  const excludedDepts    = new Set(earnRules.filter(r => r.targetType === 'department' && r.action === 'exclude').map(r => r.targetId));
+  const excludedProducts = new Set(earnRules.filter(r => r.targetType === 'product'    && r.action === 'exclude').map(r => r.targetId));
+  const deptMultipliers  = {};
+  const prodMultipliers  = {};
+  earnRules.filter(r => r.action === 'multiply').forEach(r => {
+    if (r.targetType === 'department') deptMultipliers[r.targetId] = Number(r.multiplier);
+    else                               prodMultipliers[r.targetId] = Number(r.multiplier);
+  });
+
+  // Compute eligible spend from lineItems
+  let eligibleSubtotal = 0;
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  for (const li of items) {
+    if (li.isLottery || li.isBottleReturn || li.qty <= 0) continue;
+    const deptId = li.departmentId ? String(li.departmentId) : null;
+    const prodId = li.productId    ? String(li.productId)    : null;
+    // Check exclusions
+    if (deptId && excludedDepts.has(deptId))    continue;
+    if (prodId && excludedProducts.has(prodId)) continue;
+    // Apply multiplier (product takes precedence over department)
+    let mult = 1;
+    if (prodId && prodMultipliers[prodId] !== undefined) mult = prodMultipliers[prodId];
+    else if (deptId && deptMultipliers[deptId] !== undefined) mult = deptMultipliers[deptId];
+    eligibleSubtotal += (li.lineTotal || 0) * mult;
+  }
+
+  // Calculate points to award
+  const ptsPerDollar = Number(program.pointsPerDollar);
+  const pointsEarned = Math.floor(eligibleSubtotal * ptsPerDollar);
+
+  // Net points change
+  const redeemed      = Math.max(0, loyaltyPointsRedeemed || 0);
+  const netPointsDelta = pointsEarned - redeemed;
+
+  if (netPointsDelta === 0 && pointsEarned === 0) return;
+
+  // Fetch current customer
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, orgId },
+    select: { id: true, loyaltyPoints: true, pointsHistory: true },
+  });
+  if (!customer) return;
+
+  const currentPoints  = customer.loyaltyPoints || 0;
+  const newPoints      = Math.max(0, currentPoints + netPointsDelta);
+  const history        = Array.isArray(customer.pointsHistory) ? customer.pointsHistory : [];
+
+  const historyEntry = {
+    date:     new Date().toISOString(),
+    txId,
+    txNumber,
+    earned:   pointsEarned,
+    redeemed,
+    balance:  newPoints,
+  };
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data:  {
+      loyaltyPoints: newPoints,
+      pointsHistory: [...history, historyEntry],
+    },
+  });
+}
+
 // ── GET /api/pos-terminal/catalog/snapshot ─────────────────────────────────
 // Returns flat denormalised product list for IndexedDB seeding.
 // Supports ?updatedSince=ISO for incremental sync.
@@ -131,6 +212,7 @@ export const createTransaction = async (req, res) => {
       subtotal, taxTotal, depositTotal, ebtTotal, grandTotal, changeGiven,
       offlineCreatedAt, status,
       shiftId,
+      customerId, loyaltyPointsRedeemed,
     } = req.body;
 
     if (!storeId) return res.status(400).json({ error: 'storeId required' });
@@ -167,6 +249,17 @@ export const createTransaction = async (req, res) => {
         syncedAt:        new Date(),
       },
     });
+
+    // ── Award / deduct loyalty points (fire-and-forget) ───────────────────
+    if (customerId) {
+      _processLoyaltyPoints({
+        orgId, storeId, customerId,
+        lineItems: lineItems || [],
+        subtotal:  parseFloat(subtotal) || 0,
+        txId:      tx.id, txNumber,
+        loyaltyPointsRedeemed: parseInt(loyaltyPointsRedeemed) || 0,
+      }).catch(err => console.error('[loyalty] points error:', err.message));
+    }
 
     // ── Save lottery transactions if present ──────────────────────────────
     if (Array.isArray(lotteryItems) && lotteryItems.length) {
@@ -484,6 +577,106 @@ export const listTransactions = async (req, res) => {
         changeGiven:  Number(t.changeGiven),
         cashierName:  userMap[t.cashierId] || 'Unknown',
       })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── POST /api/pos-terminal/events ─────────────────────────────────────────
+// Logs a business event (No Sale, manager override, etc.) to pos_logs.
+// Cashier app sends these fire-and-forget; portal reads them via GET /events.
+export const logPosEvent = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const {
+      storeId, eventType,
+      cashierId, cashierName,
+      stationId, stationName,
+      note,
+    } = req.body;
+
+    if (!eventType) return res.status(400).json({ error: 'eventType required' });
+
+    await prisma.posLog.create({
+      data: {
+        orgId,
+        storeId: storeId || null,
+        endpoint:   eventType,           // e.g. 'no_sale'
+        method:     'EVENT',             // distinguishes business events from HTTP logs
+        status:     'success',
+        statusCode: null,
+        message:    JSON.stringify({
+          cashierId, cashierName,
+          stationId, stationName,
+          note: note || null,
+        }),
+      },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── GET /api/pos-terminal/events ──────────────────────────────────────────
+// Lists business events for the back-office portal.
+// Filters: storeId, eventType, dateFrom, dateTo, limit, offset
+export const listPosEvents = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const {
+      storeId, eventType,
+      dateFrom, dateTo,
+      limit = 100, offset = 0,
+    } = req.query;
+
+    const where = { orgId, method: 'EVENT' };
+    if (storeId)   where.storeId  = storeId;
+    if (eventType) where.endpoint = eventType;
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        const d = new Date(dateFrom);
+        where.createdAt.gte = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+      }
+      if (dateTo) {
+        const d = new Date(dateTo);
+        where.createdAt.lte = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+      }
+    }
+
+    const [total, rows] = await Promise.all([
+      prisma.posLog.count({ where }),
+      prisma.posLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take:    Math.min(parseInt(limit) || 100, 500),
+        skip:    parseInt(offset) || 0,
+        include: { store: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    res.json({
+      total,
+      events: rows.map(r => {
+        let details = {};
+        try { details = r.message ? JSON.parse(r.message) : {}; } catch {}
+        return {
+          id:          r.id,
+          eventType:   r.endpoint,
+          storeId:     r.storeId,
+          storeName:   r.store?.name || null,
+          cashierName: details.cashierName || null,
+          cashierId:   details.cashierId   || null,
+          stationId:   details.stationId   || null,
+          stationName: details.stationName || null,
+          note:        details.note        || null,
+          createdAt:   r.createdAt,
+        };
+      }),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

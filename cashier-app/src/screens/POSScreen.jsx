@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Search, X, User, UserX,
-  DollarSign, Trash2, Tag,
+  DollarSign, Trash2, Tag, Star,
   CreditCard, Banknote, Leaf,
   Hash,
 } from 'lucide-react';
@@ -43,7 +43,7 @@ import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
-import { getLotteryBoxes, getPosBranding } from '../api/pos.js';
+import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -71,6 +71,7 @@ export default function POSScreen() {
     flash, flashState,
     customer, clearCustomer, clearCart,
     orderDiscount, removeOrderDiscount,
+    loyaltyRedemption, removeLoyaltyRedemption,
     verifiedAges,
   } = useCartStore();
 
@@ -92,7 +93,8 @@ export default function POSScreen() {
   const { printReceipt, openDrawer, hasReceiptPrinter, hasCashDrawer } = useHardware();
 
   // ── Shift / Cash Drawer ─────────────────────────────────────────────────
-  const storeId = useStationStore(s => s.station?.storeId);
+  const station = useStationStore(s => s.station);
+  const storeId = station?.storeId;
   const { shift, loading: shiftLoading, loadActiveShift } = useShiftStore();
 
   // ── Lottery store ────────────────────────────────────────────────────────
@@ -166,6 +168,24 @@ export default function POSScreen() {
       lastFour:       tx.lastFour,
     }).catch(() => {});
   }, [hasReceiptPrinter, printReceipt, storeBranding, cashier]);
+
+  // ── No Sale — open drawer + log event ─────────────────────────────────────
+  const handleNoSale = useCallback(() => {
+    // Open cash drawer
+    if (hasCashDrawer) {
+      openDrawer().catch(() => {});
+    }
+    // Log to back-office (fire-and-forget, never blocks cashier)
+    logPosEvent({
+      storeId,
+      eventType:   'no_sale',
+      cashierId:   cashier?.id,
+      cashierName: cashier?.name || cashier?.email || 'Unknown',
+      stationId:   station?.stationId,
+      stationName: station?.stationName,
+      note:        'Cash drawer opened — No Sale',
+    });
+  }, [hasCashDrawer, openDrawer, storeId, cashier, station]);
 
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
@@ -284,7 +304,23 @@ export default function POSScreen() {
   }, [items.map(i => `${i.lineId}:${i.qty}`).join(','), promotions]); // eslint-disable-line
 
   // ── Derived ──────────────────────────────────────────────────────────────
-  const totals       = selectTotals(items, taxRules, orderDiscount);
+  // Combine order discount + loyalty redemption into a single dollar-off value
+  const rawSubtotal = items.reduce((s, i) => s + i.lineTotal, 0);
+  let _dollarOff = 0;
+  if (orderDiscount) {
+    _dollarOff += orderDiscount.type === 'percent'
+      ? rawSubtotal * orderDiscount.value / 100
+      : orderDiscount.value;
+  }
+  if (loyaltyRedemption) {
+    _dollarOff += loyaltyRedemption.discountType === 'dollar_off'
+      ? loyaltyRedemption.discountValue
+      : rawSubtotal * loyaltyRedemption.discountValue / 100;
+  }
+  const effectiveDiscount = _dollarOff > 0
+    ? { type: 'amount', value: Math.round(_dollarOff * 100) / 100 }
+    : null;
+  const totals       = selectTotals(items, taxRules, effectiveDiscount);
   const selectedItem = items.find(i => i.lineId === selectedLineId);
 
   // ── Age-check helper: skip if already verified this transaction ──────────
@@ -800,6 +836,30 @@ export default function POSScreen() {
                       </button>
                     </div>
                   )}
+                  {loyaltyRedemption && (
+                    <div style={{
+                      margin: '0.3rem 0.75rem 0',
+                      padding: '0.4rem 0.75rem',
+                      background: 'rgba(122,193,67,.07)',
+                      borderRadius: 8,
+                      border: '1px solid rgba(122,193,67,.25)',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <Star size={11} color="var(--green)" />
+                      <span style={{ flex: 1, fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700 }}>
+                        {loyaltyRedemption.rewardName}:{' '}
+                        {loyaltyRedemption.discountType === 'dollar_off'
+                          ? `${fmt$(loyaltyRedemption.discountValue)} off`
+                          : `${loyaltyRedemption.discountValue}% off`}
+                        <span style={{ fontWeight: 400, marginLeft: 4, color: 'var(--text-muted)' }}>
+                          ({loyaltyRedemption.pointsCost.toLocaleString()} pts)
+                        </span>
+                      </span>
+                      <button onClick={removeLoyaltyRedemption} style={{ background: 'none', border: 'none', color: 'var(--green)', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}>
+                        <X size={11} />
+                      </button>
+                    </div>
+                  )}
                   <CartTotals totals={totals} itemCount={items.length} />
                   {/* Quick cash in counterMode */}
                   {(() => {
@@ -1069,6 +1129,37 @@ export default function POSScreen() {
                     </button>
                   </div>
                 )}
+                {loyaltyRedemption && (
+                  <div style={{
+                    margin: '0 0.75rem 0.4rem',
+                    padding: '0.4rem 0.75rem',
+                    background: 'rgba(122,193,67,.07)',
+                    borderRadius: 8,
+                    border: '1px solid rgba(122,193,67,.25)',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <Star size={11} color="var(--green)" />
+                    <span style={{ flex: 1, fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700 }}>
+                      {loyaltyRedemption.rewardName}:{' '}
+                      {loyaltyRedemption.discountType === 'dollar_off'
+                        ? `${fmt$(loyaltyRedemption.discountValue)} off`
+                        : `${loyaltyRedemption.discountValue}% off`}
+                      <span style={{ fontWeight: 400, marginLeft: 4, color: 'var(--text-muted)' }}>
+                        ({loyaltyRedemption.pointsCost.toLocaleString()} pts)
+                      </span>
+                    </span>
+                    <button
+                      onClick={removeLoyaltyRedemption}
+                      style={{
+                        background: 'none', border: 'none',
+                        color: 'var(--green)', cursor: 'pointer',
+                        padding: 2, display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
 
                 <CartTotals totals={totals} itemCount={items.length} />
 
@@ -1249,7 +1340,7 @@ export default function POSScreen() {
         onHold={() => setShowHold(true)}
         onHistory={() => setShowHistory(true)}
         onReprint={() => lastCompletedTx ? setReprintTx(lastCompletedTx) : setShowHistory(true)}
-        onNoSale={() => {}}
+        onNoSale={handleNoSale}
         onDiscount={openOrderDiscount}
         onRefund={() => setShowRefund(true)}
         onVoidTx={() => setShowVoid(true)}

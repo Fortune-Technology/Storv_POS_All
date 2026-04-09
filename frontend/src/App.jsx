@@ -63,6 +63,7 @@ import EcomPages         from './pages/EcomPages';
 import EcomOrders        from './pages/EcomOrders';
 import EcomDomain        from './pages/EcomDomain';
 import Lottery from './pages/Lottery';
+import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
 
 
@@ -80,6 +81,7 @@ import DepositMapPage from './pages/DepositMapPage';
 import HistoryPage from './pages/HistoryPage';
 import OCRPage from './pages/OCRPage';
 import Transactions from './pages/Transactions';
+import PosEventLog  from './pages/PosEventLog';
 
 // Components
 import Layout from './components/Layout';
@@ -125,7 +127,7 @@ const ImpersonateLanding = () => {
 
 function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ScrollToTop />
       <StoreProvider>
       <ToastContainer theme="dark" position="top-right" />
@@ -185,6 +187,7 @@ function App() {
         <Route path="/portal/receipt-settings"  element={<ProtectedRoute><ReceiptSettings /></ProtectedRoute>} />
         <Route path="/portal/employee-reports"  element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>} />
         <Route path="/portal/transactions"      element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
+        <Route path="/portal/pos-event-log"    element={<ProtectedRoute><PosEventLog  /></ProtectedRoute>} />
         <Route path="/portal/payouts"           element={<ProtectedRoute><PayoutsReport /></ProtectedRoute>} />
         <Route path="/portal/vendor-payouts"  element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
         <Route path="/portal/quick-access"    element={<ProtectedRoute><QuickAccess /></ProtectedRoute>} />
@@ -213,6 +216,7 @@ function App() {
 
         {/* ── Lottery ─────────────────────────────────────────────────── */}
         <Route path="/portal/lottery"          element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
+        <Route path="/portal/loyalty"          element={<ProtectedRoute><LoyaltyProgram /></ProtectedRoute>} />
         <Route path="/portal/support-tickets"  element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />
 
         {/* ── Online Store (E-commerce) ────────────────────────────── */}

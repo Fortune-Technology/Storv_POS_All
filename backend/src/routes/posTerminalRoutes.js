@@ -24,6 +24,8 @@ import {
   getPOSConfig,
   savePOSConfig,
   printNetworkReceipt,
+  logPosEvent,
+  listPosEvents,
 } from '../controllers/posTerminalController.js';
 import {
   registerStation,
@@ -98,5 +100,9 @@ router.get('/shift/:id/report',  ...guard, getShiftReport);
 // Payout & Cash Drop reporting (back-office)
 router.get('/payouts',           ...guard, listPayouts);
 router.get('/cash-drops',        ...guard, listCashDrops);
+
+// POS Business Event Log (No Sale, manager overrides, etc.)
+router.post('/events',           ...guard, logPosEvent);
+router.get('/events',            ...guard, listPosEvents);
 
 export default router;

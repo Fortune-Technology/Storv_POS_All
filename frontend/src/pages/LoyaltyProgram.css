@@ -1,0 +1,702 @@
+/* ══════════════════════════════════════════════════════
+   LoyaltyProgram.css  —  lp- prefix
+   Colors use design-system variables from index.css
+══════════════════════════════════════════════════════ */
+
+/* ── Page wrapper ─────────────────────────────────── */
+.lp-page {
+  padding: 1.75rem 2rem;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  min-height: 100vh;
+}
+
+/* ── Header ───────────────────────────────────────── */
+.lp-header {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-bottom: 1.75rem;
+}
+
+.lp-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(245,158,11,0.18);
+}
+
+.lp-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  margin: 0 0 2px;
+}
+
+.lp-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── No store notice ──────────────────────────────── */
+.lp-no-store {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Tabs ─────────────────────────────────────────── */
+.lp-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border-color);
+  margin-bottom: 1.5rem;
+}
+
+.lp-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 1.1rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.lp-tab:hover {
+  color: var(--accent-primary);
+  background: var(--brand-05);
+}
+
+.lp-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+  background: var(--brand-08);
+  font-weight: 700;
+}
+
+/* ── Body ─────────────────────────────────────────── */
+.lp-body {
+  max-width: 820px;
+}
+
+/* ── Card ─────────────────────────────────────────── */
+.lp-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Loading / Empty / Spin ───────────────────────── */
+.lp-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  padding: 2rem 0;
+}
+
+.lp-empty {
+  text-align: center;
+  padding: 3.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+}
+.lp-empty svg {
+  margin: 0 auto 0.875rem;
+  display: block;
+  opacity: 0.25;
+  color: var(--text-muted);
+}
+
+.lp-spin {
+  animation: lp-spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes lp-spin { to { transform: rotate(360deg); } }
+
+/* ── Section labels & headers ─────────────────────── */
+.lp-section-label {
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  margin: 1.35rem 0 0.65rem;
+  opacity: 0.8;
+}
+
+.lp-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.lp-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  margin: 0 0 4px;
+}
+
+.lp-section-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Settings rows ────────────────────────────────── */
+.lp-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.lp-setting-toggle-row {
+  background: var(--brand-05);
+  border: 1px solid var(--brand-15);
+  border-radius: var(--radius-sm);
+  padding: 0.875rem 1rem;
+}
+
+.lp-setting-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lp-setting-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* ── Toggle switch ────────────────────────────────── */
+.lp-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.lp-toggle.on {
+  background: var(--success);
+  border-color: var(--success);
+}
+.lp-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  transition: transform 0.2s;
+}
+.lp-toggle.on .lp-toggle-knob { transform: translateX(20px); }
+
+.lp-toggle-on-icon { color: var(--success); }
+
+/* ── Grid layouts ─────────────────────────────────── */
+.lp-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+/* ── Fields ───────────────────────────────────────── */
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 0.75rem;
+}
+
+.lp-field-expiry { max-width: 280px; }
+.lp-field-sort   { max-width: 160px; }
+.lp-field-target { flex: 2; }
+
+.lp-field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.lp-field-hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.lp-field-row {
+  display: flex;
+  gap: 0.875rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+.lp-field-row .lp-field { flex: 1; min-width: 140px; }
+
+/* ── Inputs & Selects ─────────────────────────────── */
+.lp-input {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.lp-input-md { max-width: 320px; }
+
+.lp-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--brand-10);
+}
+
+.lp-input::placeholder { color: var(--text-muted); opacity: 0.7; }
+
+/* ── Settings form ────────────────────────────────── */
+.lp-settings-form {
+  max-width: 660px;
+}
+
+/* ── Example / Preview box ────────────────────────── */
+.lp-example-box {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--warning-bg);
+  border: 1px solid rgba(245,158,11,0.22);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.875rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 0.875rem 0;
+}
+
+.lp-example-icon         { color: var(--warning);  flex-shrink: 0; }
+.lp-example-icon--green  { color: var(--success);  flex-shrink: 0; }
+
+/* ── Feedback ─────────────────────────────────────── */
+.lp-error {
+  background: var(--error-bg);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.875rem;
+  color: var(--error);
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lp-success {
+  background: var(--success-bg);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.875rem;
+  color: var(--success);
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+}
+
+/* ═══════════════════════════════════════════════════
+   BUTTONS — full color-scheme treatment
+═══════════════════════════════════════════════════ */
+
+/* Primary action — brand gradient */
+.lp-btn-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0.55rem 1.35rem;
+  background: var(--accent-gradient);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 0.875rem;
+  box-shadow: var(--shadow-brand);
+  transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.lp-btn-save:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-brand-lg);
+}
+.lp-btn-save:active:not(:disabled) { transform: translateY(0); }
+.lp-btn-save:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+/* Cancel / secondary — outlined brand style */
+.lp-btn-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 1.1rem;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-brand);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lp-btn-cancel:hover {
+  background: var(--brand-08);
+  border-color: var(--border-brand-strong);
+}
+
+/* Add / floating action — brand filled */
+.lp-btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.48rem 1rem;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-brand);
+  transition: background 0.15s, transform 0.1s;
+}
+.lp-btn-add:hover {
+  background: var(--brand-dark);
+  transform: translateY(-1px);
+}
+.lp-btn-add:active { transform: translateY(0); }
+
+.lp-form-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 1.1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ── Icon buttons ─────────────────────────────────── */
+.lp-icon-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 5px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.lp-icon-btn:hover {
+  background: var(--brand-08);
+  border-color: var(--border-brand);
+  color: var(--accent-primary);
+}
+
+.lp-icon-btn-red:hover {
+  background: var(--error-bg);
+  border-color: rgba(239,68,68,0.3);
+  color: var(--error);
+}
+
+/* ── Badges ───────────────────────────────────────── */
+.lp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lp-badge-muted {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+.lp-badge-red {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid rgba(239,68,68,0.2);
+}
+.lp-badge-green {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(16,185,129,0.2);
+}
+
+/* ── Earn Rules list ──────────────────────────────── */
+.lp-rules-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.lp-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.8rem 1rem;
+  transition: background 0.1s;
+}
+.lp-rule-row:hover { background: var(--brand-05); }
+.lp-rule-row.inactive { opacity: 0.45; }
+
+.lp-rule-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.lp-rule-info  { flex: 1; min-width: 0; }
+.lp-rule-name  { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); }
+.lp-rule-meta  { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.lp-rule-actions { display: flex; gap: 4px; }
+
+/* ── Rule / Reward form ───────────────────────────── */
+.lp-rule-form { padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+
+.lp-rule-form-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lp-rule-edit-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--accent-primary);
+  background: var(--brand-08);
+  border: 1px solid var(--brand-15);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.875rem;
+  margin-bottom: 0.875rem;
+  font-weight: 600;
+}
+
+/* ── Product search ───────────────────────────────── */
+.lp-prod-search-wrap { position: relative; }
+
+.lp-prod-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.lp-prod-search-input { padding-left: 2.1rem; }
+
+.lp-prod-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-brand);
+  border-radius: var(--radius-sm);
+  z-index: 50;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.lp-prod-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 0.1s;
+}
+.lp-prod-row:hover { background: var(--brand-08); color: var(--accent-primary); }
+
+.lp-prod-upc {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  margin-left: auto;
+  font-family: monospace;
+}
+
+.lp-prod-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 0.875rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.lp-prod-selected {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--success);
+  font-weight: 600;
+  margin-top: 5px;
+}
+
+/* ── Rewards grid ─────────────────────────────────── */
+.lp-rewards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 0.875rem;
+}
+
+.lp-reward-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 1.1rem;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.lp-reward-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.lp-reward-card.inactive { opacity: 0.45; }
+
+.lp-reward-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.lp-reward-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--success-bg);
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-reward-actions { display: flex; gap: 3px; }
+
+.lp-reward-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+}
+
+.lp-reward-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.lp-reward-pts {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--warning);
+  margin-top: 8px;
+  font-family: var(--font-heading);
+}
+
+.lp-reward-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--success);
+}
+
+/* ── Reward form ──────────────────────────────────── */
+.lp-reward-form { margin-bottom: 1rem; }
+
+/* ── Earn rules / Rewards containers ─────────────── */
+.lp-earn-rules, .lp-rewards { /* layout context — no extra styles needed */ }
+
+/* ── Responsive ───────────────────────────────────── */
+@media (max-width: 700px) {
+  .lp-page          { padding: 1rem; }
+  .lp-grid-2        { grid-template-columns: 1fr; }
+  .lp-rewards-grid  { grid-template-columns: 1fr 1fr; }
+  .lp-field-row     { flex-direction: column; }
+  .lp-field-expiry,
+  .lp-field-sort    { max-width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .lp-rewards-grid { grid-template-columns: 1fr; }
+  .lp-tabs { gap: 2px; }
+  .lp-tab  { padding: 0.45rem 0.6rem; font-size: 0.75rem; }
+}

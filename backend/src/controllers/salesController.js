@@ -3,6 +3,8 @@
  * Handles all /api/sales/* routes.
  */
 
+import prisma from '../config/postgres.js';
+
 import {
   getDailySales,
   getWeeklySales,
@@ -589,39 +591,216 @@ export const yearlyWithWeather = async (req, res) => {
 
 export const realtimeSales = async (req, res) => {
   try {
-    const todayDate = today();
+    const orgId   = req.orgId;
+    const storeId = req.storeId || null;
 
-    // Fetch last 7 days so we always have the most recent available day
-    const from7 = daysAgo(7);
-    const salesData = await getDailySales(req.posUser ?? req.user, req.storeId, from7, todayDate);
-    const rows = (salesData.value || []).filter(r => r.Date);
+    // ── Today boundaries (local server time) ─────────────────────────────────
+    const now      = new Date();
+    const yy       = now.getFullYear();
+    const mm       = String(now.getMonth() + 1).padStart(2, '0');
+    const dd       = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${yy}-${mm}-${dd}`;
+    const todayStart = new Date(`${todayStr}T00:00:00`);
+    const todayEnd   = new Date(`${todayStr}T23:59:59.999`);
 
-    // Sort descending and pick the most recent row that has actual sales
-    rows.sort((a, b) => (b.Date > a.Date ? 1 : -1));
-    const latestRow = rows.find(r => (r.TotalNetSales ?? 0) !== 0) || rows[0] || null;
+    // ── Fetch today's completed transactions ──────────────────────────────────
+    const todayWhere = {
+      orgId,
+      status: 'complete',
+      createdAt: { gte: todayStart, lte: todayEnd },
+    };
+    if (storeId) todayWhere.storeId = storeId;
 
-    const isToday = latestRow?.Date === todayDate;
+    const txns = await prisma.transaction.findMany({
+      where: todayWhere,
+      select: {
+        id: true,
+        txNumber: true,
+        grandTotal: true,
+        subtotal: true,
+        taxTotal: true,
+        depositTotal: true,
+        ebtTotal: true,
+        tenderLines: true,
+        lineItems: true,
+        createdAt: true,
+        stationId: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    let weather = null;
-    if (req.user?.storeLatitude && req.user?.storeLongitude) {
-      weather = await getCurrentWeather(
-        req.user.storeLatitude,
-        req.user.storeLongitude,
-        req.user.storeTimezone || 'America/New_York',
-      );
+    // ── Aggregate totals ──────────────────────────────────────────────────────
+    let netSales = 0, taxTotal = 0, depositTotal = 0, ebtTotal = 0;
+    let cashTotal = 0, cardTotal = 0, ebtTender = 0;
+    const productMap = {};
+    const hourlyMap  = {};
+
+    for (const tx of txns) {
+      const gt = Number(tx.grandTotal)   || 0;
+      const tt = Number(tx.taxTotal)     || 0;
+      const dt = Number(tx.depositTotal) || 0;
+      const et = Number(tx.ebtTotal)     || 0;
+
+      netSales     += gt;
+      taxTotal     += tt;
+      depositTotal += dt;
+      ebtTotal     += et;
+
+      // Tender breakdown
+      const tenders = Array.isArray(tx.tenderLines) ? tx.tenderLines : [];
+      for (const t of tenders) {
+        const amt = Number(t.amount) || 0;
+        const m   = (t.method || '').toLowerCase();
+        if (m === 'cash')                          cashTotal  += amt;
+        else if (['card','credit','debit'].includes(m)) cardTotal  += amt;
+        else if (m === 'ebt')                      ebtTender  += amt;
+      }
+
+      // Top products from lineItems
+      const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+      for (const li of items) {
+        if (!li.name || li.isLottery || li.isBottleReturn) continue;
+        const key = li.name;
+        if (!productMap[key]) productMap[key] = { name: key, qty: 0, revenue: 0 };
+        productMap[key].qty     += Number(li.qty || 1);
+        productMap[key].revenue += Number(li.totalPrice ?? li.lineTotal ?? 0);
+      }
+
+      // Hourly buckets
+      const h = new Date(tx.createdAt).getHours();
+      if (!hourlyMap[h]) hourlyMap[h] = { sales: 0, count: 0 };
+      hourlyMap[h].sales += gt;
+      hourlyMap[h].count += 1;
+    }
+
+    const txCount = txns.length;
+    const avgTx   = txCount ? netSales / txCount : 0;
+
+    // Hourly array covering store hours (6 AM – 11 PM)
+    const hourly = Array.from({ length: 24 }, (_, h) => {
+      const label = h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
+      return { hour: h, label, sales: hourlyMap[h]?.sales ?? 0, count: hourlyMap[h]?.count ?? 0 };
+    });
+
+    // Top 8 products by revenue
+    const topProducts = Object.values(productMap)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 8);
+
+    // Recent 15 transactions for live feed
+    const recentTx = txns.slice(0, 15).map(tx => ({
+      id:         tx.id,
+      txNumber:   tx.txNumber,
+      grandTotal: Number(tx.grandTotal),
+      createdAt:  tx.createdAt,
+      tenderLines: tx.tenderLines,
+      stationId:  tx.stationId,
+    }));
+
+    // ── Today's lottery ───────────────────────────────────────────────────────
+    const lotteryWhere = {
+      orgId,
+      createdAt: { gte: todayStart, lte: todayEnd },
+    };
+    if (storeId) lotteryWhere.storeId = storeId;
+
+    const [lotteryTxns, lotterySettings, activeBoxes] = await Promise.all([
+      prisma.lotteryTransaction.findMany({
+        where: lotteryWhere,
+        select: { type: true, amount: true, ticketCount: true, gameId: true },
+      }),
+      storeId
+        ? prisma.lotterySettings.findUnique({ where: { storeId } }).catch(() => null)
+        : Promise.resolve(null),
+      prisma.lotteryBox.count({
+        where: { orgId, ...(storeId ? { storeId } : {}), status: 'active' },
+      }),
+    ]);
+
+    let lotterySales = 0, lotteryPayouts = 0, lotteryTickets = 0;
+    const gameMap = {};
+    for (const lt of lotteryTxns) {
+      const amt = Number(lt.amount) || 0;
+      if (lt.type === 'sale') {
+        lotterySales   += amt;
+        lotteryTickets += lt.ticketCount || 0;
+        if (lt.gameId) {
+          if (!gameMap[lt.gameId]) gameMap[lt.gameId] = { gameId: lt.gameId, sales: 0, payouts: 0 };
+          gameMap[lt.gameId].sales += amt;
+        }
+      } else if (lt.type === 'payout') {
+        lotteryPayouts += amt;
+        if (lt.gameId) {
+          if (!gameMap[lt.gameId]) gameMap[lt.gameId] = { gameId: lt.gameId, sales: 0, payouts: 0 };
+          gameMap[lt.gameId].payouts += amt;
+        }
+      }
+    }
+
+    const commissionRate = lotterySettings?.commissionRate ? Number(lotterySettings.commissionRate) : 0.05;
+    const lotteryNet        = lotterySales - lotteryPayouts;
+    const lotteryCommission = lotterySales * commissionRate;
+
+    const lottery = {
+      sales:      lotterySales,
+      payouts:    lotteryPayouts,
+      net:        lotteryNet,
+      tickets:    lotteryTickets,
+      commission: lotteryCommission,
+      commissionRate,
+      activeBoxes,
+      txCount:    lotteryTxns.filter(t => t.type === 'sale').length,
+      payoutCount:lotteryTxns.filter(t => t.type === 'payout').length,
+    };
+
+    // ── 14-day trend ──────────────────────────────────────────────────────────
+    const from14 = new Date();
+    from14.setDate(from14.getDate() - 13);
+    const from14Str = toISO(from14);
+
+    const trendWhere = {
+      orgId,
+      status: 'complete',
+      createdAt: { gte: new Date(`${from14Str}T00:00:00`) },
+    };
+    if (storeId) trendWhere.storeId = storeId;
+
+    const allTxns = await prisma.transaction.findMany({
+      where: trendWhere,
+      select: { grandTotal: true, createdAt: true },
+    });
+
+    // Group by local date
+    const dateMap = {};
+    for (const tx of allTxns) {
+      const d = new Date(tx.createdAt);
+      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (!dateMap[ds]) dateMap[ds] = { date: ds, netSales: 0, txCount: 0 };
+      dateMap[ds].netSales += Number(tx.grandTotal) || 0;
+      dateMap[ds].txCount  += 1;
+    }
+
+    const trend = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      trend.push(dateMap[ds] || { date: ds, netSales: 0, txCount: 0 });
     }
 
     res.json({
-      todaySales: latestRow,
-      isToday,
-      dataDate: latestRow?.Date ?? null,
-      weather,
+      todaySales: { netSales, grossSales: netSales, txCount, avgTx, taxTotal, depositTotal, ebtTotal, cashTotal, cardTotal, ebtTender },
+      lottery,
+      hourly,
+      topProducts,
+      recentTx,
+      trend,
+      isToday: true,
+      dataDate: todayStr,
       lastUpdated: new Date().toISOString(),
-      weatherEnabled: !!(req.user?.storeLatitude && req.user?.storeLongitude),
     });
   } catch (err) {
-    const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
-    res.status(500).json({ error: detailedError });
+    console.error('[realtimeSales]', err);
+    res.status(500).json({ error: err.message });
   }
 };
 

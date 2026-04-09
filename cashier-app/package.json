@@ -16,7 +16,9 @@
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && cross-env NODE_ENV=development electron electron/main.cjs\"",
     "electron:build": "vite build && electron-builder",
-    "electron:pack": "electron-builder --dir"
+    "electron:build:local": "vite build --mode development && electron-builder",
+    "electron:pack": "electron-builder --dir",
+    "electron:pack:local": "vite build --mode development && electron-builder --dir"
   },
   "dependencies": {
     "axios": "^1.7.7",

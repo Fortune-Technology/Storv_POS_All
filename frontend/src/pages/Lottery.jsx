@@ -1,78 +1,86 @@
 /**
  * Lottery.jsx — Lottery Module Portal Page
  *
- * Tabs: Overview · Games · Inventory · Active · Shift Reports · Reports · Commission
+ * Tabs (admin/superadmin): Overview · Ticket Catalog · Receive Order · Games
+ *                          · Inventory · Active Tickets · Shift Reports
+ *                          · Reports · Commission · Settings
+ * Tabs (other roles):      Overview · Receive Order · Games · Inventory
+ *                          · Active Tickets · Shift Reports · Reports
+ *                          · Commission · Settings
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw, Package, BarChart2, TrendingUp, DollarSign, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw,
+  Package, BarChart2, Search, MapPin, AlertCircle,
+  ChevronUp, ChevronDown, Bell, BookOpen, Layers,
+} from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import {
-  getLotteryGames,
-  createLotteryGame,
-  updateLotteryGame,
-  deleteLotteryGame,
-  getLotteryBoxes,
-  receiveLotteryBoxOrder,
-  activateLotteryBox,
-  updateLotteryBox,
+  getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
+  getLotteryBoxes, receiveLotteryBoxOrder, activateLotteryBox, updateLotteryBox,
   getLotteryShiftReports,
-  getLotteryDashboard,
-  getLotteryReport,
-  getLotteryCommissionReport,
-  getLotterySettings,
-  updateLotterySettings,
+  getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
+  getLotterySettings, updateLotterySettings,
+  // Catalog
+  getLotteryCatalog, getAllLotteryCatalog,
+  createLotteryCatalogTicket, updateLotteryCatalogTicket, deleteLotteryCatalogTicket,
+  // Requests
+  getLotteryTicketRequests, getLotteryPendingCount,
+  createLotteryTicketRequest, reviewLotteryTicketRequest,
+  // Receive from catalog
+  receiveFromLotteryCatalog,
 } from '../services/api';
+import './Lottery.css';
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt = (n) => n == null ? '—' : `$${Number(n).toFixed(2)}`;
+/* ── helpers ──────────────────────────────────────────────────────────────── */
+const fmt    = (n) => n == null ? '—' : `$${Number(n).toFixed(2)}`;
 const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString();
 
-// ── Shared UI ──────────────────────────────────────────────────────────────────
-const Card = ({ children, style }) => (
-  <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-light)', borderRadius: 12, padding: '20px', ...style }}>
-    {children}
-  </div>
-);
-
-const StatCard = ({ label, value, sub, color = 'var(--accent-primary)' }) => (
-  <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-light)', borderRadius: 12, padding: '18px 20px' }}>
-    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
-    <div style={{ fontSize: '1.6rem', fontWeight: 800, color, marginBottom: sub ? 4 : 0 }}>{value}</div>
-    {sub && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{sub}</div>}
-  </div>
-);
-
-const Badge = ({ label, color = '#3b82f6' }) => (
-  <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
-    {label}
-  </span>
-);
+const toDateStr  = (d) => d.toISOString().slice(0, 10);
+const todayStr   = ()  => toDateStr(new Date());
+const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
 
 const statusColor = (s) => ({
-  inventory: '#3b82f6',
-  active:    'var(--accent-primary)',
-  depleted:  '#f59e0b',
-  settled:   '#6b7280',
-}[s] || '#6b7280');
+  inventory: 'lt-badge-blue',
+  active:    'lt-badge-brand',
+  depleted:  'lt-badge-amber',
+  settled:   'lt-badge-gray',
+}[s] || 'lt-badge-gray');
 
-const Tabs = ({ tabs, active, onChange }) => (
-  <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-light)', marginBottom: 24, overflowX: 'auto' }}>
-    {tabs.map(t => (
-      <button key={t} onClick={() => onChange(t)} style={{
-        padding: '10px 18px', background: 'none', border: 'none', borderBottom: active === t ? '2px solid var(--accent-primary)' : '2px solid transparent',
-        color: active === t ? 'var(--accent-primary)' : 'var(--text-muted)', fontWeight: active === t ? 700 : 500,
-        cursor: 'pointer', fontSize: '0.88rem', whiteSpace: 'nowrap', transition: 'color .15s',
-      }}>
-        {t}
-      </button>
-    ))}
-  </div>
+const requestStatusClass = (s) => ({
+  pending:  'lt-badge-amber',
+  approved: 'lt-badge-green',
+  rejected: 'lt-badge-red',
+}[s] || 'lt-badge-gray');
+
+/* US States + Canadian Provinces */
+const ALL_STATES = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+  'VA','WA','WV','WI','WY','DC',
+  'ON','BC','AB','MB','SK','QC','NS','NB','PE','NL','YT','NT','NU',
+];
+
+/* ── small shared components ──────────────────────────────────────────────── */
+const Badge = ({ label, cls = 'lt-badge-gray' }) => (
+  <span className={`lt-badge ${cls}`}>{label}</span>
 );
 
-// ── Simple Bar Chart (pure SVG, no external deps) ─────────────────────────────
+function StatCard({ label, value, sub, color = 'var(--accent-primary)' }) {
+  return (
+    <div className="lt-stat-card">
+      <div className="lt-stat-label">{label}</div>
+      <div className="lt-stat-value" style={{ color }}>{value}</div>
+      {sub && <div className="lt-stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
+/* ── Simple SVG bar chart ─────────────────────────────────────────────────── */
 function SimpleBarChart({ data, width = 600, height = 200 }) {
-  if (!data?.length) return <div style={{ color: '#9ca3af', textAlign: 'center', padding: 40 }}>No data for selected range</div>;
+  if (!data?.length) return <div className="lt-empty">No data for selected range</div>;
   const maxVal = Math.max(...data.map(d => Math.max(d.sales || 0, d.payouts || 0)), 1);
   const barW   = Math.max(8, Math.floor((width - 60) / (data.length * 2 + data.length)));
   const chartH = height - 40;
@@ -85,109 +93,102 @@ function SimpleBarChart({ data, width = 600, height = 200 }) {
           const payH  = Math.round((d.payouts / maxVal) * chartH);
           return (
             <g key={d.date}>
-              {/* Sales bar — green */}
-              <rect x={x} y={chartH - saleH + 10} width={barW} height={saleH} fill="#16a34a" rx={2} />
-              {/* Payouts bar — amber */}
-              <rect x={x + barW + 2} y={chartH - payH + 10} width={barW} height={payH} fill="#d97706" rx={2} />
-              {/* Date label */}
+              <rect x={x}           y={chartH - saleH + 10} width={barW} height={saleH} fill="#16a34a" rx={2} />
+              <rect x={x + barW + 2} y={chartH - payH  + 10} width={barW} height={payH}  fill="#d97706" rx={2} />
               <text x={x + barW} y={height - 2} textAnchor="middle" fontSize={9} fill="#9ca3af">
                 {d.date?.slice(5)}
               </text>
             </g>
           );
         })}
-        {/* Y-axis label */}
         <text x={10} y={20} fontSize={9} fill="#9ca3af">$</text>
       </svg>
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: '0.75rem' }}>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#16a34a', borderRadius: 2, marginRight: 4 }}></span>Sales</span>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#d97706', borderRadius: 2, marginRight: 4 }}></span>Payouts</span>
+      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#16a34a', borderRadius: 2, marginRight: 4 }} />Sales</span>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#d97706', borderRadius: 2, marginRight: 4 }} />Payouts</span>
       </div>
     </div>
   );
 }
 
-// ── Game Form Modal ────────────────────────────────────────────────────────────
+/* ══════════════════════════════════════════════════════════════════════════
+   MODALS
+══════════════════════════════════════════════════════════════════════════ */
+
+/* Game Modal */
 function GameModal({ game, onSave, onClose }) {
   const [form, setForm] = useState({
-    name:           game?.name           || '',
-    gameNumber:     game?.gameNumber     || '',
-    ticketPrice:    game?.ticketPrice    || '',
-    ticketsPerBox:  game?.ticketsPerBox  || 300,
-    commissionRate: game?.commissionRate ? (Number(game.commissionRate) * 100).toFixed(2) : '',
-    active:         game?.active         !== false,
-    state:          game?.state          || '',
-    isGlobal:       game?.isGlobal       || false,
+    name:          game?.name          || '',
+    gameNumber:    game?.gameNumber    || '',
+    ticketPrice:   game?.ticketPrice   || '',
+    ticketsPerBox: game?.ticketsPerBox || 300,
+    active:        game?.active        !== false,
+    state:         game?.state         || '',
+    isGlobal:      game?.isGlobal      || false,
   });
   const [saving, setSaving] = useState(false);
-  const [err, setErr]       = useState('');
-
-  const handle = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [err,    setErr]    = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = async () => {
     if (!form.name || !form.ticketPrice) { setErr('Name and ticket price are required.'); return; }
     setSaving(true); setErr('');
     try {
-      const payload = {
-        ...form,
-        ticketPrice:    Number(form.ticketPrice),
-        ticketsPerBox:  Number(form.ticketsPerBox) || 300,
-        commissionRate: form.commissionRate ? Number(form.commissionRate) / 100 : null,
-        state:          form.state || undefined,
-        isGlobal:       form.isGlobal,
-      };
-      await onSave(payload);
-    } catch (e) {
-      setErr(e.response?.data?.error || e.message);
-    }
+      await onSave({ ...form, ticketPrice: Number(form.ticketPrice), ticketsPerBox: Number(form.ticketsPerBox) || 300 });
+    } catch (e) { setErr(e.response?.data?.error || e.message); }
     setSaving(false);
   };
 
-  const F = ({ label, children }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</label>
-      {children}
-    </div>
-  );
-  const inp = { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', color: '#111827', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' };
-
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 8000, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, boxShadow: '0 25px 60px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08)', color: '#111827' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ margin: 0, fontWeight: 700, color: '#111827' }}>{game ? 'Edit Game' : 'New Lottery Game'}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+    <div className="lt-modal-overlay">
+      <div className="lt-modal lt-modal-lg">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">{game ? 'Edit Game' : 'New Lottery Game'}</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
         </div>
-        {err && <div style={{ color: '#ef4444', fontSize: '0.85rem', marginBottom: 12 }}>{err}</div>}
-        <F label="Game Name"><input style={inp} value={form.name} onChange={e => handle('name', e.target.value)} placeholder="e.g. Holiday Jackpot" /></F>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <F label="Game #"><input style={inp} value={form.gameNumber} onChange={e => handle('gameNumber', e.target.value)} placeholder="e.g. 1234" /></F>
-          <F label="Ticket Price ($)"><input style={inp} type="number" step="0.01" value={form.ticketPrice} onChange={e => handle('ticketPrice', e.target.value)} placeholder="2.00" /></F>
-          <F label="Tickets / Box"><input style={inp} type="number" value={form.ticketsPerBox} onChange={e => handle('ticketsPerBox', e.target.value)} /></F>
-          <F label="Commission %"><input style={inp} type="number" step="0.01" value={form.commissionRate} onChange={e => handle('commissionRate', e.target.value)} placeholder="5.00" /></F>
+        {err && <div className="lt-error">{err}</div>}
+        <div className="lt-field">
+          <label className="lt-field-label">Game Name</label>
+          <input className="lt-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Holiday Jackpot" />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <F label="State / Province">
-            <input style={inp} value={form.state} onChange={e => handle('state', e.target.value)} placeholder="e.g. ON" />
-          </F>
-          <F label="Global Game">
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', paddingTop: 6 }}>
-              <input type="checkbox" checked={form.isGlobal} onChange={e => handle('isGlobal', e.target.checked)} />
-              <span style={{ color: '#374151', fontSize: '0.9rem' }}>Global (all provinces)</span>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Game #</label>
+            <input className="lt-input" value={form.gameNumber} onChange={e => set('gameNumber', e.target.value)} placeholder="e.g. 1234" />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Ticket Price ($)</label>
+            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Tickets / Box</label>
+            <input className="lt-input" type="number" value={form.ticketsPerBox} onChange={e => set('ticketsPerBox', e.target.value)} />
+          </div>
+        </div>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">State / Province</label>
+            <select className="lt-select" value={form.state} onChange={e => set('state', e.target.value)}>
+              <option value="">— Any —</option>
+              {ALL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Visibility</label>
+            <label className="lt-toggle-row" style={{ margin: 0 }}>
+              <input type="checkbox" checked={form.isGlobal} onChange={e => set('isGlobal', e.target.checked)} />
+              <div><div className="lt-toggle-label">Global game</div><div className="lt-toggle-hint">Shared with all stores in this state</div></div>
             </label>
-          </F>
+          </div>
         </div>
-        <F label="Status">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.active} onChange={e => handle('active', e.target.checked)} />
-            <span style={{ color: '#374151', fontSize: '0.9rem' }}>Active (available in POS)</span>
-          </label>
-        </F>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', color: '#374151', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--accent-primary)', border: 'none', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
-            {saving ? 'Saving…' : 'Save Game'}
+        <label className="lt-toggle-row">
+          <input type="checkbox" checked={form.active} onChange={e => set('active', e.target.checked)} />
+          <div><div className="lt-toggle-label">Active (available in POS)</div></div>
+        </label>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
+            {saving ? <RefreshCw size={14} className="lt-spin" /> : <Check size={14} />} {saving ? 'Saving…' : 'Save Game'}
           </button>
         </div>
       </div>
@@ -195,61 +196,34 @@ function GameModal({ game, onSave, onClose }) {
   );
 }
 
-// ── Activate Box Modal ─────────────────────────────────────────────────────────
+/* Activate Box Modal */
 function ActivateBoxModal({ box, onConfirm, onClose }) {
   const [slotNumber, setSlotNumber] = useState('');
   const [saving, setSaving] = useState(false);
-
-  const submit = async () => {
-    setSaving(true);
-    await onConfirm(box.id, slotNumber ? Number(slotNumber) : null);
-    setSaving(false);
-  };
-
-  const inp = {
-    background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
-    padding: '10px 12px', color: '#111827', fontSize: '0.9rem',
-    width: '100%', boxSizing: 'border-box',
-  };
-
+  const submit = async () => { setSaving(true); await onConfirm(box.id, slotNumber ? Number(slotNumber) : null); setSaving(false); };
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 8000, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 28, width: '100%', maxWidth: 400, boxShadow: '0 25px 60px rgba(0,0,0,0.3)', color: '#111827' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
           <div>
-            <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>Activate Ticket Box</div>
-            <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: 2 }}>{box.game?.name} — Box {box.boxNumber || '#?'}</div>
+            <div className="lt-modal-title">Activate Ticket Box</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Box {box.boxNumber || '#?'}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={18} /></button>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
         </div>
-
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
-          <div style={{ fontSize: '0.82rem', color: '#166534', fontWeight: 600 }}>
-            🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Box value {fmt(box.totalValue)}
-          </div>
+        <div className="lt-modal-info">
+          🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Box value {fmt(box.totalValue)}
         </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Machine Slot Number <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optional)</span>
-          </label>
-          <input
-            style={inp}
-            type="number"
-            min={1}
-            max={99}
-            value={slotNumber}
+        <div className="lt-field">
+          <label className="lt-field-label">Machine Slot Number <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input className="lt-input" type="number" min={1} max={99} value={slotNumber}
             onChange={e => setSlotNumber(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && submit()}
-            placeholder="e.g. 3"
-            autoFocus
-          />
-          <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 4 }}>Which slot in the lottery machine is this box going into?</div>
+            onKeyDown={e => e.key === 'Enter' && submit()} placeholder="e.g. 3" autoFocus />
+          <span className="lt-field-hint">Which slot in the lottery machine is this box going into?</span>
         </div>
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', color: '#374151', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ flex: 2, padding: '10px', borderRadius: 8, background: '#16a34a', border: 'none', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-success" onClick={submit} disabled={saving}>
             {saving ? 'Activating…' : 'Activate Box'}
           </button>
         </div>
@@ -258,55 +232,48 @@ function ActivateBoxModal({ box, onConfirm, onClose }) {
   );
 }
 
-// ── Receive Box Modal ──────────────────────────────────────────────────────────
+/* Receive Box Modal (manual / local game) */
 function ReceiveBoxModal({ games, onSave, onClose }) {
-  const [gameId,       setGameId]       = useState('');
-  const [quantity,     setQuantity]     = useState(1);
-  const [startTicket,  setStartTicket]  = useState('');
-  const [saving, setSaving]             = useState(false);
-  const [err, setErr]                   = useState('');
-
+  const [gameId,    setGameId]    = useState('');
+  const [quantity,  setQuantity]  = useState(1);
+  const [startTicket, setStartTicket] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
   const submit = async () => {
     if (!gameId) { setErr('Select a game.'); return; }
     setSaving(true); setErr('');
-    try {
-      await onSave({ gameId, quantity: Number(quantity), startTicket: startTicket || undefined });
-    } catch (e) {
-      setErr(e.response?.data?.error || e.message);
-    }
+    try { await onSave({ gameId, quantity: Number(quantity), startTicket: startTicket || undefined }); }
+    catch (e) { setErr(e.response?.data?.error || e.message); }
     setSaving(false);
   };
-
-  const inp = { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', color: '#111827', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' };
-
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 8000, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 28, width: '100%', maxWidth: 420, boxShadow: '0 25px 60px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08)', color: '#111827' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ margin: 0, fontWeight: 700, color: '#111827' }}>Receive Ticket Order</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">Receive Ticket Order</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
         </div>
-        {err && <div style={{ color: '#ef4444', fontSize: '0.85rem', marginBottom: 12 }}>{err}</div>}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Game</label>
-          <select style={inp} value={gameId} onChange={e => setGameId(e.target.value)}>
+        {err && <div className="lt-error">{err}</div>}
+        <div className="lt-field">
+          <label className="lt-field-label">Game</label>
+          <select className="lt-select" value={gameId} onChange={e => setGameId(e.target.value)}>
             <option value="">— Select Game —</option>
             {games.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Qty (Boxes)</label>
-            <input style={inp} type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} />
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Qty (Boxes)</label>
+            <input className="lt-input" type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} />
           </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Start Ticket #</label>
-            <input style={inp} value={startTicket} onChange={e => setStartTicket(e.target.value)} placeholder="Optional" />
+          <div className="lt-field">
+            <label className="lt-field-label">Start Ticket #</label>
+            <input className="lt-input" value={startTicket} onChange={e => setStartTicket(e.target.value)} placeholder="Optional" />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', color: '#374151', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-          <button onClick={submit} disabled={saving} style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--accent-primary)', border: 'none', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
             {saving ? 'Saving…' : 'Receive'}
           </button>
         </div>
@@ -315,15 +282,670 @@ function ReceiveBoxModal({ games, onSave, onClose }) {
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────────
-const TABS = ['Overview', 'Games', 'Inventory', 'Active Tickets', 'Shift Reports', 'Reports', 'Commission', '⚙️ Settings'];
+/* Catalog Ticket Form Modal */
+function CatalogTicketModal({ ticket, onSave, onClose }) {
+  const [form, setForm] = useState({
+    name:          ticket?.name          || '',
+    gameNumber:    ticket?.gameNumber    || '',
+    ticketPrice:   ticket?.ticketPrice   || '',
+    ticketsPerBook: ticket?.ticketsPerBook || 300,
+    state:         ticket?.state         || '',
+    category:      ticket?.category      || '',
+    active:        ticket?.active        !== false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-// ── Date helpers ───────────────────────────────────────────────────────────────
-const toDateStr = (d) => d.toISOString().slice(0, 10);
-const todayStr  = () => toDateStr(new Date());
-const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
+  const submit = async () => {
+    if (!form.name.trim())      { setErr('Name is required.'); return; }
+    if (!form.ticketPrice)      { setErr('Ticket price is required.'); return; }
+    if (!form.state)            { setErr('State / Province is required.'); return; }
+    setSaving(true); setErr('');
+    try {
+      await onSave({ ...form, ticketPrice: Number(form.ticketPrice), ticketsPerBook: Number(form.ticketsPerBook) || 300 });
+    } catch (e) { setErr(e.response?.data?.error || e.message); }
+    setSaving(false);
+  };
 
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal lt-modal-lg">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">{ticket ? 'Edit Catalog Ticket' : 'Add Catalog Ticket'}</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        {err && <div className="lt-error">{err}</div>}
+        <div className="lt-field">
+          <label className="lt-field-label">Ticket Name</label>
+          <input className="lt-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Lucky 7s" />
+        </div>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Game #</label>
+            <input className="lt-input" value={form.gameNumber} onChange={e => set('gameNumber', e.target.value)} placeholder="e.g. 1234" />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Ticket Price ($)</label>
+            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+          </div>
+        </div>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Tickets / Book</label>
+            <input className="lt-input" type="number" value={form.ticketsPerBook} onChange={e => set('ticketsPerBook', e.target.value)} />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">State / Province</label>
+            <select className="lt-select" value={form.state} onChange={e => set('state', e.target.value)}>
+              <option value="">— Select —</option>
+              {ALL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Category</label>
+            <input className="lt-input" value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. instant" />
+          </div>
+        </div>
+        {ticket && (
+          <label className="lt-toggle-row">
+            <input type="checkbox" checked={form.active} onChange={e => set('active', e.target.checked)} />
+            <div><div className="lt-toggle-label">Active</div><div className="lt-toggle-hint">Inactive tickets are hidden from stores</div></div>
+          </label>
+        )}
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
+            {saving ? <RefreshCw size={14} className="lt-spin" /> : <Check size={14} />} {saving ? 'Saving…' : ticket ? 'Update Ticket' : 'Add to Catalog'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Review Request Modal (admin) */
+function ReviewRequestModal({ request, onDone, onClose }) {
+  const [action,        setAction]        = useState('approved');
+  const [adminNotes,    setAdminNotes]    = useState('');
+  const [addToCatalog,  setAddToCatalog]  = useState(true);
+  const [catalogForm,   setCatalogForm]   = useState({
+    name:          request.name          || '',
+    gameNumber:    request.gameNumber    || '',
+    ticketPrice:   request.ticketPrice   || '',
+    ticketsPerBook: request.ticketsPerBook || 300,
+    state:         request.state         || '',
+    category:      '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
+  const setCF = (k, v) => setCatalogForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    setSaving(true); setErr('');
+    try {
+      await onDone(request.id, {
+        status: action,
+        adminNotes,
+        addToCatalog: action === 'approved' && addToCatalog,
+        catalogData:  action === 'approved' && addToCatalog ? { ...catalogForm, ticketPrice: Number(catalogForm.ticketPrice), ticketsPerBook: Number(catalogForm.ticketsPerBook) } : null,
+      });
+    } catch (e) { setErr(e.response?.data?.error || e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal lt-modal-lg">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">Review Ticket Request</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '0.75rem 1rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+          <strong style={{ color: 'var(--text-primary)' }}>{request.name}</strong>
+          {request.gameNumber && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>#{request.gameNumber}</span>}
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            {request.storeName && <span>Store: {request.storeName} · </span>}
+            {request.state && <span>State: {request.state} · </span>}
+            {request.ticketPrice && <span>${Number(request.ticketPrice).toFixed(2)} · </span>}
+            {request.ticketsPerBook && <span>{request.ticketsPerBook} tix/book</span>}
+            {request.notes && <div style={{ marginTop: 4 }}>Notes: {request.notes}</div>}
+          </div>
+        </div>
+        {err && <div className="lt-error">{err}</div>}
+
+        <div className="lt-field">
+          <label className="lt-field-label">Decision</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['approved','rejected'].map(a => (
+              <button key={a} onClick={() => setAction(a)} className={`lt-btn lt-btn-sm ${action === a ? (a === 'approved' ? 'lt-btn-success' : 'lt-btn-danger') : 'lt-btn-ghost'}`} style={{ flex: 1, textTransform: 'capitalize' }}>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {action === 'approved' && (
+          <label className="lt-toggle-row">
+            <input type="checkbox" checked={addToCatalog} onChange={e => setAddToCatalog(e.target.checked)} />
+            <div><div className="lt-toggle-label">Also add to Ticket Catalog</div><div className="lt-toggle-hint">Makes it available to all stores in the state</div></div>
+          </label>
+        )}
+
+        {action === 'approved' && addToCatalog && (
+          <div style={{ padding: '1rem', background: 'var(--brand-05)', border: '1px solid var(--brand-15)', borderRadius: 'var(--radius-sm)', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Catalog Entry Details</div>
+            <div className="lt-field-row">
+              <div className="lt-field">
+                <label className="lt-field-label">Name</label>
+                <input className="lt-input" value={catalogForm.name} onChange={e => setCF('name', e.target.value)} />
+              </div>
+              <div className="lt-field">
+                <label className="lt-field-label">Game #</label>
+                <input className="lt-input" value={catalogForm.gameNumber} onChange={e => setCF('gameNumber', e.target.value)} />
+              </div>
+            </div>
+            <div className="lt-field-row">
+              <div className="lt-field">
+                <label className="lt-field-label">Price ($)</label>
+                <input className="lt-input" type="number" step="0.01" value={catalogForm.ticketPrice} onChange={e => setCF('ticketPrice', e.target.value)} />
+              </div>
+              <div className="lt-field">
+                <label className="lt-field-label">Tickets/Book</label>
+                <input className="lt-input" type="number" value={catalogForm.ticketsPerBook} onChange={e => setCF('ticketsPerBook', e.target.value)} />
+              </div>
+              <div className="lt-field">
+                <label className="lt-field-label">State</label>
+                <select className="lt-select" value={catalogForm.state} onChange={e => setCF('state', e.target.value)}>
+                  <option value="">— Select —</option>
+                  {ALL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="lt-field">
+          <label className="lt-field-label">Admin Notes (optional)</label>
+          <input className="lt-input" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} placeholder="Message to the store" />
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className={`lt-btn ${action === 'approved' ? 'lt-btn-success' : 'lt-btn-danger'}`} onClick={submit} disabled={saving}>
+            {saving ? <RefreshCw size={14} className="lt-spin" /> : <Check size={14} />}
+            {saving ? 'Saving…' : action === 'approved' ? 'Approve' : 'Reject'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Submit Request Modal (store) */
+function SubmitRequestModal({ storeState, onSave, onClose }) {
+  const [form, setForm] = useState({ name: '', gameNumber: '', ticketPrice: '', ticketsPerBook: '', state: storeState || '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const submit = async () => {
+    if (!form.name.trim()) { setErr('Name is required.'); return; }
+    setSaving(true); setErr('');
+    try { await onSave({ ...form, ticketPrice: form.ticketPrice ? Number(form.ticketPrice) : null, ticketsPerBook: form.ticketsPerBook ? Number(form.ticketsPerBook) : null }); }
+    catch (e) { setErr(e.response?.data?.error || e.message); }
+    setSaving(false);
+  };
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">Submit Ticket Request</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          Can't find a ticket in the catalog? Submit a request and our admin will review and add it.
+        </div>
+        {err && <div className="lt-error">{err}</div>}
+        <div className="lt-field">
+          <label className="lt-field-label">Ticket Name *</label>
+          <input className="lt-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Lucky 7s" autoFocus />
+        </div>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Game # (if known)</label>
+            <input className="lt-input" value={form.gameNumber} onChange={e => set('gameNumber', e.target.value)} placeholder="e.g. 1234" />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">Price ($)</label>
+            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+          </div>
+        </div>
+        <div className="lt-field-row">
+          <div className="lt-field">
+            <label className="lt-field-label">Tickets / Book</label>
+            <input className="lt-input" type="number" value={form.ticketsPerBook} onChange={e => set('ticketsPerBook', e.target.value)} placeholder="300" />
+          </div>
+          <div className="lt-field">
+            <label className="lt-field-label">State</label>
+            <select className="lt-select" value={form.state} onChange={e => set('state', e.target.value)}>
+              <option value="">— Select —</option>
+              {ALL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="lt-field">
+          <label className="lt-field-label">Notes (optional)</label>
+          <input className="lt-input" value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any extra info for the admin" />
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
+            {saving ? <RefreshCw size={14} className="lt-spin" /> : <Bell size={14} />}
+            {saving ? 'Submitting…' : 'Submit Request'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RECEIVE ORDER TAB  — catalog-based inventory receiving
+══════════════════════════════════════════════════════════════════════════ */
+function ReceiveOrderTab({ storeSettings, onReloadBoxes }) {
+  const [catalog,      setCatalog]      = useState([]);
+  const [requests,     setRequests]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [search,       setSearch]       = useState('');
+  const [qtys,         setQtys]         = useState({});   // { [catalogTicketId]: qty }
+  const [receiving,    setReceiving]    = useState({});   // { [catalogTicketId]: bool }
+  const [received,     setReceived]     = useState({});   // { [catalogTicketId]: bool }
+  const [requestModal, setRequestModal] = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
+  const [err,          setErr]          = useState('');
+
+  const storeState = storeSettings?.state;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cat, reqs] = await Promise.all([
+        getLotteryCatalog(),
+        getLotteryTicketRequests(),
+      ]);
+      setCatalog(Array.isArray(cat) ? cat : []);
+      setRequests(Array.isArray(reqs) ? reqs : []);
+    } catch { setCatalog([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = catalog.filter(t => {
+    const q = search.toLowerCase();
+    return !q || t.name.toLowerCase().includes(q) || (t.gameNumber || '').toLowerCase().includes(q);
+  });
+
+  const setQty = (id, val) => setQtys(q => ({ ...q, [id]: Math.max(1, Number(val) || 1) }));
+
+  const handleReceive = async (ticket) => {
+    const qty = qtys[ticket.id] || 1;
+    setReceiving(r => ({ ...r, [ticket.id]: true }));
+    setErr('');
+    try {
+      await receiveFromLotteryCatalog({ catalogTicketId: ticket.id, qty });
+      setReceived(r => ({ ...r, [ticket.id]: true }));
+      onReloadBoxes();
+      setTimeout(() => setReceived(r => { const n = { ...r }; delete n[ticket.id]; return n; }), 3000);
+    } catch (e) {
+      setErr(e.response?.data?.error || e.message);
+    }
+    setReceiving(r => { const n = { ...r }; delete n[ticket.id]; return n; });
+  };
+
+  const handleSubmitRequest = async (data) => {
+    await createLotteryTicketRequest(data);
+    setRequestModal(false);
+    load();
+  };
+
+  if (loading) return <div className="lt-loading"><RefreshCw size={16} className="lt-spin" /> Loading catalog…</div>;
+
+  return (
+    <div>
+      {/* State banner */}
+      {storeState ? (
+        <div className="lt-receive-state-banner">
+          <MapPin size={14} />
+          Showing tickets for <strong style={{ marginLeft: 4 }}>{storeState}</strong>
+          <span style={{ marginLeft: 'auto', fontSize: '0.75rem', opacity: 0.7 }}>{filtered.length} tickets available</span>
+        </div>
+      ) : (
+        <div className="lt-no-state-banner">
+          <AlertCircle size={16} />
+          Your store state is not set. Go to <strong style={{ margin: '0 4px' }}>Settings</strong> to configure it, then you'll see only your state's tickets here.
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="lt-filter-bar">
+        <div className="lt-filter-input-wrap">
+          <Search size={13} className="lt-filter-input-icon" />
+          <input className="lt-filter-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by ticket name or game #…" />
+        </div>
+        <button className="lt-btn lt-btn-secondary lt-btn-sm" onClick={() => setShowRequests(s => !s)}>
+          <Bell size={13} /> My Requests {requests.length > 0 && `(${requests.length})`}
+        </button>
+      </div>
+
+      {err && <div className="lt-error">{err}</div>}
+
+      {/* Catalog list */}
+      {filtered.length === 0 ? (
+        <div className="lt-empty">
+          <BookOpen size={32} />
+          <p>No tickets found{storeState ? ` for ${storeState}` : ''}.</p>
+          <p style={{ fontSize: '0.8rem', marginTop: 4 }}>Can't find a ticket? Submit a request below.</p>
+        </div>
+      ) : (
+        <div className="lt-card lt-receive-list">
+          {filtered.map(ticket => (
+            <div key={ticket.id} className="lt-receive-row">
+              <div className="lt-receive-icon"><Ticket size={16} /></div>
+              <div className="lt-receive-info">
+                <div className="lt-receive-name">{ticket.name}</div>
+                <div className="lt-receive-meta">
+                  {ticket.gameNumber && <span>Game #{ticket.gameNumber}</span>}
+                  <span>{fmtNum(ticket.ticketsPerBook)} tickets/book</span>
+                  {ticket.category && <Badge label={ticket.category} cls="lt-badge-gray" />}
+                  <Badge label={ticket.state} cls="lt-badge-blue" />
+                </div>
+              </div>
+              <div className="lt-receive-price">{fmt(ticket.ticketPrice)}</div>
+              <div className="lt-receive-qty-wrap">
+                <button className="lt-qty-btn" onClick={() => setQty(ticket.id, (qtys[ticket.id] || 1) - 1)}>−</button>
+                <input
+                  className="lt-qty-input"
+                  type="number"
+                  min={1}
+                  value={qtys[ticket.id] || 1}
+                  onChange={e => setQty(ticket.id, e.target.value)}
+                />
+                <button className="lt-qty-btn" onClick={() => setQty(ticket.id, (qtys[ticket.id] || 1) + 1)}>+</button>
+              </div>
+              {received[ticket.id] ? (
+                <button className="lt-btn lt-btn-success lt-btn-sm" disabled>
+                  <Check size={13} /> Received!
+                </button>
+              ) : (
+                <button
+                  className="lt-btn lt-btn-primary lt-btn-sm"
+                  onClick={() => handleReceive(ticket)}
+                  disabled={!!receiving[ticket.id]}
+                >
+                  {receiving[ticket.id] ? <RefreshCw size={13} className="lt-spin" /> : <Package size={13} />}
+                  {receiving[ticket.id] ? 'Adding…' : `Receive ${qtys[ticket.id] || 1}`}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Submit request CTA */}
+      <div className="lt-request-cta">
+        <div className="lt-request-cta-text">
+          <strong>Can't find a ticket?</strong> Submit a request and the admin will review it and add it to the catalog.
+        </div>
+        <button className="lt-btn lt-btn-secondary" onClick={() => setRequestModal(true)}>
+          <Plus size={14} /> Submit Request
+        </button>
+      </div>
+
+      {/* My requests accordion */}
+      {showRequests && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <div className="lt-pending-header">
+            <h4 className="lt-pending-title">My Requests</h4>
+          </div>
+          {requests.length === 0 ? (
+            <div className="lt-empty" style={{ padding: '2rem' }}><p>No requests submitted yet.</p></div>
+          ) : (
+            requests.map(r => (
+              <div key={r.id} className="lt-card lt-request-card">
+                <div className="lt-request-card-header">
+                  <div>
+                    <div className="lt-request-name">{r.name}</div>
+                    <div className="lt-request-meta">
+                      {r.gameNumber && <>#{r.gameNumber} · </>}
+                      {r.ticketPrice && <>{fmt(r.ticketPrice)} · </>}
+                      {r.state && <>{r.state} · </>}
+                      {new Date(r.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <Badge label={r.status} cls={requestStatusClass(r.status)} />
+                </div>
+                {r.notes && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Notes: {r.notes}</div>}
+                {r.adminNotes && <div className="lt-request-admin-note">Admin: {r.adminNotes}</div>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {requestModal && (
+        <SubmitRequestModal
+          storeState={storeState}
+          onSave={handleSubmitRequest}
+          onClose={() => setRequestModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TICKET CATALOG TAB  (admin / superadmin only)
+══════════════════════════════════════════════════════════════════════════ */
+function TicketCatalogTab() {
+  const [catalog,     setCatalog]     = useState([]);
+  const [requests,    setRequests]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [stateFilter, setStateFilter] = useState('');
+  const [search,      setSearch]      = useState('');
+  const [editTicket,  setEditTicket]  = useState(null);  // null | 'new' | ticketObj
+  const [reviewReq,   setReviewReq]   = useState(null);
+  const [err,         setErr]         = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cat, reqs] = await Promise.all([
+        getAllLotteryCatalog(),
+        getLotteryTicketRequests({ status: 'pending' }),
+      ]);
+      setCatalog(Array.isArray(cat) ? cat : []);
+      setRequests(Array.isArray(reqs) ? reqs : []);
+    } catch { setCatalog([]); setRequests([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const usedStates = [...new Set(catalog.map(t => t.state))].sort();
+
+  const filtered = catalog.filter(t => {
+    const matchState = !stateFilter || t.state === stateFilter;
+    const q = search.toLowerCase();
+    const matchSearch = !q || t.name.toLowerCase().includes(q) || (t.gameNumber || '').toLowerCase().includes(q);
+    return matchState && matchSearch;
+  });
+
+  const handleSaveCatalog = async (data) => {
+    if (editTicket && editTicket !== 'new') {
+      await updateLotteryCatalogTicket(editTicket.id, data);
+    } else {
+      await createLotteryCatalogTicket(data);
+    }
+    setEditTicket(null);
+    load();
+  };
+
+  const handleDeactivate = async (ticket) => {
+    if (!window.confirm(`${ticket.active ? 'Deactivate' : 'Reactivate'} "${ticket.name}"?`)) return;
+    await updateLotteryCatalogTicket(ticket.id, { active: !ticket.active });
+    load();
+  };
+
+  const handleReviewDone = async (id, data) => {
+    await reviewLotteryTicketRequest(id, data);
+    setReviewReq(null);
+    load();
+  };
+
+  if (loading) return <div className="lt-loading"><RefreshCw size={16} className="lt-spin" /> Loading catalog…</div>;
+
+  return (
+    <div>
+      {/* Catalog section */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', gap: '1rem', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>Ticket Catalog</div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>State-scoped tickets available to stores when receiving inventory</div>
+        </div>
+        <button className="lt-btn lt-btn-primary" onClick={() => setEditTicket('new')}>
+          <Plus size={14} /> Add Ticket
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="lt-filter-bar">
+        <div className="lt-filter-input-wrap">
+          <Search size={13} className="lt-filter-input-icon" />
+          <input className="lt-filter-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or game #…" />
+        </div>
+        <button className={`lt-filter-chip ${!stateFilter ? 'active' : ''}`} onClick={() => setStateFilter('')}>All</button>
+        {usedStates.map(s => (
+          <button key={s} className={`lt-filter-chip ${stateFilter === s ? 'active' : ''}`} onClick={() => setStateFilter(s)}>{s}</button>
+        ))}
+      </div>
+
+      {err && <div className="lt-error">{err}</div>}
+
+      {/* Catalog grid */}
+      {filtered.length === 0 ? (
+        <div className="lt-empty">
+          <Ticket size={32} />
+          <p>No catalog tickets yet.</p>
+          <p style={{ fontSize: '0.8rem' }}>Click "Add Ticket" to create the first one for a state.</p>
+        </div>
+      ) : (
+        <div className="lt-catalog-grid">
+          {filtered.map(ticket => (
+            <div key={ticket.id} className={`lt-card lt-catalog-card ${ticket.active ? '' : 'inactive'}`}>
+              <div className="lt-catalog-card-top">
+                <div className="lt-catalog-icon"><Ticket size={16} /></div>
+                <div className="lt-catalog-actions">
+                  <button className="lt-btn lt-btn-icon" title="Edit" onClick={() => setEditTicket(ticket)}><Edit2 size={13} /></button>
+                  <button className={`lt-btn lt-btn-icon ${ticket.active ? 'lt-btn-icon-red' : ''}`} title={ticket.active ? 'Deactivate' : 'Reactivate'} onClick={() => handleDeactivate(ticket)}>
+                    {ticket.active ? <Trash2 size={13} /> : <Check size={13} />}
+                  </button>
+                </div>
+              </div>
+              <div className="lt-catalog-name">{ticket.name}</div>
+              <div className="lt-catalog-meta">
+                <Badge label={ticket.state} cls="lt-badge-blue" />
+                {ticket.gameNumber && <Badge label={`#${ticket.gameNumber}`} cls="lt-badge-gray" />}
+                {ticket.category && <Badge label={ticket.category} cls="lt-badge-purple" />}
+                {!ticket.active && <Badge label="Inactive" cls="lt-badge-red" />}
+              </div>
+              <div className="lt-catalog-price">{fmt(ticket.ticketPrice)}</div>
+              <div className="lt-catalog-details">{fmtNum(ticket.ticketsPerBook)} tickets per book</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pending Requests section */}
+      <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '2px solid var(--border-color)' }}>
+        <div className="lt-pending-header">
+          <h4 className="lt-pending-title">Store Ticket Requests</h4>
+          {requests.length > 0 && <span className="lt-tab-badge">{requests.length}</span>}
+        </div>
+        {requests.length === 0 ? (
+          <div className="lt-empty" style={{ padding: '2rem' }}>
+            <Bell size={28} />
+            <p>No pending requests from stores.</p>
+          </div>
+        ) : (
+          requests.map(r => (
+            <div key={r.id} className="lt-card lt-pending-card">
+              <div className="lt-pending-card-header">
+                <div>
+                  <div className="lt-pending-name">{r.name}</div>
+                  {r.storeName && <div className="lt-pending-store">From: {r.storeName}</div>}
+                  <div className="lt-pending-details">
+                    {r.gameNumber && <>#{r.gameNumber} · </>}
+                    {r.ticketPrice && <>{fmt(r.ticketPrice)} · </>}
+                    {r.ticketsPerBook && <>{r.ticketsPerBook} tix/book · </>}
+                    {r.state && <>{r.state} · </>}
+                    {new Date(r.createdAt).toLocaleDateString()}
+                    {r.notes && <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>"{r.notes}"</div>}
+                  </div>
+                </div>
+                <div className="lt-pending-actions">
+                  <Badge label={r.status} cls={requestStatusClass(r.status)} />
+                  {r.status === 'pending' && (
+                    <button className="lt-btn lt-btn-primary lt-btn-sm" onClick={() => setReviewReq(r)}>
+                      Review
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Modals */}
+      {editTicket && (
+        <CatalogTicketModal
+          ticket={editTicket === 'new' ? null : editTicket}
+          onSave={handleSaveCatalog}
+          onClose={() => setEditTicket(null)}
+        />
+      )}
+      {reviewReq && (
+        <ReviewRequestModal
+          request={reviewReq}
+          onDone={handleReviewDone}
+          onClose={() => setReviewReq(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN PAGE
+══════════════════════════════════════════════════════════════════════════ */
 export default function Lottery() {
+  // Role check for admin-only tabs
+  const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
+  const isAdmin = ['superadmin', 'admin'].includes(user.role);
+
+  const TABS = [
+    'Overview',
+    ...(isAdmin ? ['Ticket Catalog'] : []),
+    'Receive Order',
+    'Games',
+    'Inventory',
+    'Active Tickets',
+    'Shift Reports',
+    'Reports',
+    'Commission',
+    'Settings',
+  ];
+
   const [tab,            setTab]            = useState('Overview');
   const [games,          setGames]          = useState([]);
   const [boxes,          setBoxes]          = useState([]);
@@ -334,27 +956,30 @@ export default function Lottery() {
   const [commission,     setCommission]     = useState(null);
   const [reportPeriod,   setReportPeriod]   = useState('week');
   const [loading,        setLoading]        = useState(false);
-  const [gameModal,      setGameModal]      = useState(null);  // null | 'new' | gameObj
+  const [gameModal,      setGameModal]      = useState(null);
   const [receiveModal,   setReceiveModal]   = useState(false);
-  const [activateBox,    setActivateBox]    = useState(null); // box object to activate
-  const [expandedBox,    setExpandedBox]    = useState(null);
-  // Date range for reports
-  const [dateFrom,       setDateFrom]       = useState(daysAgoStr(30));
-  const [dateTo,         setDateTo]         = useState(todayStr());
-  const [datePreset,     setDatePreset]     = useState('Custom');
-  // Lottery settings
-  const [lotterySettings,    setLotterySettings]    = useState(null);
-  const [settingsForm,       setSettingsForm]       = useState({ enabled: true, cashOnly: false, state: '', commissionRate: '', scanRequiredAtShiftEnd: false });
-  const [settingsSaving,     setSettingsSaving]     = useState(false);
-  const [settingsMsg,        setSettingsMsg]        = useState('');
+  const [activateBoxObj, setActivateBoxObj] = useState(null);
+  const [boxFilter,      setBoxFilter]      = useState('All');
+  const [pendingCount,   setPendingCount]   = useState(0);
 
-  // ── Loaders ─────────────────────────────────────────────────────────────
+  // Date range for reports
+  const [dateFrom,   setDateFrom]   = useState(daysAgoStr(30));
+  const [dateTo,     setDateTo]     = useState(todayStr());
+  const [datePreset, setDatePreset] = useState('Custom');
+
+  // Settings
+  const [lotterySettings,  setLotterySettings]  = useState(null);
+  const [settingsForm,     setSettingsForm]     = useState({ enabled: true, cashOnly: false, state: '', commissionRate: '', scanRequiredAtShiftEnd: false });
+  const [settingsSaving,   setSettingsSaving]   = useState(false);
+  const [settingsMsg,      setSettingsMsg]      = useState('');
+
+  /* ── Loaders ──────────────────────────────────────────────────────────── */
   const loadGames = useCallback(async () => {
     try { const r = await getLotteryGames(); setGames(Array.isArray(r) ? r : r?.games || []); } catch {}
   }, []);
 
   const loadBoxes = useCallback(async (status) => {
-    try { const r = await getLotteryBoxes(status ? { status } : {}); setBoxes(Array.isArray(r) ? r : r?.boxes || []); } catch {}
+    try { const r = await getLotteryBoxes(status && status !== 'All' ? { status } : {}); setBoxes(Array.isArray(r) ? r : r?.boxes || []); } catch {}
   }, []);
 
   const loadShiftReports = useCallback(async () => {
@@ -371,8 +996,7 @@ export default function Lottery() {
       if (from) params.from = from;
       if (to)   params.to   = to;
       const r = await getLotteryReport(params);
-      setReport(r);
-      setReportData(r);
+      setReport(r); setReportData(r);
     } catch {}
   }, [reportPeriod]);
 
@@ -382,36 +1006,42 @@ export default function Lottery() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const storeId = localStorage.getItem('activeStoreId');
-      const r = await getLotterySettings(storeId);
+      const r = await getLotterySettings(localStorage.getItem('activeStoreId'));
       if (r) {
         setLotterySettings(r);
         setSettingsForm({
-          enabled:                  r.enabled                  ?? true,
-          cashOnly:                 r.cashOnly                 ?? false,
-          state:                    r.state                    || '',
-          commissionRate:           r.commissionRate != null   ? (Number(r.commissionRate) * 100).toFixed(2) : '',
-          scanRequiredAtShiftEnd:   r.scanRequiredAtShiftEnd   ?? false,
+          enabled:              r.enabled              ?? true,
+          cashOnly:             r.cashOnly             ?? false,
+          state:                r.state                || '',
+          commissionRate:       r.commissionRate != null ? (Number(r.commissionRate) * 100).toFixed(2) : '',
+          scanRequiredAtShiftEnd: r.scanRequiredAtShiftEnd ?? false,
         });
       }
     } catch {}
   }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([loadGames(), loadDashboard(), loadSettings()]).finally(() => setLoading(false));
-  }, []);
+  const loadPendingCount = useCallback(async () => {
+    if (!isAdmin) return;
+    try { const c = await getLotteryPendingCount(); setPendingCount(c || 0); } catch {}
+  }, [isAdmin]);
 
   useEffect(() => {
-    if (tab === 'Inventory')      loadBoxes();
+    setLoading(true);
+    Promise.all([loadGames(), loadDashboard(), loadSettings(), loadShiftReports(), loadPendingCount()])
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    if (tab === 'Inventory')      loadBoxes(boxFilter);
     if (tab === 'Active Tickets') loadBoxes('active');
     if (tab === 'Shift Reports')  loadShiftReports();
     if (tab === 'Reports')        loadReport(dateFrom, dateTo);
     if (tab === 'Commission')     loadCommission();
-    if (tab === '⚙️ Settings')    loadSettings();
+    if (tab === 'Settings')       loadSettings();
+    if (tab === 'Ticket Catalog') loadPendingCount();
   }, [tab, reportPeriod]); // eslint-disable-line
 
-  // ── Preset date helpers ───────────────────────────────────────────────────
+  /* ── Date presets ─────────────────────────────────────────────────────── */
   const applyPreset = (preset) => {
     setDatePreset(preset);
     const today = new Date();
@@ -419,663 +1049,503 @@ export default function Lottery() {
     if (preset === 'Today') {
       from = todayStr(); to = todayStr();
     } else if (preset === 'This Week') {
-      const dow = today.getDay();
-      const start = new Date(today); start.setDate(today.getDate() - dow);
+      const start = new Date(today); start.setDate(today.getDate() - today.getDay());
       from = toDateStr(start); to = todayStr();
     } else if (preset === 'This Month') {
-      from = toDateStr(new Date(today.getFullYear(), today.getMonth(), 1));
-      to   = todayStr();
+      from = toDateStr(new Date(today.getFullYear(), today.getMonth(), 1)); to = todayStr();
     } else if (preset === 'Last Month') {
-      const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const last  = new Date(today.getFullYear(), today.getMonth(), 0);
-      from = toDateStr(first); to = toDateStr(last);
-    } else {
-      return; // Custom — user sets manually
-    }
-    setDateFrom(from);
-    setDateTo(to);
+      from = toDateStr(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+      to   = toDateStr(new Date(today.getFullYear(), today.getMonth(), 0));
+    } else { return; }
+    setDateFrom(from); setDateTo(to);
     loadReport(from, to);
   };
 
-  // ── Settings save ─────────────────────────────────────────────────────────
+  /* ── Settings save ────────────────────────────────────────────────────── */
   const handleSaveSettings = async () => {
     setSettingsSaving(true); setSettingsMsg('');
     try {
-      const storeId = localStorage.getItem('activeStoreId');
-      const payload = {
-        ...settingsForm,
-        commissionRate: settingsForm.commissionRate !== '' ? Number(settingsForm.commissionRate) / 100 : null,
-      };
-      const updated = await updateLotterySettings(storeId, payload);
+      const payload = { ...settingsForm, commissionRate: settingsForm.commissionRate !== '' ? Number(settingsForm.commissionRate) / 100 : null };
+      const updated = await updateLotterySettings(localStorage.getItem('activeStoreId'), payload);
       setLotterySettings(updated || payload);
       setSettingsMsg('Settings saved successfully.');
     } catch (e) {
-      setSettingsMsg('Error saving settings: ' + (e.response?.data?.error || e.message));
+      setSettingsMsg('Error: ' + (e.response?.data?.error || e.message));
     }
     setSettingsSaving(false);
   };
 
-  // ── CSV Download ──────────────────────────────────────────────────────────
+  /* ── CSV Download ─────────────────────────────────────────────────────── */
   const downloadReportCSV = () => {
     if (!reportData) return;
-    const rows = [
-      ['Date', 'Sales', 'Payouts', 'Net'],
-      ...(reportData.chart || []).map(d => [d.date, d.sales?.toFixed(2), d.payouts?.toFixed(2), d.net?.toFixed(2)]),
-    ];
-    const csv  = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `lottery-report-${dateFrom}-to-${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows = [['Date','Sales','Payouts','Net'], ...(reportData.chart || []).map(d => [d.date, d.sales?.toFixed(2), d.payouts?.toFixed(2), d.net?.toFixed(2)])];
+    const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `lottery-${dateFrom}-${dateTo}.csv` });
+    a.click(); URL.revokeObjectURL(a.href);
   };
 
-  // ── Game actions ─────────────────────────────────────────────────────────
+  /* ── Game actions ─────────────────────────────────────────────────────── */
   const handleSaveGame = async (data) => {
-    if (gameModal && gameModal !== 'new') {
-      await updateLotteryGame(gameModal.id, data);
-    } else {
-      await createLotteryGame(data);
-    }
-    setGameModal(null);
-    loadGames();
+    if (gameModal && gameModal !== 'new') { await updateLotteryGame(gameModal.id, data); }
+    else { await createLotteryGame(data); }
+    setGameModal(null); loadGames();
   };
-
   const handleDeleteGame = async (id) => {
     if (!window.confirm('Delete this game?')) return;
-    await deleteLotteryGame(id);
-    loadGames();
+    await deleteLotteryGame(id); loadGames();
   };
 
-  // ── Box actions ───────────────────────────────────────────────────────────
+  /* ── Box actions ──────────────────────────────────────────────────────── */
   const handleReceive = async (data) => {
     await receiveLotteryBoxOrder(data);
-    setReceiveModal(false);
-    loadBoxes();
+    setReceiveModal(false); loadBoxes(boxFilter);
   };
-
   const handleActivateBox = async (id, slotNumber) => {
     await activateLotteryBox(id, { slotNumber });
-    setActivateBox(null);
-    loadBoxes(tab === 'Active Tickets' ? 'active' : undefined);
+    setActivateBoxObj(null);
+    loadBoxes(tab === 'Active Tickets' ? 'active' : boxFilter);
   };
-
   const handleDeplete = async (id) => {
-    if (!window.confirm('Mark this box as depleted? This means all tickets have been sold.')) return;
+    if (!window.confirm('Mark this box as depleted?')) return;
     await updateLotteryBox(id, { status: 'depleted' });
-    loadBoxes(tab === 'Active Tickets' ? 'active' : undefined);
+    loadBoxes(tab === 'Active Tickets' ? 'active' : boxFilter);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="layout-container">
       <Sidebar />
-      <main className="main-content" style={{ padding: '28px 32px', maxWidth: 1200 }}>
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--brand-15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Ticket size={22} color="var(--accent-primary)" />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>Lottery</h1>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ticket inventory, sales tracking & commission reports</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          {tab === 'Games' && (
-            <button onClick={() => setGameModal('new')} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 9, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.88rem' }}>
-              <Plus size={15} /> New Game
-            </button>
-          )}
-          {(tab === 'Inventory' || tab === 'Active Tickets') && (
-            <button onClick={() => setReceiveModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 9, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.88rem' }}>
-              <Package size={15} /> Receive Order
-            </button>
-          )}
-        </div>
-      </div>
+      <main className="main-content lt-page">
 
-      <Tabs tabs={TABS} active={tab} onChange={setTab} />
-
-      {/* ── OVERVIEW ── */}
-      {tab === 'Overview' && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
-            <StatCard label="Total Sales (Month)" value={fmt(dashboard?.totalSales)} color="var(--accent-primary)" />
-            <StatCard label="Total Payouts"        value={fmt(dashboard?.totalPayouts)} color="#f59e0b" />
-            <StatCard label="Net Revenue"          value={fmt(dashboard?.netRevenue)} color="#3b82f6" />
-            <StatCard label="Commission Earned"    value={fmt(dashboard?.commission)} color="#a855f7" />
-            <StatCard label="Active Boxes"         value={fmtNum(dashboard?.activeBoxes)} sub="in machine now" />
-            <StatCard label="Inventory Boxes"      value={fmtNum(dashboard?.inventoryBoxes)} sub="in storage" />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <Card>
-              <h3 style={{ margin: '0 0 16px', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Active Games</h3>
-              {games.filter(g => g.active).length === 0 && (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No active games. Add one in the Games tab.</p>
-              )}
-              {games.filter(g => g.active).map(g => (
-                <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-light)' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{g.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{fmtNum(g.ticketsPerBox)} tickets · {fmt(g.ticketPrice)}</div>
-                  </div>
-                  <Badge label="Active" color="var(--accent-primary)" />
-                </div>
-              ))}
-            </Card>
-            <Card>
-              <h3 style={{ margin: '0 0 16px', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Recent Shift Reports</h3>
-              {shiftReports.slice(0, 5).length === 0 && (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No shift reports yet.</p>
-              )}
-              {shiftReports.slice(0, 5).map(r => (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(r.closedAt || r.createdAt).toLocaleDateString()}</div>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: Math.abs(Number(r.variance || 0)) < 0.01 ? 'var(--accent-primary)' : '#f59e0b' }}>
-                    {r.variance >= 0 ? '+' : ''}{fmt(r.variance)} var
-                  </div>
-                </div>
-              ))}
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ── GAMES ── */}
-      {tab === 'Games' && (
-        <div>
-          {games.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-              <Ticket size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
-              <p>No games yet. Click "New Game" to add one.</p>
+        {/* Header */}
+        <div className="lt-header">
+          <div className="lt-header-left">
+            <div className="lt-header-icon"><Ticket size={22} /></div>
+            <div>
+              <h1 className="lt-title">Lottery</h1>
+              <p className="lt-subtitle">Ticket inventory, sales tracking & commission reports</p>
             </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-            {games.map(g => (
-              <Card key={g.id}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>{g.name}</div>
-                    {g.gameNumber && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Game #{g.gameNumber}</div>}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {g.state && <Badge label={g.state} color="#0ea5e9" />}
-                    {g.isGlobal && <Badge label="Global" color="#7c3aed" />}
-                    <Badge label={g.active ? 'Active' : 'Inactive'} color={g.active ? 'var(--accent-primary)' : '#6b7280'} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-                  {[
-                    ['Ticket Price', fmt(g.ticketPrice)],
-                    ['Tickets / Box', fmtNum(g.ticketsPerBox)],
-                    ['Box Value', fmt(Number(g.ticketPrice) * Number(g.ticketsPerBox))],
-                    ['Commission', g.commissionRate ? `${(Number(g.commissionRate) * 100).toFixed(2)}%` : '—'],
-                  ].map(([l, v]) => (
-                    <div key={l} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 12px' }}>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{l}</div>
-                      <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.92rem' }}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setGameModal(g)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                    <Edit2 size={13} /> Edit
-                  </button>
-                  <button onClick={() => handleDeleteGame(g.id)} style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', cursor: 'pointer' }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </Card>
-            ))}
+          </div>
+          <div className="lt-header-actions">
+            {tab === 'Games' && (
+              <button className="lt-btn lt-btn-primary" onClick={() => setGameModal('new')}>
+                <Plus size={15} /> New Game
+              </button>
+            )}
+            {(tab === 'Inventory' || tab === 'Active Tickets') && (
+              <button className="lt-btn lt-btn-primary" onClick={() => setReceiveModal(true)}>
+                <Package size={15} /> Receive (Manual)
+              </button>
+            )}
           </div>
         </div>
-      )}
 
-      {/* ── INVENTORY ── */}
-      {tab === 'Inventory' && (
-        <div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-            {['All', 'inventory', 'active', 'depleted', 'settled'].map(s => (
-              <button key={s} onClick={() => loadBoxes(s === 'All' ? undefined : s)}
-                style={{ padding: '6px 14px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, textTransform: 'capitalize' }}>
-                {s}
-              </button>
-            ))}
+        {/* Tabs */}
+        <div className="lt-tabs">
+          {TABS.map(t => (
+            <button key={t} className={`lt-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+              {t}
+              {t === 'Ticket Catalog' && pendingCount > 0 && <span className="lt-tab-badge">{pendingCount}</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
+        {tab === 'Overview' && (
+          <div>
+            <div className="lt-stat-grid">
+              <StatCard label="Total Sales (Month)" value={fmt(dashboard?.totalSales)}    color="var(--accent-primary)" />
+              <StatCard label="Total Payouts"        value={fmt(dashboard?.totalPayouts)}  color="#d97706" />
+              <StatCard label="Net Revenue"          value={fmt(dashboard?.netRevenue)}    color="#2563eb" />
+              <StatCard label="Commission Earned"    value={fmt(dashboard?.commission)}    color="#7c3aed" />
+              <StatCard label="Active Boxes"         value={fmtNum(dashboard?.activeBoxes)}    sub="in machine now" />
+              <StatCard label="Inventory Boxes"      value={fmtNum(dashboard?.inventoryBoxes)} sub="in storage" />
+            </div>
+            <div className="lt-grid-2" style={{ gap: '1.25rem' }}>
+              <div className="lt-card">
+                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>Active Games</div>
+                {games.filter(g => g.active).length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No active games.</p>}
+                {games.filter(g => g.active).map(g => (
+                  <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-color)' }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{g.name}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{fmtNum(g.ticketsPerBox)} tickets · {fmt(g.ticketPrice)}</div>
+                    </div>
+                    <Badge label="Active" cls="lt-badge-brand" />
+                  </div>
+                ))}
+              </div>
+              <div className="lt-card">
+                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>Recent Shift Reports</div>
+                {shiftReports.slice(0, 5).length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>No shift reports yet.</p>}
+                {shiftReports.slice(0, 5).map(r => (
+                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(r.closedAt || r.createdAt).toLocaleDateString()}</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: Math.abs(Number(r.variance || 0)) < 0.01 ? 'var(--success)' : '#d97706' }}>
+                      {r.variance >= 0 ? '+' : ''}{fmt(r.variance)} var
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-              <thead>
-                <tr>
-                  {['Game', 'Box #', 'Slot', 'Total Tickets', 'Ticket Price', 'Box Value', 'Tickets Sold', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)' }}>{h}</th>
+        )}
+
+        {/* ── TICKET CATALOG (admin only) ──────────────────────────────── */}
+        {tab === 'Ticket Catalog' && <TicketCatalogTab />}
+
+        {/* ── RECEIVE ORDER ────────────────────────────────────────────── */}
+        {tab === 'Receive Order' && (
+          <ReceiveOrderTab storeSettings={lotterySettings} onReloadBoxes={() => loadBoxes(boxFilter)} />
+        )}
+
+        {/* ── GAMES ────────────────────────────────────────────────────── */}
+        {tab === 'Games' && (
+          <div>
+            {games.length === 0 && (
+              <div className="lt-empty">
+                <Ticket size={40} />
+                <p>No games yet. Click "New Game" to add one.</p>
+              </div>
+            )}
+            <div className="lt-grid-auto">
+              {games.map(g => (
+                <div key={g.id} className="lt-card lt-game-card">
+                  <div className="lt-game-card-header">
+                    <div>
+                      <div className="lt-game-name">{g.name}</div>
+                      {g.gameNumber && <div className="lt-game-number">Game #{g.gameNumber}</div>}
+                    </div>
+                    <div className="lt-game-badges">
+                      {g.state && <Badge label={g.state} cls="lt-badge-blue" />}
+                      {g.isGlobal && <Badge label="Global" cls="lt-badge-purple" />}
+                      <Badge label={g.active ? 'Active' : 'Inactive'} cls={g.active ? 'lt-badge-brand' : 'lt-badge-gray'} />
+                    </div>
+                  </div>
+                  <div className="lt-game-stats">
+                    {[['Ticket Price', fmt(g.ticketPrice)], ['Tickets / Box', fmtNum(g.ticketsPerBox)], ['Box Value', fmt(Number(g.ticketPrice) * Number(g.ticketsPerBox))]].map(([l, v]) => (
+                      <div key={l} className="lt-game-stat-item">
+                        <div className="lt-game-stat-label">{l}</div>
+                        <div className="lt-game-stat-value">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="lt-game-card-actions">
+                    <button className="lt-btn lt-btn-ghost lt-btn-sm" style={{ flex: 1 }} onClick={() => setGameModal(g)}>
+                      <Edit2 size={13} /> Edit
+                    </button>
+                    <button className="lt-btn lt-btn-danger lt-btn-sm" onClick={() => handleDeleteGame(g.id)}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── INVENTORY ────────────────────────────────────────────────── */}
+        {tab === 'Inventory' && (
+          <div>
+            <div className="lt-filter-bar">
+              {['All', 'inventory', 'active', 'depleted', 'settled'].map(s => (
+                <button key={s} className={`lt-filter-chip ${boxFilter === s ? 'active' : ''}`}
+                  onClick={() => { setBoxFilter(s); loadBoxes(s); }}
+                  style={{ textTransform: 'capitalize' }}>{s}</button>
+              ))}
+            </div>
+            <div className="lt-table-wrap">
+              <table className="lt-table">
+                <thead>
+                  <tr>{['Game','Box #','Slot','Total Tickets','Price','Box Value','Sold','Status','Actions'].map(h => <th key={h}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {boxes.length === 0 && <tr><td colSpan={9} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No boxes found.</td></tr>}
+                  {boxes.map(b => (
+                    <tr key={b.id}>
+                      <td className="lt-td-strong">{b.game?.name || '—'}</td>
+                      <td>{b.boxNumber || '—'}</td>
+                      <td>{b.slotNumber ?? '—'}</td>
+                      <td>{fmtNum(b.totalTickets)}</td>
+                      <td>{fmt(b.ticketPrice)}</td>
+                      <td className="lt-td-strong">{fmt(b.totalValue)}</td>
+                      <td className="lt-td-small">{fmtNum(b.ticketsSold)} / {fmtNum(b.totalTickets)}</td>
+                      <td><Badge label={b.status} cls={statusColor(b.status)} /></td>
+                      <td className="lt-td-actions">
+                        <div style={{ display: 'flex', gap: 5 }}>
+                          {b.status === 'inventory' && (
+                            <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setActivateBoxObj(b)}>Activate</button>
+                          )}
+                          {b.status === 'active' && (
+                            <button className="lt-btn lt-btn-amber lt-btn-sm" onClick={() => handleDeplete(b.id)}>Deplete</button>
+                          )}
+                          {b.status === 'inventory' && (
+                            <button className="lt-btn lt-btn-danger lt-btn-sm" onClick={async () => { if (!window.confirm('Remove box?')) return; await updateLotteryBox(b.id, { status: 'removed' }); loadBoxes(boxFilter); }}>
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   ))}
-                </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── ACTIVE TICKETS ───────────────────────────────────────────── */}
+        {tab === 'Active Tickets' && (
+          <div>
+            {boxes.filter(b => b.status === 'active').length === 0 ? (
+              <div className="lt-empty">
+                <Ticket size={40} />
+                <p>No boxes currently active in machine.</p>
+                <p style={{ fontSize: '0.82rem', marginTop: 4 }}>Activate a box from the Inventory tab.</p>
+              </div>
+            ) : (
+              <div className="lt-grid-auto">
+                {boxes.filter(b => b.status === 'active').map(b => {
+                  const pct = b.totalTickets > 0 ? Math.round((b.ticketsSold / b.totalTickets) * 100) : 0;
+                  return (
+                    <div key={b.id} className="lt-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.game?.name || 'Unknown Game'}</div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                            {b.slotNumber ? `Slot ${b.slotNumber}` : 'No slot'} · Box {b.boxNumber || '#?'}
+                          </div>
+                        </div>
+                        <Badge label="Active" cls="lt-badge-brand" />
+                      </div>
+                      <div className="lt-progress-labels">
+                        <span>{fmtNum(b.ticketsSold)} sold</span>
+                        <span>{fmtNum(b.totalTickets - b.ticketsSold)} left</span>
+                      </div>
+                      <div className="lt-progress-wrap">
+                        <div className={`lt-progress-fill ${pct > 80 ? 'lt-progress-fill-amber' : ''}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.875rem' }}>{pct}%</div>
+                      <div className="lt-mini-stats">
+                        <div className="lt-mini-stat"><div className="lt-mini-stat-label">Sales</div><div className="lt-mini-stat-value" style={{ color: 'var(--accent-primary)' }}>{fmt(b.salesAmount)}</div></div>
+                        <div className="lt-mini-stat"><div className="lt-mini-stat-label">Box Value</div><div className="lt-mini-stat-value">{fmt(b.totalValue)}</div></div>
+                      </div>
+                      <button className="lt-btn lt-btn-amber" style={{ width: '100%', justifyContent: 'center' }} onClick={() => handleDeplete(b.id)}>
+                        Mark as Depleted
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SHIFT REPORTS ────────────────────────────────────────────── */}
+        {tab === 'Shift Reports' && (
+          <div className="lt-table-wrap">
+            <table className="lt-table">
+              <thead>
+                <tr>{['Date / Shift','Sales','Payouts','Net','Machine','Digital','Variance','Notes'].map(h => <th key={h}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {boxes.length === 0 && (
-                  <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No boxes found.</td></tr>
-                )}
-                {boxes.map(b => (
-                  <tr key={b.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontWeight: 600 }}>{b.game?.name || '—'}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{b.boxNumber || '—'}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{b.slotNumber ?? '—'}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{fmtNum(b.totalTickets)}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{fmt(b.ticketPrice)}</td>
-                    <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{fmt(b.totalValue)}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{fmtNum(b.ticketsSold)} / {fmtNum(b.totalTickets)}</td>
-                    <td style={{ padding: '12px 14px' }}><Badge label={b.status} color={statusColor(b.status)} /></td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        {b.status === 'inventory' && (
-                          <button onClick={() => setActivateBox(b)} style={{ padding: '5px 12px', borderRadius: 6, background: 'var(--brand-12)', border: '1px solid var(--brand-30)', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}>
-                            Activate
-                          </button>
-                        )}
-                        {b.status === 'active' && (
-                          <button onClick={() => handleDeplete(b.id)} style={{ padding: '5px 12px', borderRadius: 6, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700 }}>
-                            Mark Depleted
-                          </button>
-                        )}
-                        {b.status === 'inventory' && (
-                          <button onClick={async () => { if (!window.confirm('Remove this box from inventory?')) return; await updateLotteryBox(b.id, { status: 'removed' }); loadBoxes(); }}
-                            style={{ padding: '5px 10px', borderRadius: 6, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', cursor: 'pointer', fontSize: '0.78rem' }}>
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {shiftReports.length === 0 && <tr><td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No shift reports yet.</td></tr>}
+                {shiftReports.map(r => {
+                  const v = Number(r.variance || 0);
+                  const vCls = Math.abs(v) < 0.01 ? 'lt-td-green' : Math.abs(v) <= 5 ? 'lt-td-amber' : 'lt-td-red';
+                  return (
+                    <tr key={r.id}>
+                      <td className="lt-td-strong">
+                        {new Date(r.closedAt || r.createdAt).toLocaleDateString()}
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.shiftId?.slice(-8)}</div>
+                      </td>
+                      <td className="lt-td-brand">{fmt(r.totalSales)}</td>
+                      <td className="lt-td-amber">{fmt(r.totalPayouts)}</td>
+                      <td className="lt-td-strong">{fmt(r.netAmount)}</td>
+                      <td>{fmt(r.machineAmount)}</td>
+                      <td>{fmt(r.digitalAmount)}</td>
+                      <td className={vCls}>{v >= 0 ? '+' : ''}{fmt(v)}</td>
+                      <td className="lt-td-small">{r.notes || '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── ACTIVE TICKETS ── */}
-      {tab === 'Active Tickets' && (
-        <div>
-          {boxes.filter(b => b.status === 'active').length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-              <Ticket size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
-              <p>No boxes currently active in machine.</p>
-              <p style={{ fontSize: '0.85rem' }}>Activate a box from the Inventory tab.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-              {boxes.filter(b => b.status === 'active').map(b => {
-                const pct = b.totalTickets > 0 ? Math.round((b.ticketsSold / b.totalTickets) * 100) : 0;
-                return (
-                  <Card key={b.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.game?.name || 'Unknown Game'}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {b.slotNumber ? `Slot ${b.slotNumber}` : 'No slot'} · Box {b.boxNumber || '#?'}
-                        </div>
-                      </div>
-                      <Badge label="Active" color="var(--accent-primary)" />
-                    </div>
-                    {/* Progress bar */}
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 5 }}>
-                        <span>{fmtNum(b.ticketsSold)} sold</span>
-                        <span>{fmtNum(b.totalTickets - b.ticketsSold)} remaining</span>
-                      </div>
-                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, background: pct > 80 ? '#f59e0b' : 'var(--accent-primary)', height: '100%', borderRadius: 4, transition: 'width .3s' }} />
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: 3 }}>{pct}%</div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px' }}>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Sales</div>
-                        <div style={{ fontWeight: 700, color: 'var(--accent-primary)' }}>{fmt(b.salesAmount)}</div>
-                      </div>
-                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px' }}>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Box Value</div>
-                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{fmt(b.totalValue)}</div>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDeplete(b.id)}
-                      style={{ width: '100%', padding: '8px', borderRadius: 8, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>
-                      Mark as Depleted
-                    </button>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── SHIFT REPORTS ── */}
-      {tab === 'Shift Reports' && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-            <thead>
-              <tr>
-                {['Date / Shift', 'Sales', 'Payouts', 'Net', 'Machine', 'Digital', 'Variance', 'Notes'].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)' }}>{h}</th>
+        {/* ── REPORTS ──────────────────────────────────────────────────── */}
+        {tab === 'Reports' && (
+          <div>
+            <div className="lt-card" style={{ marginBottom: '1.25rem' }}>
+              <div className="lt-date-controls">
+                <div className="lt-field">
+                  <label className="lt-field-label">From</label>
+                  <input type="date" className="lt-input" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setDatePreset('Custom'); }} style={{ maxWidth: 160 }} />
+                </div>
+                <div className="lt-field">
+                  <label className="lt-field-label">To</label>
+                  <input type="date" className="lt-input" value={dateTo} onChange={e => { setDateTo(e.target.value); setDatePreset('Custom'); }} style={{ maxWidth: 160 }} />
+                </div>
+                <button className="lt-btn lt-btn-primary" onClick={() => loadReport(dateFrom, dateTo)}>Apply</button>
+                <button className="lt-btn lt-btn-ghost" onClick={downloadReportCSV} disabled={!reportData}>⬇ Download CSV</button>
+              </div>
+              <div className="lt-filter-bar" style={{ marginBottom: 0 }}>
+                {['Today','This Week','This Month','Last Month','Custom'].map(p => (
+                  <button key={p} className={`lt-filter-chip ${datePreset === p ? 'active' : ''}`} onClick={() => applyPreset(p)}>{p}</button>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {shiftReports.length === 0 && (
-                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No shift reports yet.</td></tr>
-              )}
-              {shiftReports.map(r => {
-                const v = Number(r.variance || 0);
-                const vColor = Math.abs(v) < 0.01 ? 'var(--accent-primary)' : Math.abs(v) <= 5 ? '#f59e0b' : '#ef4444';
-                return (
-                  <tr key={r.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontWeight: 600 }}>
-                      {new Date(r.closedAt || r.createdAt).toLocaleDateString()}<br />
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.shiftId?.slice(-8)}</span>
-                    </td>
-                    <td style={{ padding: '12px 14px', color: 'var(--accent-primary)', fontWeight: 600 }}>{fmt(r.totalSales)}</td>
-                    <td style={{ padding: '12px 14px', color: '#f59e0b' }}>{fmt(r.totalPayouts)}</td>
-                    <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>{fmt(r.netAmount)}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{fmt(r.machineAmount)}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{fmt(r.digitalAmount)}</td>
-                    <td style={{ padding: '12px 14px', fontWeight: 700, color: vColor }}>{v >= 0 ? '+' : ''}{fmt(v)}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{r.notes || '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── REPORTS ── */}
-      {tab === 'Reports' && (
-        <div>
-          {/* Date range + preset controls */}
-          <Card style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>From</label>
-                <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setDatePreset('Custom'); }}
-                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 8, padding: '7px 10px', color: 'var(--text-primary)', fontSize: '0.88rem' }} />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>To</label>
-                <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setDatePreset('Custom'); }}
-                  style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 8, padding: '7px 10px', color: 'var(--text-primary)', fontSize: '0.88rem' }} />
-              </div>
-              <button onClick={() => loadReport(dateFrom, dateTo)}
-                style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.88rem' }}>
-                Apply
-              </button>
-              <button onClick={downloadReportCSV} disabled={!reportData}
-                style={{ padding: '8px 16px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 600, cursor: reportData ? 'pointer' : 'not-allowed', fontSize: '0.85rem', opacity: reportData ? 1 : 0.5 }}>
-                ⬇ Download CSV
-              </button>
             </div>
-            {/* Quick preset buttons */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              {['Today', 'This Week', 'This Month', 'Last Month', 'Custom'].map(p => (
-                <button key={p} onClick={() => applyPreset(p)}
-                  style={{ padding: '5px 12px', borderRadius: 7, background: datePreset === p ? 'var(--accent-primary)' : 'var(--bg-secondary)', border: datePreset === p ? 'none' : '1px solid var(--border-light)', color: datePreset === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: '0.78rem' }}>
-                  {p}
-                </button>
+
+            {report ? (
+              <>
+                <div className="lt-stat-grid">
+                  <StatCard label="Total Sales"   value={fmt(report.totalSales)}   color="var(--accent-primary)" />
+                  <StatCard label="Total Payouts" value={fmt(report.totalPayouts)} color="#d97706" />
+                  <StatCard label="Net Revenue"   value={fmt(report.netRevenue)}   color="#2563eb" />
+                  <StatCard label="Transactions"  value={fmtNum(report.transactionCount)} sub="sale transactions" />
+                </div>
+                {report.chart?.length > 0 && (
+                  <div className="lt-card" style={{ marginBottom: '1.25rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>Daily Sales vs Payouts</div>
+                    <SimpleBarChart data={report.chart} width={700} height={200} />
+                  </div>
+                )}
+                {report.byGame?.length > 0 && (
+                  <div className="lt-card">
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>Sales by Game</div>
+                    <div className="lt-table-wrap">
+                      <table className="lt-table">
+                        <thead><tr>{['Game','Sales','Payouts','Net','Transactions'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {report.byGame.map((g, i) => (
+                            <tr key={i}>
+                              <td className="lt-td-strong">{g.gameName || 'Unknown'}</td>
+                              <td className="lt-td-brand">{fmt(g.sales)}</td>
+                              <td className="lt-td-amber">{fmt(g.payouts)}</td>
+                              <td className="lt-td-strong">{fmt(g.net)}</td>
+                              <td>{fmtNum(g.count)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="lt-empty"><p>No report data. Select a date range and click Apply.</p></div>
+            )}
+          </div>
+        )}
+
+        {/* ── COMMISSION ───────────────────────────────────────────────── */}
+        {tab === 'Commission' && (
+          <div>
+            <div className="lt-commission-banner">
+              <div>
+                <div className="lt-commission-rate">
+                  💰 Commission Rate:{' '}
+                  {lotterySettings?.commissionRate != null ? `${(Number(lotterySettings.commissionRate) * 100).toFixed(2)}%` : '—'}
+                </div>
+                <div className="lt-commission-hint">Store-level rate · Adjust in the Settings tab</div>
+              </div>
+            </div>
+            <div className="lt-period-bar">
+              <span className="lt-period-label">Period:</span>
+              {['day','week','month'].map(p => (
+                <button key={p} className={`lt-period-btn ${reportPeriod === p ? 'active' : ''}`} onClick={() => setReportPeriod(p)}>{p}</button>
               ))}
             </div>
-          </Card>
-
-          {report && (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 28 }}>
-                <StatCard label="Total Sales"   value={fmt(report.totalSales)}   color="var(--accent-primary)" />
-                <StatCard label="Total Payouts" value={fmt(report.totalPayouts)} color="#f59e0b" />
-                <StatCard label="Net Revenue"   value={fmt(report.netRevenue)}   color="#3b82f6" />
-                <StatCard label="Transactions"  value={fmtNum(report.transactionCount)} sub="sale transactions" />
-              </div>
-
-              {/* Bar chart of daily sales vs payouts */}
-              {report.chart && report.chart.length > 0 && (
-                <Card style={{ marginBottom: 20 }}>
-                  <h3 style={{ margin: '0 0 16px', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Daily Sales vs Payouts</h3>
-                  <SimpleBarChart data={report.chart} width={700} height={200} />
-                </Card>
-              )}
-
-              {report.byGame && report.byGame.length > 0 && (
-                <Card style={{ marginBottom: 20 }}>
-                  <h3 style={{ margin: '0 0 16px', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Sales by Game</h3>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-                    <thead>
-                      <tr>
-                        {['Game', 'Sales', 'Payouts', 'Net', 'Transactions'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.byGame.map((g, i) => (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>{g.gameName || 'Unknown'}</td>
-                          <td style={{ padding: '10px 12px', color: 'var(--accent-primary)', fontWeight: 600 }}>{fmt(g.sales)}</td>
-                          <td style={{ padding: '10px 12px', color: '#f59e0b' }}>{fmt(g.payouts)}</td>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--text-primary)' }}>{fmt(g.net)}</td>
-                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{fmtNum(g.count)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Card>
-              )}
-            </>
-          )}
-          {!report && <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>No report data available.</div>}
-        </div>
-      )}
-
-      {/* ── COMMISSION ── */}
-      {tab === 'Commission' && (
-        <div>
-          {/* Store-level commission rate banner */}
-          <div style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 10, padding: '12px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: '1.1rem' }}>💰</span>
-              <div>
-                <div style={{ fontWeight: 700, color: '#7c3aed', fontSize: '0.95rem' }}>
-                  Commission Rate:{' '}
-                  {lotterySettings?.commissionRate != null
-                    ? `${(Number(lotterySettings.commissionRate) * 100).toFixed(2)}%`
-                    : '—'}
+            {commission ? (
+              <>
+                <div className="lt-stat-grid">
+                  <StatCard label="Total Commission" value={fmt(commission.totalCommission)} color="#7c3aed" />
+                  <StatCard label="Total Sales"      value={fmt(commission.totalSales)}      color="var(--accent-primary)" />
+                  <StatCard label="Avg Commission %"
+                    value={commission.avgRate ? `${(Number(commission.avgRate) * 100).toFixed(2)}%` : '—'}
+                    color="#2563eb" />
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 1 }}>Store-level rate. Rate is managed in the Settings tab.</div>
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 24, alignItems: 'center' }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: 600 }}>Period:</span>
-            {['day', 'week', 'month'].map(p => (
-              <button key={p} onClick={() => setReportPeriod(p)}
-                style={{ padding: '6px 16px', borderRadius: 8, background: reportPeriod === p ? 'var(--accent-primary)' : 'var(--bg-secondary)', border: reportPeriod === p ? 'none' : '1px solid var(--border-light)', color: reportPeriod === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', textTransform: 'capitalize' }}>
-                {p}
-              </button>
-            ))}
-          </div>
-          {commission && (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
-                <StatCard label="Total Commission" value={fmt(commission.totalCommission)} color="#a855f7" />
-                <StatCard label="Total Sales"      value={fmt(commission.totalSales)}      color="var(--accent-primary)" />
-                <StatCard label="Avg Commission %"
-                  value={commission.avgRate ? `${(Number(commission.avgRate) * 100).toFixed(2)}%` : '—'}
-                  color="#3b82f6" />
-              </div>
-              {commission.byGame && commission.byGame.length > 0 && (
-                <Card>
-                  <h3 style={{ margin: '0 0 16px', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Commission by Game</h3>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-                    <thead>
-                      <tr>
-                        {['Game', 'Rate', 'Sales', 'Commission'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {commission.byGame.map((g, i) => (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>{g.gameName}</td>
-                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{g.rate ? `${(Number(g.rate) * 100).toFixed(2)}%` : '—'}</td>
-                          <td style={{ padding: '10px 12px', color: 'var(--accent-primary)', fontWeight: 600 }}>{fmt(g.sales)}</td>
-                          <td style={{ padding: '10px 12px', fontWeight: 700, color: '#a855f7' }}>{fmt(g.commission)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Card>
-              )}
-            </>
-          )}
-          {!commission && <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>No commission data available.</div>}
-        </div>
-      )}
-
-      {/* ── SETTINGS ── */}
-      {tab === '⚙️ Settings' && (
-        <div>
-          <Card style={{ maxWidth: 560 }}>
-            <h3 style={{ margin: '0 0 20px', fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>Lottery Settings</h3>
-
-            {settingsMsg && (
-              <div style={{
-                padding: '10px 14px', borderRadius: 8, marginBottom: 18, fontSize: '0.85rem', fontWeight: 600,
-                background: settingsMsg.startsWith('Error') ? 'rgba(239,68,68,0.08)' : 'rgba(22,163,74,0.08)',
-                border: `1px solid ${settingsMsg.startsWith('Error') ? 'rgba(239,68,68,0.25)' : 'rgba(22,163,74,0.25)'}`,
-                color: settingsMsg.startsWith('Error') ? '#dc2626' : '#15803d',
-              }}>
-                {settingsMsg}
-              </div>
+                {commission.byGame?.length > 0 && (
+                  <div className="lt-card">
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>Commission by Game</div>
+                    <div className="lt-table-wrap">
+                      <table className="lt-table">
+                        <thead><tr>{['Game','Rate','Sales','Commission'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {commission.byGame.map((g, i) => (
+                            <tr key={i}>
+                              <td className="lt-td-strong">{g.gameName}</td>
+                              <td>{g.rate ? `${(Number(g.rate) * 100).toFixed(2)}%` : '—'}</td>
+                              <td className="lt-td-brand">{fmt(g.sales)}</td>
+                              <td style={{ fontWeight: 700, color: '#7c3aed' }}>{fmt(g.commission)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="lt-empty"><p>No commission data available.</p></div>
             )}
+          </div>
+        )}
 
-            {/* Store State / Province */}
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Store State / Province
-              </label>
-              <select
-                value={settingsForm.state}
-                onChange={e => setSettingsForm(f => ({ ...f, state: e.target.value }))}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
-              >
-                <option value="">— Select Province —</option>
-                {['ON', 'BC', 'AB', 'MB', 'SK', 'QC', 'NS', 'NB', 'PE', 'NL'].map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Commission Rate */}
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Commission Rate (%)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={settingsForm.commissionRate}
-                onChange={e => setSettingsForm(f => ({ ...f, commissionRate: e.target.value }))}
-                placeholder="e.g. 5.4"
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)', fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }}
-              />
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                Enter as percentage e.g. 5.4 for 5.4%
+        {/* ── SETTINGS ─────────────────────────────────────────────────── */}
+        {tab === 'Settings' && (
+          <div className="lt-settings-wrap">
+            <div className="lt-card">
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '1.25rem', fontFamily: 'var(--font-heading)' }}>Lottery Settings</div>
+              {settingsMsg && (
+                <div className={settingsMsg.startsWith('Error') ? 'lt-error' : 'lt-success-msg'}>{settingsMsg}</div>
+              )}
+              <div className="lt-field">
+                <label className="lt-field-label">Store State / Province</label>
+                <select className="lt-select" value={settingsForm.state} onChange={e => setSettingsForm(f => ({ ...f, state: e.target.value }))}>
+                  <option value="">— Select —</option>
+                  {ALL_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span className="lt-field-hint">Used to filter the ticket catalog to your state's available tickets</span>
               </div>
+              <div className="lt-field">
+                <label className="lt-field-label">Commission Rate (%)</label>
+                <input type="number" step="0.01" min="0" max="100" className="lt-input" value={settingsForm.commissionRate}
+                  onChange={e => setSettingsForm(f => ({ ...f, commissionRate: e.target.value }))}
+                  placeholder="e.g. 5.4" style={{ maxWidth: 200 }} />
+                <span className="lt-field-hint">Enter as percentage e.g. 5.4 for 5.4%</span>
+              </div>
+              <div style={{ marginBottom: '1.5rem' }}>
+                {[
+                  ['enabled',              'Enable Lottery',                 'Allow lottery sales and payouts in POS'],
+                  ['cashOnly',             'Cash Only',                      'Restrict lottery payments to cash transactions only'],
+                  ['scanRequiredAtShiftEnd','Require Ticket Scan at Shift End','Cashiers must scan each active box before closing a shift'],
+                ].map(([key, label, hint]) => (
+                  <label key={key} className="lt-toggle-row">
+                    <input type="checkbox" checked={!!settingsForm[key]} onChange={e => setSettingsForm(f => ({ ...f, [key]: e.target.checked }))} />
+                    <div><div className="lt-toggle-label">{label}</div><div className="lt-toggle-hint">{hint}</div></div>
+                  </label>
+                ))}
+              </div>
+              <button className="lt-btn lt-btn-primary" onClick={handleSaveSettings} disabled={settingsSaving}>
+                {settingsSaving ? <RefreshCw size={14} className="lt-spin" /> : <Check size={14} />}
+                {settingsSaving ? 'Saving…' : 'Save Settings'}
+              </button>
             </div>
+          </div>
+        )}
 
-            {/* Toggle options */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 24 }}>
-              {/* Enable Lottery */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={settingsForm.enabled}
-                  onChange={e => setSettingsForm(f => ({ ...f, enabled: e.target.checked }))}
-                  style={{ width: 16, height: 16 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Enable Lottery</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Allow lottery sales and payouts in POS</div>
-                </div>
-              </label>
-
-              {/* Cash Only */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={settingsForm.cashOnly}
-                  onChange={e => setSettingsForm(f => ({ ...f, cashOnly: e.target.checked }))}
-                  style={{ width: 16, height: 16 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Cash Only</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Restrict lottery payments to cash transactions only</div>
-                </div>
-              </label>
-
-              {/* Require Ticket Scan at Shift End */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={settingsForm.scanRequiredAtShiftEnd}
-                  onChange={e => setSettingsForm(f => ({ ...f, scanRequiredAtShiftEnd: e.target.checked }))}
-                  style={{ width: 16, height: 16 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Require Ticket Scan at Shift End</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>When enabled, cashiers must scan each active box before closing a shift</div>
-                </div>
-              </label>
-            </div>
-
-            <button
-              onClick={handleSaveSettings}
-              disabled={settingsSaving}
-              style={{ padding: '10px 28px', borderRadius: 9, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700, cursor: settingsSaving ? 'not-allowed' : 'pointer', fontSize: '0.92rem', opacity: settingsSaving ? 0.7 : 1 }}
-            >
-              {settingsSaving ? 'Saving…' : 'Save Settings'}
-            </button>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Modals ── */}
-      {gameModal && (
-        <GameModal
-          game={gameModal === 'new' ? null : gameModal}
-          onSave={handleSaveGame}
-          onClose={() => setGameModal(null)}
-        />
-      )}
-      {receiveModal && (
-        <ReceiveBoxModal
-          games={games.filter(g => g.active)}
-          onSave={handleReceive}
-          onClose={() => setReceiveModal(false)}
-        />
-      )}
-      {activateBox && (
-        <ActivateBoxModal
-          box={activateBox}
-          onConfirm={handleActivateBox}
-          onClose={() => setActivateBox(null)}
-        />
-      )}
+        {/* ── Modals ───────────────────────────────────────────────────── */}
+        {gameModal && (
+          <GameModal game={gameModal === 'new' ? null : gameModal} onSave={handleSaveGame} onClose={() => setGameModal(null)} />
+        )}
+        {receiveModal && (
+          <ReceiveBoxModal games={games.filter(g => g.active)} onSave={handleReceive} onClose={() => setReceiveModal(false)} />
+        )}
+        {activateBoxObj && (
+          <ActivateBoxModal box={activateBoxObj} onConfirm={handleActivateBox} onClose={() => setActivateBoxObj(null)} />
+        )}
       </main>
     </div>
   );

@@ -35,6 +35,19 @@ import {
   // Settings
   getLotterySettings,
   updateLotterySettings,
+  // Ticket Catalog
+  getCatalogTickets,
+  getAllCatalogTickets,
+  createCatalogTicket,
+  updateCatalogTicket,
+  deleteCatalogTicket,
+  // Ticket Requests
+  getTicketRequests,
+  createTicketRequest,
+  reviewTicketRequest,
+  getPendingRequestCount,
+  // Receive from catalog
+  receiveFromCatalog,
 } from '../controllers/lotteryController.js';
 
 const router = express.Router();
@@ -73,5 +86,21 @@ router.get('/commission',  authorize('superadmin', 'admin', 'owner', 'manager'),
 // ─── Settings ─────────────────────────────────────────────────────────────────
 router.get('/settings',  authorize('superadmin', 'admin', 'owner', 'manager'), getLotterySettings);
 router.put('/settings',  authorize('superadmin', 'admin', 'owner', 'manager'), updateLotterySettings);
+
+// ─── Ticket Catalog ───────────────────────────────────────────────────────────
+router.get('/catalog',         authorize('superadmin','admin','owner','manager','cashier','store'), getCatalogTickets);
+router.get('/catalog/all',     authorize('superadmin','admin'), getAllCatalogTickets);
+router.post('/catalog',        authorize('superadmin','admin'), createCatalogTicket);
+router.put('/catalog/:id',     authorize('superadmin','admin'), updateCatalogTicket);
+router.delete('/catalog/:id',  authorize('superadmin','admin'), deleteCatalogTicket);
+
+// ─── Ticket Requests ──────────────────────────────────────────────────────────
+router.get('/ticket-requests',              authorize('superadmin','admin','owner','manager','cashier','store'), getTicketRequests);
+router.get('/ticket-requests/pending-count',authorize('superadmin','admin','owner','manager'), getPendingRequestCount);
+router.post('/ticket-requests',             authorize('superadmin','admin','owner','manager','cashier','store'), createTicketRequest);
+router.put('/ticket-requests/:id/review',   authorize('superadmin','admin'), reviewTicketRequest);
+
+// ─── Receive from Catalog ─────────────────────────────────────────────────────
+router.post('/boxes/receive-catalog', authorize('superadmin','admin','owner','manager'), receiveFromCatalog);
 
 export default router;

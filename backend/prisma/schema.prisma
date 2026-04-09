@@ -1336,6 +1336,58 @@ model LotterySettings {
 }
 
 // ─────────────────────────────────────────────────
+// LOTTERY TICKET CATALOG
+// Platform-wide catalog created by superadmin.
+// State-scoped so stores only see tickets for their
+// own state / province.
+// ─────────────────────────────────────────────────
+model LotteryTicketCatalog {
+  id             String   @id @default(cuid())
+  name           String
+  gameNumber     String?
+  ticketPrice    Decimal  @db.Decimal(10, 2)
+  ticketsPerBook Int      @default(300)
+  state          String                         // e.g. "TX", "ON", "CA"
+  category       String?                        // e.g. "instant", "draw"
+  active         Boolean  @default(true)
+  createdBy      String?                        // superadmin user id
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([state])
+  @@map("lottery_ticket_catalog")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY TICKET REQUEST
+// Submitted by a store when a ticket is not in the
+// catalog.  Admin reviews and can promote to catalog.
+// ─────────────────────────────────────────────────
+model LotteryTicketRequest {
+  id                String   @id @default(cuid())
+  orgId             String
+  storeId           String
+  storeName         String?
+  name              String
+  gameNumber        String?
+  ticketPrice       Decimal? @db.Decimal(10, 2)
+  ticketsPerBook    Int?
+  state             String?
+  notes             String?
+  status            String   @default("pending") // pending | approved | rejected
+  adminNotes        String?
+  resolvedCatalogId String?                       // linked catalog entry after approval
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@index([status])
+  @@map("lottery_ticket_requests")
+}
+
+// ─────────────────────────────────────────────────
 // CMS PAGE
 // System-level content pages managed by superadmin
 // ─────────────────────────────────────────────────
@@ -1425,6 +1477,73 @@ model SupportTicket {
   @@index([status])
   @@index([orgId])
   @@map("support_tickets")
+}
+
+// ─────────────────────────────────────────────────
+// LOYALTY PROGRAM
+// Per-store loyalty settings (one record per store)
+// ─────────────────────────────────────────────────
+model LoyaltyProgram {
+  id                    String   @id @default(cuid())
+  orgId                 String
+  storeId               String   @unique
+  enabled               Boolean  @default(true)
+  programName           String   @default("Loyalty Rewards")
+  pointsPerDollar       Decimal  @default(1)    @db.Decimal(8, 4)   // pts earned per $1 spent
+  redeemPointsPerDollar Decimal  @default(100)  @db.Decimal(10, 2)  // pts needed per $1 off
+  minPointsToRedeem     Int      @default(100)
+  maxRedemptionPerTx    Decimal? @db.Decimal(10, 2)                 // max $ off per tx (null = unlimited)
+  welcomeBonus          Int      @default(0)
+  birthdayBonus         Int      @default(0)
+  expiryDays            Int?                                         // null = no expiry
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("loyalty_programs")
+}
+
+// ─────────────────────────────────────────────────
+// LOYALTY EARN RULE
+// Department or product overrides for earning multiplier
+// ─────────────────────────────────────────────────
+model LoyaltyEarnRule {
+  id           String   @id @default(cuid())
+  orgId        String
+  storeId      String
+  targetType   String   // 'department' | 'product'
+  targetId     String   // departmentId or productId
+  targetName   String?  // denormalised label for display
+  action       String   // 'exclude' | 'multiply'
+  multiplier   Decimal  @default(1) @db.Decimal(8, 4)  // only used when action='multiply'
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("loyalty_earn_rules")
+}
+
+// ─────────────────────────────────────────────────
+// LOYALTY REWARD
+// Fixed reward tiers customers can redeem
+// ─────────────────────────────────────────────────
+model LoyaltyReward {
+  id           String   @id @default(cuid())
+  orgId        String
+  storeId      String
+  name         String
+  description  String?
+  pointsCost   Int
+  rewardType   String   @default("dollar_off")  // 'dollar_off' | 'pct_off'
+  rewardValue  Decimal  @db.Decimal(10, 2)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("loyalty_rewards")
 }
 
 // ─────────────────────────────────────────────────

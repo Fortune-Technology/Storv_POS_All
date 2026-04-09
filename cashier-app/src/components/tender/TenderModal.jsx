@@ -110,8 +110,26 @@ export default function TenderModal({
   cashRounding   = 'none',
   lotteryCashOnly = false,
 }) {
-  const { items, clearCart } = useCartStore();
-  const totals  = selectTotals(items, taxRules);
+  const { items, clearCart, customer, loyaltyRedemption, orderDiscount } = useCartStore();
+
+  // Combine orderDiscount + loyaltyRedemption into one effective dollar-amount discount
+  const effectiveCombinedDiscount = useMemo(() => {
+    const rawSubtotal = items.reduce((s, i) => s + i.lineTotal, 0);
+    let dollarOff = 0;
+    if (orderDiscount) {
+      dollarOff += orderDiscount.type === 'percent'
+        ? rawSubtotal * orderDiscount.value / 100
+        : orderDiscount.value;
+    }
+    if (loyaltyRedemption) {
+      dollarOff += loyaltyRedemption.discountType === 'dollar_off'
+        ? loyaltyRedemption.discountValue
+        : rawSubtotal * loyaltyRedemption.discountValue / 100;
+    }
+    return dollarOff > 0 ? { type: 'amount', value: Math.round(dollarOff * 100) / 100 } : null;
+  }, [items, orderDiscount, loyaltyRedemption]);
+
+  const totals = selectTotals(items, taxRules, effectiveCombinedDiscount);
   const hasLotteryItems  = items.some(i => i.isLottery);
   const allowedMethods   = (lotteryCashOnly && hasLotteryItems)
     ? METHODS.filter(m => m.id === 'cash')
@@ -255,6 +273,8 @@ export default function TenderModal({
       tenderLines: finalLines,
       changeGiven: change,
       offlineCreatedAt: new Date().toISOString(),
+      ...(customer?.id ? { customerId: customer.id } : {}),
+      ...(loyaltyRedemption ? { loyaltyPointsRedeemed: loyaltyRedemption.pointsCost } : {}),
       ...totals,
     };
 

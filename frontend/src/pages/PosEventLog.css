@@ -1,0 +1,284 @@
+/*
+ * PosEventLog.css — Styles for the POS Event Log page.
+ * Class prefix: pel-
+ */
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.pel-page {
+  padding: 1.75rem 2rem;
+  background: var(--bg-primary);
+  min-height: 100vh;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.pel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.pel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.pel-header-icon { color: var(--accent-primary); flex-shrink: 0; }
+
+.pel-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.pel-subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.pel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+.pel-btn:hover { background: var(--bg-tertiary); }
+.pel-btn-icon  { padding: 0.45rem; }
+
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.pel-filter-bar {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.pel-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+}
+
+.pel-search-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.pel-input {
+  width: 100%;
+  padding: 0.45rem 0.75rem 0.45rem 2rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.83rem;
+  box-sizing: border-box;
+}
+.pel-input:focus { outline: none; border-color: var(--accent-primary); }
+
+.pel-input-plain { padding: 0.45rem 0.7rem; }
+
+.pel-select {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pel-select:focus { outline: none; border-color: var(--accent-primary); }
+
+.pel-date-input {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pel-date-input:focus { outline: none; border-color: var(--accent-primary); }
+
+.pel-date-sep {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Summary strip ───────────────────────────────────────────────────────── */
+.pel-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.pel-summary-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 1rem;
+}
+
+.pel-summary-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.pel-summary-value {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pel-summary-value.accent { color: var(--accent-primary); }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.pel-table-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.pel-table-header {
+  display: grid;
+  grid-template-columns: 140px 120px 1fr 1fr 1fr 2fr;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.pel-table-row {
+  display: grid;
+  grid-template-columns: 140px 120px 1fr 1fr 1fr 2fr;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  transition: background 0.1s;
+}
+
+.pel-table-row:last-child { border-bottom: none; }
+.pel-table-row:hover { background: var(--bg-tertiary); }
+
+.pel-cell-time {
+  font-size: 0.77rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pel-event-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.pel-event-no-sale {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.pel-event-default {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.pel-cell-text {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pel-cell-note {
+  font-size: 0.77rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Empty / loading */
+.pel-empty {
+  padding: 3rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.pel-empty-icon {
+  opacity: 0.25;
+  margin-bottom: 0.75rem;
+}
+
+.pel-spin { animation: pel-spin 0.9s linear infinite; }
+
+@keyframes pel-spin { to { transform: rotate(360deg); } }
+
+/* Error */
+.pel-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+  color: #ef4444;
+  font-size: 0.83rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Pagination */
+.pel-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.pel-page-info {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}

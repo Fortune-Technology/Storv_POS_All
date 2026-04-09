@@ -569,6 +569,254 @@ export const getLotterySettings = async (req, res) => {
   }
 };
 
+// ══════════════════════════════════════════════════════════════════════════
+// TICKET CATALOG  (superadmin/admin – platform-wide, state-scoped)
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Stores call this — returns only tickets for the store's state */
+export const getCatalogTickets = async (req, res) => {
+  try {
+    const storeId    = getStore(req);
+    const { state, all } = req.query;
+
+    let filterState = state;
+    if (!filterState && storeId) {
+      const settings = await prisma.lotterySettings.findUnique({ where: { storeId } }).catch(() => null);
+      filterState = settings?.state;
+    }
+
+    const tickets = await prisma.lotteryTicketCatalog.findMany({
+      where: {
+        active: true,
+        ...(filterState && all !== 'true' ? { state: filterState } : {}),
+      },
+      orderBy: [{ state: 'asc' }, { ticketPrice: 'asc' }, { name: 'asc' }],
+    });
+    res.json({ success: true, data: tickets });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/** Admin calls this — returns ALL tickets (optionally filtered by state) */
+export const getAllCatalogTickets = async (req, res) => {
+  try {
+    const { state } = req.query;
+    const tickets = await prisma.lotteryTicketCatalog.findMany({
+      where: { ...(state ? { state } : {}) },
+      orderBy: [{ state: 'asc' }, { ticketPrice: 'asc' }, { name: 'asc' }],
+    });
+    res.json({ success: true, data: tickets });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const createCatalogTicket = async (req, res) => {
+  try {
+    const { name, gameNumber, ticketPrice, ticketsPerBook, state, category } = req.body;
+    if (!name || !ticketPrice || !state)
+      return res.status(400).json({ success: false, error: 'name, ticketPrice, and state are required' });
+    const ticket = await prisma.lotteryTicketCatalog.create({
+      data: {
+        name, gameNumber: gameNumber || null,
+        ticketPrice:   Number(ticketPrice),
+        ticketsPerBook: Number(ticketsPerBook || 300),
+        state, category: category || null,
+        createdBy: req.user?.id || null,
+      },
+    });
+    res.json({ success: true, data: ticket });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const updateCatalogTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, gameNumber, ticketPrice, ticketsPerBook, state, category, active } = req.body;
+    const ticket = await prisma.lotteryTicketCatalog.update({
+      where: { id },
+      data: {
+        ...(name           != null && { name }),
+        ...(gameNumber     != null && { gameNumber }),
+        ...(ticketPrice    != null && { ticketPrice:    Number(ticketPrice) }),
+        ...(ticketsPerBook != null && { ticketsPerBook: Number(ticketsPerBook) }),
+        ...(state          != null && { state }),
+        ...(category       != null && { category }),
+        ...(active         != null && { active: Boolean(active) }),
+      },
+    });
+    res.json({ success: true, data: ticket });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const deleteCatalogTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.lotteryTicketCatalog.update({ where: { id }, data: { active: false } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// TICKET REQUESTS  (stores submit, admins review)
+// ══════════════════════════════════════════════════════════════════════════
+
+export const getTicketRequests = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { status } = req.query;
+    const isAdmin = ['superadmin', 'admin'].includes(req.user?.role);
+
+    const requests = await prisma.lotteryTicketRequest.findMany({
+      where: {
+        ...(isAdmin ? { orgId } : { orgId, storeId }),
+        ...(status ? { status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: requests });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const createTicketRequest = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { name, gameNumber, ticketPrice, ticketsPerBook, state, notes, storeName } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: 'name is required' });
+
+    const request = await prisma.lotteryTicketRequest.create({
+      data: {
+        orgId, storeId, storeName: storeName || null, name,
+        gameNumber:    gameNumber    || null,
+        ticketPrice:   ticketPrice   ? Number(ticketPrice)   : null,
+        ticketsPerBook: ticketsPerBook ? Number(ticketsPerBook) : null,
+        state: state || null,
+        notes: notes || null,
+        status: 'pending',
+      },
+    });
+    res.json({ success: true, data: request });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const reviewTicketRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes, addToCatalog, catalogData } = req.body;
+    if (!['approved', 'rejected'].includes(status))
+      return res.status(400).json({ success: false, error: 'status must be approved or rejected' });
+
+    let resolvedCatalogId = null;
+
+    if (status === 'approved' && addToCatalog && catalogData) {
+      const cat = await prisma.lotteryTicketCatalog.create({
+        data: {
+          name:           catalogData.name,
+          gameNumber:     catalogData.gameNumber     || null,
+          ticketPrice:    Number(catalogData.ticketPrice),
+          ticketsPerBook: Number(catalogData.ticketsPerBook || 300),
+          state:          catalogData.state,
+          category:       catalogData.category       || null,
+          createdBy:      req.user?.id               || null,
+        },
+      });
+      resolvedCatalogId = cat.id;
+    }
+
+    const updated = await prisma.lotteryTicketRequest.update({
+      where: { id },
+      data: { status, adminNotes: adminNotes || null, resolvedCatalogId },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const getPendingRequestCount = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const count = await prisma.lotteryTicketRequest.count({
+      where: { orgId, status: 'pending' },
+    });
+    res.json({ success: true, count });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// RECEIVE FROM CATALOG
+// Store selects a catalog ticket + enters qty → auto-creates a local
+// LotteryGame (if none exists) then creates LotteryBox records.
+// ══════════════════════════════════════════════════════════════════════════
+
+export const receiveFromCatalog = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { catalogTicketId, qty } = req.body;
+
+    if (!catalogTicketId || !qty || Number(qty) < 1)
+      return res.status(400).json({ success: false, error: 'catalogTicketId and qty (≥1) are required' });
+
+    const cat = await prisma.lotteryTicketCatalog.findUnique({ where: { id: catalogTicketId } });
+    if (!cat) return res.status(404).json({ success: false, error: 'Catalog ticket not found' });
+
+    // Use a stable reference key so we can reuse the game across multiple receive orders
+    const ref = `catalog:${catalogTicketId}`;
+    let game = await prisma.lotteryGame.findFirst({
+      where: { orgId, storeId, gameNumber: ref, deleted: false },
+    });
+    if (!game) {
+      game = await prisma.lotteryGame.create({
+        data: {
+          orgId, storeId,
+          name:         cat.name,
+          gameNumber:   ref,
+          ticketPrice:  Number(cat.ticketPrice),
+          ticketsPerBox: cat.ticketsPerBook,
+          state:        cat.state,
+          isGlobal:     false,
+          active:       true,
+        },
+      });
+    }
+
+    const boxes = await Promise.all(
+      Array.from({ length: Number(qty) }, () =>
+        prisma.lotteryBox.create({
+          data: {
+            orgId, storeId,
+            gameId:       game.id,
+            totalTickets: game.ticketsPerBox,
+            ticketPrice:  Number(game.ticketPrice),
+            totalValue:   Number(game.ticketPrice) * game.ticketsPerBox,
+            status:       'inventory',
+          },
+        })
+      )
+    );
+
+    res.json({ success: true, data: boxes, game, count: boxes.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 export const updateLotterySettings = async (req, res) => {
   try {
     const orgId   = getOrgId(req);

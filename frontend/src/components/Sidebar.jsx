@@ -28,6 +28,7 @@ import {
   Tag,
   Upload,
   Ticket,
+  Star,
   ArrowUpCircle,
   Recycle,
   Percent,
@@ -46,8 +47,9 @@ const menuGroups = [
     ],
   },
   {
-    label: 'Lottery',
+    label: 'Loyalty & Lottery',
     items: [
+      { name: 'Loyalty Program', icon: <Star size={13} />, path: '/portal/loyalty' },
       { name: 'Lottery', icon: <Ticket size={13} />, path: '/portal/lottery' },
     ],
   },
@@ -102,6 +104,7 @@ const menuGroups = [
       { name: 'Receipt Settings', icon: <FileText size={13} />, path: '/portal/receipt-settings' },
       { name: 'Stations', icon: <Tv2 size={13} />, path: '/portal/stations' },
       { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/transactions' },
+      { name: 'Event Log', icon: <ClipboardList size={13} />, path: '/portal/pos-event-log' },
       { name: 'Employee Reports', icon: <Clock size={13} />, path: '/portal/employee-reports' },
       { name: 'Payouts Report', icon: <ArrowUpCircle size={13} />, path: '/portal/payouts' },
       { name: 'Deposit Rules', icon: <Recycle size={13} />, path: '/portal/deposit-rules' },

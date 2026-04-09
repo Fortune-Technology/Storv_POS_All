@@ -61,7 +61,9 @@
 | `backend/src/controllers/posTerminalController.js` | Cashier app API (creates transactions, deducts stock on sale, handles lottery items). `listTransactions` supports: dateFrom/dateTo, cashierId, stationId, status, amountMin, amountMax; returns subtotal/taxTotal/depositTotal/ebtTotal |
 | `backend/src/controllers/feeMappingController.js` | Service fees and delivery charges |
 | `backend/src/controllers/catalogController.js` | Product catalog CRUD |
-| `backend/src/controllers/salesController.js` | Analytics + Holt-Winters predictions |
+| `backend/src/controllers/salesController.js` | Analytics + Holt-Winters predictions. `realtimeSales` (GET /sales/realtime) is rewritten to use native Prisma transactions — returns today's KPIs, hourly breakdown, top products, recent tx feed, 14-day trend, and today's lottery summary |
+| `backend/src/controllers/customerController.js` | Full CRUD: `getCustomers` (supports `q`/`name`/`phone`/`email` search, OR across all fields), `getCustomerById`, `createCustomer`, `updateCustomer`, `deleteCustomer` (soft), `checkPoints` |
+| `backend/src/routes/customerRoutes.js` | GET (cashier+), POST (cashier+ for quick-add), PUT/DELETE (manager+) — all require JWT `protect` |
 | `backend/src/controllers/vendorPaymentController.js` | Back-office vendor payment records (no shift required) |
 
 ### Portal (frontend/)
@@ -81,6 +83,12 @@
 | `frontend/src/pages/QuickAccess.css` | Styles for QuickAccess page (`qa-` prefix) |
 | `frontend/src/pages/Transactions.jsx` | Full transaction browser — advanced filters, receipt modal, real-time refresh |
 | `frontend/src/pages/Transactions.css` | Styles for Transactions page (`txn-` prefix) — includes `@media print` receipt styles |
+| `frontend/src/pages/PosEventLog.jsx` | POS Event Log — back-office view of No Sale events and future cashier events |
+| `frontend/src/pages/PosEventLog.css` | Styles for PosEventLog page (`pel-` prefix) |
+| `frontend/src/pages/Customers.jsx` | Full customer CRUD — paginated list, add/edit modal (name, phone, email, card, discount, balance, charge account toggle), view profile with points history, soft delete. No Redux — uses local state + direct API calls |
+| `frontend/src/pages/Customers.css` | Styles for Customers page (`cust-` prefix) |
+| `frontend/src/pages/RealTimeDashboard.jsx` | Live Dashboard — KPIs, payment breakdown, hourly sales chart, live transaction feed, top products today, 14-day trend. All powered by native Prisma `Transaction` queries via `GET /api/sales/realtime` |
+| `frontend/src/pages/RealTimeDashboard.css` | Styles for Live Dashboard (`rtd-` prefix) |
 
 ### Admin Panel (admin-app/)
 | File | Purpose |
@@ -128,8 +136,22 @@
 | `cashier-app/src/api/pos.js` | All cashier-app API calls |
 | `cashier-app/src/db/dexie.js` | IndexedDB schema for offline catalog |
 | `cashier-app/src/components/modals/PackSizePickerModal.jsx` | Pack size picker when product has multiple sizes |
-| `cashier-app/electron/main.cjs` | Electron main process — USB/network printing, cash drawer, app control |
+| `cashier-app/electron/main.cjs` | Electron main process — USB/network printing, cash drawer, app control. Dev mode loads `http://localhost:5174` |
 | `cashier-app/electron/preload.cjs` | Context bridge — secure IPC between renderer and main |
+| `cashier-app/src/hooks/useOnlineStatus.js` | Online/offline detection — derives health-check URL from `VITE_API_URL` (not a relative path) so Electron file:// works |
+| `cashier-app/src/screens/POSScreen.jsx` | `handleNoSale` callback: opens cash drawer + calls `logPosEvent` (fire-and-forget) |
+| `cashier-app/src/api/pos.js` | `logPosEvent(body)`, `searchCustomers(query, storeId)`, `createCustomer(data)` |
+| `cashier-app/src/components/modals/CustomerLookupModal.jsx` | Two-tab modal: **Search** (debounced, shows name/phone/pts/discount, "Add new?" shortcut) + **New Customer** (inline quick-create form: first/last/phone/email → creates + auto-attaches) |
+| `cashier-app/src/api/client.js` | Axios instance — baseURL from `VITE_API_URL`; attaches JWT + station token |
+| `cashier-app/.env` | Dev API URL → `http://localhost:5000/api` |
+| `cashier-app/.env.production` | Cloud API URL → `https://api.storeveu.com/api`. Use `electron:build:local` for local installs |
+
+**Cashier App Build Modes:**
+| Script | Env file used | API URL baked in | Use for |
+|--------|--------------|-----------------|---------|
+| `npm run electron:dev` | `.env` | `http://localhost:5000/api` | Local development (live reload) |
+| `npm run electron:build:local` | `.env` | `http://localhost:5000/api` | Local installed build |
+| `npm run electron:build` | `.env.production` | `https://api.storeveu.com/api` | Cloud/production deployment |
 
 ---
 
