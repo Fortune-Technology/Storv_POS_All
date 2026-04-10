@@ -4,7 +4,7 @@
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Monitor, FileText, LayoutGrid } from 'lucide-react';
+import { Monitor, FileText, LayoutGrid, Tag } from 'lucide-react';
 import POSSettings from './POSSettings';
 import ReceiptSettings from './ReceiptSettings';
 import QuickAccess from './QuickAccess';
@@ -46,6 +46,7 @@ export default function POSConfig() {
       {tab === 'layout'     && <POSSettings embedded />}
       {tab === 'receipts'   && <ReceiptSettings embedded />}
       {tab === 'quick-keys' && <QuickAccess embedded />}
+      {tab === 'labels'     && <LabelDesign embedded />}
     </div>
   );
 }
