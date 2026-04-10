@@ -124,58 +124,61 @@ export default function CustomerDisplayScreen() {
           </div>
         )}
 
-        {/* Line items */}
+        {/* Line items — compact single-row layout */}
         <div ref={listRef} className="cds-items">
           {items.map((item, idx) => (
             <div key={item.lineId || idx} className="cds-line-item">
               <div className="cds-line-left">
-                <div className="cds-line-name">
-                  {item.isBagFee ? '\uD83D\uDECD\uFE0F ' : ''}{item.name}
-                </div>
-                <div className="cds-line-qty">
-                  {item.qty > 1 && <span>{item.qty} x {fmt$(item.unitPrice)}</span>}
-                </div>
+                <span className="cds-line-name">{item.name}</span>
+                {item.qty > 1 && <span className="cds-line-qty">{item.qty} × {fmt$(item.unitPrice)}</span>}
                 {item.promoAdjustment && (
-                  <div className="cds-line-promo">
-                    Promo: -{item.promoAdjustment.discountType === 'percent'
+                  <span className="cds-line-promo">
+                    -{item.promoAdjustment.discountType === 'percent'
                       ? `${item.promoAdjustment.discountValue}%`
                       : fmt$(item.promoAdjustment.discountValue)}
-                  </div>
+                  </span>
                 )}
                 {item.discountType && (
-                  <div className="cds-line-discount">
-                    Discount: -{item.discountType === 'percent'
-                      ? `${item.discountValue}%`
-                      : fmt$(item.discountValue)}
-                  </div>
-                )}
-                {item.depositTotal > 0 && (
-                  <div className="cds-line-deposit">+ Deposit {fmt$(item.depositTotal)}</div>
+                  <span className="cds-line-discount">
+                    -{item.discountType === 'percent' ? `${item.discountValue}%` : fmt$(item.discountValue)}
+                  </span>
                 )}
               </div>
-              <div className={`cds-line-total ${item.lineTotal < 0 ? 'cds-line-total--negative' : 'cds-line-total--positive'}`}>
+              <span className={`cds-line-total ${item.lineTotal < 0 ? 'cds-line-total--negative' : 'cds-line-total--positive'}`}>
                 {fmt$(item.lineTotal)}
-              </div>
+              </span>
             </div>
           ))}
         </div>
 
         {/* Summary */}
         <div className="cds-summary">
-          <SummaryRow label={`Subtotal (${itemCount} item${itemCount !== 1 ? 's' : ''})`} value={fmt$(totals.subtotal)} />
-          {totals.discountAmount > 0 && <SummaryRow label="Discount" value={`-${fmt$(totals.discountAmount)}`} color="#f59e0b" />}
-          {totals.promoSaving > 0 && <SummaryRow label="Promo Savings" value={`-${fmt$(totals.promoSaving)}`} color="#7ac143" />}
+          <SummaryRow label={`Subtotal (${itemCount} items)`} value={fmt$(totals.subtotal)} />
+
+          {/* All discount types combined into a single "You Save" line */}
+          {(() => {
+            const totalDiscount = (totals.discountAmount || 0) + (totals.promoSaving || 0)
+              + (loyaltyRedemption?.discountType === 'dollar_off' ? loyaltyRedemption.discountValue : 0);
+            return totalDiscount > 0 ? (
+              <SummaryRow label="You Save" value={`-${fmt$(totalDiscount)}`} color="var(--green)" />
+            ) : null;
+          })()}
+
+          {/* Individual breakdown if multiple discount sources */}
+          {totals.discountAmount > 0 && <SummaryRow label="  Discount" value={`-${fmt$(totals.discountAmount)}`} color="var(--amber)" />}
+          {totals.promoSaving > 0 && <SummaryRow label="  Promo" value={`-${fmt$(totals.promoSaving)}`} color="var(--green)" />}
           {loyaltyRedemption && (
             <SummaryRow
-              label={`Points Redeemed (${loyaltyRedemption.pointsCost} pts)`}
+              label={`  Points (${loyaltyRedemption.pointsCost} pts)`}
               value={loyaltyRedemption.discountType === 'dollar_off' ? `-${fmt$(loyaltyRedemption.discountValue)}` : `-${loyaltyRedemption.discountValue}%`}
-              color="#7ac143"
+              color="var(--green)"
             />
           )}
-          {totals.depositTotal > 0 && <SummaryRow label="Bottle Deposits" value={fmt$(totals.depositTotal)} muted />}
-          {totals.bagTotal > 0 && <SummaryRow label={`Bag Fee (${bagCount})`} value={fmt$(totals.bagTotal)} muted />}
+
+          {totals.depositTotal > 0 && <SummaryRow label="Deposits" value={fmt$(totals.depositTotal)} muted />}
+          {totals.bagTotal > 0 && <SummaryRow label={`Bags (${bagCount})`} value={fmt$(totals.bagTotal)} muted />}
           {totals.taxTotal > 0 && <SummaryRow label="Tax" value={fmt$(totals.taxTotal)} />}
-          {totals.ebtTotal > 0 && <SummaryRow label="EBT Eligible" value={fmt$(totals.ebtTotal)} color="#7ac143" />}
+          {totals.ebtTotal > 0 && <SummaryRow label="EBT Eligible" value={fmt$(totals.ebtTotal)} color="var(--green)" />}
 
           <div className="cds-grand">
             <span className="cds-grand-label">TOTAL</span>
