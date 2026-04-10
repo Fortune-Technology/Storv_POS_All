@@ -1122,6 +1122,161 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 - Equipment shop with CardSecure tokenized checkout
 - Admin billing console (plans, subscriptions, invoices, equipment)
 
+#### Label Design & Printing
+- Visual shelf label designer with live preview
+- 10 industry-standard Zebra-compatible label sizes (1.5"×1" to 4"×6")
+- 10 variable fields: Product Name, Brand, Size, UPC Barcode, UPC Text, Price, Sale Price, PLU, Department, Aisle
+- Position units: pt, px, mm, or raw dots with DPI selector (203/300/600)
+- Font sizes in proper points (6pt through 48pt)
+- ZPL code generation for Zebra label printers via TCP
+- Default template system — star a template for auto-use during printing
+- 4 built-in templates: Standard Shelf Tag, Price Tag, Sale Price Tag, Barcode Label
+- Templates persist in localStorage, customizable per store
+
+#### Label Queue (Auto-Detection)
+- **Auto-detects price changes** — hooks into `updateMasterProduct`, `bulkUpdateMasterProducts`, `upsertStoreProduct`
+- **Auto-detects new products** — hooks into `createMasterProduct`
+- **Sale detection** — queues labels when sale price is set or sale ends
+- **Manual add** — search or scan barcodes to add products to queue
+- **Barcode scanner support** — scans auto-detected (fast input + Enter) and added without clicking
+- Inline price editing — change price in queue, updates product catalog automatically
+- Grouped by reason: Price Changes (amber), New Products (blue), Sales (purple), Manual (gray)
+- Age indicators: >24h amber, >48h red highlighting
+- Batch print/dismiss with checkbox selection
+
+#### Employee Management
+- **3-tab hub**: Team | Timesheets | Shifts
+- **Team tab**: Employee list, role badges (Owner/Admin/Manager/Cashier), PIN management, store assignment, activate/deactivate
+- **Timesheets tab**: Unified hours + sales report with expandable per-employee sessions, PDF export
+- **Shifts tab**: Full CRUD for clock sessions — add/edit/delete shifts manually, employee filter, date range
+
+#### Shift Management
+- Add manual clock-in/out sessions for employees
+- Edit existing shift times
+- Delete erroneous clock entries
+- Employee filter dropdown + date range picker
+- Sessions table with duration calculation
+
+---
+
+## 📁 Project File Structure
+
+```
+Storv_POS_All/
+├── backend/                          # Express + Prisma + PostgreSQL
+│   ├── prisma/
+│   │   ├── schema.prisma             # Full data model (~2000 lines)
+│   │   ├── seed.js                   # Department/tax/deposit seed
+│   │   ├── seedTransactions.js       # Generate ~3,900 dummy POS transactions
+│   │   └── migrations/
+│   │       ├── add_purchase_orders.sql
+│   │       ├── add_label_queue.sql
+│   │       ├── add_billing_equipment_models.sql
+│   │       └── fix_billing_column_names.sql
+│   ├── src/
+│   │   ├── server.js                 # Express app entry point
+│   │   ├── config/postgres.js        # Prisma client singleton
+│   │   ├── middleware/               # auth, scopeToTenant, attachPOSUser
+│   │   ├── controllers/
+│   │   │   ├── salesController.js    # Analytics + realtime + predictions
+│   │   │   ├── catalogController.js  # Product CRUD + label queue hooks
+│   │   │   ├── orderController.js    # Purchase order lifecycle + PDF
+│   │   │   ├── paymentController.js  # CardPointe terminal charges
+│   │   │   ├── posTerminalController.js  # POS transactions + label printing
+│   │   │   ├── billingController.js  # Subscription billing
+│   │   │   ├── adminController.js    # Superadmin operations
+│   │   │   └── ...
+│   │   ├── services/
+│   │   │   ├── salesService.js       # Prisma-native sales aggregation
+│   │   │   ├── orderEngine.js        # 14-factor auto-reorder algorithm
+│   │   │   ├── labelQueueService.js  # Label queue CRUD + auto-detection
+│   │   │   ├── weatherService.js     # Open-Meteo integration + caching
+│   │   │   ├── cardPointeService.js  # CardPointe gateway + terminal API
+│   │   │   ├── billingService.js     # Subscription charging
+│   │   │   ├── billingScheduler.js   # Daily billing cron
+│   │   │   └── ...
+│   │   ├── routes/
+│   │   │   ├── salesRoutes.js        # /api/sales/*
+│   │   │   ├── orderRoutes.js        # /api/vendor-orders/*
+│   │   │   ├── labelQueueRoutes.js   # /api/label-queue/*
+│   │   │   ├── billingRoutes.js      # /api/billing/*
+│   │   │   ├── catalogRoutes.js      # /api/catalog/*
+│   │   │   ├── paymentRoutes.js      # /api/payment/*
+│   │   │   └── ...
+│   │   └── utils/
+│   │       └── predictions.js        # Holt-Winters + weather impact + holidays
+│   └── package.json
+│
+├── frontend/                         # React 19 + Vite portal
+│   ├── src/
+│   │   ├── App.jsx                   # All routes + ProtectedRoute
+│   │   ├── styles/
+│   │   │   └── portal.css            # Shared CSS (`p-` prefix) for all pages
+│   │   ├── components/
+│   │   │   ├── Sidebar.jsx           # 10-group navigation (~19 items)
+│   │   │   ├── Layout.jsx            # Sidebar + Outlet wrapper
+│   │   │   ├── BillingBanner.jsx     # Past-due/suspended warning
+│   │   │   ├── WeatherWidget.jsx     # Current + hourly + 10-day forecast
+│   │   │   ├── StoreSwitcher.jsx     # Multi-store selector
+│   │   │   └── EcomOrderNotifier.jsx # Real-time order toasts
+│   │   ├── pages/
+│   │   │   ├── RealTimeDashboard.jsx # Live dashboard + weather + date picker
+│   │   │   ├── AnalyticsHub.jsx      # Tabs: Sales, Departments, Products, Predictions
+│   │   │   ├── SalesAnalytics.jsx    # Revenue trends + weather correlation
+│   │   │   ├── SalesPredictions.jsx  # 4-tab: Hourly, Daily, Weekly, Monthly
+│   │   │   ├── POSConfig.jsx         # Tabs: Layout, Receipts, Quick Keys, Labels
+│   │   │   ├── POSReports.jsx        # Tabs: Transactions, Event Log, Payouts
+│   │   │   ├── RulesAndFees.jsx      # Tabs: Deposit Rules, Tax Rules
+│   │   │   ├── CustomersHub.jsx      # Tabs: Customers, Loyalty Program
+│   │   │   ├── AccountHub.jsx        # Tabs: Organisation, Users, Stores, Settings
+│   │   │   ├── VendorOrderSheet.jsx  # Tabs: Suggestions, Purchase Orders, History
+│   │   │   ├── LabelDesign.jsx       # Visual label designer + ZPL generator
+│   │   │   ├── LabelQueue.jsx        # Auto-detected label print queue
+│   │   │   ├── EmployeeManagement.jsx# Tabs: Team, Timesheets, Shifts
+│   │   │   ├── ShiftManagement.jsx   # Clock session CRUD
+│   │   │   ├── SupportTickets.jsx    # Ticket creation + threaded chat
+│   │   │   ├── Lottery.jsx           # 10-tab lottery management
+│   │   │   ├── BillingPortal.jsx     # Subscription + invoices
+│   │   │   └── ...
+│   │   ├── services/
+│   │   │   └── api.js                # Axios client + all API functions
+│   │   └── utils/
+│   │       └── exportUtils.js        # CSV/PDF download helpers
+│   └── package.json
+│
+├── cashier-app/                      # Standalone POS terminal (Vite + Electron)
+│   ├── electron/
+│   │   ├── main.cjs                  # Electron main process + customer display
+│   │   └── preload.cjs               # IPC bridge (printers, drawer, display)
+│   ├── src/
+│   │   ├── App.jsx                   # State machine + hash routing
+│   │   ├── screens/
+│   │   │   ├── POSScreen.jsx         # Main POS terminal
+│   │   │   ├── CustomerDisplayScreen.jsx # Read-only second screen
+│   │   │   ├── PinLoginScreen.jsx    # Cashier PIN entry
+│   │   │   └── StationSetupScreen.jsx# One-time station config
+│   │   ├── stores/
+│   │   │   └── useCartStore.js       # Zustand cart (items, bags, loyalty)
+│   │   ├── hooks/
+│   │   │   ├── usePOSConfig.js       # POS layout + bag fee config
+│   │   │   ├── useBroadcastSync.js   # Customer display sync
+│   │   │   └── useHardware.js        # Printer, drawer, scale
+│   │   └── components/
+│   │       ├── cart/BagFeeRow.jsx     # Bag (+)/(−) counter
+│   │       ├── cart/CartTotals.jsx    # Totals with bags
+│   │       ├── tender/TenderModal.jsx # Payment flow
+│   │       └── pos/ActionBar.jsx      # Bottom action bar
+│   └── package.json
+│
+├── admin-app/                        # Superadmin panel (Vite)
+├── ecom-backend/                     # E-commerce API (Express)
+├── storefront/                       # Customer storefront (Next.js)
+├── CLAUDE.md                         # AI session context (auto-loaded)
+├── README.md                         # This file
+├── ENGINEERING_PRINCIPLES.md         # Development standards
+└── ECOMMERCE_GUIDE.md               # E-commerce module docs
+```
+
 ---
 
 *Built with care for Future Foods — StoreVeu POS v2.0*
