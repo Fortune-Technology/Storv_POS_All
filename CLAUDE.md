@@ -2629,3 +2629,100 @@ A small number of `style={{}}` remain where values are computed at runtime:
 | `frontend/src/styles/portal.css` | Simplified p-page class |
 | `frontend/src/pages/*.jsx` (~30 files) | Removed Sidebar import + wrapper |
 
+---
+
+## 📁 New Files Created (Sessions 13–15)
+
+### Backend — New Services
+| File | Purpose |
+|------|---------|
+| `backend/src/services/orderEngine.js` | 14-factor demand-driven reorder algorithm |
+| `backend/src/services/labelQueueService.js` | Label print queue CRUD + auto-detection hooks |
+| `backend/src/services/salesService.js` | **REWRITTEN** — Prisma-native queries replacing old stubs |
+
+### Backend — New Controllers & Routes
+| File | Purpose |
+|------|---------|
+| `backend/src/controllers/orderController.js` | Purchase order CRUD + suggestions + receive + PDF |
+| `backend/src/routes/orderRoutes.js` | `/api/vendor-orders/*` endpoints |
+| `backend/src/routes/labelQueueRoutes.js` | `/api/label-queue/*` endpoints |
+
+### Backend — Migrations & Seeds
+| File | Purpose |
+|------|---------|
+| `backend/prisma/migrations/add_purchase_orders.sql` | PurchaseOrder + PurchaseOrderItem tables + vendor/product extensions |
+| `backend/prisma/migrations/add_label_queue.sql` | LabelQueue table |
+| `backend/prisma/migrations/fix_billing_column_names.sql` | Fix camelCase columns for billing tables |
+| `backend/prisma/seedTransactions.js` | Generate ~3,900 realistic POS transactions (90 days) |
+
+### Cashier App — New Components
+| File | Purpose |
+|------|---------|
+| `cashier-app/src/components/cart/BagFeeRow.jsx` | Bag (+)/(−) counter above payment buttons |
+| `cashier-app/src/components/cart/BagFeeRow.css` | BagFeeRow styles |
+| `cashier-app/src/screens/CustomerDisplayScreen.jsx` | Read-only customer-facing second screen |
+| `cashier-app/src/screens/CustomerDisplayScreen.css` | Customer display styles |
+| `cashier-app/src/hooks/useBroadcastSync.js` | BroadcastChannel pub/sub for POS → customer display |
+
+### Frontend — New Pages
+| File | Purpose |
+|------|---------|
+| `frontend/src/pages/POSConfig.jsx` | Tab hub: Layout, Receipts, Quick Keys, Label Design |
+| `frontend/src/pages/POSReports.jsx` | Tab hub: Transactions, Event Log, Payouts |
+| `frontend/src/pages/RulesAndFees.jsx` | Tab hub: Deposit Rules, Tax Rules |
+| `frontend/src/pages/AnalyticsHub.jsx` | Tab hub: Sales, Departments, Products, Predictions |
+| `frontend/src/pages/AccountHub.jsx` | Tab hub: Organisation, Users, Stores, Settings |
+| `frontend/src/pages/CustomersHub.jsx` | Tab hub: Customers, Loyalty Program |
+| `frontend/src/pages/LabelDesign.jsx` | Shelf label designer with Zebra ZPL + templates |
+| `frontend/src/pages/LabelQueue.jsx` | Auto-detected + manual label print queue |
+| `frontend/src/pages/EmployeeManagement.jsx` | Tab hub: Team, Timesheets, Shifts |
+| `frontend/src/pages/EmployeeManagement.css` | Employee page styles (`em-` prefix) |
+| `frontend/src/pages/ShiftManagement.jsx` | Clock session CRUD (add/edit/delete shifts) |
+| `frontend/src/pages/ShiftManagement.css` | Shift management styles (`sm-` prefix) |
+| `frontend/src/pages/SupportTickets.css` | **REWRITTEN** — external CSS (`st-` prefix) |
+| `frontend/src/pages/POSReports.css` | POS reports styles |
+
+### Frontend — New Components & Utilities
+| File | Purpose |
+|------|---------|
+| `frontend/src/components/WeatherWidget.jsx` | Current + hourly + 10-day weather display |
+| `frontend/src/components/WeatherWidget.css` | Weather widget styles |
+| `frontend/src/styles/portal.css` | Shared CSS for all portal pages (`p-` prefix) |
+| `frontend/src/utils/exportUtils.js` | CSV/PDF download utilities |
+
+---
+
+## 🚀 Production Deployment Checklist
+
+### Backend:
+```bash
+cd /var/www/Storv_POS_All/backend
+git pull origin main
+npm install
+npx prisma db execute --file prisma/migrations/add_purchase_orders.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/migrations/add_label_queue.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/migrations/fix_billing_column_names.sql --schema prisma/schema.prisma
+npx prisma generate
+pm2 restart api-pos
+```
+
+### Frontend:
+```bash
+cd /var/www/Storv_POS_All/frontend
+git pull origin main
+npm install
+npm run build
+```
+
+### Seed data (optional):
+```bash
+node backend/prisma/seedTransactions.js
+```
+
+### PM2 process names:
+- `api-pos` (ID 0) — main backend on port 5002
+- `csvfilter-backend` (ID 1) — secondary service
+
+---
+
+*Last updated: April 2026 — Session 15: Label Queue + Employee Hub + Shift Management + Production Deploy*
