@@ -7,7 +7,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Sidebar from '../components/Sidebar';
 import {
   getLabelQueue,
   getLabelQueueCount,
@@ -659,12 +658,5 @@ export default function LabelQueue({ embedded }) {
     </div>
   );
 
-  if (embedded) return content;
-
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">{content}</div>
-    </div>
-  );
+  return content;
 }

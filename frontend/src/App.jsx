@@ -43,6 +43,7 @@ import StoreBranding from './pages/StoreBranding';
 import POSSettings     from './pages/POSSettings.jsx';
 import ReceiptSettings from './pages/ReceiptSettings.jsx';
 import EmployeeReports from './pages/EmployeeReports';
+import EmployeeManagement from './pages/EmployeeManagement';
 import PayoutsReport   from './pages/PayoutsReport.jsx';
 import VendorPayouts  from './pages/VendorPayouts.jsx';
 import StoreSettings  from './pages/StoreSettings';
@@ -219,6 +220,9 @@ function App() {
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/rules"           element={<RulesAndFees />} />
 
+          {/* ── Employees ────────────────────────────────────────────── */}
+          <Route path="/portal/employees"       element={<EmployeeManagement />} />
+
           {/* ── Remaining POS items ───────────────────────────────────── */}
           <Route path="/portal/vendor-payouts"  element={<VendorPayouts />} />
 
@@ -231,6 +235,7 @@ function App() {
           <Route path="/portal/vendors/:id"      element={<VendorDetail />} />
           <Route path="/portal/promotions"       element={<Promotions />} />
           <Route path="/portal/import"           element={<BulkImport />} />
+          <Route path="/portal/label-queue"    element={<LabelQueue />} />
 
           {/* ── Billing ───────────────────────────────────────────────── */}
           <Route path="/portal/billing"          element={<BillingPortal />} />

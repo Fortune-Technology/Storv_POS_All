@@ -4,20 +4,17 @@
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Receipt, ClipboardList, Clock, ArrowUpCircle, UserCheck } from 'lucide-react';
+import { Receipt, ClipboardList, ArrowUpCircle } from 'lucide-react';
 import Transactions from './Transactions';
 import PosEventLog from './PosEventLog';
-import EmployeeReports from './EmployeeReports';
 import PayoutsReport from './PayoutsReport';
 import '../styles/portal.css';
 import './POSReports.css';
 
 const TABS = [
-  { key: 'transactions', label: 'Transactions',     icon: <Receipt size={14} /> },
-  { key: 'events',       label: 'Event Log',        icon: <ClipboardList size={14} /> },
-  { key: 'employee',     label: 'Employee Reports', icon: <Clock size={14} /> },
-  { key: 'payouts',      label: 'Payouts',          icon: <ArrowUpCircle size={14} /> },
-  { key: 'employees',    label: 'Employees',        icon: <UserCheck size={14} /> },
+  { key: 'transactions', label: 'Transactions', icon: <Receipt size={14} /> },
+  { key: 'events',       label: 'Event Log',    icon: <ClipboardList size={14} /> },
+  { key: 'payouts',      label: 'Payouts',      icon: <ArrowUpCircle size={14} /> },
 ];
 
 export default function POSReports() {
@@ -47,22 +44,8 @@ export default function POSReports() {
 
       {tab === 'transactions' && <Transactions embedded />}
       {tab === 'events'       && <PosEventLog embedded />}
-      {tab === 'employee'     && <EmployeeReports embedded />}
       {tab === 'payouts'      && <PayoutsReport embedded />}
-      {tab === 'employees'    && <EmployeesTab />}
     </div>
   );
 }
 
-/* ── Employees Timesheet Tab (placeholder — ready for implementation) ──── */
-function EmployeesTab() {
-  return (
-    <div className="p-card posr-placeholder">
-      <UserCheck size={48} color="var(--text-muted)" className="posr-placeholder-icon" />
-      <h3 className="posr-placeholder-title">Employee Timesheet Management</h3>
-      <p className="posr-placeholder-desc">
-        Clock-in/out tracking, shift schedules, and timesheet approvals — coming soon.
-      </p>
-    </div>
-  );
-}

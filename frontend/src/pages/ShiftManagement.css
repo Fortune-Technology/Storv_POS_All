@@ -1,0 +1,296 @@
+/* ── ShiftManagement — sm- prefix ─────────────────────────────────────────── */
+/* Uses CSS variables from index.css: --brand-*, --text-*, --bg-*, --border-*, --success, --error, --warning */
+
+.sm-page {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Header */
+.sm-header-icon {
+  color: var(--accent-primary);
+}
+
+.sm-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.sm-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.sm-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Filters ─────────────────────────────────────────────────────────────── */
+
+.sm-filters {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.sm-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sm-filter-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sm-date-input {
+  width: auto;
+  min-width: 150px;
+}
+
+.sm-emp-select {
+  min-width: 180px;
+}
+
+.sm-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+}
+
+.sm-refresh-btn--loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@keyframes sm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.sm-spinner {
+  animation: sm-spin 0.9s linear infinite;
+}
+
+/* ── Error ───────────────────────────────────────────────────────────────── */
+
+.sm-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-md, 10px);
+  background: var(--error-bg);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--error);
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Shift Form ──────────────────────────────────────────────────────────── */
+
+.sm-form-panel {
+  margin-bottom: 1rem;
+  border-color: var(--border-brand);
+}
+
+.sm-form-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.sm-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sm-form-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sm-select {
+  cursor: pointer;
+}
+
+.sm-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sm-form-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sm-form-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--error-bg);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--error);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+/* ── Sessions table ──────────────────────────────────────────────────────── */
+
+.sm-table-wrap {
+  overflow: hidden;
+  padding: 0;
+}
+
+.sm-table-head {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 0.8fr 110px;
+  padding: 0.6rem 1.25rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sm-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 0.8fr 110px;
+  padding: 0.75rem 1.25rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.82rem;
+  transition: background 0.1s;
+}
+
+.sm-row:last-child {
+  border-bottom: none;
+}
+
+.sm-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.sm-row-emp {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sm-row-email {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.sm-row-date {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.sm-row-time {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sm-row-dur {
+  font-weight: 700;
+  color: var(--warning);
+}
+
+.sm-row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.sm-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-primary);
+}
+
+.sm-btn-delete {
+  display: inline-flex;
+  align-items: center;
+  color: var(--error);
+}
+
+/* Active / orphan badges */
+.sm-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sm-active-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: sm-pulse 1.5s infinite;
+}
+
+@keyframes sm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.sm-orphan-badge {
+  font-size: 0.65rem;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .sm-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sm-date-input,
+  .sm-emp-select {
+    width: 100%;
+  }
+
+  .sm-table-head,
+  .sm-row {
+    grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.6fr 90px;
+    font-size: 0.72rem;
+    padding: 0.5rem 0.75rem;
+  }
+}

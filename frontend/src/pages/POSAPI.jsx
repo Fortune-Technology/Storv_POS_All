@@ -58,10 +58,10 @@ export default function POSAPI() {
           marginBottom: '1.5rem',
         }}>
           {[
-            { title: 'Station Management', desc: 'Configure and monitor all cashier stations', path: '/portal/stations', icon: Monitor },
-            { title: 'Transaction History', desc: 'View all past transactions, refunds, and voids', path: '/portal/transactions', icon: CheckCircle },
-            { title: 'Employee Reports', desc: 'Clock hours, sales totals, and session breakdowns', path: '/portal/employee-reports', icon: CheckCircle },
-            { title: 'POS Settings', desc: 'Layout, shortcuts, tax rules, and hardware config', path: '/portal/pos-settings', icon: CheckCircle },
+            { title: 'Station Management', desc: 'Configure and monitor all cashier stations', path: '/portal/pos-config', icon: Monitor },
+            { title: 'Transaction History', desc: 'View all past transactions, refunds, and voids', path: '/portal/pos-reports', icon: CheckCircle },
+            { title: 'Employee Reports', desc: 'Clock hours, sales totals, and session breakdowns', path: '/portal/pos-reports?tab=employee', icon: CheckCircle },
+            { title: 'POS Settings', desc: 'Layout, shortcuts, tax rules, and hardware config', path: '/portal/pos-config', icon: CheckCircle },
           ].map((item, i, arr) => (
             <button
               key={item.path}

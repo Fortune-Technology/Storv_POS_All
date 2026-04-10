@@ -84,6 +84,7 @@ const menuGroups = [
     items: [
       { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/pos-reports' },
       { name: 'Analytics', icon: <BarChart2 size={13} />, path: '/portal/analytics' },
+      { name: 'Employees', icon: <Users size={13} />, path: '/portal/employees' },
     ],
   },
   {
