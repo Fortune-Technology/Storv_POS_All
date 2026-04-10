@@ -8,8 +8,9 @@ import {
   TrendingUp, DollarSign, ShoppingCart, Tag, RefreshCw,
   AlertCircle, ReceiptText, Wallet, MapPin, X, ChevronRight,
   Cloud, Sun, Thermometer, Droplets, Wind, LayoutDashboard,
-  BarChart2
+  BarChart2, Download, FileText
 } from 'lucide-react';
+import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import Sidebar from '../components/Sidebar';
 import DatePicker from '../components/DatePicker';
 import {
@@ -23,6 +24,7 @@ import {
 import { getWeatherInfo, getTempColor, getPrecipLabel } from '../utils/weatherIcons';
 import { toast } from 'react-toastify';
 import './analytics.css';
+import '../styles/portal.css';
 
 /* ─── Helpers ─── */
 const fmtCurrency = (n) =>
@@ -210,7 +212,7 @@ const LocationModal = ({ onClose, onSaved }) => {
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════ */
-export default function SalesAnalytics() {
+export default function SalesAnalytics({ embedded }) {
   const [tab, setTab]         = useState('Daily');
   const [range, setRange]     = useState(defaultRange('Daily'));
   const [data, setData]       = useState(null);
@@ -340,10 +342,41 @@ export default function SalesAnalytics() {
     interval: needsScroll ? Math.floor(chartData.length / 20) : 'preserveStartEnd',
   };
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  /* ─── Export handlers ─── */
+  const salesExportColumns = [
+    { key: 'date', label: 'Date' },
+    { key: 'NetSales', label: 'Net Sales' },
+    { key: 'GrossSales', label: 'Gross Sales' },
+    { key: 'Transactions', label: 'Transactions' },
+    { key: 'Discounts', label: 'Discounts' },
+    { key: 'Refunds', label: 'Refunds' },
+    { key: 'tempHigh', label: 'Temp High' },
+    { key: 'tempLow', label: 'Temp Low' },
+    { key: 'precipitation', label: 'Precipitation' },
+  ];
+
+  const handleExportCSV = () => {
+    downloadCSV(chartData, salesExportColumns, `sales_${tab.toLowerCase()}`);
+  };
+
+  const handleExportPDF = () => {
+    downloadPDF({
+      title: `Sales Analytics — ${tab}`,
+      subtitle: `${range.from} to ${range.to}`,
+      summary: [
+        { label: 'Total Net Sales', value: fmtCurrency(agg.TotalNetSales) },
+        { label: 'Total Gross Sales', value: fmtCurrency(agg.TotalGrossSales) },
+        { label: 'Transactions', value: fmtN(agg.TotalTransactionsCount) },
+        { label: 'Avg Order Value', value: fmtCurrency(avgOrderValue) },
+      ],
+      data: chartData,
+      columns: salesExportColumns,
+      filename: `sales_${tab.toLowerCase()}`,
+    });
+  };
+
+  const content = (
+    <>
 
         {/* ── Header ── */}
         <div className="analytics-header">
@@ -358,6 +391,12 @@ export default function SalesAnalytics() {
               onChange={(v) => setRange(r => ({ ...r, to: v }))} minDate={range.from} maxDate={toISO(new Date())} />
             <button className="btn btn-secondary" onClick={fetchData} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <RefreshCw size={15} /> Refresh
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportCSV}>
+              <Download size={13} /> CSV
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportPDF}>
+              <FileText size={13} /> PDF
             </button>
           </div>
         </div>
@@ -812,6 +851,16 @@ export default function SalesAnalytics() {
           />
         )}
 
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
       </main>
     </div>
   );

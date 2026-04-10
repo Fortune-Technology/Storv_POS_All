@@ -18,6 +18,7 @@ import {
 import StatusBar            from '../components/layout/StatusBar.jsx';
 import CartItem             from '../components/cart/CartItem.jsx';
 import CartTotals           from '../components/cart/CartTotals.jsx';
+import BagFeeRow            from '../components/cart/BagFeeRow.jsx';
 import TenderModal          from '../components/tender/TenderModal.jsx';
 import AgeVerificationModal from '../components/modals/AgeVerificationModal.jsx';
 import ActionBar            from '../components/pos/ActionBar.jsx';
@@ -43,6 +44,7 @@ import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 import AddProductModal from '../components/modals/AddProductModal.jsx';
+import HardwareSettingsModal from '../components/modals/HardwareSettingsModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
 
@@ -53,6 +55,7 @@ import { useBranding }       from '../hooks/useBranding.js';
 import { useOnlineStatus }   from '../hooks/useOnlineStatus.js';
 import { usePOSConfig }      from '../hooks/usePOSConfig.js';
 import { useHardware }       from '../hooks/useHardware.js';
+import { useCustomerDisplayPublisher } from '../hooks/useBroadcastSync.js';
 import { useCartStore, selectTotals } from '../stores/useCartStore.js';
 import { useManagerStore }   from '../stores/useManagerStore.js';
 import { useShiftStore }     from '../stores/useShiftStore.js';
@@ -74,6 +77,7 @@ export default function POSScreen() {
     orderDiscount, removeOrderDiscount,
     loyaltyRedemption, removeLoyaltyRedemption,
     verifiedAges,
+    bagCount, incrementBags, decrementBags,
   } = useCartStore();
 
   const promotions        = useCartStore(s => s.promotions);
@@ -109,6 +113,9 @@ export default function POSScreen() {
     saveShiftReport: saveLotteryShiftReport,
     resetSession:    resetLotterySession,
   } = useLotteryStore();
+
+  // ── Customer Display broadcast ───────────────────────────────────────────
+  const { publish: publishDisplay } = useCustomerDisplayPublisher();
 
   // Store branding — used for receipt header
   const [storeBranding, setStoreBranding] = useState({});
@@ -272,6 +279,7 @@ export default function POSScreen() {
   const [showLotteryShift,   setShowLotteryShift]   = useState(false);
   const [showBottleReturn,   setShowBottleReturn]   = useState(false);
   const [showVendorPayout,   setShowVendorPayout]   = useState(false);
+  const [showHardwareSettings, setShowHardwareSettings] = useState(false);
   const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick'
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Lottery shift reconciliation state
@@ -352,8 +360,36 @@ export default function POSScreen() {
   const effectiveDiscount = _dollarOff > 0
     ? { type: 'amount', value: Math.round(_dollarOff * 100) / 100 }
     : null;
-  const totals       = selectTotals(items, taxRules, effectiveDiscount);
+  // Bag fee
+  const bagPrice = posConfig.bagFee?.pricePerBag || 0;
+  const rawBagTotal = Math.round(bagCount * bagPrice * 100) / 100;
+  const bagFeeInfo = bagCount > 0 ? {
+    bagTotal:     rawBagTotal,
+    ebtEligible:  posConfig.bagFee?.ebtEligible  || false,
+    discountable: posConfig.bagFee?.discountable || false,
+  } : null;
+  const totals       = selectTotals(items, taxRules, effectiveDiscount, bagFeeInfo);
   const selectedItem = items.find(i => i.lineId === selectedLineId);
+
+  // ── Broadcast to customer display ───────────────────────────────────────
+  useEffect(() => {
+    if (items.length === 0) {
+      publishDisplay({ type: 'idle' });
+    } else {
+      publishDisplay({
+        type: 'cart_update',
+        items,
+        totals,
+        bagCount,
+        bagPrice,
+        customer,
+        loyaltyRedemption,
+        orderDiscount,
+        promoResults,
+        storeName: storeBranding?.storeName || storeBranding?.name || '',
+      });
+    }
+  }, [items, totals, bagCount, customer, loyaltyRedemption, orderDiscount, promoResults, storeBranding]);
 
   // ── Age-check helper: skip if already verified this transaction ──────────
   const addWithAgeCheck = useCallback((product) => {
@@ -911,7 +947,10 @@ export default function POSScreen() {
                       </button>
                     </div>
                   )}
-                  <CartTotals totals={totals} itemCount={items.length} />
+                  <CartTotals totals={totals} itemCount={items.length} bagCount={bagCount} />
+                  {posConfig.bagFee?.enabled && items.length > 0 && (
+                    <BagFeeRow bagCount={bagCount} onIncrement={incrementBags} onDecrement={decrementBags} bagPrice={bagPrice} bagTotal={totals.bagTotal || 0} />
+                  )}
                   {/* Quick cash in counterMode */}
                   {(() => {
                     const cp = getSmartCashPresets(totals.grandTotal);
@@ -1212,7 +1251,10 @@ export default function POSScreen() {
                   </div>
                 )}
 
-                <CartTotals totals={totals} itemCount={items.length} />
+                <CartTotals totals={totals} itemCount={items.length} bagCount={bagCount} />
+                {posConfig.bagFee?.enabled && items.length > 0 && (
+                  <BagFeeRow bagCount={bagCount} onIncrement={incrementBags} onDecrement={decrementBags} bagPrice={bagPrice} bagTotal={totals.bagTotal || 0} />
+                )}
 
                 {/* ── On-screen Quick Cash presets ── */}
                 {(() => {
@@ -1419,6 +1461,14 @@ export default function POSScreen() {
         onLotteryShift={handleOpenLotteryShift}
         lotteryEnabled={posConfig.lottery?.enabled ?? true}
         onBottleReturn={() => setShowBottleReturn(true)}
+        onHardwareSettings={() => setShowHardwareSettings(true)}
+        onCustomerDisplay={() => {
+          if (window.electronAPI?.openCustomerDisplay) {
+            window.electronAPI.openCustomerDisplay();
+          } else {
+            window.open(`${window.location.origin}/#/customer-display`, 'customer-display', 'width=1024,height=768');
+          }
+        }}
         shiftOpen={!!shift}
         heldCount={heldCount}
         actionBarHeight={({'compact':48,'normal':58,'large':72}[posConfig.actionBarHeight] || 58)}
@@ -1429,6 +1479,10 @@ export default function POSScreen() {
       {/* Manager PIN (always mounted, renders when pendingAction is set) */}
       <ManagerPinModal />
 
+      {showHardwareSettings && (
+        <HardwareSettingsModal onClose={() => setShowHardwareSettings(false)} />
+      )}
+
       {showTender && (
         <TenderModal
           taxRules={taxRules}
@@ -1436,10 +1490,20 @@ export default function POSScreen() {
           initCashAmount={tenderInitCash}
           cashRounding={posConfig.cashRounding || 'none'}
           lotteryCashOnly={posConfig.lottery?.cashOnly || false}
+          bagFeeInfo={bagFeeInfo}
+          bagCount={bagCount}
+          bagPrice={bagPrice}
           onClose={closeTender}
           onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
           onComplete={(tx) => {
             setLastCompletedTx(tx);
+
+            // ── Broadcast transaction complete to customer display ─────────
+            publishDisplay({
+              type: 'transaction_complete',
+              txNumber: tx.txNumber,
+              change: tx.changeGiven || 0,
+            });
 
             // ── Auto-open cash drawer on cash payment ──────────────────────
             const hasCashTender = tx.tenderLines?.some(t => t.method === 'cash');

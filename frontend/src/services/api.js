@@ -126,6 +126,9 @@ export const getProductMovement = (params) => api.get('/sales/products/movement'
 export const getDailyProductMovement = (params) => api.get('/sales/products/daily-movement', { params }).then(r => r.data);
 export const getSalesPredictionsDaily = (params) => api.get('/sales/predictions/daily', { params }).then(r => r.data);
 export const getSalesPredictionsWeekly = (params) => api.get('/sales/predictions/weekly', { params }).then(r => r.data);
+export const getSalesPredictionsHourly = (params) => api.get('/sales/predictions/hourly', { params }).then(r => r.data);
+export const getSalesPredictionsMonthly = (params) => api.get('/sales/predictions/monthly', { params }).then(r => r.data);
+export const getSalesPredictionsFactors = (params) => api.get('/sales/predictions/factors', { params }).then(r => r.data);
 export const getSalesPredictionsResiduals = (params) => api.get('/sales/predictions/residuals', { params }).then(r => r.data);
 export const getVendorOrders = () => api.get('/sales/vendor-orders').then(r => r.data);
 
@@ -134,7 +137,18 @@ export const getSalesDailyWithWeather = (params) => api.get('/sales/daily-with-w
 export const getSalesWeeklyWithWeather = (params) => api.get('/sales/weekly-with-weather', { params }).then(r => r.data);
 export const getSalesMonthlyWithWeather = (params) => api.get('/sales/monthly-with-weather', { params }).then(r => r.data);
 export const getSalesYearlyWithWeather = (params) => api.get('/sales/yearly-with-weather', { params }).then(r => r.data);
-export const getRealtimeSales = () => api.get('/sales/realtime').then(r => r.data);
+export const getRealtimeSales = (params) => api.get('/sales/realtime', { params }).then(r => r.data);
+
+// ── Vendor Orders / Purchase Orders ──────────────────────────────────────────
+export const getOrderSuggestions    = ()       => api.get('/vendor-orders/suggestions').then(r => r.data);
+export const generatePurchaseOrders = (data)   => api.post('/vendor-orders/generate', data).then(r => r.data);
+export const listPurchaseOrders     = (params) => api.get('/vendor-orders/purchase-orders', { params }).then(r => r.data);
+export const getPurchaseOrder       = (id)     => api.get(`/vendor-orders/purchase-orders/${id}`).then(r => r.data);
+export const updatePurchaseOrder    = (id, d)  => api.put(`/vendor-orders/purchase-orders/${id}`, d).then(r => r.data);
+export const submitPurchaseOrder    = (id)     => api.post(`/vendor-orders/purchase-orders/${id}/submit`).then(r => r.data);
+export const receivePurchaseOrder   = (id, d)  => api.post(`/vendor-orders/purchase-orders/${id}/receive`, d).then(r => r.data);
+export const deletePurchaseOrder    = (id)     => api.delete(`/vendor-orders/purchase-orders/${id}`).then(r => r.data);
+export const getPurchaseOrderPDF    = (id)     => api.get(`/vendor-orders/purchase-orders/${id}/pdf`, { responseType: 'blob' });
 
 // Weather
 export const getWeatherRange = (params) => api.get('/weather/range', { params }).then(r => r.data);

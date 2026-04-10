@@ -168,10 +168,19 @@ model Vendor {
   aliases     String[]  // ["Hershey's", "HERSHEY ICE CREAM"] for fuzzy matching
 
   active      Boolean   @default(true)
+
+  // ── Ordering / Fulfillment ──
+  leadTimeDays    Int       @default(3)         // avg days from order to delivery
+  minOrderAmount  Decimal?  @db.Decimal(10, 2)  // minimum $ per order
+  orderFrequency  String    @default("weekly")  // "daily","weekly","biweekly","monthly"
+  deliveryDays    String[]  @default([])        // ["Monday","Thursday"]
+  lastOrderedAt   DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  products    MasterProduct[]
+  products        MasterProduct[]
+  purchaseOrders  PurchaseOrder[]
 
   @@unique([orgId, name])
   @@index([orgId, active])
@@ -282,6 +291,8 @@ model MasterProduct {
   trackInventory      Boolean       @default(true)
   reorderPoint        Int?          // trigger reorder when stock hits this
   reorderQty          Int?          // suggested order quantity
+  shelfLifeDays       Int?          // perishable items: days until expiry
+  serviceLevel        String        @default("standard")  // "critical","standard","low"
 
   // Ecommerce
   hideFromEcom        Boolean       @default(false)
@@ -308,6 +319,7 @@ model MasterProduct {
   storeProducts       StoreProduct[]
   upcs                ProductUpc[]
   packSizes           ProductPackSize[]
+  purchaseOrderItems  PurchaseOrderItem[]
 
   @@index([orgId, upc])
   @@index([orgId, deleted, active])
@@ -508,9 +520,11 @@ model Station {
   name        String    // "Register 1", "Express Lane"
   token       String    @unique  // long-lived station token — stored in POS localStorage
   lastSeenAt     DateTime?
-  hardwareConfig Json?     // Stores peripheral config: receipt printer, scale, PAX, label printer
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  hardwareConfig   Json?     // Stores peripheral config: receipt printer, scale, PAX, label printer
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  paymentTerminal  PaymentTerminal?  // one CardPointe terminal per station
 
   @@index([orgId, storeId])
   @@map("stations")
@@ -545,8 +559,11 @@ model Organization {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  users         User[]
-  stores        Store[]
+  users           User[]
+  stores          Store[]
+  cpMerchant      CardPointeMerchant?
+  subscription    OrgSubscription?
+  purchaseOrders  PurchaseOrder[]
 
   @@map("organizations")
 }
@@ -1559,5 +1576,420 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt
 
   @@map("system_config")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARDPOINTE PAYMENT INTEGRATION
+// PCI-compliant in-store card processing via CardPointe Gateway
+// and Integrated Terminal APIs.
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// CARDPOINTE MERCHANT
+// One set of credentials per Organization.
+// Stores the CardPointe merchant ID, API user/password.
+// apiPassword is AES-256 encrypted at rest in the controller.
+// ─────────────────────────────────────────────────
+model CardPointeMerchant {
+  id          String   @id @default(cuid())
+  orgId       String   @unique
+  merchId     String                   // CardPointe merchant ID (numeric)
+  apiUser     String                   // CardPointe API username
+  apiPassword String                   // AES-256 encrypted API password
+  site        String   @default("fts") // UAT: "fts", production varies per reseller
+  baseUrl     String?                  // optional override (e.g. custom hosted endpoint)
+  isLive      Boolean  @default(false) // false = UAT environment
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org          Organization        @relation(fields: [orgId], references: [id])
+  terminals    PaymentTerminal[]
+  transactions PaymentTransaction[]
+
+  @@map("cardpointe_merchants")
+}
+
+// ─────────────────────────────────────────────────
+// PAYMENT TERMINAL
+// Physical card reader registered per station.
+// hsn (hardware serial number) is the unique identifier
+// used in all CardPointe Terminal API calls.
+// ─────────────────────────────────────────────────
+model PaymentTerminal {
+  id          String    @id @default(cuid())
+  orgId       String
+  storeId     String
+  stationId   String?   @unique        // nullable — terminal may not be tied to a station yet
+  merchantId  String
+  hsn         String                   // hardware serial number — used in Terminal API
+  name        String?                  // "Register 1 Terminal", "Express Lane"
+  ipAddress   String?
+  port        Int       @default(6443) // HTTPS port (CardPointe Terminal API)
+  model       String?                  // "A920", "P400", etc.
+  status      String    @default("unknown") // active | inactive | unknown
+  lastSeenAt  DateTime?
+  lastPingMs  Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  merchant     CardPointeMerchant  @relation(fields: [merchantId], references: [id])
+  station      Station?            @relation(fields: [stationId], references: [id])
+  transactions PaymentTransaction[]
+
+  @@index([orgId, storeId])
+  @@map("payment_terminals")
+}
+
+// ─────────────────────────────────────────────────
+// PAYMENT TRANSACTION
+// PCI-safe record of every card transaction.
+// Raw PAN, CVV, and full magnetic-stripe data are
+// NEVER stored. Only CardPointe-issued tokens and
+// masked card info (last 4, acct type) are persisted.
+// ─────────────────────────────────────────────────
+model PaymentTransaction {
+  id               String   @id @default(cuid())
+  orgId            String
+  storeId          String
+  terminalId       String?  // FK to PaymentTerminal
+  merchantId       String   // FK to CardPointeMerchant
+  posTransactionId String?  // FK to Transaction.id (nullable — set after POS tx saved)
+
+  // ── CardPointe Gateway fields ───────────────────────────────
+  retref           String?  @unique  // retrieval reference number (CardPointe)
+  authCode         String?           // approval auth code
+  respCode         String?           // "000" = approved
+  respText         String?           // "Approval"
+
+  // ── Card info (PCI-safe — no raw PAN/CVV) ───────────────────
+  token            String?           // CardPointe token (not raw PAN)
+  lastFour         String?           // last 4 digits of card
+  acctType         String?           // VISA | MC | AMEX | DISC | DEBIT
+  expiry           String?           // MMYY
+  entryMode        String?           // CONTACTLESS | CHIP | SWIPE | MANUAL | KEYED
+
+  // ── Amounts ─────────────────────────────────────────────────
+  amount           Decimal  @db.Decimal(10, 2)
+  capturedAmount   Decimal? @db.Decimal(10, 2)
+
+  // ── Status ──────────────────────────────────────────────────
+  type             String   @default("sale")    // sale | void | refund
+  status           String   @default("pending") // pending | approved | declined | voided | refunded | error
+
+  // ── Signature ───────────────────────────────────────────────
+  signatureData    String?  @db.Text  // base64 SVG from Terminal API readSignature
+  signatureCaptured Boolean @default(false)
+
+  // ── Linkage ─────────────────────────────────────────────────
+  originalRetref   String?           // for void/refund — references original sale retref
+  invoiceNumber    String?           // matches posTransaction.txNumber
+  orderNote        String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant  CardPointeMerchant @relation(fields: [merchantId], references: [id])
+  terminal  PaymentTerminal?   @relation(fields: [terminalId], references: [id])
+
+  @@index([orgId, storeId])
+  @@index([posTransactionId])
+  @@index([retref])
+  @@map("payment_transactions")
+}
+
+// ─────────────────────────────────────────────────
+// PAYMENT SETTINGS
+// Per-store configuration for card payment behaviour.
+// ─────────────────────────────────────────────────
+model PaymentSettings {
+  id                  String   @id @default(cuid())
+  orgId               String
+  storeId             String   @unique
+
+  // Signature capture
+  signatureThreshold  Decimal  @default(25.00) @db.Decimal(10, 2) // require sig above this amount
+
+  // Tips
+  tipEnabled          Boolean  @default(false)
+  tipPresets          Json?                      // [15, 18, 20, 25] as percent integers
+
+  // Surcharge / convenience fee
+  surchargeEnabled    Boolean  @default(false)
+  surchargePercent    Decimal? @db.Decimal(5, 4) // e.g. 0.0300 = 3%
+
+  // Accepted card types
+  acceptCreditCards   Boolean  @default(true)
+  acceptDebitCards    Boolean  @default(true)
+  acceptAmex          Boolean  @default(true)
+  acceptContactless   Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("payment_settings")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BILLING — SUBSCRIPTION PLANS, INVOICES & EQUIPMENT
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// SUBSCRIPTION PLAN
+// ─────────────────────────────────────────────────
+model SubscriptionPlan {
+  id                String    @id @default(cuid())
+  name              String
+  slug              String    @unique
+  description       String?
+  basePrice         Decimal   @db.Decimal(10, 2)
+  pricePerStore     Decimal   @default(0) @db.Decimal(10, 2)
+  pricePerRegister  Decimal   @default(0) @db.Decimal(10, 2)
+  includedStores    Int       @default(1)
+  includedRegisters Int       @default(1)
+  trialDays         Int       @default(14)
+  isPublic          Boolean   @default(true)
+  isActive          Boolean   @default(true)
+  sortOrder         Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  addons        PlanAddon[]
+  subscriptions OrgSubscription[]
+
+  @@map("subscription_plans")
+}
+
+// ─────────────────────────────────────────────────
+// PLAN ADD-ON
+// ─────────────────────────────────────────────────
+model PlanAddon {
+  id          String           @id @default(cuid())
+  planId      String
+  plan        SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  key         String
+  label       String
+  price       Decimal          @db.Decimal(10, 2)
+  description String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([planId, key])
+  @@map("plan_addons")
+}
+
+// ─────────────────────────────────────────────────
+// ORG SUBSCRIPTION
+// ─────────────────────────────────────────────────
+model OrgSubscription {
+  id                   String           @id @default(cuid())
+  orgId                String           @unique
+  organization         Organization     @relation(fields: [orgId], references: [id])
+  planId               String
+  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  status               String           @default("trial")
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+
+  storeCount           Int              @default(1)
+  registerCount        Int              @default(1)
+  extraAddons          String[]
+
+  basePriceOverride    Decimal?         @db.Decimal(10, 2)
+
+  discountType         String?
+  discountValue        Decimal?         @db.Decimal(10, 2)
+  discountNote         String?
+  discountExpiry       DateTime?
+
+  paymentToken         String?
+  paymentMasked        String?
+  paymentMethod        String?
+
+  retryCount           Int              @default(0)
+  lastFailedAt         DateTime?
+  nextRetryAt          DateTime?
+
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  invoices             BillingInvoice[]
+
+  @@map("org_subscriptions")
+}
+
+// ─────────────────────────────────────────────────
+// BILLING INVOICE
+// ─────────────────────────────────────────────────
+model BillingInvoice {
+  id              String          @id @default(cuid())
+  invoiceNumber   String          @unique
+  subscriptionId  String
+  subscription    OrgSubscription @relation(fields: [subscriptionId], references: [id])
+
+  periodStart     DateTime
+  periodEnd       DateTime
+
+  baseAmount      Decimal         @db.Decimal(10, 2)
+  discountAmount  Decimal         @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal         @db.Decimal(10, 2)
+
+  status          String          @default("pending")
+  attempts        Int             @default(0)
+  lastAttemptAt   DateTime?
+  paidAt          DateTime?
+
+  retref          String?
+  authcode        String?
+  notes           String?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([subscriptionId, status])
+  @@map("billing_invoices")
+}
+
+// ─────────────────────────────────────────────────
+// EQUIPMENT PRODUCT
+// ─────────────────────────────────────────────────
+model EquipmentProduct {
+  id          String               @id @default(cuid())
+  name        String
+  slug        String               @unique
+  category    String
+  description String?
+  price       Decimal              @db.Decimal(10, 2)
+  images      String[]
+  specs       Json?
+  stockQty    Int                  @default(0)
+  trackStock  Boolean              @default(true)
+  isActive    Boolean              @default(true)
+  sortOrder   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  orderItems  EquipmentOrderItem[]
+
+  @@map("equipment_products")
+}
+
+// ─────────────────────────────────────────────────
+// EQUIPMENT ORDER
+// ─────────────────────────────────────────────────
+model EquipmentOrder {
+  id              String               @id @default(cuid())
+  orderNumber     String               @unique
+  orgId           String?
+
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  shippingAddress Json
+
+  subtotal        Decimal              @db.Decimal(10, 2)
+  shipping        Decimal              @db.Decimal(10, 2)
+  total           Decimal              @db.Decimal(10, 2)
+
+  paymentToken    String?
+  retref          String?
+  authcode        String?
+  paymentStatus   String               @default("pending")
+
+  status          String               @default("pending")
+  trackingCarrier String?
+  trackingNumber  String?
+  notes           String?
+
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  items           EquipmentOrderItem[]
+
+  @@map("equipment_orders")
+}
+
+// ─────────────────────────────────────────────────
+// EQUIPMENT ORDER ITEM
+// ─────────────────────────────────────────────────
+model EquipmentOrderItem {
+  id        String           @id @default(cuid())
+  orderId   String
+  order     EquipmentOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   EquipmentProduct @relation(fields: [productId], references: [id])
+  qty       Int
+  unitPrice Decimal          @db.Decimal(10, 2)
+  lineTotal Decimal          @db.Decimal(10, 2)
+  createdAt DateTime         @default(now())
+
+  @@map("equipment_order_items")
+}
+
+// ─────────────────────────────────────────────────
+// PURCHASE ORDER — Vendor reorder system
+// ─────────────────────────────────────────────────
+model PurchaseOrder {
+  id            String   @id @default(cuid())
+  orgId         String
+  storeId       String
+  vendorId      Int
+  poNumber      String   @unique   // "PO-YYYYMMDD-001"
+  status        String   @default("draft")  // draft, submitted, partial, received, cancelled
+
+  orderDate     DateTime @default(now())
+  expectedDate  DateTime?           // orderDate + vendor.leadTimeDays
+  receivedDate  DateTime?
+
+  subtotal      Decimal  @db.Decimal(10, 2)
+  taxTotal      Decimal  @db.Decimal(10, 2) @default(0)
+  grandTotal    Decimal  @db.Decimal(10, 2)
+
+  notes         String?
+  generatedBy   String   @default("manual")  // "manual" | "auto" | "suggestion"
+  createdById   String
+
+  items         PurchaseOrderItem[]
+  vendor        Vendor       @relation(fields: [vendorId], references: [id])
+  organization  Organization @relation(fields: [orgId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([vendorId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String   @id @default(cuid())
+  orderId         String
+  masterProductId Int
+
+  qtyOrdered      Int                // units ordered
+  qtyCases        Int     @default(0) // cases ordered (for display)
+  qtyReceived     Int     @default(0) // units actually received
+
+  unitCost        Decimal @db.Decimal(10, 4)
+  caseCost        Decimal @db.Decimal(10, 4) @default(0)
+  lineTotal       Decimal @db.Decimal(10, 2)
+
+  // Algorithm metadata — why this qty was suggested
+  forecastDemand    Decimal? @db.Decimal(10, 2)
+  safetyStock       Decimal? @db.Decimal(10, 2)
+  currentOnHand     Decimal? @db.Decimal(10, 2)
+  avgDailySales     Decimal? @db.Decimal(10, 4)
+  reorderReason     String?  // "below_reorder_point","forecast_demand","trending_up","low_days_supply"
+
+  order           PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         MasterProduct  @relation(fields: [masterProductId], references: [id])
+
+  createdAt       DateTime @default(now())
+
+  @@map("purchase_order_items")
 }
 

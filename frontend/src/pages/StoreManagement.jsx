@@ -526,7 +526,7 @@ function PlanLimitBanner({ message, onDismiss }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-export default function StoreManagement() {
+export default function StoreManagement({ embedded }) {
   const [stores,      setStores]      = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
@@ -557,10 +557,8 @@ export default function StoreManagement() {
   const totalRegisters = stores.reduce((n, s) => n + (s.stationCount || 1), 0);
   const totalMonthly   = stores.reduce((n, s) => n + calcMonthly(s.stationCount || 1), 0);
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  const content = (
+    <>
 
         <div className="analytics-header">
           <div>
@@ -620,7 +618,6 @@ export default function StoreManagement() {
             ))}
           </div>
         )}
-      </main>
 
       {showModal && (
         <StoreModal
@@ -630,6 +627,17 @@ export default function StoreManagement() {
           onLimitHit={handleLimitHit}
         />
       )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
+      </main>
     </div>
   );
 }

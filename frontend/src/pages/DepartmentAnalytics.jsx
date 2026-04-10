@@ -3,10 +3,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
-import { Store, TrendingUp, BarChart2, RefreshCw, AlertCircle } from 'lucide-react';
+import { Store, TrendingUp, BarChart2, RefreshCw, AlertCircle, Download, FileText } from 'lucide-react';
+import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import Sidebar from '../components/Sidebar';
 import { getDepartmentSales, getDepartmentComparison } from '../services/api';
 import './analytics.css';
+import '../styles/portal.css';
 
 /* ─── Constants ─── */
 const COLORS = [
@@ -64,7 +66,7 @@ const CustomPieLabel = ({ cx, cy, midAngle, outerRadius, name, percent }) => {
   );
 };
 
-export default function DepartmentAnalytics() {
+export default function DepartmentAnalytics({ embedded }) {
   const [range, setRange]         = useState({ from: daysAgo(30), to: toISO(new Date()) });
   const [prevRange, setPrevRange] = useState({ from2: daysAgo(60), to2: daysAgo(31) });
   const [deptData, setDeptData]   = useState(null);
@@ -108,10 +110,39 @@ export default function DepartmentAnalytics() {
   const topDept      = barData[0]?.name || '—';
   const avgRevenue   = depts.length ? totalRevenue / depts.length : 0;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  /* ─── Export handlers ─── */
+  const deptExportColumns = [
+    { key: 'Name', label: 'Department' },
+    { key: 'TotalSales', label: 'Total Sales' },
+    { key: 'TotalGrossSales', label: 'Gross Sales' },
+    { key: 'TotalItems', label: 'Items Sold' },
+    { key: 'TotalTransactionsCount', label: 'Transactions' },
+    { key: 'TotalAvgPrice', label: 'Avg Price' },
+    { key: 'TotalPercent', label: '% of Total' },
+  ];
+
+  const handleExportCSV = () => {
+    downloadCSV(depts, deptExportColumns, 'department_analytics');
+  };
+
+  const handleExportPDF = () => {
+    downloadPDF({
+      title: 'Department Analytics',
+      subtitle: `${range.from} to ${range.to}`,
+      summary: [
+        { label: 'Total Revenue', value: fmt(totalRevenue) },
+        { label: 'Top Department', value: topDept },
+        { label: 'Avg Dept Revenue', value: fmt(avgRevenue) },
+        { label: 'Departments', value: String(depts.length) },
+      ],
+      data: depts,
+      columns: deptExportColumns,
+      filename: 'department_analytics',
+    });
+  };
+
+  const content = (
+    <>
 
         {/* ── Header ── */}
         <div className="analytics-header">
@@ -134,6 +165,12 @@ export default function DepartmentAnalytics() {
               onChange={(e) => setPrevRange((r) => ({ ...r, to2: e.target.value }))} />
             <button className="btn btn-secondary" onClick={fetchData} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <RefreshCw size={15} /> Refresh
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportCSV}>
+              <Download size={13} /> CSV
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportPDF}>
+              <FileText size={13} /> PDF
             </button>
           </div>
         </div>
@@ -387,6 +424,16 @@ export default function DepartmentAnalytics() {
           </>
         )}
 
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
       </main>
     </div>
   );

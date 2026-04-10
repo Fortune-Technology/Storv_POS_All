@@ -23,7 +23,7 @@ async function api(method, path, body) {
   return data;
 }
 
-export default function EcomDomain() {
+export default function EcomDomain({ embedded }) {
   const [domain, setDomain] = useState(null);
   const [newDomain, setNewDomain] = useState('');
   const [loading, setLoading] = useState(true);
@@ -76,10 +76,14 @@ export default function EcomDomain() {
     } catch (e) { toast.error(e.message); }
   };
 
-  if (loading) return <div className="layout-container"><Sidebar /><main className="main-content"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></main></div>;
+  if (loading) {
+    const loadingContent = <p style={{ color: 'var(--text-muted)' }}>Loading...</p>;
+    if (embedded) return <div className="p-tab-content">{loadingContent}</div>;
+    return <div className="layout-container"><Sidebar /><main className="main-content">{loadingContent}</main></div>;
+  }
 
-  return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
+  const content = (
+    <>
       <div className="edom-header">
         <h1 className="edom-title">Custom Domain</h1>
         <p className="edom-subtitle">Connect your own domain for a fully branded storefront experience.</p>
@@ -175,6 +179,14 @@ export default function EcomDomain() {
           </p>
         </div>
       </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container"><Sidebar /><main className="main-content">
+      {content}
     </main></div>
   );
 }

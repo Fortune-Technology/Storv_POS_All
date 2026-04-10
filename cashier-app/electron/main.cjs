@@ -5,7 +5,7 @@
  * WITHOUT requiring QZ Tray.
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path   = require('path');
 const net    = require('net');
 const fs     = require('fs');
@@ -65,7 +65,57 @@ function createWindow() {
   return win;
 }
 
-app.whenReady().then(createWindow);
+// ── Customer Display — auto-opens on secondary monitor ────────────────────
+let customerDisplayWin = null;
+
+function createCustomerDisplay() {
+  const displays    = screen.getAllDisplays();
+  const primaryId   = screen.getPrimaryDisplay().id;
+  const secondary   = displays.find(d => d.id !== primaryId);
+
+  // Only auto-open when a second monitor is connected
+  if (!secondary) return null;
+
+  const { x, y, width, height } = secondary.bounds;
+
+  customerDisplayWin = new BrowserWindow({
+    x, y, width, height,
+    fullscreen:      true,
+    frame:           false,
+    autoHideMenuBar: true,
+    backgroundColor: '#0a0c12',
+    webPreferences: {
+      preload:          path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration:  false,
+    },
+    // Don't show in taskbar — it's a peripheral display, not a user-facing window
+    skipTaskbar: true,
+  });
+
+  if (isDev) {
+    customerDisplayWin.loadURL('http://localhost:5174/#/customer-display');
+  } else {
+    // For file:// protocol, hash must be appended after loading
+    customerDisplayWin.loadFile(
+      path.join(__dirname, '../dist/index.html'),
+      { hash: '/customer-display' }
+    );
+  }
+
+  customerDisplayWin.on('closed', () => { customerDisplayWin = null; });
+
+  return customerDisplayWin;
+}
+
+app.whenReady().then(() => {
+  const mainWin = createWindow();
+
+  // Give the main window a moment to initialize, then open customer display
+  mainWin.once('ready-to-show', () => {
+    createCustomerDisplay();
+  });
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -349,6 +399,23 @@ function registerAppIPC(ipcMain, win) {
   });
   ipcMain.handle('app:reload', () => win.reload());
   ipcMain.handle('app:quit',   () => app.quit());
+
+  // ── Customer Display control ────────────────────────────────────────────
+  ipcMain.handle('app:open-customer-display', () => {
+    if (customerDisplayWin && !customerDisplayWin.isDestroyed()) {
+      customerDisplayWin.focus();
+      return { ok: true, alreadyOpen: true };
+    }
+    const w = createCustomerDisplay();
+    return { ok: !!w, alreadyOpen: false };
+  });
+
+  ipcMain.handle('app:close-customer-display', () => {
+    if (customerDisplayWin && !customerDisplayWin.isDestroyed()) {
+      customerDisplayWin.close();
+    }
+    return { ok: true };
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════

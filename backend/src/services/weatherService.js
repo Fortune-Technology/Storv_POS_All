@@ -302,6 +302,90 @@ export const getCurrentWeather = async (latitude, longitude, timezone = 'America
 };
 
 // ═══════════════════════════════════════════════════════
+// HOURLY FORECAST (next 24h)
+// ═══════════════════════════════════════════════════════
+
+export const getHourlyForecast = async (latitude, longitude, timezone = 'America/New_York') => {
+  if (!latitude || !longitude) return [];
+  const lat = Math.round(latitude * 100) / 100;
+  const lng = Math.round(longitude * 100) / 100;
+
+  try {
+    const resp = await axios.get(FORECAST_URL, {
+      params: {
+        latitude: lat, longitude: lng,
+        hourly: 'temperature_2m,precipitation_probability,weathercode,windspeed_10m,relative_humidity_2m',
+        temperature_unit: 'fahrenheit',
+        windspeed_unit: 'mph',
+        timezone,
+        forecast_days: 2,
+      },
+      timeout: 10000,
+    });
+
+    const h = resp.data?.hourly;
+    if (!h?.time) return [];
+
+    return h.time.slice(0, 48).map((t, i) => ({
+      time: t,
+      hour: new Date(t).getHours(),
+      temperature: h.temperature_2m?.[i],
+      precipitationChance: h.precipitation_probability?.[i] ?? 0,
+      weatherCode: h.weathercode?.[i],
+      ...mapWeatherCode(h.weathercode?.[i]),
+      windSpeed: h.windspeed_10m?.[i],
+      humidity: h.relative_humidity_2m?.[i],
+    }));
+  } catch (err) {
+    console.warn('⚠ Failed to fetch hourly forecast:', err.message);
+    return [];
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// 10-DAY FORECAST
+// ═══════════════════════════════════════════════════════
+
+export const getTenDayForecast = async (latitude, longitude, timezone = 'America/New_York') => {
+  if (!latitude || !longitude) return [];
+  const lat = Math.round(latitude * 100) / 100;
+  const lng = Math.round(longitude * 100) / 100;
+
+  try {
+    const resp = await axios.get(FORECAST_URL, {
+      params: {
+        latitude: lat, longitude: lng,
+        daily: DAILY_PARAMS + ',precipitation_probability_max',
+        temperature_unit: 'fahrenheit',
+        windspeed_unit: 'mph',
+        timezone,
+        forecast_days: 10,
+      },
+      timeout: 10000,
+    });
+
+    const d = resp.data?.daily;
+    if (!d?.time) return [];
+
+    return d.time.map((date, i) => ({
+      date,
+      dayName: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
+      tempMax: d.temperature_2m_max?.[i],
+      tempMin: d.temperature_2m_min?.[i],
+      precipitation: d.precipitation_sum?.[i] ?? 0,
+      precipitationChance: d.precipitation_probability_max?.[i] ?? 0,
+      weatherCode: d.weathercode?.[i],
+      ...mapWeatherCode(d.weathercode?.[i]),
+      windSpeed: d.windspeed_10m_max?.[i],
+      humidity: d.relative_humidity_2m_mean?.[i],
+    }));
+  } catch (err) {
+    console.warn('⚠ Failed to fetch 10-day forecast:', err.message);
+    return [];
+  }
+};
+
+// ═══════════════════════════════════════════════════════
 // AGGREGATION HELPERS
 // ═══════════════════════════════════════════════════════
 
@@ -448,6 +532,8 @@ function mode(arr) {
 export default {
   fetchWeatherRange,
   getCurrentWeather,
+  getHourlyForecast,
+  getTenDayForecast,
   mapWeatherCode,
   aggregateWeatherWeekly,
   aggregateWeatherMonthly,

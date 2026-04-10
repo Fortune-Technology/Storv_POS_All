@@ -218,7 +218,7 @@ function FolderCard({ folder, onUpdate, onDelete }) {
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────
-export default function QuickAccess() {
+export default function QuickAccess({ embedded }) {
   const [stores,   setStores]   = useState([]);
   const [storeId,  setStoreId]  = useState(localStorage.getItem('activeStoreId') || '');
   const [folders,  setFolders]  = useState([]);
@@ -291,85 +291,93 @@ export default function QuickAccess() {
     } finally { setSaving(false); }
   };
 
+  const content = (
+    <>
+      <div className="qa-page">
+
+        {/* Header */}
+        <div className="qa-header">
+          <div className="qa-header-left">
+            <div className="qa-header-icon">
+              <LayoutGrid size={18} color="var(--accent-primary, #6366f1)" />
+            </div>
+            <div>
+              <h1>Quick Access Folders</h1>
+              <p>Create product folders for fast access at the POS terminal</p>
+            </div>
+          </div>
+          <div className="qa-header-actions">
+            {stores.length > 1 && (
+              <select
+                className="qa-store-select"
+                value={storeId}
+                onChange={e => setStoreId(e.target.value)}
+              >
+                {stores.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+            <button className="qa-btn-add" onClick={addFolder} disabled={loading}>
+              <Plus size={14} /> Add Folder
+            </button>
+            {dirty && (
+              <button className="qa-btn-save" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : <><Check size={14} /> Save Changes</>}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="qa-info">
+          <Info size={14} color="var(--accent-primary, #6366f1)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
+            Folders appear as large buttons on the POS screen. Cashiers can tap a folder to see its products and
+            add them to cart in one tap. Examples: Fruits, Vegetables, Limes &amp; Lemons, Ice (for liquor stores), Daily Specials.
+          </span>
+        </div>
+
+        {error && (
+          <div className="qa-error">
+            <span>{error}</span>
+            <button style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer' }} onClick={() => setError('')}><X size={14} /></button>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="qa-empty">Loading configuration…</div>
+        ) : folders.length === 0 ? (
+          <div className="qa-empty">
+            <LayoutGrid size={32} style={{ marginBottom: 12, opacity: 0.2 }} /><br />
+            No quick access folders yet.<br />
+            <span style={{ fontSize: '0.8rem' }}>
+              Click <strong style={{ color: 'var(--text-secondary)' }}>Add Folder</strong> to create your first folder — like "Fruits", "Beverages", or "Daily Specials".
+            </span>
+          </div>
+        ) : (
+          <div className="qa-folders">
+            {folders.map(folder => (
+              <FolderCard
+                key={folder.id}
+                folder={folder}
+                onUpdate={updateFolder}
+                onDelete={deleteFolder}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
   return (
     <div className="layout-container">
       <Sidebar />
       <div className="main-content">
-        <div className="qa-page">
-
-          {/* Header */}
-          <div className="qa-header">
-            <div className="qa-header-left">
-              <div className="qa-header-icon">
-                <LayoutGrid size={18} color="var(--accent-primary, #6366f1)" />
-              </div>
-              <div>
-                <h1>Quick Access Folders</h1>
-                <p>Create product folders for fast access at the POS terminal</p>
-              </div>
-            </div>
-            <div className="qa-header-actions">
-              {stores.length > 1 && (
-                <select
-                  className="qa-store-select"
-                  value={storeId}
-                  onChange={e => setStoreId(e.target.value)}
-                >
-                  {stores.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              )}
-              <button className="qa-btn-add" onClick={addFolder} disabled={loading}>
-                <Plus size={14} /> Add Folder
-              </button>
-              {dirty && (
-                <button className="qa-btn-save" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving…' : <><Check size={14} /> Save Changes</>}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Info */}
-          <div className="qa-info">
-            <Info size={14} color="var(--accent-primary, #6366f1)" style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>
-              Folders appear as large buttons on the POS screen. Cashiers can tap a folder to see its products and
-              add them to cart in one tap. Examples: Fruits, Vegetables, Limes &amp; Lemons, Ice (for liquor stores), Daily Specials.
-            </span>
-          </div>
-
-          {error && (
-            <div className="qa-error">
-              <span>{error}</span>
-              <button style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer' }} onClick={() => setError('')}><X size={14} /></button>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="qa-empty">Loading configuration…</div>
-          ) : folders.length === 0 ? (
-            <div className="qa-empty">
-              <LayoutGrid size={32} style={{ marginBottom: 12, opacity: 0.2 }} /><br />
-              No quick access folders yet.<br />
-              <span style={{ fontSize: '0.8rem' }}>
-                Click <strong style={{ color: 'var(--text-secondary)' }}>Add Folder</strong> to create your first folder — like "Fruits", "Beverages", or "Daily Specials".
-              </span>
-            </div>
-          ) : (
-            <div className="qa-folders">
-              {folders.map(folder => (
-                <FolderCard
-                  key={folder.id}
-                  folder={folder}
-                  onUpdate={updateFolder}
-                  onDelete={deleteFolder}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        {content}
       </div>
     </div>
   );

@@ -3,10 +3,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line, Legend
 } from 'recharts';
-import { TrendingUp, Package, Search, RefreshCw } from 'lucide-react';
+import { TrendingUp, Package, Search, RefreshCw, Download, FileText } from 'lucide-react';
+import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import Sidebar from '../components/Sidebar';
 import { getTopProducts, getProductsGrouped, getProductMovement } from '../services/api';
 import './analytics.css';
+import '../styles/portal.css';
 
 /* ─── Helpers ─── */
 const fmt = (n) => n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -38,7 +40,7 @@ const ChartTooltip = ({ active, payload, label }) => {
   );
 };
 
-export default function ProductAnalytics() {
+export default function ProductAnalytics({ embedded }) {
   const [range, setRange]       = useState({ from: daysAgo(30), to: toISO(new Date()) });
   const [topDate, setTopDate]   = useState(yesterday());
 
@@ -121,10 +123,40 @@ export default function ProductAnalytics() {
     Profit:  r.Profit      || 0,
   }));
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  /* ─── Export handlers ─── */
+  const productExportColumns = [
+    { key: 'Upc', label: 'UPC' },
+    { key: '_Description', label: 'Description' },
+    { key: '_Department', label: 'Department' },
+    { key: 'NetSales', label: 'Net Sales' },
+    { key: 'GrossSales', label: 'Gross Sales' },
+    { key: 'QtySold', label: 'Units Sold' },
+    { key: 'TotalCost', label: 'Total Cost' },
+    { key: 'Profit', label: 'Profit' },
+  ];
+
+  const exportableSellers = sellers.map((p) => ({
+    ...p,
+    _Description: p.Sales?.[0]?.Description || '',
+    _Department: p.Sales?.[0]?.Department || '',
+  }));
+
+  const handleExportCSV = () => {
+    downloadCSV(exportableSellers, productExportColumns, 'product_analytics');
+  };
+
+  const handleExportPDF = () => {
+    downloadPDF({
+      title: 'Product Analytics — Best Sellers',
+      subtitle: `${range.from} to ${range.to}`,
+      data: exportableSellers,
+      columns: productExportColumns,
+      filename: 'product_analytics',
+    });
+  };
+
+  const content = (
+    <>
 
         {/* ── Header ── */}
         <div className="analytics-header">
@@ -141,6 +173,12 @@ export default function ProductAnalytics() {
               onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
             <button className="btn btn-secondary" onClick={fetchSellers} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <RefreshCw size={15} /> Refresh
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportCSV}>
+              <Download size={13} /> CSV
+            </button>
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleExportPDF}>
+              <FileText size={13} /> PDF
             </button>
           </div>
         </div>
@@ -319,6 +357,16 @@ export default function ProductAnalytics() {
           )}
         </div>
 
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
       </main>
     </div>
   );

@@ -388,7 +388,7 @@ function BillingRow({ store, isLast }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-export default function Organisation() {
+export default function Organisation({ embedded }) {
   const navigate = useNavigate();
   const [tenant,    setTenant]    = useState(null);
   const [billing,   setBilling]   = useState(null);
@@ -486,10 +486,8 @@ export default function Organisation() {
 
   const nextPlan = PLANS[PLANS.findIndex(p => p.value === plan) + 1] || null;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  const content = (
+    <>
 
         {/* Header */}
         <div className="analytics-header">
@@ -834,7 +832,6 @@ export default function Organisation() {
             </a>
           </div>
         )}
-      </main>
 
       {/* Plan change modal */}
       {showPlan && tenant && (
@@ -935,6 +932,17 @@ export default function Organisation() {
           </div>
         </div>
       )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
+      </main>
     </div>
   );
 }

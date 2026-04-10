@@ -317,7 +317,7 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-export default function TaxRules() {
+export default function TaxRules({ embedded }) {
   const [rules,    setRules]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -380,8 +380,8 @@ export default function TaxRules() {
     return acc;
   }, {});
 
-  return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 900, margin: '0 auto' }}>
+  const content = (
+    <>
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
@@ -545,6 +545,14 @@ export default function TaxRules() {
           </div>
         ))
       )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div style={{ padding: '1.5rem 2rem', maxWidth: 900, margin: '0 auto' }}>
+      {content}
     </div>
   );
 }

@@ -18,7 +18,7 @@ const DEFAULT_TENDER_METHODS = [
   { id: 'interac',       label: 'Interac e-Transfer', enabled: false },
 ];
 
-export default function StoreSettings() {
+export default function StoreSettings({ embedded }) {
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const [stores,      setStores]      = useState([]);
   const [storeId,     setStoreId]     = useState(localStorage.getItem('activeStoreId') || '');
@@ -92,10 +92,8 @@ export default function StoreSettings() {
     } finally { setSaving(false); }
   };
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">
+  const content = (
+    <>
         <div className="ss-page">
 
           {/* Header */}
@@ -191,6 +189,16 @@ export default function StoreSettings() {
           </div>
 
         </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <div className="main-content">
+        {content}
       </div>
     </div>
   );

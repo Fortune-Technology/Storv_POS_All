@@ -320,7 +320,7 @@ function DeleteConfirm({ customer, onConfirm, onClose, saving }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-export default function Customers() {
+export default function Customers({ embedded }) {
   const [customers,   setCustomers]   = useState([]);
   const [total,       setTotal]       = useState(0);
   const [totalPages,  setTotalPages]  = useState(1);
@@ -416,146 +416,9 @@ export default function Customers() {
     setViewTarget(null);
   };
 
-  /* ── Render ──────────────────────────────────────────────────────────────── */
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content cust-page">
-
-        {/* Header */}
-        <div className="cust-header">
-          <div>
-            <h1 className="cust-title">Customers</h1>
-            <p className="cust-subtitle">{total.toLocaleString()} customers</p>
-          </div>
-          <div className="cust-header-actions">
-            <button className="cust-btn" onClick={() => load(page, search)} disabled={loading}>
-              <RefreshCw size={13} className={loading ? 'cust-spin' : ''} />
-              Refresh
-            </button>
-            <button className="cust-btn cust-btn-primary" onClick={() => setFormMode('create')}>
-              <Plus size={14} /> Add Customer
-            </button>
-          </div>
-        </div>
-
-        {/* Search bar */}
-        <div className="cust-search-bar">
-          <Search size={14} className="cust-search-icon" />
-          <input
-            ref={searchRef}
-            className="cust-search-input"
-            placeholder="Search by name, phone, email or card number…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          {search && (
-            <button className="cust-search-clear" onClick={() => setSearch('')}>
-              <X size={13} />
-            </button>
-          )}
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="cust-error">
-            <AlertCircle size={14} /> {error}
-          </div>
-        )}
-
-        {/* Table */}
-        <div className="cust-table-card">
-          <div className="cust-table-header">
-            <span>Customer</span>
-            <span>Contact</span>
-            <span>Loyalty</span>
-            <span>Discount</span>
-            <span>Balance</span>
-            <span>Card #</span>
-            <span style={{ textAlign: 'right' }}>Actions</span>
-          </div>
-
-          {loading && customers.length === 0 ? (
-            <div className="cust-empty">
-              <RefreshCw size={26} className="cust-spin" style={{ opacity: 0.3 }} />
-              <span>Loading…</span>
-            </div>
-          ) : customers.length === 0 ? (
-            <div className="cust-empty">
-              <User size={32} style={{ opacity: 0.2 }} />
-              <span>{search ? 'No customers match your search.' : 'No customers yet. Click "Add Customer" to get started.'}</span>
-            </div>
-          ) : (
-            customers.map(c => (
-              <div key={c.id} className="cust-table-row">
-                {/* Name */}
-                <div className="cust-name-cell">
-                  <div className="cust-avatar">{initial(c)}</div>
-                  <div>
-                    <div className="cust-name">{displayName(c)}</div>
-                    <div className="cust-id-muted">#{c.id.slice(-8)}</div>
-                  </div>
-                </div>
-                {/* Contact */}
-                <div className="cust-contact-cell">
-                  {c.phone && <div className="cust-contact-line"><Phone size={11} /> {c.phone}</div>}
-                  {c.email && <div className="cust-contact-line"><Mail size={11} /> {c.email}</div>}
-                  {!c.phone && !c.email && <span className="cust-muted">—</span>}
-                </div>
-                {/* Loyalty */}
-                <div className="cust-pts">
-                  <Award size={13} style={{ color: '#f59e0b' }} />
-                  {(c.loyaltyPoints || 0).toLocaleString()} pts
-                </div>
-                {/* Discount */}
-                <div className="cust-discount">
-                  {c.discount != null ? <span className="cust-badge-green">{fmtPc(c.discount)}</span> : <span className="cust-muted">—</span>}
-                </div>
-                {/* Balance */}
-                <div className="cust-balance">
-                  {c.balance != null ? (
-                    <span style={{ color: parseFloat(c.balance) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
-                      {fmt(c.balance)}
-                    </span>
-                  ) : <span className="cust-muted">—</span>}
-                </div>
-                {/* Card */}
-                <div className="cust-card">
-                  {c.cardNo ? <span className="cust-mono">{c.cardNo}</span> : <span className="cust-muted">—</span>}
-                </div>
-                {/* Actions */}
-                <div className="cust-actions">
-                  <button className="cust-btn cust-btn-sm" onClick={() => setViewTarget(c)}>View</button>
-                  <button className="cust-btn cust-btn-sm" onClick={() => openEdit(c)} title="Edit">
-                    <Edit2 size={13} />
-                  </button>
-                  <button className="cust-btn cust-btn-sm cust-btn-danger-ghost" onClick={() => setDeleteTarget(c)} title="Delete">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="cust-pagination">
-              <button className="cust-btn cust-btn-sm cust-btn-icon" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                <ChevronLeft size={14} />
-              </button>
-              <span className="cust-page-info">
-                Page {page} of {totalPages} · {total.toLocaleString()} customers
-              </span>
-              <button className="cust-btn cust-btn-sm cust-btn-icon" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-
-      </main>
-
-      {/* Modals */}
+  /* ── Modals (shared between embedded and standalone) ──────────────────── */
+  const modals = (
+    <>
       {formMode === 'create' && (
         <CustomerForm
           initial={null}
@@ -587,6 +450,154 @@ export default function Customers() {
           saving={saving}
         />
       )}
+    </>
+  );
+
+  /* ── Render ──────────────────────────────────────────────────────────────── */
+  const content = (
+    <>
+      {/* Header */}
+      <div className="cust-header">
+        <div>
+          <h1 className="cust-title">Customers</h1>
+          <p className="cust-subtitle">{total.toLocaleString()} customers</p>
+        </div>
+        <div className="cust-header-actions">
+          <button className="cust-btn" onClick={() => load(page, search)} disabled={loading}>
+            <RefreshCw size={13} className={loading ? 'cust-spin' : ''} />
+            Refresh
+          </button>
+          <button className="cust-btn cust-btn-primary" onClick={() => setFormMode('create')}>
+            <Plus size={14} /> Add Customer
+          </button>
+        </div>
+      </div>
+
+      {/* Search bar */}
+      <div className="cust-search-bar">
+        <Search size={14} className="cust-search-icon" />
+        <input
+          ref={searchRef}
+          className="cust-search-input"
+          placeholder="Search by name, phone, email or card number…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        {search && (
+          <button className="cust-search-clear" onClick={() => setSearch('')}>
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="cust-error">
+          <AlertCircle size={14} /> {error}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="cust-table-card">
+        <div className="cust-table-header">
+          <span>Customer</span>
+          <span>Contact</span>
+          <span>Loyalty</span>
+          <span>Discount</span>
+          <span>Balance</span>
+          <span>Card #</span>
+          <span style={{ textAlign: 'right' }}>Actions</span>
+        </div>
+
+        {loading && customers.length === 0 ? (
+          <div className="cust-empty">
+            <RefreshCw size={26} className="cust-spin" style={{ opacity: 0.3 }} />
+            <span>Loading…</span>
+          </div>
+        ) : customers.length === 0 ? (
+          <div className="cust-empty">
+            <User size={32} style={{ opacity: 0.2 }} />
+            <span>{search ? 'No customers match your search.' : 'No customers yet. Click "Add Customer" to get started.'}</span>
+          </div>
+        ) : (
+          customers.map(c => (
+            <div key={c.id} className="cust-table-row">
+              {/* Name */}
+              <div className="cust-name-cell">
+                <div className="cust-avatar">{initial(c)}</div>
+                <div>
+                  <div className="cust-name">{displayName(c)}</div>
+                  <div className="cust-id-muted">#{c.id.slice(-8)}</div>
+                </div>
+              </div>
+              {/* Contact */}
+              <div className="cust-contact-cell">
+                {c.phone && <div className="cust-contact-line"><Phone size={11} /> {c.phone}</div>}
+                {c.email && <div className="cust-contact-line"><Mail size={11} /> {c.email}</div>}
+                {!c.phone && !c.email && <span className="cust-muted">—</span>}
+              </div>
+              {/* Loyalty */}
+              <div className="cust-pts">
+                <Award size={13} style={{ color: '#f59e0b' }} />
+                {(c.loyaltyPoints || 0).toLocaleString()} pts
+              </div>
+              {/* Discount */}
+              <div className="cust-discount">
+                {c.discount != null ? <span className="cust-badge-green">{fmtPc(c.discount)}</span> : <span className="cust-muted">—</span>}
+              </div>
+              {/* Balance */}
+              <div className="cust-balance">
+                {c.balance != null ? (
+                  <span style={{ color: parseFloat(c.balance) >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                    {fmt(c.balance)}
+                  </span>
+                ) : <span className="cust-muted">—</span>}
+              </div>
+              {/* Card */}
+              <div className="cust-card">
+                {c.cardNo ? <span className="cust-mono">{c.cardNo}</span> : <span className="cust-muted">—</span>}
+              </div>
+              {/* Actions */}
+              <div className="cust-actions">
+                <button className="cust-btn cust-btn-sm" onClick={() => setViewTarget(c)}>View</button>
+                <button className="cust-btn cust-btn-sm" onClick={() => openEdit(c)} title="Edit">
+                  <Edit2 size={13} />
+                </button>
+                <button className="cust-btn cust-btn-sm cust-btn-danger-ghost" onClick={() => setDeleteTarget(c)} title="Delete">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="cust-pagination">
+            <button className="cust-btn cust-btn-sm cust-btn-icon" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <ChevronLeft size={14} />
+            </button>
+            <span className="cust-page-info">
+              Page {page} of {totalPages} · {total.toLocaleString()} customers
+            </span>
+            <button className="cust-btn cust-btn-sm cust-btn-icon" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content cust-page">{content}{modals}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content cust-page">
+        {content}
+      </main>
+      {modals}
     </div>
   );
 }

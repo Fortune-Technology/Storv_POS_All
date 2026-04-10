@@ -46,7 +46,7 @@ const PER_PAGE = 50;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function PosEventLog() {
+export default function PosEventLog({ embedded }) {
   const today   = toLocalDateStr();
   const setup   = useSetupStatus();
 
@@ -117,10 +117,8 @@ export default function PosEventLog() {
   // ── Presets ───────────────────────────────────────────────────────────────────
   const setPreset = (n) => { setDateFrom(shiftDays(today, n)); setDateTo(today); setPage(1); };
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content pel-page">
+  const content = (
+    <>
 
         {/* Header */}
         <div className="pel-header">
@@ -293,6 +291,16 @@ export default function PosEventLog() {
           )}
         </div>
 
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <div className="main-content pel-page">
+        {content}
       </div>
     </div>
   );

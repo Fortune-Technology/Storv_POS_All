@@ -45,6 +45,33 @@ import {
   getUserActivity,
   getJobApplications,
   updateJobApplication,
+  adminListPaymentTerminals,
+  adminPingTerminal,
+  adminGetPaymentMerchant,
+  adminSavePaymentMerchant,
+  adminGetPaymentSettings,
+  adminSavePaymentSettings,
+  adminListPaymentHistory,
+  adminCreateTerminal,
+  adminUpdateTerminal,
+  adminDeleteTerminal,
+  adminListPlans,
+  adminCreatePlan,
+  adminUpdatePlan,
+  adminDeletePlan,
+  adminCreateAddon,
+  adminUpdateAddon,
+  adminListSubscriptions,
+  adminGetSubscription,
+  adminUpsertSubscription,
+  adminListInvoices,
+  adminWriteOffInvoice,
+  adminRetryInvoiceNow,
+  adminListEquipmentProducts,
+  adminCreateEquipmentProduct,
+  adminUpdateEquipmentProduct,
+  adminListEquipmentOrders,
+  adminUpdateEquipmentOrder,
 } from '../controllers/adminController.js';
 
 const router = Router();
@@ -108,5 +135,46 @@ router.post('/tickets/:id/reply',   addAdminTicketReply);
 // System config
 router.get('/config',             getSystemConfig);
 router.put('/config',             updateSystemConfig);
+
+// Payment terminals (cross-org superadmin view)
+router.get('/payment/terminals',            adminListPaymentTerminals);
+router.post('/payment/terminals/:id/ping',  adminPingTerminal);
+
+// ── Payment management (cross-org superadmin) ─────────────────────────────
+router.get( '/payment/merchant',             adminGetPaymentMerchant);
+router.put( '/payment/merchant',             adminSavePaymentMerchant);
+router.get( '/payment/settings/:storeId',    adminGetPaymentSettings);
+router.put( '/payment/settings/:storeId',    adminSavePaymentSettings);
+router.get( '/payment/history',              adminListPaymentHistory);
+router.post('/payment/terminals',            adminCreateTerminal);
+router.put( '/payment/terminals/:id',        adminUpdateTerminal);
+router.delete('/payment/terminals/:id',      adminDeleteTerminal);
+
+// ── Admin Billing — Plans ──────────────────────────────────────────────────
+router.get('/billing/plans',                adminListPlans);
+router.post('/billing/plans',               adminCreatePlan);
+router.put('/billing/plans/:id',            adminUpdatePlan);
+router.delete('/billing/plans/:id',         adminDeletePlan);
+router.post('/billing/addons',              adminCreateAddon);
+router.put('/billing/addons/:id',           adminUpdateAddon);
+
+// ── Admin Billing — Subscriptions ──────────────────────────────────────────
+router.get('/billing/subscriptions',              adminListSubscriptions);
+router.get('/billing/subscriptions/:orgId',       adminGetSubscription);
+router.put('/billing/subscriptions/:orgId',       adminUpsertSubscription);
+
+// ── Admin Billing — Invoices ────────────────────────────────────────────────
+router.get('/billing/invoices',                   adminListInvoices);
+router.post('/billing/invoices/:id/write-off',    adminWriteOffInvoice);
+router.post('/billing/invoices/:id/retry',        adminRetryInvoiceNow);
+
+// ── Admin Billing — Equipment Products ─────────────────────────────────────
+router.get('/billing/equipment/products',         adminListEquipmentProducts);
+router.post('/billing/equipment/products',        adminCreateEquipmentProduct);
+router.put('/billing/equipment/products/:id',     adminUpdateEquipmentProduct);
+
+// ── Admin Billing — Equipment Orders ───────────────────────────────────────
+router.get('/billing/equipment/orders',           adminListEquipmentOrders);
+router.put('/billing/equipment/orders/:id',       adminUpdateEquipmentOrder);
 
 export default router;

@@ -164,14 +164,51 @@ export const getLotteryShiftReport = (shiftId) =>
 export const saveLotteryShiftReport = (data) =>
   api.post('/lottery/shift-reports', data).then(r => r.data);
 
-// ── Hardware & Payment ─────────────────────────────────────────────────────
-export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);
-export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
-export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
-export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);
-
+// ── Hardware config (receipt printer / cash drawer / scale) ───────────────
 export const saveHardwareConfig = (stationId, hardwareConfig, storeId) =>
   api.post('/payment/hardware', { stationId, hardwareConfig }, { headers: { 'x-store-id': storeId } }).then(r => r.data);
 
 export const getHardwareConfig = (stationId, storeId) =>
   api.get(`/payment/hardware/${stationId}`, { headers: { 'x-store-id': storeId } }).then(r => r.data);
+
+// ── CardPointe — In-Store Terminal Payments ────────────────────────────────
+// All card-on-terminal operations. The backend proxies to CardPointe APIs.
+
+/** Initiate a card charge on the physical terminal. Waits for customer interaction. */
+export const cpCharge = (body) =>
+  api.post('/payment/cp/charge', body).then(r => r.data);
+
+/** Capture a signature on the terminal (standalone, after charge). */
+export const cpSignature = (body) =>
+  api.post('/payment/cp/signature', body).then(r => r.data);
+
+/** Void an open (not-yet-settled) payment via the Gateway API. */
+export const cpVoid = (body) =>
+  api.post('/payment/cp/void', body).then(r => r.data);
+
+/** Refund a settled payment via the Gateway API. */
+export const cpRefund = (body) =>
+  api.post('/payment/cp/refund', body).then(r => r.data);
+
+/** Cancel a pending terminal operation (customer walked away etc.). */
+export const cpCancel = (body) =>
+  api.post('/payment/cp/cancel', body).then(r => r.data);
+
+/** Link a CardPointe payment transaction to a POS transaction after it's saved. */
+export const cpLinkTransaction = (paymentTransactionId, posTransactionId) =>
+  api.patch('/payment/cp/link', { paymentTransactionId, posTransactionId }).then(r => r.data);
+
+/** Get the payment terminal registered to a station. */
+export const getPaymentTerminalForStation = (stationId, storeId) =>
+  api.get('/payment/terminals', { params: { stationId, storeId } })
+    .then(r => (r.data?.data || []).find(t => t.stationId === stationId) || null);
+
+/** Get payment settings for a store (signature threshold, tip config, etc.). */
+export const getPaymentSettings = (storeId) =>
+  api.get(`/payment/settings/${storeId}`).then(r => r.data?.data || null);
+
+// ── Legacy PAX POSLINK (backward compat for un-migrated stations) ──────────
+export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);
+export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
+export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
+export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);

@@ -940,3 +940,590 @@ export const updateJobApplication = async (req, res, next) => {
     next(error);
   }
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — PAYMENT TERMINALS (cross-org)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** List all payment terminals across all orgs (superadmin) */
+export const adminListPaymentTerminals = async (req, res) => {
+  try {
+    const { orgId, storeId, status, page: p = 1, limit: l = 100 } = req.query;
+    const where = {};
+    if (orgId)  where.orgId   = orgId;
+    if (storeId) where.storeId = storeId;
+    if (status)  where.status  = status;
+
+    const [total, terminals] = await Promise.all([
+      prisma.paymentTerminal.count({ where }),
+      prisma.paymentTerminal.findMany({
+        where,
+        orderBy: [{ orgId: 'asc' }, { createdAt: 'asc' }],
+        skip: (Number(p) - 1) * Number(l),
+        take: Number(l),
+        include: {
+          merchant: { select: { orgId: true, site: true, isLive: true, merchId: true } },
+          station:  { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    // Attach org name if possible
+    const orgIds = [...new Set(terminals.map(t => t.orgId))];
+    const orgs   = await prisma.organization.findMany({
+      where: { id: { in: orgIds } },
+      select: { id: true, name: true },
+    });
+    const orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
+
+    const data = terminals.map(t => ({ ...t, orgName: orgMap[t.orgId] || t.orgId }));
+
+    return res.json({ success: true, data, total, page: Number(p), pages: Math.ceil(total / Number(l)) });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/** Ping any terminal (superadmin) */
+export const adminPingTerminal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+
+    const { getMerchantConfig, terminalPing } = await import('../services/cardPointeService.js');
+    const merchant = await getMerchantConfig(terminal.orgId);
+    if (!merchant) return res.status(400).json({ success: false, error: 'Merchant not configured' });
+
+    const result = await terminalPing(merchant, terminal.hsn);
+
+    await prisma.paymentTerminal.update({
+      where: { id },
+      data: {
+        status:     result.connected ? 'active' : 'inactive',
+        lastSeenAt: result.connected ? new Date() : terminal.lastSeenAt,
+        lastPingMs: result.latencyMs,
+      },
+    }).catch(() => {});
+
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — PAYMENT MERCHANT CREDENTIALS (cross-org, superadmin)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const adminGetPaymentMerchant = async (req, res) => {
+  try {
+    const { orgId } = req.query;
+    if (!orgId) return res.status(400).json({ success: false, error: 'orgId required' });
+
+    const m = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
+    if (!m) return res.json({ success: true, data: null });
+
+    return res.json({
+      success: true,
+      data: {
+        id: m.id, orgId: m.orgId, merchId: m.merchId,
+        apiUser: m.apiUser,
+        apiPasswordMasked: '••••••••',
+        site: m.site, baseUrl: m.baseUrl, isLive: m.isLive,
+        createdAt: m.createdAt, updatedAt: m.updatedAt,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const adminSavePaymentMerchant = async (req, res) => {
+  try {
+    const { orgId, merchId, apiUser, apiPassword, site, baseUrl, isLive } = req.body;
+    if (!orgId || !merchId || !apiUser || !apiPassword) {
+      return res.status(400).json({ success: false, error: 'orgId, merchId, apiUser, apiPassword required' });
+    }
+
+    const { encryptCredential } = await import('../services/cardPointeService.js');
+    const encPw = encryptCredential(apiPassword);
+
+    const existing = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
+    const data = { merchId, apiUser, apiPassword: encPw, site: site || 'fts', baseUrl: baseUrl || null, isLive: isLive ?? false };
+
+    const m = existing
+      ? await prisma.cardPointeMerchant.update({ where: { orgId }, data })
+      : await prisma.cardPointeMerchant.create({ data: { orgId, ...data } });
+
+    return res.json({ success: true, data: { id: m.id, orgId: m.orgId, merchId: m.merchId, apiUser: m.apiUser, site: m.site, isLive: m.isLive } });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — PAYMENT SETTINGS (per store, cross-org)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const adminGetPaymentSettings = async (req, res) => {
+  try {
+    const storeId = req.params.storeId;
+    let settings = await prisma.paymentSettings.findUnique({ where: { storeId } });
+    if (!settings) {
+      return res.json({ success: true, data: { storeId, signatureThreshold: 25.00, tipEnabled: false, tipPresets: [15,18,20,25], surchargeEnabled: false, surchargePercent: null, acceptCreditCards: true, acceptDebitCards: true, acceptAmex: true, acceptContactless: true } });
+    }
+    return res.json({ success: true, data: settings });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const adminSavePaymentSettings = async (req, res) => {
+  try {
+    const storeId = req.params.storeId;
+    const store = await prisma.store.findFirst({ where: { id: storeId }, select: { orgId: true } });
+    if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
+
+    const { signatureThreshold, tipEnabled, tipPresets, surchargeEnabled, surchargePercent, acceptCreditCards, acceptDebitCards, acceptAmex, acceptContactless } = req.body;
+    const data = {
+      orgId: store.orgId,
+      ...(signatureThreshold != null ? { signatureThreshold: Number(signatureThreshold) } : {}),
+      ...(tipEnabled != null ? { tipEnabled } : {}),
+      ...(tipPresets != null ? { tipPresets } : {}),
+      ...(surchargeEnabled != null ? { surchargeEnabled } : {}),
+      ...(surchargePercent != null ? { surchargePercent: Number(surchargePercent) } : {}),
+      ...(acceptCreditCards != null ? { acceptCreditCards } : {}),
+      ...(acceptDebitCards != null ? { acceptDebitCards } : {}),
+      ...(acceptAmex != null ? { acceptAmex } : {}),
+      ...(acceptContactless != null ? { acceptContactless } : {}),
+    };
+    const settings = await prisma.paymentSettings.upsert({ where: { storeId }, create: { storeId, ...data }, update: data });
+    return res.json({ success: true, data: settings });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — PAYMENT HISTORY (cross-org)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const adminListPaymentHistory = async (req, res) => {
+  try {
+    const { orgId, storeId, type, status, dateFrom, dateTo, page: p = 1, limit: l = 50 } = req.query;
+    const where = {};
+    if (orgId)  where.orgId   = orgId;
+    if (storeId) where.storeId = storeId;
+    if (type)    where.type    = type;
+    if (status)  where.status  = status;
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+      if (dateTo)   where.createdAt.lte = new Date(dateTo);
+    }
+
+    const [total, rows] = await Promise.all([
+      prisma.paymentTransaction.count({ where }),
+      prisma.paymentTransaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip:  (Number(p) - 1) * Number(l),
+        take:  Number(l),
+        select: {
+          id: true, orgId: true, storeId: true,
+          retref: true, authCode: true, respCode: true, respText: true,
+          lastFour: true, acctType: true, entryMode: true,
+          amount: true, capturedAmount: true,
+          type: true, status: true,
+          signatureCaptured: true,
+          invoiceNumber: true, posTransactionId: true, originalRetref: true,
+          createdAt: true, updatedAt: true,
+          // token intentionally excluded
+        },
+      }),
+    ]);
+
+    // Attach org name
+    const orgIds = [...new Set(rows.map(r => r.orgId))];
+    const orgs   = await prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } });
+    const orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
+    const data   = rows.map(r => ({ ...r, orgName: orgMap[r.orgId] || r.orgId }));
+
+    return res.json({ success: true, data, meta: { total, page: Number(p), limit: Number(l), pages: Math.ceil(total / Number(l)) } });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — TERMINAL CRUD (cross-org)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const adminCreateTerminal = async (req, res) => {
+  try {
+    const { orgId, storeId, hsn, name, ipAddress, port, model, stationId } = req.body;
+    if (!orgId || !storeId || !hsn) return res.status(400).json({ success: false, error: 'orgId, storeId, hsn required' });
+
+    const merchant = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
+    if (!merchant) return res.status(400).json({ success: false, error: 'Configure CardPointe merchant credentials for this org first' });
+
+    const terminal = await prisma.paymentTerminal.create({
+      data: { orgId, storeId, merchantId: merchant.id, hsn, name: name || null, ipAddress: ipAddress || null, port: port || 6443, model: model || null, stationId: stationId || null },
+    });
+    return res.json({ success: true, data: terminal });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const adminUpdateTerminal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+
+    const { name, hsn, ipAddress, port, model, stationId, status } = req.body;
+    const updated = await prisma.paymentTerminal.update({
+      where: { id },
+      data: {
+        ...(name      != null ? { name }      : {}),
+        ...(hsn       != null ? { hsn }       : {}),
+        ...(ipAddress != null ? { ipAddress } : {}),
+        ...(port      != null ? { port }      : {}),
+        ...(model     != null ? { model }     : {}),
+        ...(stationId !== undefined ? { stationId: stationId || null } : {}),
+        ...(status    != null ? { status }    : {}),
+      },
+    });
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const adminDeleteTerminal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+    await prisma.paymentTerminal.delete({ where: { id } });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — BILLING: PLANS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/* GET /api/admin/billing/plans */
+export const adminListPlans = async (req, res, next) => {
+  try {
+    const plans = await prisma.subscriptionPlan.findMany({
+      include: { addons: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    // Return { plans, addons } — frontend reads r.data.plans and r.data.addons
+    const addons = plans.flatMap(p => p.addons);
+    res.json({ plans, addons });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/admin/billing/plans */
+export const adminCreatePlan = async (req, res, next) => {
+  try {
+    const {
+      name, slug, description, basePrice,
+      pricePerStore, pricePerRegister,
+      includedStores, includedRegisters,
+      trialDays, isPublic, isActive, sortOrder,
+    } = req.body;
+    const plan = await prisma.subscriptionPlan.create({
+      data: {
+        name, slug, description: description || null,
+        basePrice,
+        pricePerStore:     pricePerStore     ?? 0,
+        pricePerRegister:  pricePerRegister  ?? 0,
+        includedStores:    includedStores    ?? 1,
+        includedRegisters: includedRegisters ?? 1,
+        trialDays:         trialDays         ?? 14,
+        isPublic:          isPublic          !== false,
+        isActive:          isActive          !== false,
+        sortOrder:         sortOrder         ?? 0,
+      },
+      include: { addons: true },
+    });
+    res.status(201).json(plan);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(400).json({ error: 'A plan with this slug already exists.' });
+    next(err);
+  }
+};
+
+/* PUT /api/admin/billing/plans/:id */
+export const adminUpdatePlan = async (req, res, next) => {
+  try {
+    const plan = await prisma.subscriptionPlan.update({
+      where:   { id: req.params.id },
+      data:    req.body,
+      include: { addons: true },
+    });
+    res.json(plan);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(400).json({ error: 'A plan with this slug already exists.' });
+    next(err);
+  }
+};
+
+/* DELETE /api/admin/billing/plans/:id */
+export const adminDeletePlan = async (req, res, next) => {
+  try {
+    await prisma.subscriptionPlan.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/admin/billing/addons */
+export const adminCreateAddon = async (req, res, next) => {
+  try {
+    const addon = await prisma.planAddon.create({ data: req.body });
+    res.status(201).json(addon);
+  } catch (err) { next(err); }
+};
+
+/* PUT /api/admin/billing/addons/:id */
+export const adminUpdateAddon = async (req, res, next) => {
+  try {
+    const addon = await prisma.planAddon.update({
+      where: { id: req.params.id },
+      data:  req.body,
+    });
+    res.json(addon);
+  } catch (err) { next(err); }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — BILLING: SUBSCRIPTIONS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/* GET /api/admin/billing/subscriptions */
+export const adminListSubscriptions = async (req, res, next) => {
+  try {
+    const { status, page = 1, limit = 50 } = req.query;
+    const where = {};
+    if (status) where.status = status;
+
+    const [data, total] = await Promise.all([
+      prisma.orgSubscription.findMany({
+        where,
+        include: {
+          plan:         true,
+          organization: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip:    (Number(page) - 1) * Number(limit),
+        take:    Number(limit),
+      }),
+      prisma.orgSubscription.count({ where }),
+    ]);
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) { next(err); }
+};
+
+/* GET /api/admin/billing/subscriptions/:orgId */
+export const adminGetSubscription = async (req, res, next) => {
+  try {
+    const sub = await prisma.orgSubscription.findUnique({
+      where:   { orgId: req.params.orgId },
+      include: {
+        plan:         { include: { addons: true } },
+        organization: { select: { id: true, name: true } },
+        invoices:     { orderBy: { createdAt: 'desc' }, take: 24 },
+      },
+    });
+    res.json(sub || null);
+  } catch (err) { next(err); }
+};
+
+/* PUT /api/admin/billing/subscriptions/:orgId */
+export const adminUpsertSubscription = async (req, res, next) => {
+  try {
+    const orgId = req.params.orgId;
+    const data  = { ...req.body };
+    const sub   = await prisma.orgSubscription.upsert({
+      where:   { orgId },
+      update:  data,
+      create:  { orgId, ...data },
+      include: { plan: { include: { addons: true } } },
+    });
+    res.json(sub);
+  } catch (err) { next(err); }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — BILLING: INVOICES
+// ═════════════════════════════════════════════════════════════════════════════
+
+/* GET /api/admin/billing/invoices */
+export const adminListInvoices = async (req, res, next) => {
+  try {
+    const { orgId, status, page = 1, limit = 50 } = req.query;
+    const where = {};
+    if (status) where.status = status;
+    if (orgId) {
+      const sub = await prisma.orgSubscription.findUnique({ where: { orgId } });
+      if (!sub) return res.json({ data: [], total: 0 });
+      where.subscriptionId = sub.id;
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.billingInvoice.findMany({
+        where,
+        include: {
+          subscription: {
+            include: { organization: { select: { id: true, name: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip:    (Number(page) - 1) * Number(limit),
+        take:    Number(limit),
+      }),
+      prisma.billingInvoice.count({ where }),
+    ]);
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) { next(err); }
+};
+
+/* POST /api/admin/billing/invoices/:id/write-off */
+export const adminWriteOffInvoice = async (req, res, next) => {
+  try {
+    const invoice = await prisma.billingInvoice.update({
+      where: { id: req.params.id },
+      data:  {
+        status: 'written_off',
+        notes:  req.body.notes || 'Written off by admin',
+      },
+    });
+    res.json(invoice);
+  } catch (err) { next(err); }
+};
+
+/* POST /api/admin/billing/invoices/:id/retry */
+export const adminRetryInvoiceNow = async (req, res, next) => {
+  try {
+    const invoice = await prisma.billingInvoice.findUnique({
+      where:   { id: req.params.id },
+      include: {
+        subscription: {
+          include: {
+            plan:         { include: { addons: true } },
+            organization: true,
+          },
+        },
+      },
+    });
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const { chargeSubscription } = await import('../services/billingService.js');
+    try {
+      const result = await chargeSubscription(
+        invoice.subscription,
+        Number(invoice.totalAmount),
+        invoice.invoiceNumber,
+      );
+      await prisma.billingInvoice.update({
+        where: { id: invoice.id },
+        data:  {
+          status:        'paid',
+          paidAt:        new Date(),
+          retref:        result.retref,
+          authcode:      result.authcode,
+          attempts:      { increment: 1 },
+          lastAttemptAt: new Date(),
+        },
+      });
+      await prisma.orgSubscription.update({
+        where: { id: invoice.subscription.id },
+        data:  { status: 'active', retryCount: 0, lastFailedAt: null, nextRetryAt: null },
+      });
+      res.json({ ok: true, retref: result.retref });
+    } catch (payErr) {
+      await prisma.billingInvoice.update({
+        where: { id: invoice.id },
+        data:  { status: 'failed', attempts: { increment: 1 }, lastAttemptAt: new Date() },
+      });
+      res.status(402).json({ error: payErr.message });
+    }
+  } catch (err) { next(err); }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — EQUIPMENT: PRODUCTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/* GET /api/admin/billing/equipment/products */
+export const adminListEquipmentProducts = async (req, res, next) => {
+  try {
+    const products = await prisma.equipmentProduct.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    res.json(products);
+  } catch (err) { next(err); }
+};
+
+/* POST /api/admin/billing/equipment/products */
+export const adminCreateEquipmentProduct = async (req, res, next) => {
+  try {
+    const product = await prisma.equipmentProduct.create({ data: req.body });
+    res.status(201).json(product);
+  } catch (err) { next(err); }
+};
+
+/* PUT /api/admin/billing/equipment/products/:id */
+export const adminUpdateEquipmentProduct = async (req, res, next) => {
+  try {
+    const product = await prisma.equipmentProduct.update({
+      where: { id: req.params.id },
+      data:  req.body,
+    });
+    res.json(product);
+  } catch (err) { next(err); }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN — EQUIPMENT: ORDERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/* GET /api/admin/billing/equipment/orders */
+export const adminListEquipmentOrders = async (req, res, next) => {
+  try {
+    const { status, page = 1, limit = 50 } = req.query;
+    const where = {};
+    if (status) where.status = status;
+
+    const [data, total] = await Promise.all([
+      prisma.equipmentOrder.findMany({
+        where,
+        include: { items: { include: { product: { select: { name: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip:    (Number(page) - 1) * Number(limit),
+        take:    Number(limit),
+      }),
+      prisma.equipmentOrder.count({ where }),
+    ]);
+    res.json({ data, total, page: Number(page), limit: Number(limit) });
+  } catch (err) { next(err); }
+};
+
+/* PUT /api/admin/billing/equipment/orders/:id */
+export const adminUpdateEquipmentOrder = async (req, res, next) => {
+  try {
+    const order = await prisma.equipmentOrder.update({
+      where: { id: req.params.id },
+      data:  req.body,
+    });
+    res.json(order);
+  } catch (err) { next(err); }
+};

@@ -368,7 +368,7 @@ function TxDetail({ tx, onClose, storeInfo }) {
 
 const PER_PAGE = 50;
 
-export default function Transactions() {
+export default function Transactions({ embedded }) {
   const today   = toLocalDateStr();
   const setup   = useSetupStatus();
 
@@ -579,10 +579,8 @@ export default function Transactions() {
   })();
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content txn-page">
+  const content = (
+    <>
 
         {/* Page header */}
         <div className="txn-header">
@@ -953,6 +951,16 @@ export default function Transactions() {
             storeInfo={storeInfo}
           />
         )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <div className="main-content txn-page">
+        {content}
       </div>
     </div>
   );

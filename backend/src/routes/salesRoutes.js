@@ -20,6 +20,9 @@ import {
   predictionsDaily,
   predictionsWeekly,
   predictionsResiduals,
+  predictionsHourly,
+  predictionsMonthly,
+  predictionsFactors,
   vendorOrders,
   dailyWithWeather,
   weeklyWithWeather,
@@ -61,6 +64,9 @@ router.get('/products/daily-movement', dailyProductMovement);
 // Predictions
 router.get('/predictions/daily', predictionsDaily);
 router.get('/predictions/weekly', predictionsWeekly);
+router.get('/predictions/hourly', predictionsHourly);
+router.get('/predictions/monthly', predictionsMonthly);
+router.get('/predictions/factors', predictionsFactors);
 router.get('/predictions/residuals', predictionsResiduals);
 
 // Vendor orders

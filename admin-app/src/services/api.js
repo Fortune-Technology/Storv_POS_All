@@ -77,4 +77,41 @@ export const getAdminOrgAnalytics       = () => api.get('/admin/analytics/organi
 export const getAdminStorePerformance   = () => api.get('/admin/analytics/stores').then(r => r.data);
 export const getAdminUserActivity       = () => api.get('/admin/analytics/users').then(r => r.data);
 
+// ── Admin Payment Management ─────────────────────────────────────────────────
+export const getAdminPaymentMerchant    = (orgId)          => api.get('/admin/payment/merchant', { params: { orgId } }).then(r => r.data);
+export const saveAdminPaymentMerchant   = (data)           => api.put('/admin/payment/merchant', data).then(r => r.data);
+export const getAdminPaymentTerminals   = (params)         => api.get('/admin/payment/terminals', { params }).then(r => r.data);
+export const pingAdminTerminal          = (id)             => api.post(`/admin/payment/terminals/${id}/ping`).then(r => r.data);
+export const createAdminTerminal        = (data)           => api.post('/admin/payment/terminals', data).then(r => r.data);
+export const updateAdminTerminal        = (id, data)       => api.put(`/admin/payment/terminals/${id}`, data).then(r => r.data);
+export const deleteAdminTerminal        = (id)             => api.delete(`/admin/payment/terminals/${id}`).then(r => r.data);
+export const getAdminPaymentSettings    = (storeId)        => api.get(`/admin/payment/settings/${storeId}`).then(r => r.data);
+export const saveAdminPaymentSettings   = (storeId, data)  => api.put(`/admin/payment/settings/${storeId}`, data).then(r => r.data);
+export const getAdminPaymentHistory     = (params)         => api.get('/admin/payment/history', { params }).then(r => r.data);
+
+// ── Admin Billing — Plans & Add-ons ──────────────────────────────────────────
+export const adminListPlans              = ()         => api.get('/admin/billing/plans').then(r => r.data);
+export const adminCreatePlan             = (data)     => api.post('/admin/billing/plans', data).then(r => r.data);
+export const adminUpdatePlan             = (id, data) => api.put(`/admin/billing/plans/${id}`, data).then(r => r.data);
+export const adminDeletePlan             = (id)       => api.delete(`/admin/billing/plans/${id}`).then(r => r.data);
+export const adminCreateAddon            = (data)     => api.post('/admin/billing/addons', data).then(r => r.data);
+export const adminUpdateAddon            = (id, data) => api.put(`/admin/billing/addons/${id}`, data).then(r => r.data);
+
+// ── Admin Billing — Subscriptions ────────────────────────────────────────────
+export const adminListSubscriptions      = (params)      => api.get('/admin/billing/subscriptions', { params }).then(r => r.data);
+export const adminGetSubscription        = (orgId)       => api.get(`/admin/billing/subscriptions/${orgId}`).then(r => r.data);
+export const adminUpsertSubscription     = (orgId, data) => api.put(`/admin/billing/subscriptions/${orgId}`, data).then(r => r.data);
+
+// ── Admin Billing — Invoices ──────────────────────────────────────────────────
+export const adminListInvoices           = (params) => api.get('/admin/billing/invoices', { params }).then(r => r.data);
+export const adminWriteOffInvoice        = (id)     => api.post(`/admin/billing/invoices/${id}/write-off`).then(r => r.data);
+export const adminRetryInvoice           = (id)     => api.post(`/admin/billing/invoices/${id}/retry`).then(r => r.data);
+
+// ── Admin Billing — Equipment ─────────────────────────────────────────────────
+export const adminListEquipmentProducts  = ()         => api.get('/admin/billing/equipment/products').then(r => r.data);
+export const adminCreateEquipmentProduct = (data)     => api.post('/admin/billing/equipment/products', data).then(r => r.data);
+export const adminUpdateEquipmentProduct = (id, data) => api.put(`/admin/billing/equipment/products/${id}`, data).then(r => r.data);
+export const adminListEquipmentOrders    = (params)   => api.get('/admin/billing/equipment/orders', { params }).then(r => r.data);
+export const adminUpdateEquipmentOrder   = (id, data) => api.put(`/admin/billing/equipment/orders/${id}`, data).then(r => r.data);
+
 export default api;

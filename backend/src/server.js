@@ -29,7 +29,11 @@ import paymentRoutes     from './routes/paymentRoutes.js';
 import adminRoutes       from './routes/adminRoutes.js';
 import publicRoutes      from './routes/publicRoutes.js';
 import ticketRoutes      from './routes/ticketRoutes.js';
+import billingRoutes     from './routes/billingRoutes.js';
+import equipmentRoutes   from './routes/equipmentRoutes.js';
+import orderRoutes       from './routes/orderRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
+import { startBillingScheduler } from './services/billingScheduler.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
 dotenv.config();
@@ -82,7 +86,10 @@ app.use('/api/lottery',      lotteryRoutes);
 app.use('/api/loyalty',      loyaltyRoutes);
 app.use('/api/payment',      paymentRoutes);
 app.use('/api/admin',        adminRoutes);
-app.use('/api/public',       publicRoutes);
+app.use('/api/billing',        billingRoutes);
+app.use('/api/equipment',      equipmentRoutes);
+app.use('/api/vendor-orders',  orderRoutes);
+app.use('/api/public',         publicRoutes);
 app.use('/api/tickets',      ticketRoutes);
 app.use('/api',              apiRoutes);
 
@@ -120,6 +127,7 @@ const startServer = async () => {
   }
 
   startTokenRefreshScheduler();
+  startBillingScheduler();
 
   app.listen(PORT, () => {
     console.log(`✓ Server running on port ${PORT}`);

@@ -41,6 +41,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reload:           () => ipcRenderer.invoke('app:reload'),
   quit:             () => ipcRenderer.invoke('app:quit'),
 
+  // ── Customer Display ───────────────────────────────────────────────────────
+  /** Open customer display on secondary monitor (or focus if already open) */
+  openCustomerDisplay:  () => ipcRenderer.invoke('app:open-customer-display'),
+  /** Close customer display window */
+  closeCustomerDisplay: () => ipcRenderer.invoke('app:close-customer-display'),
+
   // ── Persistent config (disk backup of station config + API URL) ───────────
   // Survives localStorage clears and Electron updates.
   saveConfig: (data) => ipcRenderer.invoke('config:save', data),

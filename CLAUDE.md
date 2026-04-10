@@ -1977,5 +1977,484 @@ cd ecom-backend && npx prisma db push
 | `ecom-backend/src/controllers/customerManageController.js` | Customer list/detail |
 | `ecom-backend/src/services/emailService.js` | Email notifications |
 
-*Last updated: April 2026 — Session 12: Store Discovery, Analytics, Account Features*
+---
+
+## 📊 Sales Prediction Engine — Algorithm Reference
+
+**File:** `backend/src/utils/predictions.js`
+
+### Core: Holt-Winters Triple Exponential Smoothing
+
+The primary forecasting algorithm. Decomposes time-series data into three components:
+
+- **Level (α = 0.3)** — The smoothed baseline value
+- **Trend (β = 0.1)** — The direction and magnitude of change  
+- **Seasonality (γ = 0.2)** — Repeating cyclical patterns
+
+**Initialization:**
+- Level: mean of first seasonal period
+- Trend: average slope across first two periods
+- Seasonal indices: ratio of each observation to initial level
+
+**Forecast:** `F(t+h) = (Level + Trend × h) × Seasonal[(n+h-1) mod period]`
+
+**Periods:**
+- Daily predictions: period = 7 (weekly seasonality)
+- Weekly predictions: period = 4 (monthly seasonality)
+- Minimum data required: 2 × period observations
+
+### Day-of-Week Adjustment Factors
+
+Applied after Holt-Winters to account for consistent weekday patterns:
+
+| Day | Factor | Meaning |
+|-----|--------|---------|
+| Sunday | 1.15 | +15% above baseline |
+| Monday | 0.90 | −10% (slowest weekday) |
+| Tuesday | 0.88 | −12% |
+| Wednesday | 0.92 | −8% |
+| Thursday | 1.00 | Baseline |
+| Friday | 1.20 | +20% (pre-weekend boost) |
+| Saturday | 1.30 | +30% (peak day) |
+
+### Weather Impact Regression
+
+**Function:** `computeWeatherImpact(historicalData)`
+
+Computes weather impact coefficients by comparing sales on weather-affected days vs normal days:
+
+1. Categorize historical days: rainy (precip > 0.5"), cold (< 32°F), hot (> 90°F), snowy (WMO 71-77), normal
+2. Calculate average sales for each category
+3. Derive multiplier: `(categoryAvg - normalAvg) / normalAvg`
+4. Clamp to safe ranges to prevent over-correction
+
+**Default coefficients (when insufficient data):**
+- Rain: −12%
+- Cold: −5%
+- Hot: −3%
+- Snow: −25%
+
+### Holiday Impact Multipliers
+
+Pre-defined multipliers for US federal holidays:
+
+| Holiday | Multiplier | Impact |
+|---------|-----------|--------|
+| Christmas Day | 0.20 | −80% (most stores closed) |
+| Thanksgiving | 0.30 | −70% |
+| New Year's Day | 0.40 | −60% |
+| Independence Day | 0.50 | −50% |
+| Memorial Day | 0.80 | −20% |
+| Labor Day | 0.75 | −25% |
+| Other holidays | 0.85–0.90 | −10% to −15% |
+
+### Hourly Distribution Model
+
+**Function:** `computeHourlyDistribution(transactions)`
+
+Learns the store's hourly sales pattern from recent transaction data:
+
+1. Sum `grandTotal` per hour (0-23) across all recent transactions
+2. Normalize to proportions summing to 1.0
+3. Multiply daily prediction by each hour's proportion
+
+**Default bell curve** (when no data): peaks at 12pm (12%) and symmetric decline.
+
+### Prediction Pipeline (Daily Forecast)
+
+```
+Historical Daily Sales (90 days)
+    ↓
+Holt-Winters (period=7, α=0.3, β=0.1, γ=0.2)
+    ↓
+Day-of-Week Adjustment
+    ↓
+Holiday Multipliers
+    ↓
+Weather Impact (from 10-day forecast)
+    ↓
+Final Prediction + Factor Annotations
+```
+
+### Accuracy Validation
+
+**Walk-forward testing:** Train on first N-14 days, predict last 14, compare:
+- **MAPE** — Mean Absolute Percentage Error
+- **MAE** — Mean Absolute Error  
+- **RMSE** — Root Mean Square Error
+- **Bias** — Systematic over/under prediction
+
+---
+
+## 🌤 Weather Integration — Architecture Reference
+
+**Service:** `backend/src/services/weatherService.js`  
+**Provider:** Open-Meteo (free, no API key required)
+
+### APIs Used
+
+| API | URL | Purpose |
+|-----|-----|---------|
+| Archive | `archive-api.open-meteo.com/v1/archive` | Historical weather (past dates) |
+| Forecast | `api.open-meteo.com/v1/forecast` | Current + future weather |
+
+### Data Parameters
+
+Daily: `temperature_2m_max`, `temperature_2m_min`, `temperature_2m_mean`, `precipitation_sum`, `weathercode`, `windspeed_10m_max`, `relative_humidity_2m_mean`
+
+Hourly: `temperature_2m`, `precipitation_probability`, `weathercode`, `windspeed_10m`, `relative_humidity_2m`
+
+### Caching Strategy
+
+- PostgreSQL `WeatherCache` table keyed by `(date, latitude, longitude)`
+- Coordinates rounded to 2 decimal places for cache key
+- On request: check cache → fetch missing dates → upsert cache → return merged
+- Forecast data re-fetched daily (cache TTL implicit: forecast dates overwrite)
+
+### Weather Functions
+
+| Function | Purpose |
+|----------|---------|
+| `fetchWeatherRange(lat, lon, from, to, tz)` | Historical + forecast daily weather with caching |
+| `getCurrentWeather(lat, lon, tz)` | Live conditions + 3-day mini forecast |
+| `getHourlyForecast(lat, lon, tz)` | Next 48 hours hourly (temp, precip chance, wind) |
+| `getTenDayForecast(lat, lon, tz)` | 10-day daily forecast with precip probability |
+| `mergeSalesAndWeather(salesRows, weatherRecords)` | Join by date for combined analytics |
+
+### WMO Weather Codes
+
+99 distinct codes mapped to: condition label + icon name. Key codes:
+- 0-3: Clear → Overcast
+- 45-48: Fog
+- 51-57: Drizzle (including freezing)
+- 61-67: Rain (including freezing)
+- 71-77: Snow
+- 80-86: Showers
+- 95-99: Thunderstorms
+
+---
+
+## 📤 Export System — Reference
+
+### Frontend Utilities
+
+**File:** `frontend/src/utils/exportUtils.js`
+
+| Function | Purpose |
+|----------|---------|
+| `downloadCSV(data, columns, filename)` | Array → CSV Blob → download (UTF-8 BOM for Excel) |
+| `downloadPDF({title, subtitle, summary, data, columns, filename})` | Styled PDF with KPI cards + auto-table via jspdf + jspdf-autotable |
+| `exportChartAsPDF(chartElement, title, filename)` | Screenshot chart via html2canvas → PDF |
+
+### Dependencies
+
+- `jspdf` + `jspdf-autotable` — PDF generation with styled tables
+- `file-saver` — Cross-browser Blob download
+- `html2canvas` — DOM-to-image for chart export
+
+### Pages with Export
+
+All analytics pages have CSV + PDF export buttons in headers:
+- Live Dashboard, Sales Analytics, Department Analytics, Product Analytics, Sales Predictions
+
+---
+
+## 🏗 Sidebar Navigation — Current Structure
+
+```
+Operations           → Live Dashboard
+Customers            → Customers & Loyalty (tabs: Customers, Loyalty Program)
+Lottery              → Lottery (10-tab mega-page)
+Catalog              → Products, Departments, Promotions, Bulk Import, Inventory Count
+Vendors              → Vendors, Vendor Payouts, Vendor Orders, Invoice Import, CSV Transform
+Reports & Analytics  → Transactions (tabs: Transactions, Event Log, Employee, Payouts, Employees)
+                     → Analytics (tabs: Sales, Departments, Products, Predictions)
+Online Store         → Store Setup (tabs: General, Branding, Pages, Fulfillment, SEO, Custom Domain)
+                     → Online Orders, Analytics
+Integrations         → POS API, eComm
+Point of Sale        → POS Configuration (tabs: Layout, Receipts, Quick Keys)
+                     → Rules & Fees (tabs: Deposits, Tax)
+Support & Billing    → Support Tickets, Billing & Plan
+Account              → Account Settings (tabs: Organisation, Users, Stores, Settings)
+```
+
+### Tabbed Page Pattern
+
+All hub pages follow the Lottery pattern:
+1. `const [tab, setTab] = useState(searchParams.get('tab') || 'default')`
+2. Tab buttons with `p-tab` / `p-tab.active` CSS classes from `portal.css`
+3. Conditional rendering: `{tab === 'key' && <SubPage embedded />}`
+4. Sub-pages accept `embedded` prop — when true, skip layout-container/Sidebar wrapper
+
+### Shared Portal CSS
+
+**File:** `frontend/src/styles/portal.css` — `p-` prefix namespace
+
+Classes: `p-page`, `p-header`, `p-tabs`, `p-tab`, `p-card`, `p-stat-grid`, `p-stat-card`, `p-table`, `p-badge-*`, `p-btn-*`, `p-modal-*`, `p-field`, `p-input`, `p-grid-2/3/4`, `p-empty`, `p-loading`
+
+All colors reference CSS variables from `index.css` (`--brand-*`, `--text-*`, `--bg-*`, `--border-*`, `--success`, `--error`, `--warning`).
+
+---
+
+## 🛍 Bag Fee System — Reference
+
+**Cashier-app feature:** Adds a bag counter above payment buttons on the POS terminal.
+
+### Configuration
+
+Store-level setting in POS config (`store.pos.bagFee`):
+```json
+{ "enabled": true, "pricePerBag": 0.05, "ebtEligible": false, "discountable": false }
+```
+
+### Cart Integration
+
+- `bagCount` state in `useCartStore.js` (Zustand)
+- `selectTotals()` accepts optional `bagFeeInfo = { bagTotal, ebtEligible, discountable }`
+- If discountable + order-level % discount, bag total is reduced proportionally
+- If EBT eligible, bag total added to `ebtTotal`
+- Bag total added to `grandTotal`
+
+### Transaction Record
+
+Bags stored as synthetic line item in `lineItems` JSON:
+```json
+{ "isBagFee": true, "name": "Bag Fee", "qty": 3, "unitPrice": 0.05, "lineTotal": 0.15, "taxable": false }
+```
+
+No schema migration needed — uses existing JSON column.
+
+---
+
+## 📺 Customer Display — Reference
+
+**Cashier-app feature:** Read-only second screen showing live cart to customers.
+
+### Architecture
+
+- **Routing:** Hash-based — `/#/customer-display` renders `CustomerDisplayScreen`
+- **Sync:** `BroadcastChannel('storv-customer-display')` — zero-latency, same-origin
+- **Electron:** Auto-opens fullscreen on secondary monitor via `screen.getAllDisplays()`
+
+### Message Types
+
+| Type | When | Data |
+|------|------|------|
+| `cart_update` | Items/totals change | items, totals, bagCount, customer, loyalty, promos |
+| `transaction_complete` | Sale finalized | txNumber, change |
+| `idle` | Cart cleared | (empty) |
+
+### Display States
+
+1. **Idle** — Store name + clock (no items)
+2. **Active** — Scrolling line items + summary panel (subtotal, tax, deposits, bags, discounts, total) + customer/loyalty bar
+3. **Thank You** — Green checkmark + change due, auto-clears after 6 seconds
+
+---
+
+## 🔢 Seed Data — Reference
+
+**Script:** `backend/prisma/seedTransactions.js`
+
+Run: `node prisma/seedTransactions.js`
+
+Generates ~3,500-4,000 POS transactions across 90 days with:
+- Realistic hourly distribution (peaks at lunch/dinner)
+- Weekend vs weekday variation
+- 15% growth trend
+- 10 departments, 80+ products
+- Payment mix: 55% card, 30% cash, 10% EBT, 5% mixed
+- ~2% voided, ~1% refund transactions
+- Tax rates: 0% grocery, 5.5% alcohol/tobacco, 8% prepared food
+- Bottle deposits on applicable beverages
+
+---
+
+---
+
+## 📦 Vendor Auto-Ordering System — Algorithm Reference
+
+**File:** `backend/src/services/orderEngine.js`
+
+### Overview
+
+Intelligent purchase order generation that analyzes 14 factors to determine optimal reorder quantities for every tracked product, grouped by vendor into ready-to-submit POs.
+
+### The 14-Factor Algorithm
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  DEMAND FACTORS              SUPPLY FACTORS                │
+│  1. Sales Velocity           7. Current Inventory          │
+│  2. Trend Direction          8. Lead Time                  │
+│  3. Holt-Winters Forecast    9. Safety Stock               │
+│  4. Day-of-Week Pattern     10. Pack/Case Size             │
+│  5. Holiday Calendar        11. Minimum Order              │
+│  6. Weather Forecast        12. Shelf Life                 │
+│                             13. Demand Variability (CV)    │
+│                             14. Stockout History           │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Core Formula
+
+```
+dailyDemand    = HoltWinters(90d_history, period=7) × DOW_factor × holiday_factor × weather_factor
+forecastDemand = Σ dailyDemand[today → today + leadTime + reviewPeriod]
+safetyStock    = Z(serviceLevel) × σ(dailyDemand) × √(leadTime)
+reorderPoint   = (avgDailyDemand × leadTime) + safetyStock
+orderQty       = max(0, forecastDemand − onHand + safetyStock − onOrder) × stockoutPenalty
+orderQty       = roundUpToCaseQty(orderQty, casePacks)
+```
+
+### Service Level Tiers
+
+| Tier | Z-Score | Stockout Risk | Use Case |
+|------|---------|---------------|----------|
+| Critical | 2.33 | 1% | Tobacco, top sellers, essentials |
+| Standard | 1.65 | 5% | Regular inventory |
+| Low | 1.28 | 10% | Slow movers, seasonal items |
+
+### Safety Stock Calculation
+
+`safetyStock = Z × σ(dailyDemand) × √(leadTimeDays)`
+
+Where:
+- `Z` = service level Z-score (see table above)
+- `σ` = standard deviation of daily unit sales (sample std dev, N-1)
+- `√(LT)` = square root of vendor lead time in days
+
+Higher demand variability (CV > 1.0) and longer lead times both increase safety stock.
+
+### Weather Impact on Demand
+
+Uses same regression as prediction engine (`computeWeatherImpact`):
+- Fetches 10-day Open-Meteo forecast for store location
+- Computes historical sales-weather correlation from 90 days
+- Applies multipliers: rain (−12%), snow (−25%), cold (−5%), heat (−3%)
+- Only adjusts forecast days that fall within the 10-day weather window
+
+### Stockout Penalty
+
+Detects likely past stockouts (days with zero sales when avg > 0.5 units/day):
+- 0-2 stockout days → no penalty (1.0×)
+- 3-5 stockout days → 1.08× (order 8% more)
+- 6+ stockout days → 1.15× (order 15% more)
+
+### Shelf Life Constraint
+
+For perishable items (`MasterProduct.shelfLifeDays`):
+- Caps order quantity at 110% of forecasted demand within shelf life window
+- Prevents waste from over-ordering perishables
+- Rounds down to nearest case qty (not up) to stay within limit
+
+### Urgency Classification
+
+| Urgency | Condition | Color |
+|---------|-----------|-------|
+| Critical | Out of stock OR days supply < lead time | Red |
+| High | On hand ≤ reorder point | Amber |
+| Medium | Days supply < lead time + review period | Yellow |
+| Low | Trending up OR routine forecast | Green |
+
+### Purchase Order Lifecycle
+
+```
+Generate Suggestions → Create Draft PO → Edit/Review → Submit to Vendor
+                                                            ↓
+                                              Receive (full or partial)
+                                                            ↓
+                                              Inventory Updated (+qtyReceived)
+                                              quantityOnOrder Decremented
+```
+
+### Data Models
+
+**PurchaseOrder** (`purchase_orders` table):
+- `poNumber` — "PO-YYYYMMDD-001" auto-generated
+- `status` — draft → submitted → partial/received → cancelled
+- `generatedBy` — "manual" | "auto" | "suggestion"
+- `expectedDate` — orderDate + vendor.leadTimeDays
+- Links to: Vendor, Organization, PurchaseOrderItems
+
+**PurchaseOrderItem** (`purchase_order_items` table):
+- `qtyOrdered`, `qtyCases`, `qtyReceived`
+- `unitCost`, `caseCost`, `lineTotal`
+- Algorithm metadata: `forecastDemand`, `safetyStock`, `currentOnHand`, `avgDailySales`, `reorderReason`
+
+**Vendor extensions:**
+- `leadTimeDays` (default 3) — average delivery days
+- `minOrderAmount` — minimum $ per order
+- `orderFrequency` — "daily", "weekly", "biweekly", "monthly"
+- `deliveryDays` — ["Monday", "Thursday"] etc.
+
+**MasterProduct extensions:**
+- `shelfLifeDays` — perishable expiry (null = non-perishable)
+- `serviceLevel` — "critical", "standard", "low"
+
+### API Endpoints
+
+```
+GET  /api/vendor-orders/suggestions           — Run 14-factor algorithm
+POST /api/vendor-orders/generate              — Create draft POs from suggestions
+GET  /api/vendor-orders/purchase-orders       — List POs (filter: status, vendor)
+GET  /api/vendor-orders/purchase-orders/:id   — PO detail with items
+PUT  /api/vendor-orders/purchase-orders/:id   — Edit draft PO
+POST /api/vendor-orders/purchase-orders/:id/submit  — Mark as submitted
+POST /api/vendor-orders/purchase-orders/:id/receive — Record received quantities
+DELETE /api/vendor-orders/purchase-orders/:id        — Cancel draft PO
+GET  /api/vendor-orders/purchase-orders/:id/pdf     — Download PO as PDF
+```
+
+### Frontend — Vendor Orders Page
+
+Three-tab interface (`/portal/vendor-orders`):
+
+1. **Suggestions** — Algorithm output with vendor-grouped product table, urgency color-coding, factor badges (weather, holiday, trend, stockout), "Create PO" per vendor or all
+2. **Purchase Orders** — Active PO management with status badges, edit/submit/receive/PDF workflow
+3. **History** — Completed/cancelled PO archive with date filtering
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `backend/src/services/orderEngine.js` | 14-factor auto-order algorithm + PO number generator |
+| `backend/src/controllers/orderController.js` | PO CRUD + suggestions + receive + PDF generation |
+| `backend/src/routes/orderRoutes.js` | Route definitions |
+| `frontend/src/pages/VendorOrderSheet.jsx` | 3-tab vendor orders UI |
+| `backend/prisma/migrations/add_purchase_orders.sql` | Schema migration |
+
+---
+
+## 📈 Sales Analytics — Data Flow Reference
+
+**File:** `backend/src/services/salesService.js`
+
+### Architecture
+
+The sales service queries POS transaction data directly from PostgreSQL via Prisma. All external POS API integration has been removed — sales analytics are computed from the local `Transaction` table.
+
+### Aggregation Functions
+
+| Function | Endpoint | Returns |
+|----------|----------|---------|
+| `getDailySales(user, storeId, from, to)` | `/api/sales/daily` | Daily buckets: Date, TotalNetSales, TransactionCount, TotalTax, etc. |
+| `getWeeklySales(...)` | `/api/sales/weekly` | Aggregated into ISO week buckets |
+| `getMonthlySales(...)` | `/api/sales/monthly` | Aggregated into YYYY-MM buckets |
+| `getDepartmentSales(...)` | `/api/sales/departments` | Revenue by department from lineItems JSON |
+| `getTopProducts(...)` | `/api/sales/products/top` | Top 20 products by net sales for a single date |
+| `getProductsGrouped(...)` | `/api/sales/products/grouped` | Paginated best sellers with profit margin |
+| `getProductMovement(...)` | `/api/sales/products/movement` | Time series (daily/weekly) for a specific UPC |
+
+### Key Design Decisions
+
+1. **Zero-fill dates** — Daily sales returns every date in range, filling gaps with zeros (important for charts)
+2. **Department extraction** — Reads `departmentName` or `taxClass` from lineItems JSON (denormalized at transaction time)
+3. **Profit estimation** — Uses 35% cost assumption when actual cost data unavailable (65% margin)
+4. **Tenant isolation** — All queries filter by `orgId` from authenticated user
+5. **Store scoping** — Optional `storeId` filter from `X-Store-Id` header
+
+---
+
+*Last updated: April 2026 — Session 14: Vendor Auto-Ordering System + Sales Service Rewrite + Purchase Order Lifecycle*
 

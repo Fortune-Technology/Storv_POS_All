@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Activity,
   Store,
+  CreditCard,
 } from 'lucide-react';
 
 const adminMenuGroups = [
@@ -45,10 +46,22 @@ const adminMenuGroups = [
     ],
   },
   {
+    label: 'Payments',
+    items: [
+      { name: 'Payment Management', icon: <CreditCard size={13} />, path: '/payment' },
+    ],
+  },
+  {
     label: 'Content',
     items: [
       { name: 'CMS Pages', icon: <FileText size={13} />,  path: '/cms' },
       { name: 'Careers',   icon: <Briefcase size={13} />, path: '/careers' },
+    ],
+  },
+  {
+    label: 'Billing',
+    items: [
+      { name: 'Billing Console', icon: <FileText size={13} />, path: '/billing' },
     ],
   },
   {

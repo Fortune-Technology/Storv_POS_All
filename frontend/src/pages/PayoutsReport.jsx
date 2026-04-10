@@ -91,7 +91,7 @@ function SummaryCard({ label, value, icon: Icon, color, bg }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export default function PayoutsReport() {
+export default function PayoutsReport({ embedded }) {
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const storeId = localStorage.getItem('activeStoreId') || user?.storeId;
 
@@ -133,8 +133,8 @@ export default function PayoutsReport() {
     );
   });
 
-  return (
-    <div style={{ padding: '1.5rem 2rem', maxWidth: 1200, margin: '0 auto' }}>
+  const content = (
+    <>
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
@@ -378,6 +378,14 @@ export default function PayoutsReport() {
       )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div style={{ padding: '1.5rem 2rem', maxWidth: 1200, margin: '0 auto' }}>
+      {content}
     </div>
   );
 }

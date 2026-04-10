@@ -124,16 +124,62 @@ export function useHardware({ onBarcode } = {}) {
     return [];
   }, []);
 
-  // ── PAX card payment ──────────────────────────────────────────────────────
-  const processCardPayment = useCallback(async ({ amount, invoiceNumber, edcType = '02' }) => {
+  // ── CardPointe terminal payment ───────────────────────────────────────────
+  //
+  // Full flow:
+  //   1. cpCharge  → terminal prompts customer (tap/swipe/insert)
+  //   2. If amount > signatureThreshold → cpSignature (terminal signature pad)
+  //   3. Returns { approved, retref, lastFour, acctType, entryMode, authCode,
+  //                signatureCaptured, paymentTransactionId }
+  //
+  // The backend handles connect/disconnect/terminal-api calls — the cashier app
+  // just initiates with a single HTTP POST and waits (up to 90 s).
+
+  const processCardPayment = useCallback(async ({
+    amount,
+    invoiceNumber,
+    terminalId,         // PaymentTerminal.id (required for CardPointe)
+    storeId,
+    signatureThreshold, // dollar amount above which to request signature
+  }) => {
+    // ── CardPointe path ────────────────────────────────────────────────────
+    if (terminalId) {
+      setPayStatus('waiting');
+      setPayResult(null);
+      try {
+        const needsSig = signatureThreshold != null && Number(amount) >= Number(signatureThreshold);
+        const result = await posApi.cpCharge({
+          terminalId,
+          amount,
+          invoiceNumber: invoiceNumber || undefined,
+          captureSignature: needsSig,
+        });
+
+        if (result.approved) {
+          setPayStatus('approved');
+          setPayResult(result);
+        } else {
+          setPayStatus('declined');
+          setPayResult(result);
+        }
+        return result;
+      } catch (err) {
+        setPayStatus('error');
+        setPayResult({ message: err.message });
+        throw err;
+      }
+    }
+
+    // ── Legacy PAX fallback ────────────────────────────────────────────────
     if (!hw?.paxTerminal?.enabled) {
-      throw new Error('No PAX terminal configured for this station.');
+      throw new Error('No payment terminal configured for this station.');
     }
     setPayStatus('waiting');
     setPayResult(null);
     try {
       const result = await posApi.paxSale({
-        amount, invoiceNumber, edcType,
+        amount, invoiceNumber,
+        edcType:   '02', // debit default
         stationId: station?.id,
       });
       if (result.approved) {
@@ -151,9 +197,13 @@ export function useHardware({ onBarcode } = {}) {
     }
   }, [hw, station]);
 
-  const cancelPayment = useCallback(() => {
+  const cancelPayment = useCallback(async (terminalId) => {
     setPayStatus(null);
     setPayResult(null);
+    // Cancel the pending terminal operation if we have a terminalId
+    if (terminalId) {
+      posApi.cpCancel({ terminalId }).catch(() => {});
+    }
   }, []);
 
   const hasPAX            = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);

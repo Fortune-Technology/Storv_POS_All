@@ -30,52 +30,59 @@ const fmtMult  = (n) => `${Number(n ?? 1).toFixed(2)}×`;
 /* ══════════════════════════════════════════════════════════════════════════
    Main page
 ══════════════════════════════════════════════════════════════════════════ */
-export default function LoyaltyProgram() {
+export default function LoyaltyProgram({ embedded }) {
   const storeId = localStorage.getItem('activeStoreId');
   const [tab, setTab] = useState('settings');
+
+  const content = (
+    <>
+      {/* ── Header ── */}
+      <div className="lp-header">
+        <div className="lp-header-icon"><Star size={18} /></div>
+        <div>
+          <h1 className="lp-title">Loyalty Program</h1>
+          <p className="lp-subtitle">Manage points earning rules and rewards for your customers</p>
+        </div>
+      </div>
+
+      {!storeId ? (
+        <div className="lp-no-store">
+          <AlertCircle size={28} />
+          <p>Please select a store to manage loyalty settings.</p>
+        </div>
+      ) : (
+        <>
+          {/* ── Tab bar ── */}
+          <div className="lp-tabs">
+            <button className={`lp-tab${tab === 'settings'   ? ' active' : ''}`} onClick={() => setTab('settings')}>
+              <Settings size={13} /> Settings
+            </button>
+            <button className={`lp-tab${tab === 'earn-rules' ? ' active' : ''}`} onClick={() => setTab('earn-rules')}>
+              <Zap size={13} /> Earn Rules
+            </button>
+            <button className={`lp-tab${tab === 'rewards'    ? ' active' : ''}`} onClick={() => setTab('rewards')}>
+              <Gift size={13} /> Rewards
+            </button>
+          </div>
+
+          {/* ── Body ── */}
+          <div className="lp-body">
+            {tab === 'settings'   && <SettingsTab   storeId={storeId} />}
+            {tab === 'earn-rules' && <EarnRulesTab  storeId={storeId} />}
+            {tab === 'rewards'    && <RewardsTab    storeId={storeId} />}
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content lp-page">{content}</div>;
 
   return (
     <div className="layout-container">
       <Sidebar />
       <main className="main-content lp-page">
-
-        {/* ── Header ── */}
-        <div className="lp-header">
-          <div className="lp-header-icon"><Star size={18} /></div>
-          <div>
-            <h1 className="lp-title">Loyalty Program</h1>
-            <p className="lp-subtitle">Manage points earning rules and rewards for your customers</p>
-          </div>
-        </div>
-
-        {!storeId ? (
-          <div className="lp-no-store">
-            <AlertCircle size={28} />
-            <p>Please select a store to manage loyalty settings.</p>
-          </div>
-        ) : (
-          <>
-            {/* ── Tab bar ── */}
-            <div className="lp-tabs">
-              <button className={`lp-tab${tab === 'settings'   ? ' active' : ''}`} onClick={() => setTab('settings')}>
-                <Settings size={13} /> Settings
-              </button>
-              <button className={`lp-tab${tab === 'earn-rules' ? ' active' : ''}`} onClick={() => setTab('earn-rules')}>
-                <Zap size={13} /> Earn Rules
-              </button>
-              <button className={`lp-tab${tab === 'rewards'    ? ' active' : ''}`} onClick={() => setTab('rewards')}>
-                <Gift size={13} /> Rewards
-              </button>
-            </div>
-
-            {/* ── Body ── */}
-            <div className="lp-body">
-              {tab === 'settings'   && <SettingsTab   storeId={storeId} />}
-              {tab === 'earn-rules' && <EarnRulesTab  storeId={storeId} />}
-              {tab === 'rewards'    && <RewardsTab    storeId={storeId} />}
-            </div>
-          </>
-        )}
+        {content}
       </main>
     </div>
   );

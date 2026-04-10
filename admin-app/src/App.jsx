@@ -18,6 +18,8 @@ import AdminOrgAnalytics from './pages/AdminOrgAnalytics';
 import AdminStorePerformance from './pages/AdminStorePerformance';
 import AdminUserActivity from './pages/AdminUserActivity';
 import AdminStores from './pages/AdminStores';
+import AdminPaymentSettings from './pages/AdminPaymentSettings';
+import AdminBilling         from './pages/AdminBilling';
 
 const ProtectedRoute = ({ children }) => {
   const user = JSON.parse(localStorage.getItem('admin_user'));
@@ -49,6 +51,8 @@ function App() {
         <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminCareerApplications /></ProtectedRoute>} />
         <Route path="/tickets" element={<ProtectedRoute><AdminTickets /></ProtectedRoute>} />
         <Route path="/config" element={<ProtectedRoute><AdminSystemConfig /></ProtectedRoute>} />
+        <Route path="/payment" element={<ProtectedRoute><AdminPaymentSettings /></ProtectedRoute>} />
+        <Route path="/billing" element={<ProtectedRoute><AdminBilling /></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

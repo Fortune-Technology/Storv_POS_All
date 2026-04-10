@@ -218,7 +218,7 @@ function ShiftForm({ employees, initialData, saving, error, onSave, onCancel }) 
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────
-export default function EmployeeReports() {
+export default function EmployeeReports({ embedded }) {
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const storeId = localStorage.getItem('activeStoreId') || user?.storeId;
 
@@ -377,10 +377,8 @@ export default function EmployeeReports() {
     { label: 'Total Sales',  value: fmt$(employees.reduce((s, e) => s + (e.totalSales || 0), 0)), icon: DollarSign, color: 'var(--green, var(--accent-primary))', bg: 'var(--brand-08)', border: 'rgba(122,193,67,.2)' },
   ] : [];
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
+  const content = (
+    <>
         <div className="er-page">
 
           {/* Header */}
@@ -573,6 +571,16 @@ export default function EmployeeReports() {
           )}
 
         </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content">
+        {content}
       </main>
     </div>
   );

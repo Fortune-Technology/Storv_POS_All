@@ -35,6 +35,7 @@ import {
   LayoutGrid,
   Settings2,
   MessageSquare,
+  CreditCard,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -43,13 +44,17 @@ const menuGroups = [
     label: 'Operations',
     items: [
       { name: 'Live Dashboard', icon: <Radio size={13} />, path: '/portal/realtime' },
-      { name: 'Customers', icon: <Users size={13} />, path: '/portal/customers' },
     ],
   },
   {
-    label: 'Loyalty & Lottery',
+    label: 'Customers',
     items: [
-      { name: 'Loyalty Program', icon: <Star size={13} />, path: '/portal/loyalty' },
+      { name: 'Customers & Loyalty', icon: <Users size={13} />, path: '/portal/customers-hub' },
+    ],
+  },
+  {
+    label: 'Lottery',
+    items: [
       { name: 'Lottery', icon: <Ticket size={13} />, path: '/portal/lottery' },
     ],
   },
@@ -74,12 +79,10 @@ const menuGroups = [
     ],
   },
   {
-    label: 'Analytics',
+    label: 'Reports & Analytics',
     items: [
-      { name: 'Sales', icon: <BarChart2 size={13} />, path: '/portal/sales' },
-      { name: 'Dept Analytics', icon: <PieChart size={13} />, path: '/portal/departments-analytics' },
-      { name: 'Products', icon: <ShoppingCart size={13} />, path: '/portal/products-analytics' },
-      { name: 'Predictions', icon: <TrendingUp size={13} />, path: '/portal/predictions' },
+      { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/pos-reports' },
+      { name: 'Analytics', icon: <BarChart2 size={13} />, path: '/portal/analytics' },
     ],
   },
   {
@@ -87,9 +90,7 @@ const menuGroups = [
     items: [
       { name: 'Store Setup',     icon: <Settings2 size={13} />,    path: '/portal/ecom/setup' },
       { name: 'Online Orders',   icon: <ShoppingCart size={13} />,  path: '/portal/ecom/orders' },
-      { name: 'Custom Domain',   icon: <Globe size={13} />,        path: '/portal/ecom/domain' },
       { name: 'Analytics',       icon: <BarChart2 size={13} />,    path: '/portal/ecom/analytics' },
-      { name: 'Customers',       icon: <Users size={13} />,        path: '/portal/ecom/customers' },
     ],
   },
   {
@@ -102,31 +103,21 @@ const menuGroups = [
   {
     label: 'Point of Sale',
     items: [
-      { name: 'POS Settings', icon: <Monitor size={13} />, path: '/portal/pos-settings' },
-      { name: 'Receipt Settings', icon: <FileText size={13} />, path: '/portal/receipt-settings' },
-      { name: 'Stations', icon: <Tv2 size={13} />, path: '/portal/stations' },
-      { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/transactions' },
-      { name: 'Event Log', icon: <ClipboardList size={13} />, path: '/portal/pos-event-log' },
-      { name: 'Employee Reports', icon: <Clock size={13} />, path: '/portal/employee-reports' },
-      { name: 'Payouts Report', icon: <ArrowUpCircle size={13} />, path: '/portal/payouts' },
-      { name: 'Deposit Rules', icon: <Recycle size={13} />, path: '/portal/deposit-rules' },
-      { name: 'Tax Rules', icon: <Percent size={13} />, path: '/portal/tax-rules' },
-      { name: 'Quick Access', icon: <LayoutGrid size={13} />, path: '/portal/quick-access' },
+      { name: 'POS Configuration', icon: <Monitor size={13} />, path: '/portal/pos-config' },
+      { name: 'Rules & Fees', icon: <Recycle size={13} />, path: '/portal/rules' },
     ],
   },
   {
-    label: 'Support',
+    label: 'Support & Billing',
     items: [
       { name: 'Support Tickets', icon: <MessageSquare size={13} />, path: '/portal/support-tickets' },
+      { name: 'Billing & Plan', icon: <CreditCard size={13} />, path: '/portal/billing' },
     ],
   },
   {
     label: 'Account',
     items: [
-      { name: 'Organisation', icon: <Building2 size={13} />, path: '/portal/organisation' },
-      { name: 'Users', icon: <Users size={13} />, path: '/portal/users' },
-      { name: 'Stores', icon: <Store size={13} />, path: '/portal/stores' },
-      { name: 'Store Settings', icon: <Settings2 size={13} />, path: '/portal/store-settings' },
+      { name: 'Account Settings', icon: <Building2 size={13} />, path: '/portal/account' },
     ],
   },
 ];

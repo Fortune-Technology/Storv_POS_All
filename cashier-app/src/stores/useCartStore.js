@@ -81,6 +81,9 @@ export const useCartStore = create((set, get) => ({
   // Attached customer: { id, name, phone, loyaltyPoints, cardNo }
   customer: null,
 
+  // Bag count for this transaction
+  bagCount: 0,
+
   // Loyalty redemption applied to this transaction:
   // { rewardId, rewardName, pointsCost, discountType: 'dollar_off'|'pct_off', discountValue }
   loyaltyRedemption: null,
@@ -252,19 +255,25 @@ export const useCartStore = create((set, get) => ({
   },
   removeLoyaltyRedemption: () => set({ loyaltyRedemption: null }),
 
+  // Bag count
+  incrementBags:  () => set(s => ({ bagCount: s.bagCount + 1 })),
+  decrementBags:  () => set(s => ({ bagCount: Math.max(0, s.bagCount - 1) })),
+  setBagCount:    (n) => set({ bagCount: Math.max(0, n) }),
+
   clearCart: () => set({
     items: [], selectedLineId: null, scanMode: 'normal',
     pendingProduct: null, txNumber: null, flashState: null,
     orderDiscount: null, customer: null, loyaltyRedemption: null, verifiedAges: [],
+    bagCount: 0,
     promoResults: { lineAdjustments: {}, totalSaving: 0, appliedPromos: [] },
   }),
 
   // ── Hold & Recall ──────────────────────────────────────────────────────
   holdCart: async (label = '') => {
-    const { items, customer, orderDiscount, loyaltyRedemption } = get();
+    const { items, customer, orderDiscount, loyaltyRedemption, bagCount } = get();
     if (!items.length) return;
     await db.heldTransactions.add({
-      items, customer, orderDiscount, loyaltyRedemption,
+      items, customer, orderDiscount, loyaltyRedemption, bagCount,
       label: label || `Hold ${new Date().toLocaleTimeString()}`,
       heldAt: Date.now(),
       storeId: null,
@@ -281,6 +290,7 @@ export const useCartStore = create((set, get) => ({
       customer:          held.customer || null,
       orderDiscount:     held.orderDiscount || null,
       loyaltyRedemption: held.loyaltyRedemption || null,
+      bagCount:          held.bagCount || 0,
       selectedLineId:    null,
     });
     await db.heldTransactions.delete(id);
@@ -347,10 +357,10 @@ export const useCartStore = create((set, get) => ({
 }));
 
 // ── Derived totals ─────────────────────────────────────────────────────────
-export function selectTotals(items, taxRules = [], orderDiscount = null) {
+// bagFeeInfo: { bagTotal, ebtEligible, discountable } | null
+export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeInfo = null) {
   const subtotal     = round2(items.reduce((s, i) => s + i.lineTotal, 0));
   const depositTotal = round2(items.reduce((s, i) => s + (i.depositTotal || 0), 0));
-  const ebtTotal     = round2(items.filter(i => i.ebtEligible).reduce((s, i) => s + i.lineTotal, 0));
 
   let taxTotal = 0;
   for (const item of items) {
@@ -367,7 +377,18 @@ export function selectTotals(items, taxRules = [], orderDiscount = null) {
       : round2(Math.min(orderDiscount.value, subtotal));
   }
 
-  const grandTotal = round2(subtotal - discountAmount + depositTotal + taxTotal);
+  // Bag fee calculation
+  const rawBagTotal = bagFeeInfo?.bagTotal || 0;
+  let effectiveBagTotal = rawBagTotal;
+  if (rawBagTotal > 0 && bagFeeInfo?.discountable && orderDiscount?.type === 'percent') {
+    effectiveBagTotal = round2(rawBagTotal * (1 - orderDiscount.value / 100));
+  }
+
+  // EBT eligible: items + bags if configured
+  const itemEbtTotal = round2(items.filter(i => i.ebtEligible).reduce((s, i) => s + i.lineTotal, 0));
+  const ebtTotal = round2(itemEbtTotal + (bagFeeInfo?.ebtEligible ? effectiveBagTotal : 0));
+
+  const grandTotal = round2(subtotal - discountAmount + depositTotal + taxTotal + effectiveBagTotal);
 
   // Promo savings already factored into item effectivePrices / lineTotals
   // We compute separately for display in totals
@@ -381,7 +402,7 @@ export function selectTotals(items, taxRules = [], orderDiscount = null) {
     return s;
   }, 0));
 
-  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving };
+  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving, bagTotal: effectiveBagTotal };
 }
 
 function matchTax(appliesTo, taxClass) {

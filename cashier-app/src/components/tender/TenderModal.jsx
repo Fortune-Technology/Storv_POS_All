@@ -15,11 +15,11 @@
  *   entry        → side-by-side full modal (numpad hidden for 'card' method)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   X, DollarSign, CreditCard, Leaf, Smartphone,
   MoreHorizontal, Check, RotateCcw,
-  RefreshCw, Trash2, PlusCircle,
+  RefreshCw, Trash2, PlusCircle, Wifi, WifiOff,
 } from 'lucide-react';
 import NumPadInline, { digitsToNumber, numberToDigits } from '../pos/NumPadInline.jsx';
 import { useCartStore, selectTotals } from '../../stores/useCartStore.js';
@@ -109,6 +109,9 @@ export default function TenderModal({
   initCashAmount = null,   // numeric dollar amount from quick-cash buttons
   cashRounding   = 'none',
   lotteryCashOnly = false,
+  bagFeeInfo     = null,   // { bagTotal, ebtEligible, discountable } | null
+  bagCount       = 0,
+  bagPrice       = 0,
 }) {
   const { items, clearCart, customer, loyaltyRedemption, orderDiscount } = useCartStore();
 
@@ -129,14 +132,14 @@ export default function TenderModal({
     return dollarOff > 0 ? { type: 'amount', value: Math.round(dollarOff * 100) / 100 } : null;
   }, [items, orderDiscount, loyaltyRedemption]);
 
-  const totals = selectTotals(items, taxRules, effectiveCombinedDiscount);
+  const totals = selectTotals(items, taxRules, effectiveCombinedDiscount, bagFeeInfo);
   const hasLotteryItems  = items.some(i => i.isLottery);
   const allowedMethods   = (lotteryCashOnly && hasLotteryItems)
     ? METHODS.filter(m => m.id === 'cash')
     : METHODS;
-  const cashier = useAuthStore(s => s.cashier);
+  const cashier  = useAuthStore(s => s.cashier);
   const { isOnline, enqueue } = useSyncStore();
-  const station = useStationStore(s => s.station);
+  const station  = useStationStore(s => s.station);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [splits,  setSplits]  = useState([]);
@@ -146,10 +149,33 @@ export default function TenderModal({
       ? 'cash'
       : (initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'))
   );
-  const [payStatus, setPayStatus] = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
-  const [payResult, setPayResult] = useState(null);
+  const [payStatus,   setPayStatus]   = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
+  const [payResult,   setPayResult]   = useState(null);
+  const [cpTxId,      setCpTxId]      = useState(null); // CardPointe paymentTransactionId
   const hw = loadHardwareConfig();
   const hasPAX = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);
+
+  // CardPointe terminal + payment settings — loaded once on mount
+  const [cpTerminal,    setCpTerminal]    = useState(null);  // PaymentTerminal record
+  const [cpPaySettings, setCpPaySettings] = useState(null);  // PaymentSettings record
+  const cpLoadedRef = useRef(false);
+  const storeId2 = cashier?.storeId || cashier?.stores?.[0]?.storeId;
+
+  useEffect(() => {
+    if (cpLoadedRef.current) return;
+    cpLoadedRef.current = true;
+    // Load CardPointe terminal assigned to this station
+    if (station?.id) {
+      posApi.getPaymentTerminalForStation(station.id, storeId2).then(t => setCpTerminal(t)).catch(() => {});
+    }
+    // Load payment settings (signature threshold etc.)
+    if (storeId2) {
+      posApi.getPaymentSettings(storeId2).then(s => setCpPaySettings(s)).catch(() => {});
+    }
+  }, []); // eslint-disable-line
+
+  const hasCardPointe = !!cpTerminal;
+  const signatureThreshold = cpPaySettings?.signatureThreshold ?? 25;
   // amount = raw digit string. "2694" → $26.94  (phone-terminal style)
   const [amount,  setAmount]  = useState(initCashAmount ? numberToDigits(initCashAmount) : '');
   const [note,    setNote]    = useState('');
@@ -219,25 +245,25 @@ export default function TenderModal({
   const complete = async () => {
     if (!canComplete || saving) return;
 
-    if (method === 'card' && hasPAX && payStatus !== 'approved') {
-      // Start PAX payment flow
-      const invoiceNum = Date.now().toString();
+    // ── CardPointe terminal charge ───────────────────────────────────────────
+    if (method === 'card' && hasCardPointe && payStatus !== 'approved') {
       setPayStatus('waiting');
       try {
-        const result = await posApi.paxSale({
-          amount: totals.grandTotal,
-          invoiceNumber: invoiceNum,
-          edcType: '02',  // debit default
-          stationId: station?.id,
+        const result = await posApi.cpCharge({
+          terminalId:       cpTerminal.id,
+          amount:           totals.grandTotal,
+          invoiceNumber:    txNumber,
+          captureSignature: Number(totals.grandTotal) >= Number(signatureThreshold),
         });
         if (result.approved) {
           setPayStatus('approved');
-          setPayResult(result.data);
-          // Continue with normal submit — don't return, fall through
+          setPayResult(result);
+          setCpTxId(result.paymentTransactionId || null);
+          // Fall through to save POS transaction
         } else {
           setPayStatus('declined');
-          setPayResult(result.data);
-          return; // stop here on declined
+          setPayResult(result);
+          return;
         }
       } catch (err) {
         setPayStatus('error');
@@ -245,7 +271,33 @@ export default function TenderModal({
         return;
       }
     }
-    // Reset PAX status after successful submit
+
+    // ── Legacy PAX fallback ────────────────────────────────────────────────
+    if (method === 'card' && hasPAX && !hasCardPointe && payStatus !== 'approved') {
+      setPayStatus('waiting');
+      try {
+        const result = await posApi.paxSale({
+          amount: totals.grandTotal,
+          invoiceNumber: txNumber,
+          edcType: '02',
+          stationId: station?.id,
+        });
+        if (result.approved) {
+          setPayStatus('approved');
+          setPayResult(result.data);
+        } else {
+          setPayStatus('declined');
+          setPayResult(result.data);
+          return;
+        }
+      } catch (err) {
+        setPayStatus('error');
+        setPayResult({ message: err.message });
+        return;
+      }
+    }
+
+    // Reset pay status before saving POS transaction
     setPayStatus(null);
     setPayResult(null);
 
@@ -261,9 +313,27 @@ export default function TenderModal({
       finalLines.push({ method, amount: activeAmt, ...(note ? { note } : {}) });
     }
 
+    // Build line items, adding synthetic bag-fee entry if applicable
+    const txLineItems = items.filter(i => !i.isLottery);
+    if (bagCount > 0 && bagPrice > 0) {
+      const bt = Math.round(bagCount * bagPrice * 100) / 100;
+      txLineItems.push({
+        isBagFee:     true,
+        name:         'Bag Fee',
+        qty:          bagCount,
+        unitPrice:    bagPrice,
+        effectivePrice: bagPrice,
+        lineTotal:    bt,
+        depositTotal: 0,
+        taxable:      false,
+        ebtEligible:  bagFeeInfo?.ebtEligible || false,
+        discountEligible: false,
+      });
+    }
+
     const payload = {
       localId: nanoid(), storeId, txNumber,
-      lineItems: items.filter(i => !i.isLottery),
+      lineItems: txLineItems,
       lotteryItems: items.filter(i => i.isLottery).map(i => ({
         type:   i.lotteryType,
         amount: Math.abs(i.lineTotal),
@@ -278,9 +348,25 @@ export default function TenderModal({
       ...totals,
     };
 
+    // Include CardPointe payment info in tender lines for receipt display
+    if (cpTxId && payResult?.approved) {
+      const cardLine = finalLines.find(l => l.method === 'card');
+      if (cardLine) {
+        cardLine.paymentTransactionId = cpTxId;
+        cardLine.lastFour  = payResult.lastFour  || undefined;
+        cardLine.acctType  = payResult.acctType  || undefined;
+        cardLine.authCode  = payResult.authCode  || undefined;
+        cardLine.entryMode = payResult.entryMode || undefined;
+      }
+    }
+
     try {
       if (isOnline) {
         const saved = await submitTransaction(payload);
+        // Link CardPointe payment transaction to the saved POS transaction (fire-and-forget)
+        if (cpTxId && saved.id) {
+          posApi.cpLinkTransaction(cpTxId, saved.id).catch(() => {});
+        }
         finish({ ...payload, id: saved.id, txNumber: saved.txNumber || txNumber }, change);
       } else {
         await enqueue(payload);
@@ -378,30 +464,139 @@ export default function TenderModal({
   // Skipped when lottery cash-only is enforced — falls through to entry modal
   // ════════════════════════════════════════════════════════════════════════════
   if (initMethod === 'card' && splits.length === 0 && !(lotteryCashOnly && hasLotteryItems)) {
+    const isWaiting  = payStatus === 'waiting';
+    const isApproved = payStatus === 'approved';
+    const isDeclined = payStatus === 'declined' || payStatus === 'error';
+
     return (
       <div style={s.backdrop}>
-        <div style={{ ...s.modal(440), border: '1px solid rgba(59,130,246,.3)' }}>
-          <div style={{ ...s.hdr, background: 'rgba(59,130,246,.06)', borderBottomColor: 'rgba(59,130,246,.18)' }}>
+        <div style={{ ...s.modal(440), border: `1px solid ${isApproved ? 'rgba(122,193,67,.4)' : isDeclined ? 'rgba(224,63,63,.4)' : 'rgba(59,130,246,.3)'}` }}>
+          <div style={{ ...s.hdr, background: isApproved ? 'rgba(122,193,67,.06)' : isDeclined ? 'rgba(224,63,63,.06)' : 'rgba(59,130,246,.06)', borderBottomColor: isApproved ? 'rgba(122,193,67,.2)' : isDeclined ? 'rgba(224,63,63,.2)' : 'rgba(59,130,246,.18)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <CreditCard size={16} color="var(--blue)" />
-              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--blue)' }}>Card Payment</span>
+              <CreditCard size={16} color={isApproved ? 'var(--green)' : isDeclined ? 'var(--red)' : 'var(--blue)'} />
+              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: isApproved ? 'var(--green)' : isDeclined ? 'var(--red)' : 'var(--blue)' }}>
+                {isApproved ? 'Card Approved' : isDeclined ? 'Card Declined' : 'Card Payment'}
+              </span>
             </div>
             <button onClick={onClose} style={s.closeBtn}><X size={16} /></button>
           </div>
-          <div style={{ padding: '2.5rem 1.5rem 1.5rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '3.25rem', fontWeight: 900, color: 'var(--blue)', letterSpacing: '-0.02em' }}>{fmt$(totals.grandTotal)}</div>
-            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '0.88rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--blue)', display: 'inline-block', opacity: 0.8 }} />
-              Please tap / swipe / insert on terminal
+
+          <div style={{ padding: '2rem 1.5rem 1rem', textAlign: 'center' }}>
+            {/* Amount */}
+            <div style={{ fontSize: '3.25rem', fontWeight: 900, color: isApproved ? 'var(--green)' : isDeclined ? 'var(--red)' : 'var(--blue)', letterSpacing: '-0.02em' }}>
+              {fmt$(totals.grandTotal)}
             </div>
+
+            {/* Status message */}
+            {!isWaiting && !isApproved && !isDeclined && (
+              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '0.88rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                {hasCardPointe
+                  ? <><Wifi size={15} color="var(--blue)" /> Tap / swipe / insert on terminal</>
+                  : <><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--blue)', display: 'inline-block', opacity: 0.8 }} /> Tap / swipe / insert on terminal</>
+                }
+              </div>
+            )}
+
+            {/* Terminal name if CardPointe */}
+            {hasCardPointe && !isWaiting && !isApproved && !isDeclined && cpTerminal?.name && (
+              <div style={{ marginTop: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                {cpTerminal.name}
+              </div>
+            )}
+
+            {/* Waiting spinner */}
+            {isWaiting && (
+              <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                <RotateCcw size={28} color="var(--blue)" style={{ animation: 'spin 1s linear infinite' }} />
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  Waiting for card…
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Customer: tap, swipe, or insert card on terminal
+                </div>
+              </div>
+            )}
+
+            {/* Approved — show card info */}
+            {isApproved && payResult && (
+              <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(122,193,67,.08)', border: '1px solid rgba(122,193,67,.25)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '0.06em' }}>APPROVED</div>
+                {payResult.acctType && (
+                  <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {payResult.acctType} •••• {payResult.lastFour}
+                  </div>
+                )}
+                {payResult.entryMode && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {payResult.entryMode.toUpperCase()} · Auth: {payResult.authCode || '—'}
+                  </div>
+                )}
+                {payResult.signatureCaptured && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--green)', marginTop: 2 }}>
+                    ✓ Signature captured
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Declined */}
+            {isDeclined && (
+              <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(224,63,63,.08)', border: '1px solid rgba(224,63,63,.25)' }}>
+                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--red)' }}>
+                  {payResult?.resptext || payResult?.message || 'Card was not approved'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  Please try again or use a different payment method.
+                </div>
+              </div>
+            )}
           </div>
+
           <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={complete} disabled={saving} style={s.bigBtn('var(--blue, #3b82f6)', saving)}>
-              {saving ? <><RotateCcw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</> : <><Check size={18} /> Payment Complete — Confirm</>}
-            </button>
-            <button onClick={() => switchMethod('cash')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 0' }}>
-              Split payment or other method
-            </button>
+            {isApproved ? (
+              /* After approved — complete the POS transaction */
+              <button onClick={complete} disabled={saving} style={s.bigBtn('var(--green)', saving)}>
+                {saving
+                  ? <><RotateCcw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Saving…</>
+                  : <><Check size={18} /> Confirm &amp; Complete Sale</>}
+              </button>
+            ) : isDeclined ? (
+              /* Declined — retry or switch method */
+              <>
+                <button
+                  onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); }}
+                  style={s.bigBtn('var(--blue, #3b82f6)')}
+                >
+                  <RotateCcw size={18} /> Try Again
+                </button>
+                <button onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); switchMethod('cash'); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 0' }}>
+                  Use a different payment method
+                </button>
+              </>
+            ) : isWaiting ? (
+              /* Waiting — show cancel only */
+              <button
+                onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); if (cpTerminal?.id) posApi.cpCancel({ terminalId: cpTerminal.id }).catch(() => {}); }}
+                style={{ width: '100%', padding: '0.875rem', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            ) : (
+              /* Idle — kick off payment */
+              <>
+                <button onClick={complete} disabled={saving} style={s.bigBtn('var(--blue, #3b82f6)', saving)}>
+                  {saving
+                    ? <><RotateCcw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
+                    : hasCardPointe
+                      ? <><CreditCard size={18} /> Charge Terminal — {fmt$(totals.grandTotal)}</>
+                      : <><Check size={18} /> Payment Complete — Confirm</>}
+                </button>
+                <button onClick={() => switchMethod('cash')} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 0' }}>
+                  Split payment or other method
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

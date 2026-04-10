@@ -1071,6 +1071,57 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 - Centralized `emailService.js` with 8 branded HTML templates
 - Forgot/reset password flow, signup notifications, contact form confirmations
 
+#### Vendor Auto-Ordering (Purchase Orders)
+- **14-factor demand-driven reorder engine** analyzes sales velocity, Holt-Winters forecast, day-of-week patterns, holidays, weather, current inventory, lead time, safety stock, pack sizes, minimum orders, shelf life, demand variability, and stockout history
+- **Service level tiers**: Critical (98%), Standard (95%), Low (90%) controlling safety stock depth
+- **Safety stock formula**: `Z × σ(dailyDemand) × √(leadTime)` — adapts to demand variability and vendor lead times
+- **Purchase order lifecycle**: Generate suggestions → Create draft PO → Edit/review → Submit → Receive (full/partial) → Inventory updated
+- **PO PDF generation**: Server-side PDFKit with store letterhead, vendor details, line items table, totals
+- **Vendor extensions**: Lead time days, minimum order amount, order frequency, delivery days
+- 3-tab UI: Suggestions (algorithm output), Purchase Orders (active PO management), History (archive)
+
+#### Live Dashboard & Weather Integration
+- **Weather widget**: Current conditions, 48-hour hourly strip, 10-day forecast from Open-Meteo (free, no API key)
+- **Date picker**: View any historical date's dashboard with weather for that day
+- **Auto-refresh**: 60-second countdown only when viewing today
+- **Hourly sales chart**: All 24 hours with transaction count overlay
+- **Payment PieChart**: Cash/Card/EBT donut chart with percentages
+
+#### Sales Predictions (Enhanced)
+- **4-tab forecast**: Hourly, Daily (30d), Weekly (12w), Monthly (6m)
+- **Weather-adjusted predictions**: Correlates historical sales with weather to compute rain/snow/cold/heat impact coefficients
+- **Factor badges**: Each predicted day shows weather icon, holiday badge, weekend indicator, trend arrow
+- **Hourly predictions**: Learns store's hourly sales distribution pattern, breaks daily forecast into 24-hour view
+- **Accuracy metrics**: MAPE, MAE, RMSE from walk-forward validation
+
+#### Export System
+- **CSV/PDF export** on all analytics pages (Dashboard, Sales, Departments, Products, Predictions)
+- Frontend: `jspdf` + `jspdf-autotable` for styled PDF tables, `file-saver` for downloads
+- Backend: `pdfkit` for server-side PO PDF generation
+
+#### Bag Fee System (POS)
+- Cashier-facing (+)/(−) bag counter above payment buttons
+- Store-level config: price per bag, EBT eligible toggle, discountable toggle
+- Integrated into cart totals, transaction record (synthetic line item), and receipts
+
+#### Customer Display Screen (POS)
+- Read-only second-screen display for customer-facing monitor
+- Real-time sync via BroadcastChannel API (zero-latency, same-origin)
+- Auto-opens fullscreen on secondary monitor in Electron
+- Three states: Idle (welcome), Active (live cart with totals), Thank You (change due)
+
+#### Sidebar Reorganization
+- Consolidated from 42 items → ~19 items across 10 groups
+- Related pages combined into tabbed views (like Lottery pattern)
+- Shared `portal.css` with `p-` prefix for all tabbed pages
+- Backwards-compatible: old URLs redirect to new tabbed pages with `?tab=` params
+
+#### Billing & Subscription System (Release 3)
+- Subscription plans, add-ons, org-level subscriptions
+- Automated billing scheduler (trial expiry, invoicing, retry logic)
+- Equipment shop with CardSecure tokenized checkout
+- Admin billing console (plans, subscriptions, invoices, equipment)
+
 ---
 
 *Built with care for Future Foods — StoreVeu POS v2.0*

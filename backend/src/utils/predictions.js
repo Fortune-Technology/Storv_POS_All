@@ -150,6 +150,202 @@ export const buildPredictionTimeline = (forecastValues, startDate, period = 'dai
   });
 };
 
+// ─── Weather Impact Regression ───────────────────────────────────────────────
+/**
+ * Compute weather impact coefficients from historical sales + weather data.
+ * Returns multipliers: how much rain/temp/etc affects sales vs baseline.
+ *
+ * @param {{date:string, sales:number, tempMean?:number, precipitation?:number, weatherCode?:number}[]} historicalData
+ * @returns {{rainFactor:number, coldFactor:number, hotFactor:number, snowFactor:number, baseline:number}}
+ */
+export const computeWeatherImpact = (historicalData) => {
+  if (!historicalData?.length || historicalData.length < 14) {
+    return { rainFactor: -0.12, coldFactor: -0.05, hotFactor: -0.03, snowFactor: -0.25, baseline: 0 };
+  }
+
+  const valid = historicalData.filter(d => d.sales > 0 && d.tempMean != null);
+  if (valid.length < 7) return { rainFactor: -0.12, coldFactor: -0.05, hotFactor: -0.03, snowFactor: -0.25, baseline: 0 };
+
+  const avgSales = valid.reduce((s, d) => s + d.sales, 0) / valid.length;
+  const avgTemp  = valid.reduce((s, d) => s + d.tempMean, 0) / valid.length;
+
+  // Categorize days
+  const rainyDays = valid.filter(d => (d.precipitation || 0) > 0.5);
+  const coldDays  = valid.filter(d => d.tempMean < 32);
+  const hotDays   = valid.filter(d => d.tempMean > 90);
+  const snowDays  = valid.filter(d => d.weatherCode >= 71 && d.weatherCode <= 77);
+  const normalDays = valid.filter(d => (d.precipitation || 0) <= 0.5 && d.tempMean >= 32 && d.tempMean <= 90);
+
+  const normalAvg = normalDays.length > 3
+    ? normalDays.reduce((s, d) => s + d.sales, 0) / normalDays.length
+    : avgSales;
+
+  const factor = (days) => {
+    if (days.length < 2) return 0;
+    const catAvg = days.reduce((s, d) => s + d.sales, 0) / days.length;
+    return (catAvg - normalAvg) / normalAvg;
+  };
+
+  return {
+    rainFactor: Math.max(-0.30, Math.min(0.1, factor(rainyDays) || -0.12)),
+    coldFactor: Math.max(-0.30, Math.min(0.1, factor(coldDays) || -0.05)),
+    hotFactor:  Math.max(-0.20, Math.min(0.1, factor(hotDays) || -0.03)),
+    snowFactor: Math.max(-0.50, Math.min(0, factor(snowDays) || -0.25)),
+    baseline: normalAvg,
+  };
+};
+
+/**
+ * Apply weather impact to forecast.
+ * @param {Array} predictions - [{date, predicted, ...}]
+ * @param {Array} weatherForecast - [{date, tempMax, tempMin, precipitation, weatherCode}]
+ * @param {object} impact - from computeWeatherImpact
+ * @returns {Array} predictions with weatherAdjusted field + factors
+ */
+export const applyWeatherToPredictions = (predictions, weatherForecast, impact) => {
+  const weatherMap = {};
+  for (const w of (weatherForecast || [])) weatherMap[w.date] = w;
+
+  return predictions.map(p => {
+    const w = weatherMap[p.date];
+    if (!w) return { ...p, weatherAdjusted: p.predicted, factors: { ...p.factors } };
+
+    let multiplier = 1.0;
+    const factors = { ...(p.factors || {}) };
+
+    // Rain impact
+    if ((w.precipitation || 0) > 2) {
+      multiplier += impact.rainFactor;
+      factors.rain = { label: 'Rain expected', impact: impact.rainFactor, precipitation: w.precipitation };
+    }
+
+    // Snow impact
+    if (w.weatherCode >= 71 && w.weatherCode <= 77) {
+      multiplier += impact.snowFactor;
+      factors.snow = { label: 'Snow expected', impact: impact.snowFactor };
+    }
+
+    // Temperature extremes
+    const avgTemp = ((w.tempMax || 70) + (w.tempMin || 50)) / 2;
+    if (avgTemp < 32) {
+      multiplier += impact.coldFactor;
+      factors.cold = { label: 'Extreme cold', impact: impact.coldFactor, temp: avgTemp };
+    } else if (avgTemp > 90) {
+      multiplier += impact.hotFactor;
+      factors.heat = { label: 'Extreme heat', impact: impact.hotFactor, temp: avgTemp };
+    }
+
+    // Weather metadata
+    factors.weather = { temp: avgTemp, condition: w.condition || 'Unknown', icon: w.icon };
+
+    return {
+      ...p,
+      weatherAdjusted: Math.max(0, Math.round(p.predicted * multiplier * 100) / 100),
+      weatherMultiplier: Math.round(multiplier * 1000) / 1000,
+      factors,
+    };
+  });
+};
+
+// ─── Holiday Impact Multipliers ──────────────────────────────────────────────
+const HOLIDAY_MULTIPLIERS = {
+  "New Year's Day":            0.4,   // most stores closed or slow
+  'Martin Luther King Jr. Day': 0.85,
+  "Presidents' Day":           0.85,
+  'Memorial Day':              0.8,
+  'Juneteenth':                0.9,
+  'Independence Day':          0.5,
+  'Independence Day (observed)': 0.6,
+  'Independence Day (observed 2026-07-03)': 0.5,
+  'Labor Day':                 0.75,
+  'Columbus Day':              0.9,
+  'Veterans Day':              0.9,
+  'Thanksgiving Day':          0.3,
+  'Christmas Day':             0.2,
+};
+
+/**
+ * Apply holiday multipliers to predictions.
+ */
+export const applyHolidayFactors = (predictions) => {
+  return predictions.map(p => {
+    if (!p.isHoliday || !p.holidayName) return p;
+    const mult = HOLIDAY_MULTIPLIERS[p.holidayName] ?? 0.85;
+    const factors = { ...(p.factors || {}), holiday: { label: p.holidayName, impact: mult - 1 } };
+    return {
+      ...p,
+      predicted: Math.max(0, Math.round(p.predicted * mult * 100) / 100),
+      factors,
+    };
+  });
+};
+
+// ─── Hourly Distribution ─────────────────────────────────────────────────────
+/**
+ * Compute hourly sales distribution from historical transactions.
+ * Returns array of 24 proportions summing to 1.0.
+ *
+ * @param {Array<{createdAt:Date|string, grandTotal:number|Decimal}>} transactions
+ * @returns {number[]} 24-element array
+ */
+export const computeHourlyDistribution = (transactions) => {
+  const hourTotals = new Array(24).fill(0);
+  let total = 0;
+
+  for (const tx of transactions) {
+    const h = new Date(tx.createdAt).getHours();
+    const amt = Number(tx.grandTotal) || 0;
+    hourTotals[h] += amt;
+    total += amt;
+  }
+
+  if (total === 0) {
+    // Default distribution if no data: bell curve centered at 12pm
+    const defaults = [0,0,0,0,0,0.01,0.02,0.04,0.06,0.08,0.10,0.12,0.12,0.10,0.08,0.06,0.05,0.04,0.04,0.03,0.02,0.01,0.01,0.01];
+    return defaults;
+  }
+
+  return hourTotals.map(h => Math.round((h / total) * 10000) / 10000);
+};
+
+/**
+ * Break a daily prediction into hourly using distribution.
+ * @param {number} dailyPrediction
+ * @param {number[]} hourlyDistribution - 24 proportions
+ * @returns {Array<{hour:number, label:string, predicted:number}>}
+ */
+export const breakIntoHourly = (dailyPrediction, hourlyDistribution) => {
+  return hourlyDistribution.map((pct, h) => ({
+    hour: h,
+    label: h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`,
+    predicted: Math.round(dailyPrediction * pct * 100) / 100,
+    pct: Math.round(pct * 10000) / 100,
+  }));
+};
+
+// ─── Monthly Forecast (aggregate weekly) ─────────────────────────────────────
+/**
+ * Aggregate daily predictions into monthly buckets.
+ * @param {Array<{date:string, predicted:number}>} dailyPredictions
+ * @returns {Array<{month:string, predicted:number, days:number, avgDaily:number}>}
+ */
+export const aggregateToMonthly = (dailyPredictions) => {
+  const months = {};
+  for (const p of dailyPredictions) {
+    const m = p.date.slice(0, 7); // YYYY-MM
+    if (!months[m]) months[m] = { total: 0, days: 0 };
+    months[m].total += p.weatherAdjusted ?? p.predicted;
+    months[m].days += 1;
+  }
+
+  return Object.entries(months).map(([month, data]) => ({
+    month,
+    predicted: Math.round(data.total * 100) / 100,
+    days: data.days,
+    avgDaily: Math.round((data.total / data.days) * 100) / 100,
+  })).sort((a, b) => a.month.localeCompare(b.month));
+};
+
 // ─── Velocity Calculator ──────────────────────────────────────────────────────
 /**
  * Calculate product velocity and reorder recommendation.

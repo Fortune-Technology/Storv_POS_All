@@ -497,7 +497,7 @@ function InviteModal({ stores, onClose, onInvited }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-export default function UserManagement() {
+export default function UserManagement({ embedded }) {
   const [users,      setUsers]      = useState([]);
   const [stores,     setStores]     = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -605,10 +605,8 @@ export default function UserManagement() {
   // Backwards-compatible display name
   const displayName = (u) => u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || '?';
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
+  const content = (
+    <>
 
         {/* Header */}
         <div className="analytics-header">
@@ -792,7 +790,6 @@ export default function UserManagement() {
             </div>
           )}
         </div>
-      </main>
 
       {showInvite && (
         <InviteModal
@@ -894,6 +891,17 @@ export default function UserManagement() {
           </div>
         </div>
       )}
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content animate-fade-in">
+        {content}
+      </main>
     </div>
   );
 }

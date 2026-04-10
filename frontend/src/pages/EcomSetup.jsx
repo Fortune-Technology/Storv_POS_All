@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { toast } from 'react-toastify';
 import {
   Settings, Palette, FileText, Truck, Search, RefreshCw, BarChart3,
   LayoutGrid, Store, Minus, Columns, PanelTop,
   BookOpen, Users, Type, Map, SplitSquareHorizontal, CreditCard,
-  Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, DollarSign, ShoppingCart, TrendingUp,
+  Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, DollarSign, ShoppingCart, TrendingUp, Globe,
 } from 'lucide-react';
+import EcomDomain from './EcomDomain';
 import './EcomSetup.css';
 
 const ECOM_API = '/api/ecom';
@@ -43,6 +45,7 @@ const TABS = [
   { id: 'pages', label: 'Pages', icon: FileText },
   { id: 'fulfillment', label: 'Fulfillment', icon: Truck },
   { id: 'seo', label: 'SEO & Social', icon: Search },
+  { id: 'domain', label: 'Custom Domain', icon: Globe },
 ];
 
 /* ── Template definitions with Lucide icons ───────────────────────── */
@@ -447,7 +450,8 @@ export default function EcomSetup() {
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState('general');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') || 'general');
   const [pages, setPages] = useState([]);
   const [editingPage, setEditingPage] = useState(null); // page object being edited
   const [form, setForm] = useState({
@@ -739,6 +743,9 @@ export default function EcomSetup() {
 
       {/* Customers */}
       {tab === 'customers' && <CustomersTab />}
+
+      {/* Custom Domain */}
+      {tab === 'domain' && <EcomDomain embedded />}
 
       <div className="es-save-bar">
         <button className="es-disable-btn" onClick={handleDisable}>Disable E-Commerce</button>

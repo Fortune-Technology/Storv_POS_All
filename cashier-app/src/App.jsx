@@ -17,8 +17,14 @@ import { useSyncStore }    from './stores/useSyncStore.js';
 import StationSetupScreen  from './screens/StationSetupScreen.jsx';
 import PinLoginScreen      from './screens/PinLoginScreen.jsx';
 import POSScreen           from './screens/POSScreen.jsx';
+import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
 
 export default function App() {
+  // Customer display — separate window rendered via hash route
+  const [isCustomerDisplay] = useState(
+    () => window.location.hash === '#/customer-display'
+  );
+  if (isCustomerDisplay) return <CustomerDisplayScreen />;
   const station    = useStationStore(s => s.station);
   const setStation = useStationStore(s => s.setStation);
   const cashier    = useAuthStore(s => s.cashier);

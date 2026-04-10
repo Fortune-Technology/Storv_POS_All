@@ -1,8 +1,8 @@
 import React from 'react';
 import { fmt$ } from '../../utils/formatters.js';
 
-export default function CartTotals({ totals, itemCount }) {
-  const { subtotal, discountAmount, ebtTotal, depositTotal, taxTotal, grandTotal } = totals;
+export default function CartTotals({ totals, itemCount, bagCount = 0 }) {
+  const { subtotal, discountAmount, ebtTotal, depositTotal, taxTotal, grandTotal, bagTotal } = totals;
 
   return (
     <div style={{
@@ -44,6 +44,15 @@ export default function CartTotals({ totals, itemCount }) {
           label="Bottle Deposits"
           value={fmt$(depositTotal)}
           valueColor="var(--text-deposit)"
+          note="No Tax"
+        />
+      )}
+
+      {bagTotal > 0 && (
+        <Row
+          label={`Bags (${bagCount})`}
+          value={fmt$(bagTotal)}
+          valueColor="var(--text-secondary)"
           note="No Tax"
         />
       )}

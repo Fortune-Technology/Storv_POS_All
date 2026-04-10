@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { Monitor, Save, Check, Palette, Sun, Moon } from 'lucide-react';
+import { Monitor, Save, Check, Palette, Sun, Moon, ShoppingBag } from 'lucide-react';
 import { getStores } from '../services/api.js';
 import api from '../services/api.js';
 import Sidebar from '../components/Sidebar.jsx';
@@ -38,6 +38,12 @@ const DEFAULT_CONFIG = {
     voidTx: true,
     endOfDay: true,
     bottleReturn: true,
+  },
+  bagFee: {
+    enabled:      true,
+    pricePerBag:  0.05,
+    ebtEligible:  false,
+    discountable: false,
   },
   lottery: {
     enabled:               true,
@@ -424,7 +430,7 @@ function POSPreview({ config, branding }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-export default function POSSettings() {
+export default function POSSettings({ embedded }) {
   const [searchParams] = useSearchParams();
 
   const [stores,        setStores]        = useState([]);
@@ -549,10 +555,8 @@ export default function POSSettings() {
     letterSpacing: '0.07em', marginBottom: '1rem', display: 'block',
   };
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content" style={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden' }}>
+  const content = (
+    <>
 
         {/* ── Left column: settings ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '2rem', minWidth: 0 }}>
@@ -998,6 +1002,53 @@ export default function POSSettings() {
               </div>
             </div>
 
+            {/* ── Bag Fee Settings ────────────────────────────────────────────────── */}
+            <div style={cardStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem' }}>
+                <ShoppingBag size={14} color="var(--accent-primary)" />
+                <span style={{ ...sectionLabel, marginBottom: 0 }}>BAG FEE</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'var(--bg-card)', cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Enable Bag Fee</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Show bag counter above payment buttons on POS</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.bagFee?.enabled ?? true}
+                    onChange={e => setConfig(c => ({ ...c, bagFee: { ...c.bagFee, enabled: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+                <div style={{ padding: '0.6rem 0.75rem', borderRadius: 8, background: 'var(--bg-card)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem', marginBottom: 6 }}>Price Per Bag ($)</div>
+                  <input type="number" step="0.01" min="0"
+                    value={config.bagFee?.pricePerBag ?? 0.05}
+                    onChange={e => setConfig(c => ({ ...c, bagFee: { ...c.bagFee, pricePerBag: parseFloat(e.target.value) || 0 } }))}
+                    style={{ width: 120, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: '0.88rem' }} />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'var(--bg-card)', cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>EBT Eligible</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Allow bag fee to be paid with EBT / Food Stamps</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.bagFee?.ebtEligible ?? false}
+                    onChange={e => setConfig(c => ({ ...c, bagFee: { ...c.bagFee, ebtEligible: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'var(--bg-card)', cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Discountable</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Include bag fee in order-level discount calculations</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.bagFee?.discountable ?? false}
+                    onChange={e => setConfig(c => ({ ...c, bagFee: { ...c.bagFee, discountable: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+              </div>
+            </div>
+
             {/* ── Section 5: Store Branding ── */}
             <div style={cardStyle}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem' }}>
@@ -1208,6 +1259,16 @@ export default function POSSettings() {
           </div>
         </div>
 
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <div className="main-content" style={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden' }}>
+        {content}
       </div>
     </div>
   );

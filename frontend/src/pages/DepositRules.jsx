@@ -321,7 +321,7 @@ function RuleCard({ rule, onEdit, onDeactivate }) {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-export default function DepositRules() {
+export default function DepositRules({ embedded }) {
   const [rules,   setRules]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
@@ -376,10 +376,8 @@ export default function DepositRules() {
     }
   };
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
+  const content = (
+    <>
         <div className="dr-page">
 
           {/* ── Header ── */}
@@ -474,6 +472,16 @@ export default function DepositRules() {
           )}
 
         </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <main className="main-content">
+        {content}
       </main>
     </div>
   );

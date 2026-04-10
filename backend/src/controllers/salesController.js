@@ -23,6 +23,12 @@ import {
   applyDOWFactors,
   buildPredictionTimeline,
   calculateVelocity,
+  computeWeatherImpact,
+  applyWeatherToPredictions,
+  applyHolidayFactors,
+  computeHourlyDistribution,
+  breakIntoHourly,
+  aggregateToMonthly,
 } from '../utils/predictions.js';
 
 import {
@@ -373,6 +379,162 @@ export const predictionsWeekly = async (req, res) => {
   }
 };
 
+// ─── Enhanced Predictions: Hourly ────────────────────────────────────────────
+
+export const predictionsHourly = async (req, res) => {
+  try {
+    const targetDate = req.query.date || (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+    const orgId = req.orgId;
+    const storeId = req.storeId || null;
+
+    // Get daily prediction for that date first (reuse daily prediction logic)
+    const from90 = daysAgo(90);
+    const toStr = today();
+    const rawData = await getDailySales(req.posUser ?? req.user, req.storeId, from90, toStr);
+    const series = (rawData.value || []).map(r => r.TotalNetSales || 0);
+
+    if (series.length < 7) {
+      return res.status(422).json({ error: 'Not enough data for hourly prediction (need >= 7 days)' });
+    }
+
+    // Predict enough days to cover the target date
+    const daysFromNow = Math.max(1, Math.ceil((new Date(targetDate) - new Date()) / 86400000) + 1);
+    const rawForecast = holtwinters(series, 7, 0.3, 0.1, 0.2, Math.max(daysFromNow, 1));
+    const startDate = new Date(); startDate.setDate(startDate.getDate() + 1);
+    const adjusted = applyDOWFactors(rawForecast, startDate);
+    const dailyPrediction = adjusted[daysFromNow - 1] || adjusted[adjusted.length - 1] || 0;
+
+    // Compute hourly distribution from recent 30 days of transactions
+    const txWhere = { orgId, status: 'complete', createdAt: { gte: new Date(from90 + 'T00:00:00') } };
+    if (storeId) txWhere.storeId = storeId;
+    const recentTxns = await prisma.transaction.findMany({
+      where: txWhere,
+      select: { createdAt: true, grandTotal: true },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+
+    const distribution = computeHourlyDistribution(recentTxns);
+    const hourly = breakIntoHourly(dailyPrediction, distribution);
+
+    res.json({
+      date: targetDate,
+      dayOfWeek: new Date(targetDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }),
+      dailyPrediction: Math.round(dailyPrediction * 100) / 100,
+      hourly,
+      distribution,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ─── Enhanced Predictions: Monthly ───────────────────────────────────────────
+
+export const predictionsMonthly = async (req, res) => {
+  try {
+    const months = Number(req.query.months) || 6;
+    const daysNeeded = months * 31;
+
+    const from = daysAgo(180);
+    const to = today();
+    const rawData = await getDailySales(req.posUser ?? req.user, req.storeId, from, to);
+    const series = (rawData.value || []).map(r => r.TotalNetSales || 0);
+
+    if (series.length < 14) {
+      return res.status(422).json({ error: 'Not enough data for monthly prediction (need >= 14 days)' });
+    }
+
+    const rawForecast = holtwinters(series, 7, 0.3, 0.1, 0.2, daysNeeded);
+    const startDate = new Date(); startDate.setDate(startDate.getDate() + 1);
+    const adjusted = applyDOWFactors(rawForecast, startDate);
+    let timeline = buildPredictionTimeline(adjusted, startDate, 'daily');
+    timeline = applyHolidayFactors(timeline);
+
+    // Weather: try to get 10-day forecast for near-term adjustments
+    const store = req.storeId ? await prisma.store.findUnique({ where: { id: req.storeId }, select: { latitude: true, longitude: true, timezone: true } }) : null;
+    if (store?.latitude && store?.longitude) {
+      try {
+        const { getTenDayForecast } = await import('../services/weatherService.js');
+        const tenDay = await getTenDayForecast(store.latitude, store.longitude, store.timezone || 'America/New_York');
+
+        // Build sales+weather history for regression
+        const salesWithWeather = (rawData.value || []).map(r => ({
+          date: r.Date, sales: r.TotalNetSales || 0,
+          tempMean: r.tempMean ?? null, precipitation: r.precipitation ?? null, weatherCode: r.weatherCode ?? null,
+        }));
+        const impact = computeWeatherImpact(salesWithWeather);
+        timeline = applyWeatherToPredictions(timeline, tenDay, impact);
+      } catch { /* weather enhancement failed, continue without */ }
+    }
+
+    const monthly = aggregateToMonthly(timeline);
+
+    res.json({
+      monthly,
+      dailyDetail: timeline.slice(0, 60), // first 60 days detail
+      modelInfo: { type: 'Holt-Winters + Weather + Holiday', monthsForecasted: months },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ─── Enhanced Predictions: Factors (what's influencing each day) ─────────────
+
+export const predictionsFactors = async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 30;
+    const from = daysAgo(90);
+    const to = today();
+    const rawData = await getDailySales(req.posUser ?? req.user, req.storeId, from, to);
+    const series = (rawData.value || []).map(r => r.TotalNetSales || 0);
+
+    if (series.length < 7) {
+      return res.status(422).json({ error: 'Not enough data' });
+    }
+
+    const rawForecast = holtwinters(series, 7, 0.3, 0.1, 0.2, days);
+    const startDate = new Date(); startDate.setDate(startDate.getDate() + 1);
+    const adjusted = applyDOWFactors(rawForecast, startDate);
+    let timeline = buildPredictionTimeline(adjusted, startDate, 'daily');
+
+    // Add factors
+    timeline = timeline.map(p => ({ ...p, factors: {} }));
+
+    // Day-of-week factors
+    const DOW_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const DOW_FACTORS = [1.15, 0.90, 0.88, 0.92, 1.00, 1.20, 1.30];
+    timeline = timeline.map(p => {
+      const dow = new Date(p.date + 'T12:00:00').getDay();
+      return { ...p, factors: { ...p.factors, dayOfWeek: { label: DOW_NAMES[dow], impact: DOW_FACTORS[dow] - 1 } } };
+    });
+
+    // Holiday factors
+    timeline = applyHolidayFactors(timeline);
+
+    // Weather factors
+    const store = req.storeId ? await prisma.store.findUnique({ where: { id: req.storeId }, select: { latitude: true, longitude: true, timezone: true } }) : null;
+    if (store?.latitude && store?.longitude) {
+      try {
+        const { getTenDayForecast, fetchWeatherRange: fetchWR } = await import('../services/weatherService.js');
+        const tenDay = await getTenDayForecast(store.latitude, store.longitude, store.timezone || 'America/New_York');
+
+        const salesWithWeather = (rawData.value || []).map(r => ({
+          date: r.Date, sales: r.TotalNetSales || 0,
+          tempMean: r.tempMean ?? null, precipitation: r.precipitation ?? null, weatherCode: r.weatherCode ?? null,
+        }));
+        const impact = computeWeatherImpact(salesWithWeather);
+        timeline = applyWeatherToPredictions(timeline, tenDay, impact);
+      } catch { /* non-fatal */ }
+    }
+
+    res.json({ forecast: timeline, days });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // ─── Sales + Weather Combined ────────────────────────────────────────────────
 
 export const dailyWithWeather = async (req, res) => {
@@ -594,12 +756,11 @@ export const realtimeSales = async (req, res) => {
     const orgId   = req.orgId;
     const storeId = req.storeId || null;
 
-    // ── Today boundaries (local server time) ─────────────────────────────────
+    // ── Date: support ?date=YYYY-MM-DD for historical, default to today ─────
     const now      = new Date();
-    const yy       = now.getFullYear();
-    const mm       = String(now.getMonth() + 1).padStart(2, '0');
-    const dd       = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${yy}-${mm}-${dd}`;
+    const nowStr   = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const todayStr = req.query.date || nowStr;
+    const isToday  = todayStr === nowStr;
     const todayStart = new Date(`${todayStr}T00:00:00`);
     const todayEnd   = new Date(`${todayStr}T23:59:59.999`);
 
@@ -787,6 +948,32 @@ export const realtimeSales = async (req, res) => {
       trend.push(dateMap[ds] || { date: ds, netSales: 0, txCount: 0 });
     }
 
+    // ── Weather data (non-blocking — don't fail if weather is unavailable) ────
+    let weather = null;
+    try {
+      const store = storeId ? await prisma.store.findUnique({ where: { id: storeId }, select: { latitude: true, longitude: true, timezone: true } }) : null;
+      if (store?.latitude && store?.longitude) {
+        const tz = store.timezone || 'America/New_York';
+        const { getCurrentWeather, getHourlyForecast, getTenDayForecast, fetchWeatherRange } = await import('../services/weatherService.js');
+
+        if (isToday) {
+          // Live weather: current + hourly + 10-day
+          const [current, hourlyForecast, tenDay] = await Promise.all([
+            getCurrentWeather(store.latitude, store.longitude, tz),
+            getHourlyForecast(store.latitude, store.longitude, tz),
+            getTenDayForecast(store.latitude, store.longitude, tz),
+          ]);
+          weather = { current: current?.current || null, hourly: hourlyForecast, tenDay, historical: null };
+        } else {
+          // Historical date: pull cached/archive weather for that day
+          const dayWeather = await fetchWeatherRange(store.latitude, store.longitude, todayStr, todayStr, tz);
+          weather = { current: null, hourly: [], tenDay: [], historical: dayWeather?.[0] || null };
+        }
+      }
+    } catch (wErr) {
+      console.warn('⚠ Weather fetch for dashboard failed (non-fatal):', wErr.message);
+    }
+
     res.json({
       todaySales: { netSales, grossSales: netSales, txCount, avgTx, taxTotal, depositTotal, ebtTotal, cashTotal, cardTotal, ebtTender },
       lottery,
@@ -794,7 +981,8 @@ export const realtimeSales = async (req, res) => {
       topProducts,
       recentTx,
       trend,
-      isToday: true,
+      weather,
+      isToday,
       dataDate: todayStr,
       lastUpdated: new Date().toISOString(),
     });

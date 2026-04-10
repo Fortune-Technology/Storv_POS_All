@@ -235,7 +235,7 @@ const DEFAULT_CFG = {
   theme: 'dark', primaryColor: '#7ac143', logoText: '',
 };
 
-export default function ReceiptSettings() {
+export default function ReceiptSettings({ embedded }) {
   const [stores,    setStores]    = useState([]);
   const [storeId,   setStoreId]   = useState('');
   const [storeName, setStoreName] = useState('');
@@ -311,11 +311,8 @@ export default function ReceiptSettings() {
   const preview = buildPreview(cfg, storeName);
   const W = cfg.receiptPaperWidth === '58mm' ? W58 : W80;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-
-      <div className="main-content" style={{ padding: '2rem', minHeight: '100vh', background: 'var(--bg-primary)' }}>
+  const content = (
+    <>
 
         {/* ── Page header ── */}
         <div style={{
@@ -735,6 +732,16 @@ export default function ReceiptSettings() {
           </div>
 
         </div>
+    </>
+  );
+
+  if (embedded) return <div className="p-tab-content">{content}</div>;
+
+  return (
+    <div className="layout-container">
+      <Sidebar />
+      <div className="main-content" style={{ padding: '2rem', minHeight: '100vh', background: 'var(--bg-primary)' }}>
+        {content}
       </div>
     </div>
   );

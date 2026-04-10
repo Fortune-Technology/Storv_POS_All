@@ -28,6 +28,12 @@ export const DEFAULT_POS_CONFIG = {
     endOfDay: true,
     bottleReturn: true,
   },
+  bagFee: {
+    enabled:      true,
+    pricePerBag:  0.05,
+    ebtEligible:  false,
+    discountable: false,
+  },
   lottery: {
     enabled:               true,
     cashOnly:              false,
@@ -84,6 +90,10 @@ function mergeConfig(defaults, data) {
     },
     quickFolders: data.quickFolders || defaults.quickFolders,
     vendorTenderMethods: data.vendorTenderMethods || defaults.vendorTenderMethods,
+    bagFee: {
+      ...defaults.bagFee,
+      ...(data.bagFee || {}),
+    },
     lottery: {
       ...defaults.lottery,
       ...(data.lottery || {}),
