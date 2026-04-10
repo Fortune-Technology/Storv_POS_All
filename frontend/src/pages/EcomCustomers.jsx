@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
+import { Users } from 'lucide-react';
 import './EcomSetup.css';
 import './EcomOrders.css';
 import './EcomCustomers.css';
@@ -45,7 +45,7 @@ export default function EcomCustomers() {
   if (selected) {
     const orders = selected.orders || [];
     return (
-      <div className="layout-container"><Sidebar /><main className="main-content">
+      <div className="p-page">
         <button onClick={() => setSelected(null)} className="ecust-back-btn">← Back to Customers</button>
         <div className="ecust-profile-row">
           <div className="ecust-avatar">
@@ -75,13 +75,24 @@ export default function EcomCustomers() {
             ))}</tbody>
           </table>
         )}
-      </main></div>
+      </div>
     );
   }
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
-      <h1 className="ecust-title">Customers</h1>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <Users size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Customers</h1>
+            <p className="p-subtitle">Online store customer accounts and order history</p>
+          </div>
+        </div>
+        <div className="p-header-actions"></div>
+      </div>
       <input className="es-input ecust-search" placeholder="Search by name, email, phone..." value={search} onChange={e => setSearch(e.target.value)} />
       {loading ? <p className="ecust-loading">Loading...</p> : customers.length === 0 ? (
         <p className="ecust-no-data">No customers found</p>
@@ -99,6 +110,6 @@ export default function EcomCustomers() {
           ))}</tbody>
         </table>
       )}
-    </main></div>
+    </div>
   );
 }

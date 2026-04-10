@@ -1,15 +1,14 @@
 /* BillingPortal.css — prefix: bp- */
 
 /* ── Container ── */
-.bp-container {
-  padding: 1.5rem;
-  max-width: 900px;
-}
+
+
 .bp-title {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
   font-weight: 700;
 }
+
 .bp-subtitle {
   margin: 0 0 2rem;
   color: var(--text-muted);
@@ -31,10 +30,12 @@
   padding: 2rem;
   text-align: center;
 }
+
 .bp-no-sub p {
   color: var(--text-muted);
   margin-bottom: 1rem;
 }
+
 .bp-no-sub a {
   color: var(--accent);
   text-decoration: none;
@@ -49,6 +50,7 @@
   padding: 1.5rem;
   margin-bottom: 1.5rem;
 }
+
 .bp-sub-header {
   display: flex;
   justify-content: space-between;
@@ -56,34 +58,41 @@
   flex-wrap: wrap;
   gap: 1rem;
 }
+
 .bp-plan-header {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
+
 .bp-plan-name {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 700;
 }
+
 .bp-store-count {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.875rem;
 }
+
 .bp-price-wrap {
   text-align: right;
 }
+
 .bp-price {
   font-size: 1.75rem;
   font-weight: 800;
 }
+
 .bp-price-period {
   font-size: 0.875rem;
   font-weight: 400;
   color: var(--text-muted);
 }
+
 .bp-divider {
   border: none;
   border-top: 1px solid var(--border-color);
@@ -96,6 +105,7 @@
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 1rem;
 }
+
 .bp-detail-label {
   font-size: 0.7rem;
   font-weight: 600;
@@ -104,6 +114,7 @@
   letter-spacing: 0.06em;
   margin-bottom: 0.25rem;
 }
+
 .bp-detail-value {
   font-size: 0.9rem;
   font-weight: 500;
@@ -124,6 +135,7 @@
 .bp-addons {
   margin-top: 1rem;
 }
+
 .bp-addons-label {
   font-size: 0.7rem;
   font-weight: 600;
@@ -132,11 +144,13 @@
   letter-spacing: 0.06em;
   margin-bottom: 0.5rem;
 }
+
 .bp-addon-list {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+
 .bp-addon-badge {
   background: rgba(96, 165, 250, 0.1);
   color: #60a5fa;
@@ -164,32 +178,39 @@
   border-radius: 10px;
   overflow: hidden;
 }
+
 .bp-invoice-header {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border-color);
 }
+
 .bp-invoice-title {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
 }
+
 .bp-invoice-empty {
   padding: 2rem;
   text-align: center;
   color: var(--text-muted);
   font-size: 0.875rem;
 }
+
 .bp-invoice-scroll {
   overflow-x: auto;
 }
+
 .bp-invoice-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
+
 .bp-invoice-table thead tr {
   border-bottom: 1px solid var(--border-color);
 }
+
 .bp-invoice-table th {
   padding: 0.75rem 1rem;
   text-align: left;
@@ -199,27 +220,34 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
+
 .bp-invoice-table tbody tr {
   border-bottom: 1px solid var(--border-color);
 }
+
 .bp-invoice-table td {
   padding: 0.75rem 1rem;
 }
+
 .bp-td-inv-num {
   font-family: monospace;
   font-size: 0.8rem;
 }
+
 .bp-td-period {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
 .bp-td-amount {
   font-weight: 600;
 }
+
 .bp-td-date {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
 .bp-inv-status {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
@@ -233,6 +261,7 @@
   font-size: 0.8rem;
   color: var(--text-muted);
 }
+
 .bp-footer a {
   color: var(--accent);
 }
@@ -248,12 +277,15 @@
   .bp-container {
     padding: 1rem;
   }
+
   .bp-sub-header {
     flex-direction: column;
   }
+
   .bp-price-wrap {
     text-align: left;
   }
+
   .bp-details-grid {
     grid-template-columns: 1fr;
   }
@@ -263,9 +295,11 @@
   .bp-container {
     padding: 0.75rem;
   }
+
   .bp-title {
     font-size: 1.2rem;
   }
+
   .bp-price {
     font-size: 1.3rem;
   }

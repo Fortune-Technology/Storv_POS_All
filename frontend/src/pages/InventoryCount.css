@@ -4,7 +4,6 @@
 .ic-main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 1.5rem 1rem;
 }
 
 /* ── Header ── */
@@ -496,9 +495,6 @@
 }
 
 @media (max-width: 768px) {
-  .ic-main {
-    padding: 1rem 0.75rem;
-  }
   .ic-product-info {
     flex-direction: column;
     gap: 0.5rem;

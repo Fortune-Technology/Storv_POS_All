@@ -2,9 +2,7 @@
 
 /* ── Main ── */
 .rs-content {
-  padding: 2rem;
-  min-height: 100vh;
-  background: var(--bg-primary);
+  max-width: 1200px;
 }
 
 /* ── Header ── */
@@ -433,9 +431,6 @@
 }
 
 @media (max-width: 768px) {
-  .rs-content {
-    padding: 1rem;
-  }
   .rs-layout {
     flex-direction: column;
   }
@@ -462,9 +457,6 @@
 }
 
 @media (max-width: 480px) {
-  .rs-content {
-    padding: 0.75rem;
-  }
   .rs-title {
     font-size: 1.1rem;
   }

@@ -8,9 +8,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Loader, Shield } from 'lucide-react';
+import { RefreshCw, Loader, Shield, CreditCard } from 'lucide-react';
 import { toast } from 'react-toastify';
-import Layout from '../components/Layout';
 import api from '../services/api';
 import './PaymentSettings.css';
 
@@ -62,10 +61,19 @@ export default function PaymentSettings() {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <Layout>
+    <div className="p-page">
       <div className="page-container">
-        <div className="page-header">
-          <h1 className="page-title">Payment History</h1>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <CreditCard size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Payment History</h1>
+              <p className="p-subtitle">View transaction and payment processing history</p>
+            </div>
+          </div>
+          <div className="p-header-actions"></div>
         </div>
 
         {/* Admin-managed notice */}
@@ -161,6 +169,6 @@ export default function PaymentSettings() {
           </div>
         )}
       </div>
-    </Layout>
+    </div>
   );
 }

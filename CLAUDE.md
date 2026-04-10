@@ -2456,7 +2456,7 @@ The sales service queries POS transaction data directly from PostgreSQL via Pris
 
 ---
 
-*Last updated: April 2026 — Session 15: Full CSS Refactoring & Responsiveness Across All Apps*
+*Last updated: April 2026 — Session 16: Shared Layout Wrappers, Independent Scrolling, Consistent Page Structure*
 
 ---
 
@@ -2567,4 +2567,66 @@ A small number of `style={{}}` remain where values are computed at runtime:
 - **Admin Sidebar**: Already had hamburger menu at 768px (implemented in prior session)
 - **Cashier App**: N/A — runs on dedicated POS terminals
 - **Storefront**: Responsive header with mobile menu already in place
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 16)
+
+### Shared Layout Wrappers & Independent Scrolling — Admin + Portal
+
+#### Problem
+1. **Admin panel** — entire page scrolled as one unit (sidebar + content together)
+2. **Portal sidebar disappeared** on navigation — each page individually mounted `<Sidebar />`, causing unmount/remount on route change
+3. **Inconsistent layout** — pages used different wrapper structures (some with `layout-container`, some without, some missing sidebar entirely)
+
+#### Architecture Change — Shared Layout Components
+
+**Admin App** (`admin-app/src/components/AdminLayout.jsx` — NEW):
+- Wraps `<AdminSidebar />` + `<main className="main-content admin-page">` in one component
+- All 15 admin routes in `App.jsx` now use `<AdminLayout>` wrapper
+- Individual pages no longer import or mount `AdminSidebar`
+- Sidebar persists across all navigation — never unmounts
+
+**Frontend Portal** (`frontend/src/components/Layout.jsx` — UPDATED):
+- Added `Outlet` from React Router for nested route support
+- `{children || <Outlet />}` pattern — works both as wrapper (legacy CSV routes) and nested route element
+- All `/portal/*` routes wrapped in single parent `<Route element={<Layout />}>` in `App.jsx`
+- Individual pages no longer import or mount `Sidebar`
+- Sidebar persists across all navigation — mounted once at the route level
+- Fixed 5 pages that were completely MISSING sidebar: POSAPI, PaymentSettings, PayoutsReport, TaxRules, BillingPortal
+
+#### CSS Changes — Independent Scrolling
+
+**Admin App** (`admin-app/src/styles/global.css`):
+- `.layout-container`: `height: 100vh; overflow: hidden` (was `min-height: 100vh`)
+- `.sidebar`: `position: fixed; height: 100vh` (was `position: sticky; min-height: 100vh`)
+- `.main-content`: `margin-left: 220px; height: 100vh; overflow-y: auto` — scrolls independently
+
+**Frontend Portal** (`frontend/src/index.css`):
+- `.layout-container`: `height: 100vh; overflow: hidden` (was `min-height: 100vh`)
+- `.sidebar`: `position: relative; min-width: 250px` — stays in flex flow
+- `.main-content`: `height: 100vh; overflow-y: auto; padding: 1.5rem 2rem` — scrolls independently
+- Removed `margin-left: 250px` (no longer needed with relative sidebar in flex container)
+
+**Portal CSS** (`frontend/src/styles/portal.css`):
+- `.p-page`: Simplified to `max-width: 1400px; background: var(--bg-primary)` — no more conflicting padding/min-height
+
+#### Pages Updated (Sidebar removal)
+
+**Admin App** — 15 pages: AdminDashboard, AdminUsers, AdminOrganizations, AdminStores, AdminCmsPages, AdminCareers, AdminCareerApplications, AdminTickets, AdminSystemConfig, AdminAnalytics, AdminOrgAnalytics, AdminStorePerformance, AdminUserActivity, AdminPaymentSettings, AdminBilling
+
+**Frontend Portal** — ~30 pages: All pages that previously imported `<Sidebar />` had the import and layout-container wrapper removed. Pages now just return their content (wrapped in `p-page` class for consistency).
+
+#### Files Changed
+| File | Change |
+|------|--------|
+| `admin-app/src/components/AdminLayout.jsx` | NEW — shared layout component |
+| `admin-app/src/App.jsx` | All routes wrapped with `<AdminLayout>` |
+| `admin-app/src/styles/global.css` | Independent scrolling CSS |
+| `admin-app/src/pages/*.jsx` (15 files) | Removed AdminSidebar import + wrapper |
+| `frontend/src/components/Layout.jsx` | Added `Outlet` for nested routes |
+| `frontend/src/App.jsx` | Portal routes nested under `<Layout />` parent |
+| `frontend/src/index.css` | Independent scrolling CSS |
+| `frontend/src/styles/portal.css` | Simplified p-page class |
+| `frontend/src/pages/*.jsx` (~30 files) | Removed Sidebar import + wrapper |
 

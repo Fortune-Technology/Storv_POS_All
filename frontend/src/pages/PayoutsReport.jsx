@@ -6,7 +6,7 @@ import React, { useState, useCallback } from 'react';
 import api from '../services/api';
 import {
   ArrowUpCircle, DollarSign, ShoppingCart, RefreshCw,
-  AlertCircle, Search, Filter, ChevronDown,
+  AlertCircle, Search, Filter, ChevronDown, Wallet,
 } from 'lucide-react';
 import './PayoutsReport.css';
 
@@ -138,22 +138,17 @@ export default function PayoutsReport({ embedded }) {
     <>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
-        <div style={{
-          width: 38, height: 38, borderRadius: 10,
-          background: 'rgba(168,85,247,.12)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          <ArrowUpCircle size={18} color="#a855f7" />
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <Wallet size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Payouts Report</h1>
+            <p className="p-subtitle">Vendor expenses &amp; merchandise payouts from cash drawer</p>
+          </div>
         </div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>
-            Payouts Report
-          </h1>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted, #6b7280)' }}>
-            Vendor expenses &amp; merchandise payouts from cash drawer
-          </p>
-        </div>
+        <div className="p-header-actions"></div>
       </div>
 
       {/* ── Filters row ── */}

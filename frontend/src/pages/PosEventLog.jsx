@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import Sidebar from '../components/Sidebar';
+
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { getPosEvents } from '../services/api';
 import {
@@ -121,18 +121,22 @@ export default function PosEventLog({ embedded }) {
     <>
 
         {/* Header */}
-        <div className="pel-header">
-          <div className="pel-header-left">
-            <ClipboardList size={22} className="pel-header-icon" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <ClipboardList size={22} />
+            </div>
             <div>
-              <h1 className="pel-title">POS Event Log</h1>
-              <p className="pel-subtitle">Cash drawer openings, No Sale, and other POS events</p>
+              <h1 className="p-title">POS Event Log</h1>
+              <p className="p-subtitle">Cash drawer openings, No Sale, and other POS events</p>
             </div>
           </div>
-          <button className="pel-btn" onClick={load} disabled={loading}>
-            <RefreshCw size={13} className={loading ? 'pel-spin' : ''} />
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          <div className="p-header-actions">
+            <button className="pel-btn" onClick={load} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'pel-spin' : ''} />
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
         </div>
 
         {/* Filter bar */}
@@ -297,11 +301,8 @@ export default function PosEventLog({ embedded }) {
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content pel-page">
+      <div className="p-page pel-page">
         {content}
       </div>
-    </div>
   );
 }

@@ -3,10 +3,10 @@
  * Configure per-store receipt template with live thermal preview.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Printer, RefreshCw, Info, FileText, Check } from 'lucide-react';
+import { Save, Printer, RefreshCw, Info, FileText, Check, Receipt } from 'lucide-react';
 import { getStores, getStoreBranding, updateStoreBranding } from '../services/api.js';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar.jsx';
+
 import './ReceiptSettings.css';
 
 // ── Preview helpers ───────────────────────────────────────────────────────────
@@ -316,49 +316,37 @@ export default function ReceiptSettings({ embedded }) {
     <>
 
         {/* ── Page header ── */}
-        <div style={{
-          display: 'flex', alignItems: 'flex-start',
-          justifyContent: 'space-between', marginBottom: '1.75rem', gap: '1rem',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 42, height: 42, borderRadius: 'var(--radius-md)',
-              background: 'var(--accent-gradient)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: 'var(--shadow-brand)',
-              flexShrink: 0,
-            }}>
-              <FileText size={20} color="#fff" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Receipt size={22} />
             </div>
             <div>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, fontFamily: 'var(--font-heading)' }}>
-                Receipt Settings
-              </h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '2px 0 0' }}>
-                Customise what prints on every receipt — changes apply to all registers in this store.
-              </p>
+              <h1 className="p-title">Receipt Settings</h1>
+              <p className="p-subtitle">Customise what prints on every receipt — changes apply to all registers in this store.</p>
             </div>
           </div>
-
-          <button
-            onClick={handleSave}
-            disabled={saving || !storeId}
-            className="btn btn-primary"
-            style={{
-              gap: 7, fontSize: '0.875rem', padding: '0.6rem 1.35rem',
-              opacity: saving || !storeId ? 0.65 : 1,
-              minWidth: 110, flexShrink: 0,
-            }}
-          >
-            {saving ? (
-              <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
-            ) : saved ? (
-              <Check size={15} />
-            ) : (
-              <Save size={15} />
-            )}
-            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
-          </button>
+          <div className="p-header-actions">
+            <button
+              onClick={handleSave}
+              disabled={saving || !storeId}
+              className="btn btn-primary"
+              style={{
+                gap: 7, fontSize: '0.875rem', padding: '0.6rem 1.35rem',
+                opacity: saving || !storeId ? 0.65 : 1,
+                minWidth: 110, flexShrink: 0,
+              }}
+            >
+              {saving ? (
+                <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
+              ) : saved ? (
+                <Check size={15} />
+              ) : (
+                <Save size={15} />
+              )}
+              {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
+            </button>
+          </div>
         </div>
 
         {/* ── Two-column layout ── */}
@@ -739,11 +727,8 @@ export default function ReceiptSettings({ embedded }) {
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content rs-content">
+      <div className="p-page rs-content">
         {content}
       </div>
-    </div>
   );
 }

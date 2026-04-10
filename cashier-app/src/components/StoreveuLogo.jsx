@@ -65,7 +65,7 @@ export default function StoreveuLogo({ height = 40, darkMode = true, showTagline
         fill={storeColor}
       >store</text>
       <text
-        x="382" y="100"
+        x="368" y="100"
         fontFamily="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
         fontWeight="300"
         fontStyle="italic"

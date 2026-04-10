@@ -5,9 +5,7 @@
 
 /* ── Layout ────────────────────────────────────────────────────────────────── */
 .rtd-page {
-  padding: 1.75rem 2rem;
-  background: var(--bg-primary);
-  min-height: 100vh;
+  max-width: 1400px;
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
@@ -497,7 +495,6 @@
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .rtd-page { padding: 1rem; }
   .rtd-kpi-row { grid-template-columns: 1fr 1fr; }
   .rtd-lottery-grid { grid-template-columns: 1fr 1fr; }
 }

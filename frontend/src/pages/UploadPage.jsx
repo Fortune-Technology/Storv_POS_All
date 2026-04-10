@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
+import { FileSpreadsheet } from 'lucide-react';
 import { uploadFile, getVendors } from '../services/api';
 import './UploadPage.css';
 
@@ -62,12 +63,15 @@ const UploadPage = () => {
 
     return (
         <div className="container section">
-        <header className="up-header">
-          <div>
-            <h1 className="up-title">CSV/Excel Transformer</h1>
-            <p className="up-subtitle">Upload your CSV or Excel file to transform it according to vendor-specific business rules</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon"><FileSpreadsheet size={22} /></div>
+            <div>
+              <h1 className="p-title">CSV/Excel Transformer</h1>
+              <p className="p-subtitle">Upload your CSV or Excel file to transform it according to vendor-specific business rules</p>
+            </div>
           </div>
-        </header>
+        </div>
 
             {/* Vendor Selection */}
             <div className="card">

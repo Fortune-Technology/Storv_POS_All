@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
-import { DollarSign, ShoppingCart, Users, TrendingUp } from 'lucide-react';
+import { DollarSign, ShoppingCart, Users, TrendingUp, BarChart3 } from 'lucide-react';
 import './EcomSetup.css';
 import './EcomAnalytics.css';
 
@@ -21,14 +20,25 @@ export default function EcomAnalytics() {
       .then(r => r.json()).then(d => setData(d.data)).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="layout-container"><Sidebar /><main className="main-content"><p className="ean-loading">Loading analytics...</p></main></div>;
-  if (!data) return <div className="layout-container"><Sidebar /><main className="main-content"><p className="ean-loading">Enable e-commerce first to see analytics.</p></main></div>;
+  if (loading) return <div className="p-page"><p className="ean-loading">Loading analytics...</p></div>;
+  if (!data) return <div className="p-page"><p className="ean-loading">Enable e-commerce first to see analytics.</p></div>;
 
   const { kpis, statusCounts, revenueTrend, topProducts } = data;
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
-      <h1 className="ean-title">Store Analytics</h1>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <BarChart3 size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Store Analytics</h1>
+            <p className="p-subtitle">Revenue, orders, and customer metrics</p>
+          </div>
+        </div>
+        <div className="p-header-actions"></div>
+      </div>
 
       <div className="es-analytics-kpis">
         <div className="es-kpi"><DollarSign size={20} className="es-kpi-icon" /><div><span className="es-kpi-num">${kpis.totalRevenue.toLocaleString()}</span><span className="es-kpi-label">Total Revenue</span></div></div>
@@ -73,6 +83,6 @@ export default function EcomAnalytics() {
           </table>
         )}
       </div>
-    </main></div>
+    </div>
   );
 }

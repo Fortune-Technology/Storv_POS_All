@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
+
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
 import {
@@ -1013,11 +1013,8 @@ export default function ProductForm() {
   // ── Loading state ────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="layout-container">
-        <Sidebar />
-        <main className="main-content pf-main">
-          <div className="pf-loading">Loading…</div>
-        </main>
+      <div className="p-page pf-main">
+        <div className="pf-loading">Loading…</div>
       </div>
     );
   }
@@ -1025,9 +1022,7 @@ export default function ProductForm() {
   const selDept = departments.find(d => d.id === parseInt(form.departmentId));
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content pf-main">
+      <div className="p-page pf-main">
         <form onSubmit={handleSave} className="pf-form">
 
           {/* ── Top Bar ── */}
@@ -1786,15 +1781,14 @@ export default function ProductForm() {
 
           </div>{/* end body grid */}
         </form>
-      </main>
 
-      {showDeptMgr && (
-        <DeptManager departments={departments} onClose={() => setShowDeptMgr(false)} onRefresh={loadSupport} />
-      )}
-      {showVendMgr && (
-        <VendorManager vendors={vendors} onClose={() => setShowVendMgr(false)} onRefresh={loadSupport} />
-      )}
-    </div>
+        {showDeptMgr && (
+          <DeptManager departments={departments} onClose={() => setShowDeptMgr(false)} onRefresh={loadSupport} />
+        )}
+        {showVendMgr && (
+          <VendorManager vendors={vendors} onClose={() => setShowVendMgr(false)} onRefresh={loadSupport} />
+        )}
+      </div>
   );
 }
 

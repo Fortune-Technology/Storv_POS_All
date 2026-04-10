@@ -10,8 +10,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Package } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+import { TrendingUp, Users, DollarSign, Package, LayoutDashboard } from 'lucide-react';
 import './Dashboard.css';
 
 const data = [
@@ -43,13 +42,19 @@ const StatCard = ({ title, value, icon, color }) => (
 
 const Dashboard = () => {
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        <header className="dsh-header">
-          <h1 className="dsh-title">Dashboard Overview</h1>
-          <p className="dsh-subtitle">Welcome back to your business analytics hub.</p>
-        </header>
+      <div className="p-page animate-fade-in">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <LayoutDashboard size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Dashboard Overview</h1>
+              <p className="p-subtitle">Welcome back to your business analytics hub.</p>
+            </div>
+          </div>
+          <div className="p-header-actions"></div>
+        </div>
 
         <div className="dsh-stats-row">
           <StatCard title="Total Revenue" value="$42,500" icon={<DollarSign />} color="#3b82f6" />
@@ -96,8 +101,7 @@ const Dashboard = () => {
             </ResponsiveContainer>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
   );
 };
 

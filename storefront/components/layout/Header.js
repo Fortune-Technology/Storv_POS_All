@@ -62,8 +62,12 @@ export default function Header() {
           </button>
         </nav>
 
-        <button className="sf-mobile-toggle" onClick={() => setMobileMenu(!mobileMenu)}>
-          {mobileMenu ? '✕' : '☰'}
+        <button className="sf-mobile-toggle" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Toggle menu">
+          {mobileMenu ? (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          ) : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12h16"/><path d="M4 6h16"/><path d="M4 18h16"/></svg>
+          )}
         </button>
       </div>
 

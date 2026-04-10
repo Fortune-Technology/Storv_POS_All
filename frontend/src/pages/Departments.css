@@ -4,7 +4,7 @@
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Page ────────────────────────────────────────────── */
-.dept-page { padding: 1.75rem 2rem; max-width: 1400px; }
+.dept-page { max-width: 1400px; }
 
 /* ── ID Chip ─────────────────────────────────────────── */
 .dept-id-chip {
@@ -237,7 +237,6 @@
 }
 
 @media (max-width: 768px) {
-  .dept-page { padding: 1rem; }
   .dept-header { flex-direction: column; align-items: flex-start; }
   .dept-filters { flex-direction: column; align-items: stretch; }
   .dept-search-wrap { max-width: 100%; }
@@ -247,7 +246,6 @@
 }
 
 @media (max-width: 480px) {
-  .dept-page { padding: 0.75rem; }
   .dept-card { padding: 0.65rem 0.75rem; }
   .dept-modal { padding: 1rem; }
 }

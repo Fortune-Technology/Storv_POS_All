@@ -7,7 +7,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpCircle, Plus, DollarSign, ShoppingCart, RefreshCw, Check, AlertCircle, X } from 'lucide-react';
 import { getVendorPayments, createVendorPaymentEntry, getCatalogVendors, getPOSConfig } from '../services/api';
-import Sidebar from '../components/Sidebar';
+
 import './VendorPayouts.css';
 
 function fmt$(n) {
@@ -111,25 +111,25 @@ export default function VendorPayouts() {
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">
+      <div className="p-page">
         <div className="vp-page">
 
           {/* Header */}
-          <div className="vp-header">
-            <div className="vp-header-left">
-              <div className="vp-header-icon">
-                <ArrowUpCircle size={18} color="#a855f7" />
+          <div className="p-header">
+            <div className="p-header-left">
+              <div className="p-header-icon">
+                <ArrowUpCircle size={22} />
               </div>
               <div>
-                <h1>Vendor Payouts</h1>
-                <p>Track and record vendor payments — expenses &amp; merchandise</p>
+                <h1 className="p-title">Vendor Payouts</h1>
+                <p className="p-subtitle">Track and record vendor payments — expenses &amp; merchandise</p>
               </div>
             </div>
-            <button className="vp-btn-add" onClick={openForm}>
-              <Plus size={15} /> Add Payment
-            </button>
+            <div className="p-header-actions">
+              <button className="p-btn p-btn-primary" onClick={openForm}>
+                <Plus size={15} /> Add Payment
+              </button>
+            </div>
           </div>
 
           {/* Summary cards */}
@@ -322,6 +322,5 @@ export default function VendorPayouts() {
         </div>
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
-    </div>
   );
 }

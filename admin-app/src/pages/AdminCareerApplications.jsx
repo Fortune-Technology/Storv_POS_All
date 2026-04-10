@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronUp, Download, Loader, Save } from 'lucide-react';
-import AdminSidebar from '../components/AdminSidebar';
+import { ArrowLeft, ChevronDown, ChevronUp, Download, Loader, Save, FileText } from 'lucide-react';
+
 import { getAdminCareerApplications, updateAdminJobApplication } from '../services/api';
 import { toast } from 'react-toastify';
 import '../styles/admin.css';
@@ -67,9 +67,7 @@ const AdminCareerApplications = () => {
   };
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         {/* Back Link */}
         <Link to="/careers" className="admin-back-link">
           <ArrowLeft size={16} /> Back to Careers
@@ -78,10 +76,13 @@ const AdminCareerApplications = () => {
         {/* Header */}
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>{posting?.title || 'Job Applications'}</h1>
-            {posting?.department && (
-              <p>Department: {posting.department}</p>
-            )}
+            <div className="admin-header-icon"><FileText size={22} /></div>
+            <div>
+              <h1>{posting?.title || 'Job Applications'}</h1>
+              {posting?.department && (
+                <p>Department: {posting.department}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -200,8 +201,7 @@ const AdminCareerApplications = () => {
             })}
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

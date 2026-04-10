@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Settings2, Plus, Trash2, Save, Check, ChevronDown } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { getStores, getPOSConfig, updatePOSConfig } from '../services/api.js';
-import Sidebar from '../components/Sidebar.jsx';
+
 import './StoreSettings.css';
 
 const DEFAULT_TENDER_METHODS = [
@@ -195,11 +195,8 @@ export default function StoreSettings({ embedded }) {
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">
+      <div className="p-page">
         {content}
       </div>
-    </div>
   );
 }

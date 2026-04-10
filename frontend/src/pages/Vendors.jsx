@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
+
 import {
   getCatalogVendors,
   createCatalogVendor,
@@ -475,22 +475,20 @@ export default function Vendors() {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content ven-content">
+      <div className="p-page ven-content">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 11, background: 'var(--brand-12)', border: '1px solid var(--brand-20)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Truck size={20} color="var(--accent-primary)" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Truck size={22} />
             </div>
             <div>
-              <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>Vendors</h1>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted, #6b7280)' }}>Manage suppliers · track payouts, products & invoices</p>
+              <h1 className="p-title">Vendors</h1>
+              <p className="p-subtitle">Manage suppliers · track payouts, products & invoices</p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="p-header-actions">
             <button onClick={() => setShowInactive(v => !v)} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 0.875rem', borderRadius: 8, cursor: 'pointer',
               border: `1px solid ${showInactive ? 'var(--brand-30)' : 'var(--border-color, #2a2a3a)'}`,
@@ -580,8 +578,6 @@ export default function Vendors() {
             ))
           )}
         </div>
-
-      </div>
 
       {/* Form panel */}
       {panelVendor !== undefined && (

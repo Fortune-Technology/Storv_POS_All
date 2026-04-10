@@ -15,7 +15,7 @@ import {
   Truck, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import {
   getAdminOrganizations,
   adminListPlans, adminCreatePlan, adminUpdatePlan, adminDeletePlan,
@@ -888,13 +888,14 @@ export default function AdminBilling() {
   const [tab, setTab] = useState('plans');
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Billing Management</h1>
-            <p>Subscription plans, org billing, invoices, and equipment orders</p>
+            <div className="admin-header-icon"><CreditCard size={22} /></div>
+            <div>
+              <h1>Billing Management</h1>
+              <p>Subscription plans, org billing, invoices, and equipment orders</p>
+            </div>
           </div>
         </div>
 
@@ -911,7 +912,6 @@ export default function AdminBilling() {
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'invoices'      && <InvoicesTab />}
         {tab === 'equipment'     && <EquipmentTab />}
-      </main>
-    </div>
+    </>
   );
 }

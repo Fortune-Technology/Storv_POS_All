@@ -41,10 +41,8 @@
 }
 
 .bi-header {
-  padding: 1.25rem 1.75rem 1.1rem;
-  border-bottom: 1px solid var(--bi-border);
   flex-shrink: 0;
-  background: #fff;
+  margin-bottom: 1rem;
 }
 
 .bi-header-inner {

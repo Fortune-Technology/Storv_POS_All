@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -9,13 +9,20 @@ import { useAuth } from '../../lib/auth';
 import { useCart } from '../../lib/cart';
 
 export default function LoginPage() {
-  const { login, storeSlug } = useAuth();
+  const { login, isLoggedIn } = useAuth();
   const { storeSlug: sq } = useCart();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Redirect logged-in users away from login page
+  useEffect(() => {
+    if (isLoggedIn) {
+      router.replace(`/account?store=${sq}`);
+    }
+  }, [isLoggedIn, router, sq]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,4 +71,9 @@ export default function LoginPage() {
       <Footer />
     </>
   );
+}
+
+export async function getServerSideProps(ctx) {
+  const { withStore } = await import('../../lib/resolveStore.js');
+  return withStore(ctx);
 }

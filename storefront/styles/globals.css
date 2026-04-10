@@ -2335,14 +2335,23 @@ button {
 
   .sf-mobile-toggle {
     display: block;
+    order: 10;
   }
 
   .sf-mobile-menu {
     display: flex;
   }
 
-  .sf-nav a {
-    font-size: 13px;
+  /* Hide static nav links — they're in the hamburger menu */
+  .sf-nav a,
+  .sf-nav-signin,
+  .sf-nav-account {
+    display: none;
+  }
+
+  /* Keep cart button visible in header */
+  .sf-cart-btn {
+    display: flex;
   }
 
   .sf-page-header {
@@ -2622,4 +2631,24 @@ button {
   .sf-page-title--mb20 {
     margin-bottom: 12px;
   }
+}
+
+/* ── SCROLLBAR ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit3, Trash2, Building2, Search, RefreshCw, Loader, X } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import {
   getAdminOrganizations,
   createAdminOrganization,
@@ -271,13 +271,14 @@ const AdminOrganizations = () => {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Organizations</h1>
-            <p>Manage all platform organizations</p>
+            <div className="admin-header-icon"><Building2 size={22} /></div>
+            <div>
+              <h1>Organizations</h1>
+              <p>Manage all platform organizations</p>
+            </div>
           </div>
           <div className="admin-header-actions">
             <button className="admin-btn-icon" onClick={fetchOrgs} title="Refresh">
@@ -389,8 +390,7 @@ const AdminOrganizations = () => {
           onSaved={fetchOrgs}
           editOrg={editOrg}
         />
-      </main>
-    </div>
+    </>
   );
 };
 

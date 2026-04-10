@@ -5,7 +5,7 @@ import {
   Users, Loader, X, Check, Ban, Clock,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import {
   getAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser,
   approveAdminUser, suspendAdminUser, rejectAdminUser,
@@ -206,15 +206,16 @@ const AdminUsers = () => {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
 
         {/* Header */}
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>User Management</h1>
-            <p>Create, edit, approve, suspend, or manage all platform users</p>
+            <div className="admin-header-icon"><Users size={22} /></div>
+            <div>
+              <h1>User Management</h1>
+              <p>Create, edit, approve, suspend, or manage all platform users</p>
+            </div>
           </div>
           <div className="admin-header-actions">
             <button onClick={openCreateModal} className="admin-btn-primary">
@@ -420,8 +421,7 @@ const AdminUsers = () => {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

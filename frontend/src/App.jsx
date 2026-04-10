@@ -111,9 +111,8 @@ import { StoreProvider } from './contexts/StoreContext';
 
 // Placeholder pages
 const Placeholder = ({ name }) => (
-  <div className="layout-container">
-    <div className="sidebar app-placeholder-sidebar"></div>
-    <div className="main-content"><h1>{name} Page</h1><p>This module is coming soon.</p></div>
+  <div className="p-page">
+    <h1>{name} Page</h1><p>This module is coming soon.</p>
   </div>
 );
 
@@ -189,103 +188,98 @@ function App() {
         {/* ── Default redirect for legacy / dashboard ─────────────────── */}
         <Route path="/dashboard" element={<Navigate to="/portal/realtime" replace />} />
 
-        {/* ── Customers & Loyalty Hub (tabbed) ────────────────────────── */}
-        <Route path="/portal/customers-hub"  element={<ProtectedRoute><CustomersHub /></ProtectedRoute>} />
-        {/* Backwards-compat redirects */}
+        {/* ── Portal routes with shared Layout (sidebar persists) ────── */}
+        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          {/* ── Customers & Loyalty Hub (tabbed) ──────────────────────── */}
+          <Route path="/portal/customers-hub"  element={<CustomersHub />} />
+
+          {/* ── Operations ────────────────────────────────────────────── */}
+          <Route path="/portal/invoice-import"  element={<InvoiceImport />} />
+          <Route path="/portal/inventory-count" element={<InventoryCount />} />
+          <Route path="/portal/price-update"    element={<PriceUpdate />} />
+          <Route path="/portal/fees-mappings"   element={<FeesMappings />} />
+          <Route path="/portal/pos-api"         element={<POSAPI />} />
+          <Route path="/portal/realtime"        element={<RealTimeDashboard />} />
+
+          {/* ── Analytics Hub (tabbed) ─────────────────────────────── */}
+          <Route path="/portal/analytics"       element={<AnalyticsHub />} />
+          <Route path="/portal/vendor-orders"   element={<VendorOrderSheet />} />
+
+          {/* ── Account Hub (tabbed) ──────────────────────────────────── */}
+          <Route path="/portal/account"         element={<AccountHub />} />
+          <Route path="/portal/branding"        element={<StoreBranding />} />
+
+          {/* ── POS Configuration Hub (tabbed) ────────────────────────── */}
+          <Route path="/portal/pos-config"      element={<POSConfig />} />
+
+          {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
+          <Route path="/portal/pos-reports"     element={<POSReports />} />
+
+          {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
+          <Route path="/portal/rules"           element={<RulesAndFees />} />
+
+          {/* ── Remaining POS items ───────────────────────────────────── */}
+          <Route path="/portal/vendor-payouts"  element={<VendorPayouts />} />
+
+          {/* ── Catalog ───────────────────────────────────────────────── */}
+          <Route path="/portal/catalog"          element={<ProductCatalog />} />
+          <Route path="/portal/catalog/new"      element={<ProductForm />} />
+          <Route path="/portal/catalog/edit/:id" element={<ProductForm />} />
+          <Route path="/portal/departments"      element={<Departments />} />
+          <Route path="/portal/vendors"          element={<Vendors />} />
+          <Route path="/portal/vendors/:id"      element={<VendorDetail />} />
+          <Route path="/portal/promotions"       element={<Promotions />} />
+          <Route path="/portal/import"           element={<BulkImport />} />
+
+          {/* ── Billing ───────────────────────────────────────────────── */}
+          <Route path="/portal/billing"          element={<BillingPortal />} />
+
+          {/* ── Lottery ───────────────────────────────────────────────── */}
+          <Route path="/portal/lottery"          element={<Lottery />} />
+          <Route path="/portal/support-tickets"  element={<SupportTickets />} />
+
+          {/* ── Online Store (E-commerce) ──────────────────────────── */}
+          <Route path="/portal/ecom/setup"       element={<EcomSetup />} />
+          <Route path="/portal/ecom/orders"      element={<EcomOrders />} />
+          <Route path="/portal/ecom/analytics"   element={<EcomAnalytics />} />
+
+          {/* ── Placeholders ──────────────────────────────────────────── */}
+          <Route path="/portal/ecomm"            element={<EcommIntegration />} />
+          <Route path="/portal/products"         element={<Placeholder name="Products" />} />
+
+          {/* ── Legacy CSV Transformer ────────────────────────────────── */}
+          <Route path="/csv/upload"              element={<UploadPage />} />
+          <Route path="/preview/:uploadId"       element={<PreviewPage />} />
+          <Route path="/transform/:transformId"  element={<TransformPage />} />
+          <Route path="/csv/deposit-map"         element={<DepositMapPage />} />
+          <Route path="/csv/history"             element={<HistoryPage />} />
+
+          {/* ── Legacy OCR ────────────────────────────────────────────── */}
+          <Route path="/ocr/tool"                element={<OCRPage />} />
+        </Route>
+
+        {/* ── Backwards-compat redirects ──────────────────────────────── */}
         <Route path="/portal/customers"      element={<Navigate to="/portal/customers-hub?tab=customers" replace />} />
         <Route path="/portal/loyalty"        element={<Navigate to="/portal/customers-hub?tab=loyalty" replace />} />
-
-        {/* ── Operations ──────────────────────────────────────────────── */}
-        <Route path="/portal/invoice-import" element={<ProtectedRoute><InvoiceImport /></ProtectedRoute>} />
-        <Route path="/portal/inventory-count" element={<ProtectedRoute><InventoryCount /></ProtectedRoute>} />
-        <Route path="/portal/price-update"  element={<ProtectedRoute><PriceUpdate /></ProtectedRoute>} />
-        <Route path="/portal/fees-mappings" element={<ProtectedRoute><FeesMappings /></ProtectedRoute>} />
-        <Route path="/portal/pos-api"       element={<ProtectedRoute><POSAPI /></ProtectedRoute>} />
-        <Route path="/portal/realtime"      element={<ProtectedRoute><RealTimeDashboard /></ProtectedRoute>} />
-
-        {/* ── Analytics Hub (tabbed) ───────────────────────────────── */}
-        <Route path="/portal/analytics"              element={<ProtectedRoute><AnalyticsHub /></ProtectedRoute>} />
-        {/* Backwards-compat redirects for old analytics routes */}
         <Route path="/portal/sales"                  element={<Navigate to="/portal/analytics?tab=sales" replace />} />
         <Route path="/portal/departments-analytics"  element={<Navigate to="/portal/analytics?tab=departments" replace />} />
         <Route path="/portal/products-analytics"     element={<Navigate to="/portal/analytics?tab=products" replace />} />
         <Route path="/portal/predictions"            element={<Navigate to="/portal/analytics?tab=predictions" replace />} />
-
-        <Route path="/portal/vendor-orders"      element={<ProtectedRoute><VendorOrderSheet /></ProtectedRoute>} />
-
-        {/* ── Account Hub (tabbed) ────────────────────────────────────── */}
-        <Route path="/portal/account"        element={<ProtectedRoute><AccountHub /></ProtectedRoute>} />
-        {/* Backwards-compat redirects for old account routes */}
         <Route path="/portal/organisation"   element={<Navigate to="/portal/account?tab=organisation" replace />} />
         <Route path="/portal/users"          element={<Navigate to="/portal/account?tab=users" replace />} />
         <Route path="/portal/stores"         element={<Navigate to="/portal/account?tab=stores" replace />} />
         <Route path="/portal/store-settings" element={<Navigate to="/portal/account?tab=settings" replace />} />
-        <Route path="/portal/branding"       element={<ProtectedRoute><StoreBranding /></ProtectedRoute>} />
-
-        {/* ── POS Configuration Hub (tabbed) ──────────────────────────── */}
-        <Route path="/portal/pos-config"         element={<ProtectedRoute><POSConfig /></ProtectedRoute>} />
-        {/* Backwards-compat redirects */}
         <Route path="/portal/pos-settings"       element={<Navigate to="/portal/pos-config?tab=layout" replace />} />
         <Route path="/portal/receipt-settings"   element={<Navigate to="/portal/pos-config?tab=receipts" replace />} />
-
-        {/* ── POS Reports Hub (tabbed) ────────────────────────────────── */}
-        <Route path="/portal/pos-reports"        element={<ProtectedRoute><POSReports /></ProtectedRoute>} />
-        {/* Backwards-compat redirects */}
         <Route path="/portal/transactions"       element={<Navigate to="/portal/pos-reports?tab=transactions" replace />} />
         <Route path="/portal/pos-event-log"      element={<Navigate to="/portal/pos-reports?tab=events" replace />} />
         <Route path="/portal/employee-reports"   element={<Navigate to="/portal/pos-reports?tab=employee" replace />} />
         <Route path="/portal/payouts"            element={<Navigate to="/portal/pos-reports?tab=payouts" replace />} />
-
-        {/* ── Rules & Fees Hub (tabbed) ───────────────────────────────── */}
-        <Route path="/portal/rules"              element={<ProtectedRoute><RulesAndFees /></ProtectedRoute>} />
-        {/* Backwards-compat redirects */}
         <Route path="/portal/deposit-rules"      element={<Navigate to="/portal/rules?tab=deposits" replace />} />
         <Route path="/portal/tax-rules"          element={<Navigate to="/portal/rules?tab=tax" replace />} />
-
-        {/* ── Remaining POS items ─────────────────────────────────────── */}
-        <Route path="/portal/vendor-payouts"     element={<ProtectedRoute><VendorPayouts /></ProtectedRoute>} />
-        {/* Backwards-compat redirect for Quick Access (now a tab in POS Config) */}
         <Route path="/portal/quick-access"       element={<Navigate to="/portal/pos-config?tab=quick-keys" replace />} />
-
-        {/* ── Legacy CSV Transformer ──────────────────────────────────── */}
-        <Route path="/csv/upload"            element={<ProtectedRoute><Layout><UploadPage /></Layout></ProtectedRoute>} />
-        <Route path="/preview/:uploadId"     element={<ProtectedRoute><Layout><PreviewPage /></Layout></ProtectedRoute>} />
-        <Route path="/transform/:transformId" element={<ProtectedRoute><Layout><TransformPage /></Layout></ProtectedRoute>} />
-        <Route path="/csv/deposit-map"       element={<ProtectedRoute><Layout><DepositMapPage /></Layout></ProtectedRoute>} />
-        <Route path="/csv/history"           element={<ProtectedRoute><Layout><HistoryPage /></Layout></ProtectedRoute>} />
-
-        {/* ── Legacy OCR ──────────────────────────────────────────────── */}
-        <Route path="/ocr/tool" element={<ProtectedRoute><Layout><OCRPage /></Layout></ProtectedRoute>} />
-
-        {/* ── Catalog ─────────────────────────────────────────────────── */}
-        <Route path="/portal/catalog"          element={<ProtectedRoute><ProductCatalog /></ProtectedRoute>} />
-        <Route path="/portal/catalog/new"      element={<ProtectedRoute><ProductForm /></ProtectedRoute>} />
-        <Route path="/portal/catalog/edit/:id" element={<ProtectedRoute><ProductForm /></ProtectedRoute>} />
-        <Route path="/portal/departments"      element={<ProtectedRoute><Departments /></ProtectedRoute>} />
-        <Route path="/portal/vendors"          element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
-        <Route path="/portal/vendors/:id"      element={<ProtectedRoute><VendorDetail /></ProtectedRoute>} />
-        <Route path="/portal/promotions"       element={<ProtectedRoute><Promotions /></ProtectedRoute>} />
-        <Route path="/portal/import" element={<ProtectedRoute><BulkImport /></ProtectedRoute>} />
-
-        {/* ── Billing ─────────────────────────────────────────────────── */}
-        <Route path="/portal/billing" element={<ProtectedRoute><BillingPortal /></ProtectedRoute>} />
-
-        {/* ── Lottery ─────────────────────────────────────────────────── */}
-        <Route path="/portal/lottery"          element={<ProtectedRoute><Lottery /></ProtectedRoute>} />
-        <Route path="/portal/support-tickets"  element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />
-
-        {/* ── Online Store (E-commerce) ────────────────────────────── */}
-        <Route path="/portal/ecom/setup"      element={<ProtectedRoute><EcomSetup /></ProtectedRoute>} />
-        <Route path="/portal/ecom/orders"     element={<ProtectedRoute><EcomOrders /></ProtectedRoute>} />
-        <Route path="/portal/ecom/analytics"  element={<ProtectedRoute><EcomAnalytics /></ProtectedRoute>} />
-        {/* Backwards-compat: Custom Domain is now a tab in Store Setup */}
         <Route path="/portal/ecom/domain"     element={<Navigate to="/portal/ecom/setup?tab=domain" replace />} />
-        {/* Removed: ecom/customers — use shared Customers & Loyalty hub */}
         <Route path="/portal/ecom/customers"  element={<Navigate to="/portal/customers-hub?tab=customers" replace />} />
-
-        {/* ── Placeholders ────────────────────────────────────────────── */}
-        <Route path="/portal/ecomm"    element={<ProtectedRoute><EcommIntegration /></ProtectedRoute>} />
-        <Route path="/portal/products" element={<ProtectedRoute><Placeholder name="Products" /></ProtectedRoute>} />
 
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />

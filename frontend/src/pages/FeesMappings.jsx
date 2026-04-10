@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit, Trash2, Save, X, Settings2, Info } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+import { Search, Plus, Edit, Trash2, Save, X, Settings2, Info, DollarSign } from 'lucide-react';
 import { getFeeMappings, upsertFeeMapping, deleteFeeMapping } from '../services/api';
 import { toast } from 'react-toastify';
 import './FeesMappings.css';
@@ -50,21 +49,26 @@ const FeesMappings = () => {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        <header className="fm-header">
-          <div>
-            <h1 className="fm-title">Fees Mappings Module</h1>
-            <p className="fm-subtitle">Manage fee types and their mapped values in MongoDB.</p>
+      <div className="p-page animate-fade-in">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <DollarSign size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Fees Mappings Module</h1>
+              <p className="p-subtitle">Manage fee types and their mapped values in MongoDB.</p>
+            </div>
           </div>
-          <button
-            onClick={() => setEditingMapping({ feeType: '', mappedValue: '', description: '' })}
-            className="btn btn-primary fm-add-btn"
-          >
-            <Plus size={18} className="fm-add-icon" /> Add Fee Mapping
-          </button>
-        </header>
+          <div className="p-header-actions">
+            <button
+              onClick={() => setEditingMapping({ feeType: '', mappedValue: '', description: '' })}
+              className="btn btn-primary fm-add-btn"
+            >
+              <Plus size={18} className="fm-add-icon" /> Add Fee Mapping
+            </button>
+          </div>
+        </div>
 
         <div className="glass-card fm-card">
           <div className="table-container">
@@ -171,8 +175,7 @@ const FeesMappings = () => {
             </div>
           </div>
         )}
-      </main>
-    </div>
+      </div>
   );
 };
 

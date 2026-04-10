@@ -19,8 +19,9 @@ import {
   PlusCircle,
   ChevronDown,
   ChevronUp,
+  FileUp,
 } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+
 import {
   queueInvoice,
   queueMultipageInvoice,
@@ -1621,15 +1622,18 @@ const InvoiceImport = () => {
       : invoices.filter(i => i.status === filter);
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
-        <header className="ii-header">
-          <div>
-            <h1>Invoice Import</h1>
-            <p>Drop files to instantly queue · AI extracts line items · Review and push to POS when ready</p>
+      <div className="p-page">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <FileUp size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Invoice Import</h1>
+              <p className="p-subtitle">Drop files to instantly queue · AI extracts line items · Review and push to POS when ready</p>
+            </div>
           </div>
-          <div className="ii-header-actions">
+          <div className="p-header-actions">
             <button
               onClick={handleRefreshPOS}
               disabled={isRefreshingPOS}
@@ -1644,7 +1648,7 @@ const InvoiceImport = () => {
               <RotateCcw size={14} /> Refresh
             </button>
           </div>
-        </header>
+        </div>
 
         <div {...getRootProps()} className={`ii-dropzone ${isDragActive ? 'ii-dropzone--active' : ''}`}>
           <input {...getInputProps()} />
@@ -1700,7 +1704,6 @@ const InvoiceImport = () => {
             ))}
           </div>
         )}
-      </main>
 
       {selectedId && (
         <ReviewPanel

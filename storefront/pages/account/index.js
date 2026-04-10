@@ -207,3 +207,8 @@ export default function AccountPage() {
     </>
   );
 }
+
+export async function getServerSideProps(ctx) {
+  const { withStore } = await import('../../lib/resolveStore.js');
+  return withStore(ctx);
+}

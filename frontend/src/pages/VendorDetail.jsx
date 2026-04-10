@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
+
 import {
   getCatalogVendor,
   updateCatalogVendor,
@@ -584,9 +584,7 @@ export default function VendorDetail() {
   }, [id]);
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content" style={{ padding: '2rem', overflowY: 'auto' }}>
+      <div className="p-page">
 
         {/* Back button */}
         <button onClick={() => navigate('/portal/vendors')} style={{
@@ -608,33 +606,36 @@ export default function VendorDetail() {
         ) : (
           <>
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: '1.75rem', flexWrap: 'wrap' }}>
-              <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--brand-12)', border: '1px solid var(--brand-20)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Truck size={24} color="var(--accent-primary)" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: 'var(--text-primary, #e2e8f0)' }}>{vendor.name}</h1>
-                  {vendor.code && (
-                    <span style={{ fontSize: '0.72rem', fontWeight: 800, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4, background: 'rgba(255,255,255,.06)', color: 'var(--text-muted)', letterSpacing: '0.05em', border: '1px solid var(--border-color, #2a2a3a)' }}>
-                      {vendor.code}
+            <div className="p-header">
+              <div className="p-header-left">
+                <div className="p-header-icon">
+                  <Truck size={22} />
+                </div>
+                <div>
+                  <h1 className="p-title" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    {vendor.name}
+                    {vendor.code && (
+                      <span style={{ fontSize: '0.72rem', fontWeight: 800, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4, background: 'rgba(255,255,255,.06)', color: 'var(--text-muted)', letterSpacing: '0.05em', border: '1px solid var(--border-color, #2a2a3a)' }}>
+                        {vendor.code}
+                      </span>
+                    )}
+                    <span style={{
+                      fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                      background: vendor.active ? 'var(--brand-12)' : 'rgba(100,116,139,.1)',
+                      color: vendor.active ? 'var(--accent-primary)' : '#64748b',
+                    }}>
+                      {vendor.active ? 'Active' : 'Inactive'}
                     </span>
-                  )}
-                  <span style={{
-                    fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                    background: vendor.active ? 'var(--brand-12)' : 'rgba(100,116,139,.1)',
-                    color: vendor.active ? 'var(--accent-primary)' : '#64748b',
-                  }}>
-                    {vendor.active ? 'Active' : 'Inactive'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 5, flexWrap: 'wrap' }}>
-                  {vendor.contactName && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}><Building2 size={11} /> {vendor.contactName}</span>}
-                  {vendor.email       && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}><Mail size={11} /> {vendor.email}</span>}
-                  {vendor.phone       && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={11} /> {vendor.phone}</span>}
-                  {vendor.terms       && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> {vendor.terms}</span>}
+                  </h1>
+                  <p className="p-subtitle" style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    {vendor.contactName && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Building2 size={11} /> {vendor.contactName}</span>}
+                    {vendor.email       && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Mail size={11} /> {vendor.email}</span>}
+                    {vendor.phone       && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={11} /> {vendor.phone}</span>}
+                    {vendor.terms       && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> {vendor.terms}</span>}
+                  </p>
                 </div>
               </div>
+              <div className="p-header-actions"></div>
             </div>
 
             {/* Tabs */}
@@ -667,6 +668,5 @@ export default function VendorDetail() {
           </>
         )}
       </div>
-    </div>
   );
 }

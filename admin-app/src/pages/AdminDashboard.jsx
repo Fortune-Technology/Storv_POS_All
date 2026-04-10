@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Building2, Ticket, Clock, AlertCircle, CheckCircle, Loader,
-  TrendingUp, PieChart as PieIcon, UserCheck, Store, FileText,
+  TrendingUp, PieChart as PieIcon, UserCheck, Store, FileText, LayoutDashboard,
 } from 'lucide-react';
 import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminDashboard } from '../services/api';
 import '../styles/admin.css';
 import './AdminDashboard.css';
@@ -87,13 +87,14 @@ const AdminDashboard = () => {
     : [];
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Admin Dashboard</h1>
-            <p>System overview and quick actions</p>
+            <div className="admin-header-icon"><LayoutDashboard size={22} /></div>
+            <div>
+              <h1>Admin Dashboard</h1>
+              <p>System overview and quick actions</p>
+            </div>
           </div>
         </div>
 
@@ -269,8 +270,7 @@ const AdminDashboard = () => {
             )}
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

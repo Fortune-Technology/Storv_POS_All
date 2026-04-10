@@ -14,7 +14,7 @@ import {
   Clock, Star, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
+
 import './Promotions.css';
 import {
   getCatalogPromotions,
@@ -277,89 +277,51 @@ export default function Promotions() {
   const isUpcoming= (p) => p.startDate && new Date(p.startDate) > now;
 
   return (
-    <div className="layout-container">
-
-      <Sidebar />
-
-      {/* ── Main content ── */}
-      <div className="main-content" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+      <div className="p-page">
 
         {/* Header */}
-        <div style={{
-          padding: '1.25rem 1.5rem 1rem',
-          borderBottom: '1px solid var(--border-color)',
-          flexShrink: 0,
-          background: 'var(--bg-secondary)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Tag size={22} />
+            </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 9,
-                  background: 'rgba(245,158,11,0.12)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Tag size={18} color="#f59e0b" />
-                </div>
-                <div>
-                  <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    Offers & Promotions
-                  </h1>
-                  <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    Create deals that auto-apply at the register
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button onClick={load} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '0.45rem 0.75rem', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.78rem' }}>
-                <RefreshCw size={13} /> Refresh
-              </button>
-              <button
-                onClick={openNew}
-                style={{
-                  background: 'var(--accent-primary)', border: 'none', borderRadius: 9,
-                  padding: '0.5rem 1.125rem', color: '#fff', fontWeight: 700,
-                  fontSize: '0.85rem', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-                }}
-              >
-                <Plus size={15} /> New Promotion
-              </button>
+              <h1 className="p-title">Offers & Promotions</h1>
+              <p className="p-subtitle">Create deals that auto-apply at the register</p>
             </div>
           </div>
+          <div className="p-header-actions">
+            <button className="p-btn" onClick={load}>
+              <RefreshCw size={13} /> Refresh
+            </button>
+            <button className="p-btn p-btn-primary" onClick={openNew}>
+              <Plus size={15} /> New Promotion
+            </button>
+          </div>
+        </div>
 
-          {/* Stats row */}
-          <div style={{ display: 'flex', gap: 10, marginTop: '1rem', flexWrap: 'wrap' }}>
-            {[
-              { label: 'Total',     val: stats.total,  color: 'var(--text-primary)' },
-              { label: 'Active',    val: stats.active, color: '#10b981' },
-              { label: 'Sale',      val: stats.sale,   color: '#f59e0b' },
-              { label: 'BOGO',      val: stats.bogo,   color: '#ec4899' },
-              { label: 'Volume',    val: stats.volume, color: '#8b5cf6' },
-              { label: 'Mix & Match',val: stats.mix,   color: '#06b6d4' },
-              { label: 'Combo',     val: stats.combo,  color: '#f97316' },
-            ].map(s => (
-              <div key={s.label} style={{
-                background: 'var(--bg-card,var(--bg-secondary))',
-                border: '1px solid var(--border-color)',
-                borderRadius: 8, padding: '0.4rem 0.875rem',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <span style={{ fontSize: '1rem', fontWeight: 800, color: s.color }}>{s.val}</span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{s.label}</span>
-              </div>
-            ))}
-          </div>
+        {/* Stats row */}
+        <div className="p-stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
+          {[
+            { label: 'Total',     val: stats.total,  color: 'var(--text-primary)' },
+            { label: 'Active',    val: stats.active, color: '#10b981' },
+            { label: 'Sale',      val: stats.sale,   color: '#f59e0b' },
+            { label: 'BOGO',      val: stats.bogo,   color: '#ec4899' },
+            { label: 'Volume',    val: stats.volume, color: '#8b5cf6' },
+            { label: 'Mix & Match',val: stats.mix,   color: '#06b6d4' },
+            { label: 'Combo',     val: stats.combo,  color: '#f97316' },
+          ].map(s => (
+            <div key={s.label} className="p-stat-card" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '1rem', fontWeight: 800, color: s.color }}>{s.val}</span>
+              <span className="p-stat-label" style={{ marginBottom: 0 }}>{s.label}</span>
+            </div>
+          ))}
         </div>
 
         {/* Filter bar */}
         <div style={{
-          padding: '0.75rem 1.5rem',
-          borderBottom: '1px solid var(--border-color)',
-          background: 'var(--bg-secondary)',
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          marginBottom: '1rem',
         }}>
           {/* Search */}
           <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
@@ -444,7 +406,6 @@ export default function Promotions() {
             </div>
           )}
         </div>
-      </div>
 
       {/* ── Slide-in Panel ── */}
       {panelOpen && (

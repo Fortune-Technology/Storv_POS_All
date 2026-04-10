@@ -8,10 +8,9 @@ import {
   TrendingUp, DollarSign, ShoppingCart, Tag, RefreshCw,
   AlertCircle, ReceiptText, Wallet, MapPin, X, ChevronRight,
   Cloud, Sun, Thermometer, Droplets, Wind, LayoutDashboard,
-  BarChart2, Download, FileText
+  BarChart2, BarChart3, Download, FileText
 } from 'lucide-react';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
-import Sidebar from '../components/Sidebar';
 import DatePicker from '../components/DatePicker';
 import {
   getSalesDailyWithWeather,
@@ -379,12 +378,17 @@ export default function SalesAnalytics({ embedded }) {
     <>
 
         {/* ── Header ── */}
-        <div className="analytics-header">
-          <div>
-            <h1 className="analytics-title">Sales Analytics</h1>
-            <p className="analytics-subtitle">Revenue trends, weather correlation, and transaction summaries</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <BarChart3 size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Sales Analytics</h1>
+              <p className="p-subtitle">Revenue trends, weather correlation, and transaction summaries</p>
+            </div>
           </div>
-          <div className="analytics-controls">
+          <div className="p-header-actions">
             <DatePicker label="From" value={range.from}
               onChange={(v) => setRange(r => ({ ...r, from: v }))} maxDate={range.to} />
             <DatePicker label="To" value={range.to}
@@ -855,12 +859,5 @@ export default function SalesAnalytics({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

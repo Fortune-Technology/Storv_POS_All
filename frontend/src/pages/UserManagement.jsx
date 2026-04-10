@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import Sidebar from '../components/Sidebar';
 import './analytics.css';
 import './UserManagement.css';
 import {
@@ -610,15 +609,17 @@ export default function UserManagement({ embedded }) {
     <>
 
         {/* Header */}
-        <div className="analytics-header">
-          <div>
-            <h1 className="analytics-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Users size={26} style={{ color: 'var(--accent-primary)' }} />
-              Users
-            </h1>
-            <p className="analytics-subtitle">Manage team members and their store access</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Users size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Users</h1>
+              <p className="p-subtitle">Manage team members and their store access</p>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div className="p-header-actions">
             <button className="filter-btn" onClick={load} disabled={loading}
               style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
@@ -897,12 +898,5 @@ export default function UserManagement({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

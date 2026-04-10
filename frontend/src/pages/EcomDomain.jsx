@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
+
 import { toast } from 'react-toastify';
 import './EcomDomain.css';
 
@@ -79,7 +79,7 @@ export default function EcomDomain({ embedded }) {
   if (loading) {
     const loadingContent = <p style={{ color: 'var(--text-muted)' }}>Loading...</p>;
     if (embedded) return <div className="p-tab-content">{loadingContent}</div>;
-    return <div className="layout-container"><Sidebar /><main className="main-content">{loadingContent}</main></div>;
+    return <div className="p-page">{loadingContent}</div>;
   }
 
   const content = (
@@ -184,9 +184,5 @@ export default function EcomDomain({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
-      {content}
-    </main></div>
-  );
+  return content;
 }

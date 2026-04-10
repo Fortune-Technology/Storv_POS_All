@@ -390,3 +390,8 @@ export default function CheckoutPage() {
     </>
   );
 }
+
+export async function getServerSideProps(ctx) {
+  const { withStore } = await import('../lib/resolveStore.js');
+  return withStore(ctx);
+}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Loader } from 'lucide-react';
+import { Loader, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminUserActivity } from '../services/api';
 import { toast } from 'react-toastify';
 import '../styles/admin.css';
@@ -45,13 +45,14 @@ const AdminUserActivity = () => {
   const statusData = (data?.statusDistribution || []).map(s => ({ ...s, name: s.status, value: s.count }));
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>User Activity</h1>
-            <p>User distribution, signups, and recent activity</p>
+            <div className="admin-header-icon"><Activity size={22} /></div>
+            <div>
+              <h1>User Activity</h1>
+              <p>User distribution, signups, and recent activity</p>
+            </div>
           </div>
         </div>
 
@@ -146,8 +147,7 @@ const AdminUserActivity = () => {
             </div>
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

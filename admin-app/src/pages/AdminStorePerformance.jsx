@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Loader } from 'lucide-react';
+import { Loader, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminStorePerformance } from '../services/api';
 import { toast } from 'react-toastify';
 import '../styles/admin.css';
@@ -23,13 +23,14 @@ const AdminStorePerformance = () => {
     .map(s => ({ name: s.name?.length > 18 ? s.name.slice(0, 18) + '...' : s.name, transactions: s.transactionCount || 0 }));
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Store Performance</h1>
-            <p>Transaction volumes and station counts across all stores</p>
+            <div className="admin-header-icon"><TrendingUp size={22} /></div>
+            <div>
+              <h1>Store Performance</h1>
+              <p>Transaction volumes and station counts across all stores</p>
+            </div>
           </div>
         </div>
 
@@ -93,8 +94,7 @@ const AdminStorePerformance = () => {
             </div>
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

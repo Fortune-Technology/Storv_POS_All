@@ -86,7 +86,7 @@ export default function StoreveuLogo({
         fill={storeClr}
       >store</text>
       <text
-        x="394" y="118"
+        x="380" y="118"
         fontFamily="'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
         fontWeight="400"
         fontStyle="italic"

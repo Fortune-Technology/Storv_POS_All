@@ -73,9 +73,9 @@ const PreviewPage = () => {
 
     return (
         <div className="container section">
-            <div className="flex-between mb-xl">
+            <div className="p-header">
                 <div>
-                    <h2>Preview: {preview.filename}</h2>
+                    <h2 className="p-title">Preview: {preview.filename}</h2>
                     <p className="text-secondary">
                         {preview.fileType.toUpperCase()} • {(preview.fileSize / 1024).toFixed(1)} KB • {preview.preview.length} rows (preview)
                     </p>

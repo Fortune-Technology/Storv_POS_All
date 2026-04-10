@@ -10,7 +10,6 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Sidebar from '../components/Sidebar';
 import {
   searchCatalogProducts,
   getStoreInventory,
@@ -21,7 +20,7 @@ import { toast } from 'react-toastify';
 import {
   Scan, Search, Package, Plus, Minus, CheckCircle,
   RefreshCw, X, ChevronDown, ChevronUp, BarChart2,
-  AlertCircle, Loader, History,
+  AlertCircle, Loader, History, ClipboardList,
 } from 'lucide-react';
 import './InventoryCount.css';
 
@@ -330,19 +329,20 @@ const InventoryCount = () => {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content ic-main">
+      <div className="p-page ic-main">
 
         {/* ── Header ── */}
-        <div className="ic-header">
-          <div className="ic-header-row">
-            <div className="ic-header-icon">
-              <BarChart2 size={20} color="var(--accent-primary)" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <ClipboardList size={22} />
             </div>
-            <h1>Inventory Count</h1>
+            <div>
+              <h1 className="p-title">Inventory Count</h1>
+              <p className="p-subtitle">Scan barcodes or search to quickly update stock levels</p>
+            </div>
           </div>
-          <p>Scan barcodes or search to quickly update stock levels</p>
+          <div className="p-header-actions"></div>
         </div>
 
         {/* ── Mode toggle ── */}
@@ -449,8 +449,7 @@ const InventoryCount = () => {
             </p>
           </div>
         )}
-      </main>
-    </div>
+      </div>
   );
 };
 

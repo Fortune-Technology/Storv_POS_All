@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -9,9 +9,16 @@ import { useAuth } from '../../lib/auth';
 import { useCart } from '../../lib/cart';
 
 export default function SignupPage() {
-  const { signup } = useAuth();
+  const { signup, isLoggedIn } = useAuth();
   const { storeSlug: sq } = useCart();
   const router = useRouter();
+
+  // Redirect logged-in users away from signup page
+  useEffect(() => {
+    if (isLoggedIn) {
+      router.replace(`/account?store=${sq}`);
+    }
+  }, [isLoggedIn, router, sq]);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -79,4 +86,9 @@ export default function SignupPage() {
       <Footer />
     </>
   );
+}
+
+export async function getServerSideProps(ctx) {
+  const { withStore } = await import('../../lib/resolveStore.js');
+  return withStore(ctx);
 }

@@ -4,7 +4,7 @@
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Page ────────────────────────────────────────────── */
-.sp-page { padding: 1.75rem 2rem; max-width: 1400px; }
+.sp-page { max-width: 1400px; }
 
 /* ── Toolbar ─────────────────────────────────────────── */
 .sp-toolbar {
@@ -163,7 +163,6 @@
 }
 
 @media (max-width: 768px) {
-  .sp-page { padding: 1rem; }
   .sp-toolbar { flex-direction: column; align-items: stretch; }
   .sp-stat-grid { grid-template-columns: 1fr; }
   .sp-chart-wrap { height: 240px; }
@@ -172,7 +171,6 @@
 }
 
 @media (max-width: 480px) {
-  .sp-page { padding: 0.75rem; }
   .sp-chart-wrap { height: 200px; }
   .sp-hourly-grid { grid-template-columns: repeat(4, 1fr); }
 }

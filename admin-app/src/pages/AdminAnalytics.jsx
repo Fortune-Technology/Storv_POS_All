@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Store, Receipt, Loader } from 'lucide-react';
+import { Users, Building2, Store, Receipt, Loader, BarChart2 } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminAnalyticsDashboard } from '../services/api';
 import { toast } from 'react-toastify';
 import '../styles/admin.css';
@@ -38,13 +38,14 @@ const AdminAnalytics = () => {
     : [];
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>System Analytics</h1>
-            <p>Platform-wide metrics and trends</p>
+            <div className="admin-header-icon"><BarChart2 size={22} /></div>
+            <div>
+              <h1>System Analytics</h1>
+              <p>Platform-wide metrics and trends</p>
+            </div>
           </div>
         </div>
 
@@ -107,8 +108,7 @@ const AdminAnalytics = () => {
             </div>
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

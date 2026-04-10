@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Sidebar from '../components/Sidebar';
+
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { getTransactions, getStoreEmployees } from '../services/api';
 import {
@@ -957,11 +957,8 @@ export default function Transactions({ embedded }) {
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content txn-page">
+      <div className="p-page txn-page">
         {content}
       </div>
-    </div>
   );
 }

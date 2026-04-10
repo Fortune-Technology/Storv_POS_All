@@ -1,8 +1,6 @@
 /* VendorPayouts.css — Back-office vendor payment management */
 
 .vp-page {
-  padding: 1.5rem 2rem;
-  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -61,7 +59,9 @@
   transition: opacity 0.15s;
 }
 
-.vp-btn-add:hover { opacity: 0.9; }
+.vp-btn-add:hover {
+  opacity: 0.9;
+}
 
 /* Summary cards */
 .vp-summary {
@@ -133,7 +133,8 @@
   text-transform: uppercase;
 }
 
-.vp-input, .vp-select {
+.vp-input,
+.vp-select {
   height: 36px;
   padding: 0 0.75rem;
   background: var(--bg-tertiary, #1a1a2a);
@@ -143,7 +144,10 @@
   font-size: 0.875rem;
 }
 
-.vp-select { cursor: pointer; padding-right: 1.5rem; }
+.vp-select {
+  cursor: pointer;
+  padding-right: 1.5rem;
+}
 
 .vp-btn-run {
   height: 36px;
@@ -195,7 +199,9 @@
   text-transform: uppercase;
 }
 
-.vp-form-input, .vp-form-select, .vp-form-textarea {
+.vp-form-input,
+.vp-form-select,
+.vp-form-textarea {
   padding: 0.5rem 0.75rem;
   background: var(--bg-tertiary, #1a1a2a);
   border: 1px solid var(--border-color, #2a2a3a);
@@ -205,7 +211,10 @@
   font-family: inherit;
 }
 
-.vp-form-textarea { resize: none; min-height: 60px; }
+.vp-form-textarea {
+  resize: none;
+  min-height: 60px;
+}
 
 .vp-type-toggle {
   display: grid;
@@ -273,7 +282,10 @@
   gap: 6px;
 }
 
-.vp-btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.vp-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* Table */
 .vp-table-wrap {
@@ -316,7 +328,9 @@
   white-space: nowrap;
 }
 
-.vp-th--right { text-align: right; }
+.vp-th--right {
+  text-align: right;
+}
 
 .vp-td {
   padding: 0.625rem 1rem;
@@ -325,10 +339,22 @@
   border-bottom: 1px solid var(--border-color, #1f2937);
 }
 
-.vp-td--primary { font-weight: 600; color: var(--text-primary, #e2e8f0); }
-.vp-td--amount  { text-align: right; font-weight: 800; color: #f87171; font-size: 0.9rem; white-space: nowrap; }
+.vp-td--primary {
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
 
-.vp-tr:hover td { background: rgba(255,255,255, 0.025); }
+.vp-td--amount {
+  text-align: right;
+  font-weight: 800;
+  color: #f87171;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.vp-tr:hover td {
+  background: rgba(255, 255, 255, 0.025);
+}
 
 .vp-tfoot td {
   padding: 0.625rem 1rem;

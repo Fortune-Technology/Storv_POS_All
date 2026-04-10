@@ -1,6 +1,6 @@
 /* StoreSettings.css */
 
-.ss-page { padding: 2rem; max-width: 960px; }
+.ss-page { max-width: 960px; }
 
 .ss-header {
   display: flex;

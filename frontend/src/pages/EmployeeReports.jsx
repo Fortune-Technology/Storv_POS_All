@@ -17,7 +17,6 @@ import {
   Users, Clock, ShoppingCart, DollarSign, RefreshCw,
   AlertCircle, FileText, ChevronDown, Plus, Pencil, Trash2, Check, X as XIcon,
 } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
 import './EmployeeReports.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -576,12 +575,5 @@ export default function EmployeeReports({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

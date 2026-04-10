@@ -4,7 +4,7 @@
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Page layout ─────────────────────────────────────── */
-.vd-page { padding: 1.75rem 2rem; max-width: 1200px; }
+.vd-page { max-width: 1200px; }
 
 /* ── Header ──────────────────────────────────────────── */
 .vd-header {
@@ -207,7 +207,6 @@
 }
 
 @media (max-width: 768px) {
-  .vd-page { padding: 1rem; }
   .vd-header { flex-wrap: wrap; }
   .vd-form-grid { grid-template-columns: 1fr; }
   .vd-stat-grid { grid-template-columns: 1fr; }
@@ -215,6 +214,5 @@
 }
 
 @media (max-width: 480px) {
-  .vd-page { padding: 0.75rem; }
   .vd-header-title { font-size: 1.1rem; }
 }

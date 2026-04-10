@@ -4,7 +4,7 @@
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Page ────────────────────────────────────────────── */
-.prm-page { padding: 1.75rem 2rem; max-width: 1400px; }
+.prm-page { max-width: 1400px; }
 
 /* ── Header ──────────────────────────────────────────── */
 .prm-header {
@@ -235,7 +235,6 @@
 }
 
 @media (max-width: 768px) {
-  .prm-page { padding: 1rem; }
   .prm-header { flex-direction: column; align-items: flex-start; }
   .prm-filters { flex-direction: column; align-items: stretch; }
   .prm-search-wrap { max-width: 100%; }
@@ -246,7 +245,6 @@
 }
 
 @media (max-width: 480px) {
-  .prm-page { padding: 0.75rem; }
   .prm-panel-body { padding: 1rem; }
   .prm-type-grid { grid-template-columns: 1fr; }
 }

@@ -5,7 +5,6 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { BarChart2, PieChart, ShoppingCart, TrendingUp } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
 import SalesAnalytics from './SalesAnalytics';
 import DepartmentAnalytics from './DepartmentAnalytics';
 import ProductAnalytics from './ProductAnalytics';
@@ -25,34 +24,29 @@ export default function AnalyticsHub() {
   const [tab, setTab] = useState(initialTab);
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
-        <div className="p-page">
-          <div className="p-header">
-            <div className="p-header-left">
-              <div className="p-header-icon"><BarChart2 size={22} /></div>
-              <div>
-                <h1 className="p-title">Analytics</h1>
-                <p className="p-subtitle">Sales performance, department breakdown, product insights, and demand forecasting</p>
-              </div>
-            </div>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon"><BarChart2 size={22} /></div>
+          <div>
+            <h1 className="p-title">Analytics</h1>
+            <p className="p-subtitle">Sales performance, department breakdown, product insights, and demand forecasting</p>
           </div>
-
-          <div className="p-tabs">
-            {TABS.map(t => (
-              <button key={t.key} className={`p-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
-                {t.icon} {t.label}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'sales'       && <SalesAnalytics embedded />}
-          {tab === 'departments' && <DepartmentAnalytics embedded />}
-          {tab === 'products'    && <ProductAnalytics embedded />}
-          {tab === 'predictions' && <SalesPredictions embedded />}
         </div>
-      </main>
+      </div>
+
+      <div className="p-tabs">
+        {TABS.map(t => (
+          <button key={t.key} className={`p-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'sales'       && <SalesAnalytics embedded />}
+      {tab === 'departments' && <DepartmentAnalytics embedded />}
+      {tab === 'products'    && <ProductAnalytics embedded />}
+      {tab === 'predictions' && <SalesPredictions embedded />}
     </div>
   );
 }

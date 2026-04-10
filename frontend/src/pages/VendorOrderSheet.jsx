@@ -6,7 +6,6 @@ import {
   CalendarRange, ShoppingCart, History as HistoryIcon, Lightbulb,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
 import {
   getOrderSuggestions,
   generatePurchaseOrders,
@@ -130,12 +129,7 @@ export default function VendorOrderSheet({ embedded }) {
 
   if (embedded) return content;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">{content}</main>
-    </div>
-  );
+  return content;
 }
 
 /* ════════════════════════════════════════════════════════════

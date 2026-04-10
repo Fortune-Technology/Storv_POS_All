@@ -4,7 +4,6 @@
  */
 
 import React from 'react';
-import Sidebar from '../components/Sidebar';
 import { Clock, Zap, Bell } from 'lucide-react';
 import './EcommIntegration.css';
 
@@ -113,10 +112,7 @@ const FEATURES = [
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function EcommIntegration() {
   return (
-    <div className="layout-container">
-      <Sidebar />
-
-      <div className="main-content ei-main">
+      <div className="p-page ei-main">
         <div className="ei-container">
 
           {/* ── Header ── */}
@@ -202,6 +198,5 @@ export default function EcommIntegration() {
 
         </div>
       </div>
-    </div>
   );
 }

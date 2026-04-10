@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Save, RefreshCw, AlertCircle, CheckCircle, Package, ArrowUpRight } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+import { Search, Save, RefreshCw, AlertCircle, CheckCircle, Package, ArrowUpRight, DollarSign } from 'lucide-react';
 import { getProducts, bulkUpdatePrices } from '../services/api';
 import { toast } from 'react-toastify';
 import './PriceUpdate.css';
@@ -51,22 +50,27 @@ const PriceUpdate = () => {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        <header className="pu-header">
-          <div>
-            <h1 className="pu-title">Price Update Module</h1>
-            <p className="pu-subtitle">Bulk update prices and sync with MarktPOS API.</p>
+      <div className="p-page animate-fade-in">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <DollarSign size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Price Update Module</h1>
+              <p className="p-subtitle">Bulk update prices and sync with MarktPOS API.</p>
+            </div>
           </div>
-          <button
-            onClick={handleBulkUpdate}
-            className="btn btn-primary pu-sync-btn"
-            disabled={syncing || Object.keys(updates).length === 0}
-          >
-            {syncing ? <RefreshCw className="animate-spin" /> : <>Save & Sync to POS <Save size={18} className="pu-save-icon" /></>}
-          </button>
-        </header>
+          <div className="p-header-actions">
+            <button
+              onClick={handleBulkUpdate}
+              className="btn btn-primary pu-sync-btn"
+              disabled={syncing || Object.keys(updates).length === 0}
+            >
+              {syncing ? <RefreshCw className="animate-spin" /> : <>Save & Sync to POS <Save size={18} className="pu-save-icon" /></>}
+            </button>
+          </div>
+        </div>
 
         <div className="glass-card pu-card">
           <div className="pu-search-bar">
@@ -145,8 +149,7 @@ const PriceUpdate = () => {
             </table>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
   );
 };
 

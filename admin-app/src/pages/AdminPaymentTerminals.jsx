@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, Wifi, WifiOff, RefreshCw, Search, Loader, Monitor } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminPaymentTerminals, pingAdminTerminal } from '../services/api';
 import '../styles/admin.css';
 import './AdminPaymentTerminals.css';
@@ -96,13 +96,14 @@ export default function AdminPaymentTerminals() {
   const pingClass = (ms) => ms < 300 ? 'apt-ping-fast' : ms < 800 ? 'apt-ping-mid' : 'apt-ping-slow';
 
   return (
-    <div className="admin-layout">
-      <AdminSidebar />
-      <main className="admin-main">
+    <>
         <div className="admin-page-header">
-          <div>
-            <h1 className="admin-page-title">Payment Terminals</h1>
-            <p className="admin-page-subtitle">Cross-org terminal health monitor</p>
+          <div className="admin-header-left">
+            <div className="admin-header-icon"><Monitor size={22} /></div>
+            <div>
+              <h1 className="admin-page-title">Payment Terminals</h1>
+              <p className="admin-page-subtitle">Cross-org terminal health monitor</p>
+            </div>
           </div>
           <button className="admin-btn admin-btn-secondary" onClick={fetch} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
@@ -221,7 +222,6 @@ export default function AdminPaymentTerminals() {
             <button className="admin-btn admin-btn-secondary" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</button>
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 }

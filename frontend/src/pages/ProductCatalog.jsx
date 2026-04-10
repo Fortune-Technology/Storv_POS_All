@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
+
 import {
   getCatalogProducts, searchCatalogProducts,
   deleteCatalogProduct,
@@ -121,19 +121,22 @@ export default function ProductCatalog() {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
+      <div className="p-page">
 
         {/* ── Top bar ── */}
-        <div className="pc-topbar">
-          <div>
-            <h1 className="pc-title">Product Catalog</h1>
-            <p className="pc-product-count">
-              {pagination.total > 0 ? `${pagination.total} products` : 'Organization-level master catalog'}
-            </p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Package size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Product Catalog</h1>
+              <p className="p-subtitle">
+                {pagination.total > 0 ? `${pagination.total} products` : 'Organization-level master catalog'}
+              </p>
+            </div>
           </div>
-          <div className="pc-topbar-actions">
+          <div className="p-header-actions">
             <button onClick={() => { loadProducts(q, page, filters); loadSupport(); }} className="pc-refresh-btn">
               <RefreshCw size={14} />
             </button>
@@ -316,7 +319,6 @@ export default function ProductCatalog() {
             </button>
           </div>
         )}
-      </main>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

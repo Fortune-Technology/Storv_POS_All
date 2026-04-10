@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Save, Trash2, Loader, Settings } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import { getAdminSystemConfig, updateAdminSystemConfig } from '../services/api';
 import '../styles/admin.css';
 import './AdminSystemConfig.css';
@@ -37,13 +37,14 @@ const AdminSystemConfig = () => {
   };
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1 className="admin-header-icon"><Settings size={20} /> System Configuration</h1>
-            <p>Global key-value settings</p>
+            <div className="admin-header-icon"><Settings size={22} /></div>
+            <div>
+              <h1>System Configuration</h1>
+              <p>Global key-value settings</p>
+            </div>
           </div>
         </div>
 
@@ -81,8 +82,7 @@ const AdminSystemConfig = () => {
             ))}
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

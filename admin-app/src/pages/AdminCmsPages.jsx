@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, FileText } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import RichTextEditor from '../components/RichTextEditor';
 import { getAdminCmsPages, createAdminCmsPage, updateAdminCmsPage, deleteAdminCmsPage } from '../services/api';
 import '../styles/admin.css';
@@ -51,13 +51,14 @@ const AdminCmsPages = () => {
   };
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>CMS Pages</h1>
-            <p>Manage marketing site content</p>
+            <div className="admin-header-icon"><FileText size={22} /></div>
+            <div>
+              <h1>CMS Pages</h1>
+              <p>Manage marketing site content</p>
+            </div>
           </div>
           <button onClick={() => setModal({ mode: 'create', data: { title: '', slug: '', content: '', metaTitle: '', metaDesc: '', published: false, sortOrder: 0 } })}
             className="admin-btn-primary">
@@ -109,8 +110,7 @@ const AdminCmsPages = () => {
 
         {/* Modal */}
         {modal && <CmsModal mode={modal.mode} data={modal.data} onSave={handleSave} onClose={() => setModal(null)} />}
-      </main>
-    </div>
+    </>
   );
 };
 

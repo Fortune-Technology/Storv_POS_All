@@ -12,10 +12,10 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Sidebar from '../components/Sidebar';
+
 import './Customers.css';
 import {
-  Search, User, Phone, Mail, Award, CreditCard, DollarSign,
+  Search, User, Users, Phone, Mail, Award, CreditCard, DollarSign,
   RefreshCw, ChevronLeft, ChevronRight, X, Plus, Edit2, Trash2,
   AlertCircle, Check, AlertTriangle,
   UserCheck,
@@ -457,12 +457,17 @@ export default function Customers({ embedded }) {
   const content = (
     <>
       {/* Header */}
-      <div className="cust-header">
-        <div>
-          <h1 className="cust-title">Customers</h1>
-          <p className="cust-subtitle">{total.toLocaleString()} customers</p>
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <Users size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Customers</h1>
+            <p className="p-subtitle">{total.toLocaleString()} customers</p>
+          </div>
         </div>
-        <div className="cust-header-actions">
+        <div className="p-header-actions">
           <button className="cust-btn" onClick={() => load(page, search)} disabled={loading}>
             <RefreshCw size={13} className={loading ? 'cust-spin' : ''} />
             Refresh
@@ -592,11 +597,8 @@ export default function Customers({ embedded }) {
   if (embedded) return <div className="p-tab-content cust-page">{content}{modals}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content cust-page">
-        {content}
-      </main>
+    <div className="p-page cust-page">
+      {content}
       {modals}
     </div>
   );

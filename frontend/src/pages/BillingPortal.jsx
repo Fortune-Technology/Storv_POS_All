@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Layout from '../components/Layout';
+import { CreditCard } from 'lucide-react';
 import api from '../services/api';
 import './BillingPortal.css';
 
@@ -36,12 +36,20 @@ export default function BillingPortal() {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
   return (
-    <Layout>
+    <div className="p-page">
       <div className="bp-container">
-        <h1 className="bp-title">Billing & Subscription</h1>
-        <p className="bp-subtitle">
-          Manage your subscription plan and billing history.
-        </p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <CreditCard size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Billing & Subscription</h1>
+              <p className="p-subtitle">Manage your subscription plan and billing history.</p>
+            </div>
+          </div>
+          <div className="p-header-actions"></div>
+        </div>
 
         {loading ? (
           <div className="bp-loading">Loading…</div>
@@ -168,6 +176,6 @@ export default function BillingPortal() {
           </>
         )}
       </div>
-    </Layout>
+    </div>
   );
 }

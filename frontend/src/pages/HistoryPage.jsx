@@ -68,13 +68,13 @@ const HistoryPage = () => {
 
     return (
         <div className="animate-fade-in container">
-            <header className="flex-between mb-xl">
+            <div className="p-header">
                 <div>
                     <h1 className="hp-title">Transformation History</h1>
                     <p className="text-secondary">View and manage your previous transformations</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => navigate('/csv/upload')}>+ New Transformation</button>
-            </header>
+            </div>
 
             {error && <div className="alert alert-error mb-lg"><strong>Error:</strong> {error}</div>}
 

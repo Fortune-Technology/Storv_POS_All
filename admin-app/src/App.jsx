@@ -3,6 +3,9 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
+// Layout
+import AdminLayout from './components/AdminLayout';
+
 // Pages
 import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
@@ -38,21 +41,21 @@ function App() {
         <Route path="/login" element={<Login />} />
 
         {/* Protected admin routes */}
-        <Route path="/dashboard" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/analytics" element={<ProtectedRoute><AdminAnalytics /></ProtectedRoute>} />
-        <Route path="/analytics/organizations" element={<ProtectedRoute><AdminOrgAnalytics /></ProtectedRoute>} />
-        <Route path="/analytics/stores" element={<ProtectedRoute><AdminStorePerformance /></ProtectedRoute>} />
-        <Route path="/analytics/users" element={<ProtectedRoute><AdminUserActivity /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
-        <Route path="/organizations" element={<ProtectedRoute><AdminOrganizations /></ProtectedRoute>} />
-        <Route path="/stores" element={<ProtectedRoute><AdminStores /></ProtectedRoute>} />
-        <Route path="/cms" element={<ProtectedRoute><AdminCmsPages /></ProtectedRoute>} />
-        <Route path="/careers" element={<ProtectedRoute><AdminCareers /></ProtectedRoute>} />
-        <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminCareerApplications /></ProtectedRoute>} />
-        <Route path="/tickets" element={<ProtectedRoute><AdminTickets /></ProtectedRoute>} />
-        <Route path="/config" element={<ProtectedRoute><AdminSystemConfig /></ProtectedRoute>} />
-        <Route path="/payment" element={<ProtectedRoute><AdminPaymentSettings /></ProtectedRoute>} />
-        <Route path="/billing" element={<ProtectedRoute><AdminBilling /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute><AdminLayout><AdminAnalytics /></AdminLayout></ProtectedRoute>} />
+        <Route path="/analytics/organizations" element={<ProtectedRoute><AdminLayout><AdminOrgAnalytics /></AdminLayout></ProtectedRoute>} />
+        <Route path="/analytics/stores" element={<ProtectedRoute><AdminLayout><AdminStorePerformance /></AdminLayout></ProtectedRoute>} />
+        <Route path="/analytics/users" element={<ProtectedRoute><AdminLayout><AdminUserActivity /></AdminLayout></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute><AdminLayout><AdminUsers /></AdminLayout></ProtectedRoute>} />
+        <Route path="/organizations" element={<ProtectedRoute><AdminLayout><AdminOrganizations /></AdminLayout></ProtectedRoute>} />
+        <Route path="/stores" element={<ProtectedRoute><AdminLayout><AdminStores /></AdminLayout></ProtectedRoute>} />
+        <Route path="/cms" element={<ProtectedRoute><AdminLayout><AdminCmsPages /></AdminLayout></ProtectedRoute>} />
+        <Route path="/careers" element={<ProtectedRoute><AdminLayout><AdminCareers /></AdminLayout></ProtectedRoute>} />
+        <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminLayout><AdminCareerApplications /></AdminLayout></ProtectedRoute>} />
+        <Route path="/tickets" element={<ProtectedRoute><AdminLayout><AdminTickets /></AdminLayout></ProtectedRoute>} />
+        <Route path="/config" element={<ProtectedRoute><AdminLayout><AdminSystemConfig /></AdminLayout></ProtectedRoute>} />
+        <Route path="/payment" element={<ProtectedRoute><AdminLayout><AdminPaymentSettings /></AdminLayout></ProtectedRoute>} />
+        <Route path="/billing" element={<ProtectedRoute><AdminLayout><AdminBilling /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
 import './analytics.css';
 import './Organisation.css';
 import {
@@ -491,19 +490,23 @@ export default function Organisation({ embedded }) {
     <>
 
         {/* Header */}
-        <div className="analytics-header">
-          <div>
-            <h1 className="analytics-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Building2 size={26} style={{ color: 'var(--accent-primary)' }} />
-              Organisation
-            </h1>
-            <p className="analytics-subtitle">Manage your organisation settings and billing</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Building2 size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Organisation</h1>
+              <p className="p-subtitle">Manage your organisation settings and billing</p>
+            </div>
           </div>
-          <button className="filter-btn" onClick={load} disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Refresh
-          </button>
+          <div className="p-header-actions">
+            <button className="filter-btn" onClick={load} disabled={loading}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -938,12 +941,5 @@ export default function Organisation({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

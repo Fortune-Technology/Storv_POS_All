@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
 import { useStore } from '../contexts/StoreContext';
 import { previewImport, commitImport, downloadImportTemplate, getImportHistory, getCatalogDepartments, getCatalogVendors } from '../services/api';
 import './BulkImport.css';
@@ -797,18 +796,18 @@ export default function BulkImport() {
   const VIEW_CATALOG = { products: '/portal/catalog', departments: '/portal/departments', vendors: '/portal/vendors', promotions: '/portal/promotions' };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
+      <div className="p-page bi-main">
 
-      <div className="main-content bi-main">
-
-        <div className="bi-header">
-          <div className="bi-header-inner">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon"><Upload size={22} /></div>
             <div>
-              <h1>Bulk Import</h1>
-              <p>Import products, departments, vendors & more from CSV or Excel</p>
+              <h1 className="p-title">Bulk Import</h1>
+              <p className="p-subtitle">Import products, departments, vendors & more from CSV or Excel</p>
             </div>
-            <button onClick={handleDownloadTemplate} className="bi-btn bi-btn--ghost">
+          </div>
+          <div className="p-header-actions">
+            <button onClick={handleDownloadTemplate} className="p-btn">
               <Download size={13} /> Template ({typeInfo.label})
             </button>
           </div>
@@ -1045,6 +1044,5 @@ export default function BulkImport() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

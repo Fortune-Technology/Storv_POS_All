@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
+
 import './Departments.css';
 import {
   getCatalogDepartments,
@@ -588,23 +588,20 @@ export default function Departments() {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content" style={{ padding: '2rem', overflowY: 'auto' }}>
+      <div className="p-page">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 11, background: 'var(--brand-12)', border: '1px solid var(--brand-20)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Layers size={20} color="var(--accent-primary)" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Layers size={22} />
             </div>
             <div>
-              <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary, #e2e8f0)' }}>Departments</h1>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted, #6b7280)' }}>Manage product categories · drag rows to reorder</p>
+              <h1 className="p-title">Departments</h1>
+              <p className="p-subtitle">Manage product categories · drag rows to reorder</p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {/* Save order button — only shown when order changed */}
+          <div className="p-header-actions">
             {orderDirty && (
               <button onClick={saveOrder} disabled={savingOrder} style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 0.875rem', borderRadius: 8, border: 'none',
@@ -736,12 +733,10 @@ export default function Departments() {
             </div>
           </div>
         )}
+        {/* Form panel */}
+        {panelDept !== undefined && (
+          <DeptForm dept={panelDept} onSave={handleSave} onClose={() => setPanelDept(undefined)} saving={saving} />
+        )}
       </div>
-
-      {/* Form panel */}
-      {panelDept !== undefined && (
-        <DeptForm dept={panelDept} onSave={handleSave} onClose={() => setPanelDept(undefined)} saving={saving} />
-      )}
-    </div>
   );
 }

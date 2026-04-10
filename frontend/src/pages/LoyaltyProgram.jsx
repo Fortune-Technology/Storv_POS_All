@@ -13,7 +13,6 @@ import {
   RefreshCw, AlertCircle, ToggleLeft, ToggleRight, Search,
   Zap, Package, Layers,
 } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
 import {
   getLoyaltyProgram, upsertLoyaltyProgram,
   getLoyaltyEarnRules, createLoyaltyEarnRule, updateLoyaltyEarnRule, deleteLoyaltyEarnRule,
@@ -78,14 +77,7 @@ export default function LoyaltyProgram({ embedded }) {
 
   if (embedded) return <div className="p-tab-content lp-page">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content lp-page">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

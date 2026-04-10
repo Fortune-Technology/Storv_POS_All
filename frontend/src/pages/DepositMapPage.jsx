@@ -45,9 +45,9 @@ const DepositMapPage = () => {
 
     return (
         <div className="container section">
-            <div className="flex-between mb-xl">
+            <div className="p-header">
                 <div>
-                    <h2>Upload Deposit Mapping</h2>
+                    <h2 className="p-title">Upload Deposit Mapping</h2>
                     <p className="text-secondary">Upload a file containing bottle deposit mappings</p>
                 </div>
                 <button className="btn btn-secondary" onClick={() => navigate(-1)}>← Back</button>

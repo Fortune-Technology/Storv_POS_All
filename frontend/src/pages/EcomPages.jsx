@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
+
 import { toast } from 'react-toastify';
 import './EcomPages.css';
 
@@ -100,7 +100,7 @@ export default function EcomPages() {
   };
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
+    <div className="p-page">
       <div className="epg-header">
         <h1 className="epg-title">Website Pages</h1>
         <button className="epg-add-btn" onClick={() => setModal('create')}>+ New Page</button>
@@ -212,6 +212,5 @@ function PageModal({ page, onSave, onClose }) {
           </button>
         </div>
       </div>
-    </div>
   );
 }

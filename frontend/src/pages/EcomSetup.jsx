@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
+
 import { toast } from 'react-toastify';
 import {
   Settings, Palette, FileText, Truck, Search, RefreshCw, BarChart3,
@@ -426,7 +426,7 @@ function PageEditorView({ page, onBack, onSave }) {
   };
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
+    <div className="p-page">
       <div className="es-header">
         <div>
           <h1 className="es-title">Edit: {page.title}</h1>
@@ -441,7 +441,7 @@ function PageEditorView({ page, onBack, onSave }) {
       <div className="es-save-bar">
         <button className="es-save-btn" onClick={() => onSave(page, editContent)}>Save Page Content</button>
       </div>
-    </main></div>
+    </div>
   );
 }
 
@@ -539,11 +539,11 @@ export default function EcomSetup() {
   const setSo = (k, v) => setForm(f => ({ ...f, socialLinks: { ...f.socialLinks, [k]: v } }));
   const setF = (k, v) => setForm(f => ({ ...f, fulfillmentConfig: { ...f.fulfillmentConfig, [k]: v } }));
 
-  if (loading) return <div className="layout-container"><Sidebar /><main className="main-content"><p className="es-text-muted">Loading...</p></main></div>;
+  if (loading) return <div className="p-page"><p className="es-text-muted">Loading...</p></div>;
 
   if (!store || !store.enabled) {
     return (
-      <div className="layout-container"><Sidebar /><main className="main-content">
+      <div className="p-page">
         <div className="es-section es-enable-card">
           <Store size={48} color="var(--brand-primary)" className="es-setup-icon" />
           <h2>Launch Your Online Store</h2>
@@ -554,7 +554,7 @@ export default function EcomSetup() {
           </div>
           <button className="es-enable-btn" onClick={handleEnable}>Enable E-Commerce</button>
         </div>
-      </main></div>
+      </div>
     );
   }
 
@@ -570,13 +570,20 @@ export default function EcomSetup() {
   }
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
-      <div className="es-header">
-        <div>
-          <h1 className="es-title">Online Store Setup</h1>
-          <div className="es-url-preview">Live at: <a href={`http://localhost:3000?store=${store.slug}`} target="_blank" rel="noreferrer">localhost:3000?store={store.slug}</a></div>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <Globe size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Online Store Setup</h1>
+            <p className="p-subtitle">Live at: <a href={`${import.meta.env.VITE_STOREFRONT_URL || ''}?store=${store.slug}`} target="_blank" rel="noreferrer">{(import.meta.env.VITE_STOREFRONT_URL || '').replace(/^https?:\/\//, '')}?store={store.slug}</a></p>
+          </div>
         </div>
-        <span className={`es-status ${store.enabled ? 'es-status--on' : 'es-status--off'}`}>{store.enabled ? '● Live' : '○ Disabled'}</span>
+        <div className="p-header-actions">
+          <span className={`es-status ${store.enabled ? 'es-status--on' : 'es-status--off'}`}>{store.enabled ? '● Live' : '○ Disabled'}</span>
+        </div>
       </div>
 
       <div className="es-tabs">
@@ -596,7 +603,7 @@ export default function EcomSetup() {
           <div className="es-section-title">Store Information</div>
           <div className="es-grid">
             <div className="es-field"><label className="es-label">Store Name</label><input className="es-input" value={form.storeName} readOnly style={{ opacity: 0.6 }} /></div>
-            <div className="es-field"><label className="es-label">URL Slug</label><input className="es-input" value={form.slug} readOnly style={{ opacity: 0.6 }} /><div className="es-url-preview">Store URL: <strong>localhost:3000?store={form.slug}</strong></div></div>
+            <div className="es-field"><label className="es-label">URL Slug</label><input className="es-input" value={form.slug} readOnly style={{ opacity: 0.6 }} /><div className="es-url-preview">Store URL: <strong>{(import.meta.env.VITE_STOREFRONT_URL || '').replace(/^https?:\/\//, '')}?store={form.slug}</strong></div></div>
           </div>
         </div>
         <div className="es-section">
@@ -751,6 +758,6 @@ export default function EcomSetup() {
         <button className="es-disable-btn" onClick={handleDisable}>Disable E-Commerce</button>
         <button className="es-save-btn" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save All Changes'}</button>
       </div>
-    </main></div>
+    </div>
   );
 }

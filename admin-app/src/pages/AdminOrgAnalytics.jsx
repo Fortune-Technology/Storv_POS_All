@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, ArrowUpDown, Loader } from 'lucide-react';
-import AdminSidebar from '../components/AdminSidebar';
+import { Search, ArrowUpDown, Loader, PieChart as PieIcon } from 'lucide-react';
+
 import { getAdminOrgAnalytics } from '../services/api';
 import { toast } from 'react-toastify';
 import '../styles/admin.css';
@@ -64,13 +64,14 @@ const AdminOrgAnalytics = () => {
   );
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Organization Analytics</h1>
-            <p>Performance metrics by organization</p>
+            <div className="admin-header-icon"><PieIcon size={22} /></div>
+            <div>
+              <h1>Organization Analytics</h1>
+              <p>Performance metrics by organization</p>
+            </div>
           </div>
         </div>
 
@@ -135,8 +136,7 @@ const AdminOrgAnalytics = () => {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

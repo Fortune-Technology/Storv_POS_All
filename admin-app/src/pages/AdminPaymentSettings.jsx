@@ -12,10 +12,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Monitor, Settings2, History, RefreshCw, Loader,
   Wifi, WifiOff, Plus, Trash2, Edit3, Save, X, Eye, EyeOff,
-  Search, ChevronLeft, ChevronRight, CheckCircle, XCircle,
+  Search, ChevronLeft, ChevronRight, CheckCircle, XCircle, CreditCard,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import {
   getAdminOrganizations,
   getAdminStores,
@@ -555,13 +555,14 @@ export default function AdminPaymentSettings() {
   const [tab, setTab] = useState('merchants');
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Payment Management</h1>
-            <p>Merchant credentials, terminals, store settings and transaction history</p>
+            <div className="admin-header-icon"><CreditCard size={22} /></div>
+            <div>
+              <h1>Payment Management</h1>
+              <p>Merchant credentials, terminals, store settings and transaction history</p>
+            </div>
           </div>
         </div>
 
@@ -582,7 +583,6 @@ export default function AdminPaymentSettings() {
         {tab === 'terminals'  && <TerminalsTab />}
         {tab === 'settings'   && <StoreSettingsTab />}
         {tab === 'history'    && <HistoryTab />}
-      </main>
-    </div>
+    </>
   );
 }

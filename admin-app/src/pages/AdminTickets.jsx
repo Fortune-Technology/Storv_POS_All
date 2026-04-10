@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Loader, X, MessageSquare, Plus, Trash2, Search,
-  ChevronLeft, ChevronRight, Send, AlertCircle,
+  ChevronLeft, ChevronRight, Send, AlertCircle, Ticket,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import {
   getAdminTickets,
   createAdminTicket,
@@ -300,15 +300,16 @@ const AdminTickets = () => {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
 
         {/* Page header */}
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Support Tickets</h1>
-            <p>{total} ticket{total !== 1 ? 's' : ''} total</p>
+            <div className="admin-header-icon"><Ticket size={22} /></div>
+            <div>
+              <h1>Support Tickets</h1>
+              <p>{total} ticket{total !== 1 ? 's' : ''} total</p>
+            </div>
           </div>
           <button className="at-btn-primary" onClick={() => setShowCreate(true)}>
             <Plus size={15} /> New Ticket
@@ -408,8 +409,7 @@ const AdminTickets = () => {
             onCreated={handleCreated}
           />
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

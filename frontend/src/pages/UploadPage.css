@@ -9,8 +9,9 @@
   gap: 1rem;
 }
 .up-title {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+  font-size: 1.3rem;
+  font-weight: 800;
+  margin-bottom: 0.2rem;
   color: var(--text-primary);
 }
 .up-subtitle {

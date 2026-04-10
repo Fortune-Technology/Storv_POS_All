@@ -114,3 +114,8 @@ export default function OrderConfirmationPage() {
     </>
   );
 }
+
+export async function getServerSideProps(ctx) {
+  const { withStore } = await import('../../lib/resolveStore.js');
+  return withStore(ctx);
+}

@@ -4,7 +4,7 @@ import {
   AlertCircle, CheckCircle, Clock, XCircle,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
+
 import {
   getOrgTickets,
   createOrgTicket,
@@ -264,33 +264,35 @@ const SupportTickets = () => {
 
   if (selectedId) {
     return (
-      <div className="layout-container">
-        <Sidebar />
-        <main className="main-content">
-          <TicketDetail
-            ticketId={selectedId}
-            onBack={() => setSelectedId(null)}
-            onUpdated={handleUpdated}
-          />
-        </main>
+      <div className="p-page">
+        <TicketDetail
+          ticketId={selectedId}
+          onBack={() => setSelectedId(null)}
+          onUpdated={handleUpdated}
+        />
       </div>
     );
   }
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
+      <div className="p-page">
         <div className="spt-page">
           {/* Header */}
-          <div className="spt-header">
-            <div className="spt-header-left">
-              <h1 className="spt-title">Support Tickets</h1>
-              <p className="spt-subtitle">Submit and track your support requests</p>
+          <div className="p-header">
+            <div className="p-header-left">
+              <div className="p-header-icon">
+                <MessageSquare size={22} />
+              </div>
+              <div>
+                <h1 className="p-title">Support Tickets</h1>
+                <p className="p-subtitle">Submit and track your support requests</p>
+              </div>
             </div>
-            <button className="spt-btn-primary" onClick={() => setShowCreate(true)}>
-              <Plus size={15} /> New Ticket
-            </button>
+            <div className="p-header-actions">
+              <button className="spt-btn-primary" onClick={() => setShowCreate(true)}>
+                <Plus size={15} /> New Ticket
+              </button>
+            </div>
           </div>
 
           {/* Status filter tabs */}
@@ -371,8 +373,7 @@ const SupportTickets = () => {
             onCreated={handleCreated}
           />
         )}
-      </main>
-    </div>
+      </div>
   );
 };
 

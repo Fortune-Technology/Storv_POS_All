@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
+import { ShoppingCart } from 'lucide-react';
 import { toast } from 'react-toastify';
 import './EcomOrders.css';
 
@@ -68,7 +68,7 @@ export default function EcomOrders() {
     const items = Array.isArray(o.lineItems) ? o.lineItems : [];
     const next = NEXT_STATUS[o.status];
     return (
-      <div className="layout-container"><Sidebar /><main className="main-content">
+      <div className="p-page">
         <div className="eo-detail">
           <div className="eo-detail-header">
             <div className="eo-detail-title">{o.orderNumber}</div>
@@ -98,13 +98,24 @@ export default function EcomOrders() {
             )}
           </div>
         </div>
-      </main></div>
+      </div>
     );
   }
 
   return (
-    <div className="layout-container"><Sidebar /><main className="main-content">
-      <div className="eo-header"><h1 className="eo-title">Online Orders</h1></div>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <ShoppingCart size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Online Orders</h1>
+            <p className="p-subtitle">Manage and fulfill customer orders</p>
+          </div>
+        </div>
+        <div className="p-header-actions"></div>
+      </div>
       <div className="eo-filters">
         {STATUSES.map(s => (
           <button key={s} className={`eo-filter-btn ${filter === s ? 'eo-filter-btn--active' : ''}`} onClick={() => setFilter(s)}>
@@ -131,6 +142,6 @@ export default function EcomOrders() {
           </tbody>
         </table>
       )}
-    </main></div>
+    </div>
   );
 }

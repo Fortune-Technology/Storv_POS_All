@@ -5,7 +5,6 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Receipt, ClipboardList, Clock, ArrowUpCircle, UserCheck } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
 import Transactions from './Transactions';
 import PosEventLog from './PosEventLog';
 import EmployeeReports from './EmployeeReports';
@@ -27,35 +26,30 @@ export default function POSReports() {
   const [tab, setTab] = useState(initialTab);
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
-        <div className="p-page">
-          <div className="p-header">
-            <div className="p-header-left">
-              <div className="p-header-icon"><Receipt size={22} /></div>
-              <div>
-                <h1 className="p-title">Transactions</h1>
-                <p className="p-subtitle">Transaction history, employee performance, event logs, and timesheets</p>
-              </div>
-            </div>
+    <div className="p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon"><Receipt size={22} /></div>
+          <div>
+            <h1 className="p-title">Transactions</h1>
+            <p className="p-subtitle">Transaction history, employee performance, event logs, and timesheets</p>
           </div>
-
-          <div className="p-tabs">
-            {TABS.map(t => (
-              <button key={t.key} className={`p-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
-                {t.icon} {t.label}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'transactions' && <Transactions embedded />}
-          {tab === 'events'       && <PosEventLog embedded />}
-          {tab === 'employee'     && <EmployeeReports embedded />}
-          {tab === 'payouts'      && <PayoutsReport embedded />}
-          {tab === 'employees'    && <EmployeesTab />}
         </div>
-      </main>
+      </div>
+
+      <div className="p-tabs">
+        {TABS.map(t => (
+          <button key={t.key} className={`p-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'transactions' && <Transactions embedded />}
+      {tab === 'events'       && <PosEventLog embedded />}
+      {tab === 'employee'     && <EmployeeReports embedded />}
+      {tab === 'payouts'      && <PayoutsReport embedded />}
+      {tab === 'employees'    && <EmployeesTab />}
     </div>
   );
 }

@@ -13,9 +13,8 @@ import {
 } from '../services/api';
 import {
   Recycle, Plus, Pencil, Trash2, Check, X as XIcon,
-  AlertCircle, ChevronDown,
+  AlertCircle, ChevronDown, Coins,
 } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
 import './DepositRules.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -381,21 +380,23 @@ export default function DepositRules({ embedded }) {
         <div className="dr-page">
 
           {/* ── Header ── */}
-          <div className="dr-header">
-            <div className="dr-header-left">
-              <div className="dr-header-icon">
-                <Recycle size={18} color="#34d399" />
+          <div className="p-header">
+            <div className="p-header-left">
+              <div className="p-header-icon">
+                <Coins size={22} />
               </div>
               <div>
-                <h1 className="dr-title">Deposit Rules</h1>
-                <p className="dr-subtitle">Manage bottle &amp; can deposit amounts accepted at your store</p>
+                <h1 className="p-title">Deposit Rules</h1>
+                <p className="p-subtitle">Manage bottle &amp; can deposit amounts accepted at your store</p>
               </div>
             </div>
-            {!showForm && (
-              <button className="dr-add-btn" onClick={() => setShowForm('new')}>
-                <Plus size={15} /> Add Rule
-              </button>
-            )}
+            <div className="p-header-actions">
+              {!showForm && (
+                <button className="dr-add-btn" onClick={() => setShowForm('new')}>
+                  <Plus size={15} /> Add Rule
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── Error banner ── */}
@@ -477,12 +478,5 @@ export default function DepositRules({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

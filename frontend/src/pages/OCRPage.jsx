@@ -13,12 +13,12 @@ const OCRPage = () => {
 
     return (
         <div className="animate-fade-in container">
-            <header className="ocr-header">
+            <div className="p-header">
                 <div>
                     <h1 className="ocr-title">Document Intelligence Hub</h1>
                     <p className="ocr-subtitle">Transform physical documents into digital pipelines. Extract critical information from invoices, receipts, and identity documents with sub-second latency.</p>
                 </div>
-            </header>
+            </div>
 
             <div className="grid grid-2">
                 <div className="flex flex-col gap-lg">

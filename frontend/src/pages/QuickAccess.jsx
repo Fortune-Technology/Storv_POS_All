@@ -4,11 +4,11 @@
  * Cashier app reads them via usePOSConfig → posConfig.quickFolders.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGrid, Plus, Pencil, Trash2, X, Check, Search, ChevronDown, Info, GripVertical } from 'lucide-react';
+import { LayoutGrid, Plus, Pencil, Trash2, X, Check, Search, ChevronDown, Info, GripVertical, Zap } from 'lucide-react';
 import { getStores } from '../services/api';
 import { searchCatalogProducts } from '../services/api';
 import api from '../services/api';
-import Sidebar from '../components/Sidebar';
+
 import './QuickAccess.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -296,17 +296,17 @@ export default function QuickAccess({ embedded }) {
       <div className="qa-page">
 
         {/* Header */}
-        <div className="qa-header">
-          <div className="qa-header-left">
-            <div className="qa-header-icon">
-              <LayoutGrid size={18} color="var(--accent-primary, #6366f1)" />
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <Zap size={22} />
             </div>
             <div>
-              <h1>Quick Access Folders</h1>
-              <p>Create product folders for fast access at the POS terminal</p>
+              <h1 className="p-title">Quick Access Folders</h1>
+              <p className="p-subtitle">Create product folders for fast access at the POS terminal</p>
             </div>
           </div>
-          <div className="qa-header-actions">
+          <div className="p-header-actions">
             {stores.length > 1 && (
               <select
                 className="qa-store-select"
@@ -374,11 +374,8 @@ export default function QuickAccess({ embedded }) {
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">
-        {content}
-      </div>
+    <div className="p-page">
+      {content}
     </div>
   );
 }

@@ -5,7 +5,6 @@ import {
 } from 'recharts';
 import { TrendingUp, Package, Search, RefreshCw, Download, FileText } from 'lucide-react';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
-import Sidebar from '../components/Sidebar';
 import { getTopProducts, getProductsGrouped, getProductMovement } from '../services/api';
 import './analytics.css';
 import '../styles/portal.css';
@@ -154,12 +153,17 @@ export default function ProductAnalytics({ embedded }) {
     <>
 
         {/* ── Header ── */}
-        <div className="analytics-header">
-          <div>
-            <h1 className="analytics-title">Product Analytics</h1>
-            <p className="analytics-subtitle">Best sellers, product movement, and performance metrics</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <TrendingUp size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Product Analytics</h1>
+              <p className="p-subtitle">Best sellers, product movement, and performance metrics</p>
+            </div>
           </div>
-          <div className="analytics-controls">
+          <div className="p-header-actions">
             <label>From</label>
             <input type="date" value={range.from}
               onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
@@ -350,12 +354,5 @@ export default function ProductAnalytics({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

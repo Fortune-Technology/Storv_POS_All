@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, Users, Briefcase } from 'lucide-react';
 import { toast } from 'react-toastify';
-import AdminSidebar from '../components/AdminSidebar';
+
 import RichTextEditor from '../components/RichTextEditor';
 import { getAdminCareers, createAdminCareer, updateAdminCareer, deleteAdminCareer } from '../services/api';
 import '../styles/admin.css';
@@ -40,13 +40,14 @@ const AdminCareers = () => {
   };
 
   return (
-    <div className="layout-container">
-      <AdminSidebar />
-      <main className="main-content admin-page">
+    <>
         <div className="admin-header">
           <div className="admin-header-left">
-            <h1>Career Postings</h1>
-            <p>Manage job listings</p>
+            <div className="admin-header-icon"><Briefcase size={22} /></div>
+            <div>
+              <h1>Career Postings</h1>
+              <p>Manage job listings</p>
+            </div>
           </div>
           <button onClick={() => setModal({ mode: 'create', data: { title: '', department: '', location: '', type: 'full-time', description: '', published: false } })}
             className="admin-btn-primary">
@@ -105,8 +106,7 @@ const AdminCareers = () => {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </>
   );
 };
 

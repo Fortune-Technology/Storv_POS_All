@@ -2,9 +2,7 @@
 
 /* ── Main content ── */
 .sbr-content {
-  padding: 2rem;
-  overflow-y: auto;
-  flex: 1;
+  max-width: 1200px;
 }
 
 /* ── Header ── */
@@ -307,9 +305,6 @@
 }
 
 @media (max-width: 768px) {
-  .sbr-content {
-    padding: 1rem;
-  }
   .sbr-layout {
     flex-direction: column;
   }
@@ -327,9 +322,6 @@
 }
 
 @media (max-width: 480px) {
-  .sbr-content {
-    padding: 0.75rem;
-  }
   .sbr-header {
     flex-wrap: wrap;
   }

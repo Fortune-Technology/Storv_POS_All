@@ -15,7 +15,7 @@ import {
   Package, BarChart2, Search, MapPin, AlertCircle,
   ChevronUp, ChevronDown, Bell, BookOpen, Layers,
 } from 'lucide-react';
-import Sidebar from '../components/Sidebar';
+
 import {
   getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
   getLotteryBoxes, receiveLotteryBoxOrder, activateLotteryBox, updateLotteryBox,
@@ -1113,20 +1113,18 @@ export default function Lottery() {
 
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content lt-page">
+      <div className="p-page lt-page">
 
         {/* Header */}
-        <div className="lt-header">
-          <div className="lt-header-left">
-            <div className="lt-header-icon"><Ticket size={22} /></div>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon"><Ticket size={22} /></div>
             <div>
-              <h1 className="lt-title">Lottery</h1>
-              <p className="lt-subtitle">Ticket inventory, sales tracking & commission reports</p>
+              <h1 className="p-title">Lottery</h1>
+              <p className="p-subtitle">Ticket inventory, sales tracking & commission reports</p>
             </div>
           </div>
-          <div className="lt-header-actions">
+          <div className="p-header-actions">
             {tab === 'Games' && (
               <button className="lt-btn lt-btn-primary" onClick={() => setGameModal('new')}>
                 <Plus size={15} /> New Game
@@ -1546,7 +1544,6 @@ export default function Lottery() {
         {activateBoxObj && (
           <ActivateBoxModal box={activateBoxObj} onConfirm={handleActivateBox} onClose={() => setActivateBoxObj(null)} />
         )}
-      </main>
-    </div>
+      </div>
   );
 }

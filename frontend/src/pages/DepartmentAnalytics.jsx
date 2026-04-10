@@ -3,9 +3,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
-import { Store, TrendingUp, BarChart2, RefreshCw, AlertCircle, Download, FileText } from 'lucide-react';
+import { Store, TrendingUp, BarChart2, RefreshCw, AlertCircle, Download, FileText, PieChart as PieChartIcon } from 'lucide-react';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
-import Sidebar from '../components/Sidebar';
 import { getDepartmentSales, getDepartmentComparison } from '../services/api';
 import './analytics.css';
 import '../styles/portal.css';
@@ -140,12 +139,17 @@ export default function DepartmentAnalytics({ embedded }) {
     <>
 
         {/* ── Header ── */}
-        <div className="analytics-header">
-          <div>
-            <h1 className="analytics-title">Department Analytics</h1>
-            <p className="analytics-subtitle">Sales breakdown and period comparisons by department</p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon">
+              <PieChartIcon size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">Department Analytics</h1>
+              <p className="p-subtitle">Sales breakdown and period comparisons by department</p>
+            </div>
           </div>
-          <div className="analytics-controls">
+          <div className="p-header-actions">
             <label>From</label>
             <input type="date" value={range.from}
               onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
@@ -424,12 +428,5 @@ export default function DepartmentAnalytics({ embedded }) {
 
   if (embedded) return <div className="p-tab-content">{content}</div>;
 
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content animate-fade-in">
-        {content}
-      </main>
-    </div>
-  );
+  return content;
 }

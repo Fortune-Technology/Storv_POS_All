@@ -6,7 +6,7 @@ import {
   Search, ShoppingCart, User, Clock, LogOut, Check,
 } from 'lucide-react';
 import { getStores, getStoreBranding, updateStoreBranding } from '../services/api.js';
-import Sidebar from '../components/Sidebar.jsx';
+
 import './StoreBranding.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -243,28 +243,28 @@ export default function StoreBranding() {
   };
 
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content sbr-content">
+      <div className="p-page sbr-content">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.75rem' }}>
-          <button onClick={() => navigate('/portal/stores')} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
-            borderRadius: 8, padding: '0.45rem 0.875rem', color: '#94a3b8',
-            fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer',
-          }}>
-            <ChevronLeft size={14} /> Stores
-          </button>
-          <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', margin: 0 }}>
-              POS Branding
-            </h1>
-            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
-              Customise how your register looks for cashiers
-            </p>
+        <div className="p-header">
+          <div className="p-header-left">
+            <button onClick={() => navigate('/portal/stores')} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
+              borderRadius: 8, padding: '0.45rem 0.875rem', color: '#94a3b8',
+              fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer',
+            }}>
+              <ChevronLeft size={14} /> Stores
+            </button>
+            <div className="p-header-icon">
+              <Palette size={22} />
+            </div>
+            <div>
+              <h1 className="p-title">POS Branding</h1>
+              <p className="p-subtitle">Customise how your register looks for cashiers</p>
+            </div>
           </div>
+          <div className="p-header-actions"></div>
         </div>
 
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
@@ -478,6 +478,5 @@ export default function StoreBranding() {
           </div>
         </div>
       </div>
-    </div>
   );
 }

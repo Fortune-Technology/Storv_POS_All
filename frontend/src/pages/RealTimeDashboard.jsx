@@ -19,7 +19,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import Sidebar from '../components/Sidebar';
 import WeatherWidget from '../components/WeatherWidget';
 import { getRealtimeSales } from '../services/api';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
@@ -287,7 +286,7 @@ export default function RealTimeDashboard({ embedded = false }) {
 
   /* ── Content ────────────────────────────────────────────────────────────── */
   const content = (
-    <main className={embedded ? 'p-page' : 'main-content p-page'}>
+    <div className="p-page">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="p-header">
@@ -717,18 +716,8 @@ export default function RealTimeDashboard({ embedded = false }) {
           </div>
         </div>
       )}
-    </main>
-  );
-
-  /* ── Embedded vs full layout ────────────────────────────────────────────── */
-  if (embedded) {
-    return content;
-  }
-
-  return (
-    <div className="layout-container">
-      <Sidebar />
-      {content}
     </div>
   );
+
+  return content;
 }
