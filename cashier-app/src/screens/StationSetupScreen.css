@@ -6,14 +6,16 @@
 }
 
 .sss-wrap {
-  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: #0b0d14;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 2rem 1rem;
+  padding: 1.5rem 1rem 3rem;
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sss-card {

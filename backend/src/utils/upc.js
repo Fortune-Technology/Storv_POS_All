@@ -102,8 +102,23 @@ export function upcVariants(raw) {
   // UPC-A → EAN-13  (add leading zero)
   if (digits.length === 12) set.add('0' + digits);
 
-  // ITF-14 → EAN-13
-  if (digits.length === 14) set.add(digits.slice(1));
+  // ITF-14 → EAN-13 (strip packaging indicator digit)
+  if (digits.length === 14) {
+    set.add(digits.slice(1));                // standard: drop first digit
+    set.add(digits.slice(2));                // some use 2-digit prefix (GTIN-14 → UPC-A)
+    // Also try the inner 12 digits (common vendor barcode variation)
+    set.add(digits.slice(1, 13));
+    set.add(digits.slice(2, 14));
+  }
+
+  // ITF-14 packaging variants: if UPC-A/EAN-13, generate ITF-14 with indicator digits 1-8
+  // This helps match when invoice has case barcode but POS has unit barcode
+  if (digits.length === 12 || digits.length === 13) {
+    const base = digits.length === 12 ? '0' + digits : digits;
+    for (let indicator = 1; indicator <= 8; indicator++) {
+      set.add(indicator + base);  // 14-digit ITF-14 variant
+    }
+  }
 
   // Without check digit (some invoice / vendor systems strip it)
   if (digits.length >= 8) {
@@ -113,5 +128,55 @@ export function upcVariants(raw) {
     if (noCheckStripped) set.add(noCheckStripped);
   }
 
-  return [...set].filter(v => v.length >= 6);
+  // With check digit appended (GS1 check digit calculation)
+  if (digits.length === 11 || digits.length === 12) {
+    const withCheck = digits + calcCheckDigit(digits);
+    set.add(withCheck);
+    if (digits.length === 11) set.add('0' + withCheck); // → EAN-13
+  }
+
+  // Common vendor truncations: some invoices list only last 5-6 significant digits
+  if (digits.length >= 12) {
+    set.add(digits.slice(-6));  // last 6
+    set.add(digits.slice(-8));  // last 8
+  }
+
+  return [...set].filter(v => v.length >= 5);
+}
+
+/**
+ * Calculate GS1 check digit for a UPC/EAN string.
+ * Works for UPC-A (11 digits → 12th check digit) and EAN-13 (12 digits → 13th).
+ */
+export function calcCheckDigit(digits) {
+  const d = String(digits).replace(/\D/g, '');
+  let sum = 0;
+  for (let i = 0; i < d.length; i++) {
+    const weight = (d.length - i) % 2 === 0 ? 1 : 3;
+    sum += parseInt(d[i]) * weight;
+  }
+  return String((10 - (sum % 10)) % 10);
+}
+
+/**
+ * Extract size/pack info from a description string.
+ * Returns { size, unit, packSize } or null.
+ * Examples: "12PK 12OZ CANS" → { packSize: 12, size: 12, unit: 'oz' }
+ *           "750ML" → { size: 750, unit: 'ml' }
+ */
+export function extractSizeFromDescription(desc) {
+  if (!desc) return null;
+  const d = desc.toUpperCase();
+
+  // Pack size: "12PK", "6-PACK", "24CT"
+  const packMatch = d.match(/(\d+)\s*(?:PK|PACK|CT|COUNT)/);
+  const packSize = packMatch ? parseInt(packMatch[1]) : null;
+
+  // Size: "12OZ", "750ML", "1.5L", "1GAL"
+  const sizeMatch = d.match(/(\d+\.?\d*)\s*(OZ|FL\.?OZ|ML|L|LTR|LITER|GAL|LB|G|KG)/);
+  const size = sizeMatch ? parseFloat(sizeMatch[1]) : null;
+  const unit = sizeMatch ? sizeMatch[2].replace(/\./g, '').toLowerCase() : null;
+
+  if (!packSize && !size) return null;
+  return { packSize, size, unit };
 }

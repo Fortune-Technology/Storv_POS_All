@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User as UserIcon, Phone, UserPlus, ChevronRight, Loader } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Phone, UserPlus, ChevronRight, Loader, Eye, EyeOff } from 'lucide-react';
 import { signup } from '../services/api';
 import { toast } from 'react-toastify';
 import StoreveuLogo from '../components/StoreveuLogo';
@@ -13,6 +13,7 @@ const Signup = () => {
   const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const navigate = useNavigate();
 
   const handleBlur = (field) => {
@@ -142,13 +143,16 @@ const Signup = () => {
             <div className="su-input-wrap">
               <span className="su-input-icon"><Lock size={18} /></span>
               <input
-                type="password"
+                type={showPw ? 'text' : 'password'}
                 className="form-input su-input-icon-pad"
                 placeholder="••••••••"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
               />
+              <button type="button" className="lg-eye-btn" onClick={() => setShowPw(!showPw)} tabIndex={-1}>
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
 

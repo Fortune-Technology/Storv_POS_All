@@ -1,13 +1,19 @@
 /* StoreSelect.css — prefix: ssel- */
 
 .ssel-page {
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   background: var(--bg-base);
-  padding: 1.5rem;
+  padding: 1.5rem 1.5rem 2.5rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+@supports not (justify-content: safe center) {
+  .ssel-page { justify-content: flex-start; padding-top: 2rem; }
 }
 
 .ssel-container {

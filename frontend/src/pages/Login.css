@@ -44,16 +44,44 @@
 /* ── Input with icon ── */
 .lg-input-wrap {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 .lg-input-icon {
   position: absolute;
-  left: 1rem;
+  left: 0.875rem;
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+  display: flex;
+  align-items: center;
 }
 .lg-input-icon-pad {
-  padding-left: 3rem;
+  padding-left: 2.75rem !important;
+  padding-right: 2.75rem !important;
+}
+/* Eye toggle button for password visibility */
+.lg-eye-btn {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+  border-radius: var(--radius-xs);
+  transition: color 0.15s, background 0.15s;
+}
+.lg-eye-btn:hover {
+  color: var(--accent-primary);
+  background: rgba(61, 86, 181, 0.08);
 }
 .lg-label-between {
   display: flex;

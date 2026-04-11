@@ -10,6 +10,7 @@ import {
   deleteDraft,
   saveDraft,
   clearInvoicePOSCache,
+  getMatchAccuracy,
 } from '../controllers/invoiceController.js';
 import { protect, authorize } from '../middleware/auth.js';
 import multer from 'multer';
@@ -63,6 +64,7 @@ router.post('/upload', upload.array('invoices'), uploadInvoices);
 
 router.post('/confirm', confirmInvoice);
 router.post('/clear-pos-cache', clearInvoicePOSCache);
+router.get('/accuracy', getMatchAccuracy);
 router.get('/history', getInvoiceHistory);
 router.get('/drafts', getInvoiceDrafts);
 router.patch('/:id/draft', saveDraft);

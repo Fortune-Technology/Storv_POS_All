@@ -17,9 +17,11 @@ import {
   Save,
   RefreshCw,
   PlusCircle,
+  Plus,
   ChevronDown,
   ChevronUp,
   FileUp,
+  Info,
 } from 'lucide-react';
 
 import {
@@ -97,7 +99,27 @@ const MAPPING_CONF = {
   medium: { bg: '#f59e0b', color: '#000' },
   low:    { bg: '#ef4444', color: '#fff' },
 };
-const TIER_LABEL = { upc: 'UPC', vendorMap: 'MAP', sku: 'SKU', fuzzy: 'FUZZY', ai: 'AI', manual: 'MANUAL' };
+const TIER_LABEL = { upc: 'UPC', vendorMap: 'MAP', sku: 'SKU', fuzzy: 'FUZZY', ai: 'AI', manual: 'MANUAL', costProx: 'COST', global: 'GLOBAL' };
+
+// ─── Match reason tooltips ──────────────────────────────────────────────────
+const TIER_TOOLTIP = {
+  upc:       'Matched by UPC',
+  vendorMap: (item) => `Learned match (confirmed ${item.confirmCount ?? '?'} times)`,
+  fuzzy:     (item) => `Fuzzy match (${item.similarityPct ?? item.matchScore ?? '??'}% similarity)`,
+  ai:        'AI match',
+  costProx:  'Cost proximity match',
+  global:    'Cross-store match',
+  sku:       'Matched by SKU',
+  manual:    'Manual match',
+};
+
+// ─── Confidence-based row background colors ─────────────────────────────────
+const CONFIDENCE_BG = {
+  high:   'rgba(16,185,129,0.05)',
+  medium: 'rgba(245,158,11,0.05)',
+  low:    'rgba(239,68,68,0.05)',
+  null:   'rgba(239,68,68,0.08)',
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PriceInput — cash-register style: digits shift right, last 2 are always cents
@@ -276,6 +298,7 @@ function ReviewPanel({
   onClose, onConfirm, onSaveDraft,
   onHeaderChange, onItemChange, onApplyVendorToAll,
   onOpenSearch, onUpdatePOS, onCreatePOS,
+  onDeleteItem, onAddItem, onAcceptAllHigh,
   readOnly,
 }) {
   const [expanded,    setExpanded]    = useState({});
@@ -416,6 +439,15 @@ function ReviewPanel({
               <span style={{ fontSize: '0.8rem', color: unmatchedCount > 0 ? '#f59e0b' : '#10b981' }}>
                 {unmatchedCount > 0 ? `⚠ ${unmatchedCount} unmatched` : '✓ All matched'}
               </span>
+              {(() => {
+                const highCount = lineItems.filter(it => it.confidence === 'high' && it.mappingStatus !== 'matched' && it.mappingStatus !== 'manual').length;
+                return highCount > 0 ? (
+                  <button onClick={onAcceptAllHigh} className="btn btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', background: 'rgba(16,185,129,0.12)', borderColor: 'rgba(16,185,129,0.3)', color: '#10b981' }}>
+                    <CheckCircle size={14} /> Accept All High ({highCount})
+                  </button>
+                ) : null;
+              })()}
               <button onClick={onSaveDraft} disabled={isSavingDraft} className="btn btn-secondary"
                 style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
                 {isSavingDraft ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving…</> : <><Save size={14} /> Save Draft</>}
@@ -554,8 +586,10 @@ function ReviewPanel({
                 const isPosUpd    = posUpdating[i] === 'update';
                 const isPosCreate = posUpdating[i] === 'create';
 
+                const confidenceBg = CONFIDENCE_BG[item.confidence] || CONFIDENCE_BG['null'];
+
                 return (
-                  <div key={i} style={{ border: `1px solid ${item.mappingStatus === 'unmatched' ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`, borderRadius: '10px', background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+                  <div key={i} style={{ border: `1px solid ${item.mappingStatus === 'unmatched' ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`, borderRadius: '10px', background: confidenceBg, overflow: 'hidden' }}>
 
                     {/* Summary row — click to expand */}
                     <div onClick={() => toggle(i)} style={{ padding: '0.65rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
@@ -576,6 +610,15 @@ function ReviewPanel({
                             color: 'var(--text-muted)', textTransform: 'uppercase', lineHeight: 1,
                           }}>
                             {TIER_LABEL[item.matchTier] || item.matchTier}
+                          </span>
+                        )}
+                        {/* Match reason tooltip */}
+                        {item.matchTier && TIER_TOOLTIP[item.matchTier] && (
+                          <span
+                            title={typeof TIER_TOOLTIP[item.matchTier] === 'function' ? TIER_TOOLTIP[item.matchTier](item) : TIER_TOOLTIP[item.matchTier]}
+                            style={{ display: 'flex', alignItems: 'center', cursor: 'help', opacity: 0.45 }}
+                          >
+                            <Info size={10} />
                           </span>
                         )}
                       </div>
@@ -674,6 +717,19 @@ function ReviewPanel({
                               <Search size={12} />
                             </button>
                           )
+                        )}
+
+                        {/* Delete line item */}
+                        {!readOnly && (
+                          <button
+                            onClick={e => { e.stopPropagation(); onDeleteItem(i, item); }}
+                            title="Delete line item"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px', display: 'flex', opacity: 0.4, transition: 'opacity 0.15s' }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={e => e.currentTarget.style.opacity = '0.4'}
+                          >
+                            <Trash2 size={12} color="#ef4444" />
+                          </button>
                         )}
 
                         {isExp ? <ChevronUp size={13} color="var(--text-muted)" /> : <ChevronDown size={13} color="var(--text-muted)" />}
@@ -889,6 +945,25 @@ function ReviewPanel({
                   </div>
                 );
               })}
+
+              {/* ── Add Line Item button ── */}
+              {!readOnly && (
+                <button
+                  onClick={onAddItem}
+                  style={{
+                    width: '100%', padding: '0.6rem', marginTop: '0.25rem',
+                    background: 'rgba(99,102,241,0.06)', border: '1px dashed rgba(99,102,241,0.3)',
+                    borderRadius: '10px', cursor: 'pointer', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    fontSize: '0.82rem', fontWeight: 600, color: '#818cf8',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.06)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
+                >
+                  <Plus size={15} /> Add Line Item
+                </button>
+              )}
             </div>
 
             {/* ── Line Items Total ── */}
@@ -1363,6 +1438,56 @@ const InvoiceImport = () => {
     });
   };
 
+  // Delete a line item (with confirmation) and recalculate total
+  const handleDeleteItem = (itemIdx, item) => {
+    if (!window.confirm(`Delete "${item.description || 'this item'}" from the invoice?`)) return;
+    setEditData(prev => {
+      const items = prev.lineItems.filter((_, idx) => idx !== itemIdx);
+      const newTotal = items.reduce((s, it) => s + (parseFloat(it.totalAmount || (parseFloat(it.caseCost || 0) * parseFloat(it.quantity || 0))) || 0), 0);
+      return { ...prev, lineItems: items, totalInvoiceAmount: newTotal.toFixed(2) };
+    });
+    toast.info('Line item removed');
+  };
+
+  // Add a new empty line item
+  const handleAddItem = () => {
+    setEditData(prev => ({
+      ...prev,
+      lineItems: [
+        ...prev.lineItems,
+        {
+          description: '',
+          quantity: 1,
+          caseCost: '',
+          unitCost: '',
+          totalAmount: '',
+          upc: '',
+          packUnits: 1,
+          suggestedRetailPrice: '',
+          mappingStatus: 'new',
+          confidence: null,
+          matchTier: null,
+        },
+      ],
+    }));
+  };
+
+  // Accept all high-confidence items — mark them as 'matched'
+  const handleAcceptAllHigh = () => {
+    const highCount = editData?.lineItems?.filter(it => it.confidence === 'high' && it.mappingStatus !== 'matched' && it.mappingStatus !== 'manual').length || 0;
+    if (highCount === 0) { toast.info('No high-confidence items to accept'); return; }
+    if (!window.confirm(`Accept ${highCount} high-confidence match${highCount !== 1 ? 'es' : ''} without individual review?`)) return;
+    setEditData(prev => ({
+      ...prev,
+      lineItems: prev.lineItems.map(item =>
+        item.confidence === 'high' && item.mappingStatus !== 'matched' && item.mappingStatus !== 'manual'
+          ? { ...item, mappingStatus: 'matched' }
+          : item
+      ),
+    }));
+    toast.success(`Accepted ${highCount} high-confidence match${highCount !== 1 ? 'es' : ''}`);
+  };
+
   const handleSaveDraft = async () => {
     if (!editData) return;
     setIsSavingDraft(true);
@@ -1725,6 +1850,9 @@ const InvoiceImport = () => {
           })}
           onUpdatePOS={handleUpdatePOS}
           onCreatePOS={handleCreatePOS}
+          onDeleteItem={handleDeleteItem}
+          onAddItem={handleAddItem}
+          onAcceptAllHigh={handleAcceptAllHigh}
           readOnly={selectedInvoice?.status === 'synced' || selectedInvoice?.status === 'processed'}
         />
       )}

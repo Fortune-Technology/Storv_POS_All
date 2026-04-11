@@ -39,7 +39,7 @@ const DUPLICATE_STRATEGIES = [
 
 const FIELD_LABELS = {
   upc: 'UPC / Barcode', plu: 'PLU', sku: 'SKU', itemCode: 'Item Code',
-  name: 'Name', brand: 'Brand', description: 'Description',
+  name: 'Product Name', brand: 'Brand', description: 'Description (long)',
   size: 'Size', sizeUnit: 'Size Unit', pack: 'Pack Size',
   casePacks: 'Case Packs', sellUnitSize: 'Sell Unit Size',
   departmentId: 'Department', vendorId: 'Vendor',
@@ -47,20 +47,68 @@ const FIELD_LABELS = {
   taxClass: 'Tax Class', ageRequired: 'Age Required', ebtEligible: 'EBT Eligible',
   discountEligible: 'Discount Eligible', taxable: 'Taxable', active: 'Active',
   reorderPoint: 'Reorder Point', reorderQty: 'Reorder Qty',
+  // Grocery / Scale
+  wicEligible: 'WIC Eligible', tareWeight: 'Tare Weight', scaleByCount: 'Scale by Count',
+  scalePluType: 'Scale PLU Type', ingredients: 'Ingredients', nutritionFacts: 'Nutrition Facts',
+  certCode: 'Certification', sectionId: 'Section ID', sectionName: 'Section Name',
+  expirationDate: 'Expiration Date', labelFormatId: 'Label Format', byWeight: 'Sold by Weight',
+  foodstamp: 'Food Stamp / SNAP',
+  // E-commerce
+  hideFromEcom: 'Hide from E-Commerce', ecomExternalId: 'E-Commerce ID',
+  ecomPackWeight: 'E-Commerce Pack Weight', ecomPrice: 'E-Commerce Price',
+  ecomSalePrice: 'E-Commerce Sale Price', ecomOnSale: 'E-Commerce On Sale',
+  ecomDescription: 'E-Commerce Description', ecomSummary: 'E-Commerce Summary',
+  // Promotions / Pricing
+  specialPrice: 'Sale Price', specialCost: 'Sale Cost', priceMethod: 'Price Method',
+  groupPrice: 'Group Price', groupQty: 'Group Quantity',
+  saleMultiple: 'Sale Multiple', regMultiple: 'Reg Multiple',
+  startDate: 'Sale Start Date', endDate: 'Sale End Date',
+  // TPR (Temporary Price Reduction)
+  tprRetail: 'TPR Price', tprCost: 'TPR Cost', tprMultiple: 'TPR Multiple',
+  tprStartDate: 'TPR Start Date', tprEndDate: 'TPR End Date',
+  // Future Pricing
+  futureRetail: 'Future Retail', futureCost: 'Future Cost',
+  futureActiveDate: 'Future Active Date', futureMultiple: 'Future Multiple',
+  // Deposits
+  depositPerUnit: 'Bottle Deposit (unit)', caseDeposit: 'Case Deposit',
+  // Stock & Linked
+  quantityOnHand: 'Qty on Hand', linkedUpc: 'Linked/Case UPC', productCode: 'Product Code',
+  // Other
   id: 'ID (update)', code: 'Code', color: 'Color',
   sortOrder: 'Sort Order', showInPOS: 'Show in POS', bottleDeposit: 'Bottle Deposit',
   contactName: 'Contact Name', email: 'Email', phone: 'Phone',
   website: 'Website', terms: 'Payment Terms', accountNo: 'Account No',
   promoType: 'Promo Type', discountType: 'Discount Type', discountValue: 'Discount Value',
   minQty: 'Min Qty', buyQty: 'Buy Qty', getQty: 'Get Qty',
-  productIds: 'Product UPCs', badgeLabel: 'Badge Label', startDate: 'Start Date', endDate: 'End Date',
+  productIds: 'Product UPCs', badgeLabel: 'Badge Label',
   depositAmount: 'Deposit Amount', minVolumeOz: 'Min Volume (oz)',
   maxVolumeOz: 'Max Volume (oz)', containerTypes: 'Container Types', state: 'State',
   receivedQty: 'Received Qty',
 };
 
 const TYPE_FIELDS = {
-  products:      ['upc','name','brand','size','sizeUnit','pack','departmentId','vendorId','defaultCostPrice','defaultRetailPrice','defaultCasePrice','taxClass','ebtEligible','ageRequired','discountEligible','active','sku','itemCode','reorderPoint','reorderQty'],
+  products:      [
+    'upc','name','brand','description','size','sizeUnit','pack','departmentId','vendorId',
+    'defaultCostPrice','defaultRetailPrice','defaultCasePrice',
+    'taxClass','ebtEligible','ageRequired','discountEligible','taxable','active',
+    'sku','itemCode','plu','reorderPoint','reorderQty',
+    // Grocery / Scale
+    'wicEligible','tareWeight','scaleByCount','scalePluType','ingredients','nutritionFacts',
+    'certCode','sectionId','sectionName','expirationDate','labelFormatId','byWeight','foodstamp',
+    // E-commerce
+    'hideFromEcom','ecomExternalId','ecomPackWeight','ecomPrice','ecomSalePrice','ecomOnSale','ecomDescription','ecomSummary',
+    // Sale Promotions
+    'specialPrice','specialCost','saleMultiple','regMultiple','priceMethod','groupPrice','groupQty','startDate','endDate',
+    // TPR (Temporary Price Reduction)
+    'tprRetail','tprCost','tprMultiple','tprStartDate','tprEndDate',
+    // Future Pricing
+    'futureRetail','futureCost','futureActiveDate','futureMultiple',
+    // Deposits
+    'depositPerUnit','caseDeposit',
+    // Stock & Links
+    'quantityOnHand','linkedUpc','productCode',
+    'casePacks','sellUnitSize',
+  ],
   departments:   ['id','name','code','description','taxClass','ebtEligible','ageRequired','bottleDeposit','sortOrder','color','showInPOS','active'],
   vendors:       ['id','name','code','contactName','email','phone','website','terms','accountNo','active'],
   promotions:    ['name','promoType','discountType','discountValue','minQty','buyQty','getQty','productIds','departmentId','badgeLabel','startDate','endDate','active'],

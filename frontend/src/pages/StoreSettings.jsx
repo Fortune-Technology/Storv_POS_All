@@ -32,6 +32,21 @@ export default function StoreSettings({ embedded }) {
   const [tenderMethods, setTenderMethods] = useState(DEFAULT_TENDER_METHODS);
   const [newTender,     setNewTender]     = useState('');
 
+  // Feature toggles
+  const [groceryEnabled, setGroceryEnabled] = useState(false);
+  const [ecomEnabled,    setEcomEnabled]    = useState(false);
+
+  // Grocery settings (only relevant when groceryEnabled)
+  const [groceryConfig, setGroceryConfig] = useState({
+    scaleWeightUnit: 'lbs',       // 'lbs' | 'kg'
+    defaultScaleType: 'weight',   // 'weight' | 'count'
+    pluFormat: 'standard',        // 'standard' | 'upc-prefix'
+    tareWeightDefault: '0.00',
+    requireIngredients: false,
+    requireNutrition: false,
+  });
+  const setGC = (k, v) => { setGroceryConfig(prev => ({ ...prev, [k]: v })); markDirty(); };
+
   // Load stores
   useEffect(() => {
     getStores().then(r => {
@@ -49,6 +64,9 @@ export default function StoreSettings({ embedded }) {
       const cfg = await getPOSConfig(storeId);
       setRawConfig(cfg);
       setTenderMethods(cfg.vendorTenderMethods || DEFAULT_TENDER_METHODS);
+      setGroceryEnabled(cfg.groceryEnabled ?? false);
+      setEcomEnabled(cfg.ecomEnabled ?? false);
+      if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
       setDirty(false);
     } catch {
       setTenderMethods(DEFAULT_TENDER_METHODS);
@@ -82,7 +100,10 @@ export default function StoreSettings({ embedded }) {
     if (!storeId) { toast.error('Select a store first'); return; }
     setSaving(true);
     try {
-      await updatePOSConfig({ storeId, ...rawConfig, vendorTenderMethods: tenderMethods });
+      await updatePOSConfig({
+        storeId,
+        config: { ...rawConfig, vendorTenderMethods: tenderMethods, groceryEnabled, ecomEnabled, groceryConfig },
+      });
       setDirty(false);
       setSaved(true);
       toast.success('Store settings saved');
@@ -173,6 +194,92 @@ export default function StoreSettings({ embedded }) {
               <button className="ss-btn-add" onClick={addCustomTender}>
                 <Plus size={14} /> Add
               </button>
+            </div>
+          </div>
+
+          {/* ── Section: Store Feature Modules ── */}
+          <div className="ss-section">
+            <div className="ss-section-title">Store Feature Modules</div>
+            <div className="ss-section-desc">
+              Enable or disable feature modules for this store. Disabled modules hide related UI sections from the product form and POS.
+            </div>
+
+            <div className="ss-tender-list">
+              {/* Grocery / Scale */}
+              <div className="ss-tender-item">
+                <div className="ss-tender-info">
+                  <span className="ss-tender-label">Enable Grocery & Scale Features</span>
+                  <span className="ss-tender-sub">
+                    Scale products, tare weights, ingredients, nutrition facts, WIC, PLU types
+                  </span>
+                </div>
+                <label className="ss-toggle">
+                  <input type="checkbox" checked={groceryEnabled} onChange={() => { setGroceryEnabled(!groceryEnabled); markDirty(); }} />
+                  <span className="ss-toggle-slider" />
+                </label>
+              </div>
+
+              {/* Grocery sub-settings (only when enabled) */}
+              {groceryEnabled && (
+                <div style={{ padding: '0.75rem 1rem', background: 'var(--bg-tertiary)', borderRadius: 8, margin: '0 0 0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>
+                    Scale & Grocery Configuration
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '0.6rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>Weight Unit</label>
+                      <select className="ss-add-input" style={{ width: '100%' }} value={groceryConfig.scaleWeightUnit} onChange={e => setGC('scaleWeightUnit', e.target.value)}>
+                        <option value="lbs">Pounds (lbs)</option>
+                        <option value="kg">Kilograms (kg)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>Default Scale Type</label>
+                      <select className="ss-add-input" style={{ width: '100%' }} value={groceryConfig.defaultScaleType} onChange={e => setGC('defaultScaleType', e.target.value)}>
+                        <option value="weight">By Weight</option>
+                        <option value="count">By Count</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>PLU Format</label>
+                      <select className="ss-add-input" style={{ width: '100%' }} value={groceryConfig.pluFormat} onChange={e => setGC('pluFormat', e.target.value)}>
+                        <option value="standard">Standard (4-5 digit)</option>
+                        <option value="upc-prefix">UPC with prefix (02xxxxx)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>Default Tare Weight</label>
+                      <input className="ss-add-input" style={{ width: '100%' }} type="number" step="0.01" value={groceryConfig.tareWeightDefault} onChange={e => setGC('tareWeightDefault', e.target.value)} placeholder="0.00" />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={groceryConfig.requireIngredients} onChange={e => setGC('requireIngredients', e.target.checked)} style={{ accentColor: 'var(--accent-primary)' }} />
+                      Require ingredients for scale items
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={groceryConfig.requireNutrition} onChange={e => setGC('requireNutrition', e.target.checked)} style={{ accentColor: 'var(--accent-primary)' }} />
+                      Require nutrition facts
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* E-Commerce */}
+              <div className="ss-tender-item">
+                <div className="ss-tender-info">
+                  <span className="ss-tender-label">Enable E-Commerce Module</span>
+                  <span className="ss-tender-sub">
+                    Online store pricing, sale prices, pack weights, external platform IDs
+                  </span>
+                </div>
+                <label className="ss-toggle">
+                  <input type="checkbox" checked={ecomEnabled} onChange={() => { setEcomEnabled(!ecomEnabled); markDirty(); }} />
+                  <span className="ss-toggle-slider" />
+                </label>
+              </div>
             </div>
           </div>
 

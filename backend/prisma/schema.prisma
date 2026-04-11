@@ -294,10 +294,28 @@ model MasterProduct {
   shelfLifeDays       Int?          // perishable items: days until expiry
   serviceLevel        String        @default("standard")  // "critical","standard","low"
 
-  // Ecommerce
+  // ── Grocery / Scale features (enabled when store type = grocery) ──
+  wicEligible         Boolean       @default(false)      // WIC program eligibility
+  tareWeight          Decimal?      @db.Decimal(10, 4)   // tare weight for scale items (lbs)
+  scaleByCount        Boolean       @default(false)      // scale by count instead of weight
+  scalePluType        String?                            // CAS scale PLU type
+  ingredients         String?       @db.Text             // scale label ingredients list
+  nutritionFacts      String?       @db.Text             // scale nutrition data (JSON or text)
+  certCode            String?                            // "organic", "kosher", "halal", "gluten-free"
+  sectionId           Int?                               // sub-department / section
+  expirationDate      DateTime?                          // product expiry date
+  labelFormatId       Int?                               // electronic shelf label format number
+
+  // ── E-commerce extended ──
   hideFromEcom        Boolean       @default(false)
   ecomDescription     String?       // SEO-friendly description
   ecomTags            String[]      // searchable tags
+  ecomExternalId      String?       // external ecom platform product ID
+  ecomPackWeight      Decimal?      @db.Decimal(10, 4)   // shipping weight
+  ecomPrice           Decimal?      @db.Decimal(10, 4)   // separate ecommerce price
+  ecomSalePrice       Decimal?      @db.Decimal(10, 4)   // ecommerce sale price
+  ecomOnSale          Boolean       @default(false)      // ecommerce sale flag
+  ecomSummary         String?       @db.Text             // ecommerce summary text
 
   posLastSyncAt       DateTime?     // last time synced from/to POS
 
@@ -773,6 +791,9 @@ model Invoice {
   status              String   @default("pending") // "pending" | "processing" | "complete" | "error"
   processingError     String?
   rawText             String?  @db.Text
+
+  // Match accuracy tracking
+  matchStats          Json?    // { total, matched, unmatched, byTier: {upc, vendorMap, fuzzy, ai, manual, costProx, global}, avgConfidence }
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -2181,5 +2202,28 @@ model PlatformOrder {
   @@index([orgId, storeId, status])
   @@index([orgId, platform, createdAt])
   @@map("platform_orders")
+}
+
+// ─────────────────────────────────────────────────
+// GLOBAL PRODUCT MATCH — Cross-store learning database
+// Anonymous vendor→product mappings shared across all orgs.
+// Higher confirmedCount + orgCount = more reliable match.
+// ─────────────────────────────────────────────────
+model GlobalProductMatch {
+  id                Int      @id @default(autoincrement())
+  vendorName        String   // normalized: lowercase, trimmed
+  vendorItemCode    String   // vendor's item code
+  vendorDescription String?  // vendor's product description
+  matchedUPC        String   // canonical UPC of matched POS product
+  matchedName       String   // canonical product name
+  confirmedCount    Int      @default(1)  // total confirmations across ALL stores
+  orgCount          Int      @default(1)  // unique orgs that confirmed this mapping
+  orgs              String[] @default([]) // array of orgIds that contributed (for dedup)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([vendorName, vendorItemCode])
+  @@index([vendorName])
+  @@map("global_product_matches")
 }
 

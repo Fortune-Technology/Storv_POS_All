@@ -24,6 +24,7 @@ import {
   getCatalogPromotions, createCatalogPromotion, updateCatalogPromotion, deleteCatalogPromotion,
   getProductUpcs, addProductUpc, deleteProductUpc,
   getProductPackSizes, bulkReplaceProductPackSizes,
+  getPOSConfig,
 } from '../services/api';
 import './ProductForm.css';
 import { toast } from 'react-toastify';
@@ -646,6 +647,20 @@ export default function ProductForm() {
   const isEdit    = Boolean(id);
   const setup     = useSetupStatus();
 
+  // Store feature flags (loaded from POS config)
+  const [groceryEnabled, setGroceryEnabled] = useState(false);
+  const [ecomEnabled,    setEcomEnabled]    = useState(false);
+
+  // Load store config to check feature toggles
+  useEffect(() => {
+    const storeId = localStorage.getItem('activeStoreId');
+    if (!storeId) return;
+    getPOSConfig(storeId).then(cfg => {
+      setGroceryEnabled(cfg?.groceryEnabled ?? false);
+      setEcomEnabled(cfg?.ecomEnabled ?? false);
+    }).catch(() => {});
+  }, []);
+
   const [saving,      setSaving]      = useState(false);
   const [loading,     setLoading]     = useState(isEdit);
   const [departments, setDepartments] = useState([]);
@@ -660,8 +675,8 @@ export default function ProductForm() {
   ]);
 
   // ── Bottle Deposit ───────────────────────────────────────────────────────────
-  const [depositEnabled, setDepositEnabled] = useState(false);
   const [caseDeposit,    setCaseDeposit]    = useState('');
+  const depositEnabled = parseFloat(caseDeposit) > 0;
 
   // ── Vendor / Order fields ────────────────────────────────────────────────────
   const [reorderQty,  setReorderQty]  = useState('');
@@ -691,6 +706,17 @@ export default function ProductForm() {
     ebtEligible: false, ageRequired: '', discountEligible: true,
     byWeight: false, byUnit: true, active: true,
     size: '', sizeUnit: 'oz',
+    // Grocery / Scale
+    wicEligible: false, tareWeight: '', scaleByCount: false,
+    scalePluType: '', ingredients: '', nutritionFacts: '',
+    certCode: '', labelFormatId: '',
+    // Deposits
+    depositPerUnit: '', caseDeposit: '',
+    // E-commerce extended
+    ecomExternalId: '', ecomPackWeight: '',
+    ecomPrice: '', ecomSalePrice: '', ecomOnSale: false, ecomSummary: '',
+    // Inventory
+    reorderPoint: '', reorderQty: '',
   };
 
   const [form, setForm] = useState(blank);
@@ -742,10 +768,31 @@ export default function ProductForm() {
           active:             p.active            ?? true,
           size:               p.size              ?? '',
           sizeUnit:           p.sizeUnit          ?? 'oz',
+          // Grocery / Scale
+          wicEligible:        p.wicEligible       ?? false,
+          tareWeight:         p.tareWeight != null ? String(p.tareWeight) : '',
+          scaleByCount:       p.scaleByCount      ?? false,
+          scalePluType:       p.scalePluType       ?? '',
+          ingredients:        p.ingredients        ?? '',
+          nutritionFacts:     p.nutritionFacts     ?? '',
+          certCode:           p.certCode           ?? '',
+          labelFormatId:      p.labelFormatId      ?? '',
+          // Deposits
+          depositPerUnit:     p.depositPerUnit != null ? String(p.depositPerUnit) : '',
+          caseDeposit:        p.caseDeposit != null ? String(p.caseDeposit) : '',
+          // E-commerce extended
+          ecomExternalId:     p.ecomExternalId     ?? '',
+          ecomPackWeight:     p.ecomPackWeight != null ? String(p.ecomPackWeight) : '',
+          ecomPrice:          p.ecomPrice != null ? String(p.ecomPrice) : '',
+          ecomSalePrice:      p.ecomSalePrice != null ? String(p.ecomSalePrice) : '',
+          ecomOnSale:         p.ecomOnSale         ?? false,
+          ecomSummary:        p.ecomSummary        ?? '',
+          // Inventory
+          reorderPoint:       p.reorderPoint != null ? String(p.reorderPoint) : '',
+          reorderQty:         p.reorderQty != null ? String(p.reorderQty) : '',
         });
 
         if (p.caseDeposit) {
-          setDepositEnabled(true);
           setCaseDeposit(Number(p.caseDeposit).toFixed(2));
         }
 
@@ -820,7 +867,7 @@ export default function ProductForm() {
   const caseCostVal  = parseFloat(form.defaultCasePrice)   || null;
   const retailVal    = parseFloat(form.defaultRetailPrice) || null;
 
-  // Unit cost: always derived from Case Cost ÷ Packs/Case ÷ Unit-Pack
+  // Unit cost: always derived from Case Cost ÷ Packs or Case Size ÷ Unit-Pack
   const ppcVal       = parseFloat(defaultPacksPerCase) || null;
   const upVal        = parseFloat(defaultUnitPack)     || 1;
   const unitCostVal  = caseCostVal && ppcVal ? caseCostVal / ppcVal / upVal : null;
@@ -927,7 +974,7 @@ export default function ProductForm() {
         defaultCasePrice:   form.defaultCasePrice || null,
         defaultCostPrice:   unitCostVal != null ? unitCostVal : (form.defaultCostPrice || null),
         defaultRetailPrice: derivedRetailPrice    || null,
-        caseDeposit:        depositEnabled && caseDeposit ? parseFloat(caseDeposit) : null,
+        caseDeposit:        caseDeposit ? parseFloat(caseDeposit) : null,
         reorderQty:         reorderQty ? parseInt(reorderQty) : null,
         ebtEligible:        form.ebtEligible,
         ageRequired:        form.ageRequired      ? parseInt(form.ageRequired) : null,
@@ -1091,6 +1138,28 @@ export default function ProductForm() {
                         </div>
                       )}
                     </div>
+                    {/* Size + Unit + Brand — compact row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                      <div>
+                        <label className="pf-label">Size</label>
+                        <input className="form-input pf-full" value={form.size}
+                          onChange={e => setF('size', e.target.value)} placeholder="12" />
+                      </div>
+                      <div>
+                        <label className="pf-label">Unit</label>
+                        <select className="form-input pf-full" value={form.sizeUnit}
+                          onChange={e => setF('sizeUnit', e.target.value)}>
+                          {['oz','fl oz','ml','L','gal','lb','g','kg','ct','each','pk'].map(u =>
+                            <option key={u} value={u}>{u}</option>
+                          )}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="pf-label">Brand</label>
+                        <input className="form-input pf-full" value={form.brand}
+                          onChange={e => setF('brand', e.target.value)} placeholder="Brand name" />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Right: Department + Tax Class */}
@@ -1125,7 +1194,7 @@ export default function ProductForm() {
               <div className="pf-card">
                 <div className="pf-section-title">Pricing</div>
 
-                {/* Single row: Retail | Case Cost | Unit-Pack | Packs/Case | Unit Cost | Margin */}
+                {/* Single row: Retail | Case Cost | Unit-Pack | Packs or Case Size | Unit Cost | Margin */}
                 <div className="pf-pricing-row">
 
                   {/* Retail Price */}
@@ -1163,9 +1232,9 @@ export default function ProductForm() {
                       onChange={e => setDefaultUnitPack(e.target.value || '1')} />
                   </div>
 
-                  {/* Packs/Case */}
+                  {/* Packs or Case Size */}
                   <div>
-                    <label className="pf-label pf-label-sm">Packs/Case</label>
+                    <label className="pf-label pf-label-sm">Packs or Case Size</label>
                     <input className="form-input pf-compact-input pf-center-input"
                       type="number" min="1" step="1"
                       value={defaultPacksPerCase} placeholder="—"
@@ -1207,7 +1276,7 @@ export default function ProductForm() {
                 )}
                 {!ppcVal && caseCostVal && (
                   <div className="pf-hint pf-mb-2">
-                    <Info size={10} /> Enter Packs/Case to auto-calculate unit cost
+                    <Info size={10} /> Enter Packs or Case Size to auto-calculate unit cost
                   </div>
                 )}
 
@@ -1256,7 +1325,7 @@ export default function ProductForm() {
                       <span>Label</span>
                       <span>Retail Price</span>
                       <span>Unit-Pack</span>
-                      <span>Packs/Case</span>
+                      <span>Packs or Case Size</span>
                       <span>Unit Cost</span>
                       <span>Margin</span>
                       {depositEnabled && <span>Deposit/Pack</span>}
@@ -1494,7 +1563,82 @@ export default function ProductForm() {
                 )}
               </div>
 
-              {/* ── 5. Additional UPCs / Barcodes ── */}
+              {/* ── Section 6: Grocery & Scale (only if store has scale enabled) ── */}
+              {groceryEnabled && <div className="pf-card" style={{ marginBottom:'1rem' }}>
+                <div className="pf-section-title" style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span>Grocery &amp; Scale</span>
+                  <span style={{ fontSize:'0.6rem', color:'var(--text-muted)', fontWeight:400, textTransform:'none' }}>
+                    Scale products configuration
+                  </span>
+                </div>
+                <div className="pf-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                  <div>
+                    <label className="pf-label">Tare Weight (lbs)</label>
+                    <input className="form-input pf-full" value={form.tareWeight} onChange={e => setF('tareWeight', e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="pf-label">Scale PLU Type</label>
+                    <input className="form-input pf-full" value={form.scalePluType} onChange={e => setF('scalePluType', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="pf-label">Certification</label>
+                    <input className="form-input pf-full" value={form.certCode} onChange={e => setF('certCode', e.target.value)} placeholder="organic, kosher, etc." />
+                  </div>
+                  <div>
+                    <label className="pf-label">Label Format</label>
+                    <input className="form-input pf-full" value={form.labelFormatId} onChange={e => setF('labelFormatId', e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ marginTop:'0.75rem' }}>
+                  <label className="pf-label">Ingredients</label>
+                  <textarea className="form-input pf-full" rows={2} value={form.ingredients} onChange={e => setF('ingredients', e.target.value)} style={{ width:'100%', resize:'vertical' }} />
+                </div>
+                <div style={{ marginTop:'0.5rem' }}>
+                  <label className="pf-label">Nutrition Facts</label>
+                  <textarea className="form-input pf-full" rows={2} value={form.nutritionFacts} onChange={e => setF('nutritionFacts', e.target.value)} style={{ width:'100%', resize:'vertical' }} />
+                </div>
+                <div style={{ display:'flex', gap:'1rem', marginTop:'0.5rem' }}>
+                  <div className="pf-sb-toggle-row" style={{ flex:1, margin:0 }}>
+                    <span className="pf-toggle-label">Scale by Count</span>
+                    <Tog value={!!form.scaleByCount} onChange={v => setF('scaleByCount', v)} />
+                  </div>
+                </div>
+              </div>}
+
+              {/* ── Section 7: E-Commerce (only if ecom module enabled) ── */}
+              {ecomEnabled && <div className="pf-card" style={{ marginBottom:'1rem' }}>
+                <div className="pf-section-title">E-Commerce</div>
+                <div className="pf-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+                  <div>
+                    <label className="pf-label">E-Commerce Price</label>
+                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomPrice} onChange={e => setF('ecomPrice', e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="pf-label">Sale Price</label>
+                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomSalePrice} onChange={e => setF('ecomSalePrice', e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="pf-label">External ID</label>
+                    <input className="form-input pf-full" value={form.ecomExternalId} onChange={e => setF('ecomExternalId', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="pf-label">Pack Weight</label>
+                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomPackWeight} onChange={e => setF('ecomPackWeight', e.target.value)} placeholder="0.00" />
+                  </div>
+                </div>
+                <div style={{ marginTop:'0.75rem' }}>
+                  <label className="pf-label">Summary</label>
+                  <textarea className="form-input pf-full" rows={2} value={form.ecomSummary} onChange={e => setF('ecomSummary', e.target.value)} style={{ width:'100%', resize:'vertical' }} />
+                </div>
+                <div style={{ display:'flex', gap:'1rem', marginTop:'0.5rem' }}>
+                  <div className="pf-sb-toggle-row" style={{ flex:1, margin:0 }}>
+                    <span className="pf-toggle-label">On Sale</span>
+                    <Tog value={!!form.ecomOnSale} onChange={v => setF('ecomOnSale', v)} />
+                  </div>
+                </div>
+              </div>}
+
+              {/* ── Additional UPCs / Barcodes ── */}
               <div className="pf-card">
                 <div className="pf-upc-header">
                   <div className="pf-section-title" style={{ marginBottom: 0 }}>
@@ -1544,7 +1688,7 @@ export default function ProductForm() {
             </div>{/* end left column */}
 
             {/* ══ RIGHT SIDEBAR ═══════════════════════════════════════════════ */}
-            <div className="pf-right-col" style={{ position:'sticky', top:72 }}>
+            <div className="pf-right-col" style={{ position:'sticky', top:16 }}>
 
               {/* ── Qty on Hand (active store) ── */}
               {(() => {
@@ -1571,6 +1715,30 @@ export default function ProductForm() {
                     <p style={{ fontSize:'0.68rem', color:'var(--text-muted)', margin:'0.4rem 0 0', lineHeight:1.4 }}>
                       Updates on save. Switch store to edit other locations.
                     </p>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem', marginTop:'0.5rem' }}>
+                      <div>
+                        <label className="pf-label" style={{ fontSize:'0.65rem' }}>Reorder Point</label>
+                        <input className="form-input pf-full" type="number" min="0" value={form.reorderPoint} onChange={e => setF('reorderPoint', e.target.value)} placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="pf-label" style={{ fontSize:'0.65rem' }}>Reorder Qty</label>
+                        <input className="form-input pf-full" type="number" min="0" value={form.reorderQty} onChange={e => setF('reorderQty', e.target.value)} placeholder="0" />
+                      </div>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.4rem', marginTop:'0.5rem' }}>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>52w High</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--success)' }}>&mdash;</div>
+                      </div>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>52w Low</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--error)' }}>&mdash;</div>
+                      </div>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                        <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>Suggested</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--accent-primary)' }}>&mdash;</div>
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -1612,14 +1780,6 @@ export default function ProductForm() {
                   </div>
                 </div>
 
-                <div style={{ marginBottom:'0.875rem' }}>
-                  <label className="pf-label">Reorder Qty</label>
-                  <input className="form-input" style={{ width:'100%' }}
-                    type="number" min="0" step="1"
-                    value={reorderQty} placeholder="e.g. 24"
-                    onChange={e => setReorderQty(e.target.value)} />
-                </div>
-
                 <button type="button" onClick={() => setShowVendMgr(true)}
                   className="pf-btn-secondary" style={{ width:'100%', justifyContent:'center', fontSize:'0.78rem' }}>
                   <Plus size={12} /> Add Vendor
@@ -1628,60 +1788,47 @@ export default function ProductForm() {
 
               {/* Bottle Deposit */}
               <div className="pf-card">
-                <div className="pf-pack-toggle-header" style={{ marginBottom: depositEnabled ? '0.875rem' : 0 }}>
-                  <div className="pf-section-title">Bottle Deposit</div>
-                  <Tog value={depositEnabled} onChange={v => setDepositEnabled(v)} />
+                <div className="pf-section-title" style={{ marginBottom:'0.875rem' }}>Bottle Deposit</div>
+
+                <div style={{ marginBottom:'0.75rem' }}>
+                  <label className="pf-label">Case Deposit Total</label>
+                  <div className="pf-dollar-wrap">
+                    <span className="pf-dollar-sign">$</span>
+                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
+                      type="number" step="0.01" min="0"
+                      value={caseDeposit}
+                      onChange={e => setCaseDeposit(e.target.value)}
+                      onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))}
+                      placeholder="e.g. 1.20" />
+                  </div>
                 </div>
 
-                {!depositEnabled && (
-                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', lineHeight:1.5 }}>
-                    Enable if this product has a bottle / can deposit (CRV, Maine 5¢, etc.)
+                {packEnabled && packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
+                  <div style={{ padding:'0.6rem 0.75rem', background:'#06b6d408', borderRadius:7,
+                    border:'1px solid #06b6d425', marginBottom:'0.5rem' }}>
+                    <div style={{ fontSize:'0.65rem', fontWeight:700, color:'#06b6d4',
+                      textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.4rem' }}>
+                      Per-Pack Deposit
+                    </div>
+                    {packRows.map((row, idx) => {
+                      const ppc = parseInt(row.packsPerCase) || null;
+                      const dep = ppc ? (parseFloat(caseDeposit) / ppc).toFixed(2) : null;
+                      return (
+                        <div key={idx} style={{ display:'flex', justifyContent:'space-between',
+                          fontSize:'0.78rem', color:'var(--text-secondary)', marginBottom:2 }}>
+                          <span>{row.label || `Pack ${idx + 1}`}</span>
+                          <span style={{ fontWeight:600 }}>
+                            {dep != null ? `$${dep}` : '— set Packs or Case Size'}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
-                {depositEnabled && (
-                  <>
-                    <div style={{ marginBottom:'0.75rem' }}>
-                      <label className="pf-label">Case Deposit Total</label>
-                      <div className="pf-dollar-wrap">
-                        <span className="pf-dollar-sign">$</span>
-                        <input className="form-input pf-dollar-input" style={{ width:'100%' }}
-                          type="number" step="0.01" min="0"
-                          value={caseDeposit}
-                          onChange={e => setCaseDeposit(e.target.value)}
-                          onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))}
-                          placeholder="e.g. 1.20" />
-                      </div>
-                    </div>
-
-                    {packEnabled && packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
-                      <div style={{ padding:'0.6rem 0.75rem', background:'#06b6d408', borderRadius:7,
-                        border:'1px solid #06b6d425', marginBottom:'0.5rem' }}>
-                        <div style={{ fontSize:'0.65rem', fontWeight:700, color:'#06b6d4',
-                          textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.4rem' }}>
-                          Per-Pack Deposit
-                        </div>
-                        {packRows.map((row, idx) => {
-                          const ppc = parseInt(row.packsPerCase) || null;
-                          const dep = ppc ? (parseFloat(caseDeposit) / ppc).toFixed(2) : null;
-                          return (
-                            <div key={idx} style={{ display:'flex', justifyContent:'space-between',
-                              fontSize:'0.78rem', color:'var(--text-secondary)', marginBottom:2 }}>
-                              <span>{row.label || `Pack ${idx + 1}`}</span>
-                              <span style={{ fontWeight:600 }}>
-                                {dep != null ? `$${dep}` : '— set Packs/Case'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    <p style={{ fontSize:'0.7rem', color:'var(--text-muted)', margin:0, lineHeight:1.4 }}>
-                      Deposit per pack = Case deposit ÷ Packs per case
-                    </p>
-                  </>
-                )}
+                <p style={{ fontSize:'0.7rem', color:'var(--text-muted)', margin:0, lineHeight:1.4 }}>
+                  Deposit per pack = Case deposit ÷ Packs per case
+                </p>
               </div>
 
               {/* Compliance */}
@@ -1700,6 +1847,7 @@ export default function ProductForm() {
                 </div>
                 {[
                   ['EBT / SNAP Eligible', 'ebtEligible'],
+                  ['WIC Eligible',         'wicEligible'],
                   ['Discount Eligible',    'discountEligible'],
                   ['Sold by Weight',       'byWeight'],
                 ].map(([label, key]) => (
@@ -1709,6 +1857,9 @@ export default function ProductForm() {
                   </div>
                 ))}
               </div>
+
+
+
 
               {/* Status */}
               <div className="pf-card">

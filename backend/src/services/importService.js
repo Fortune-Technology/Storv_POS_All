@@ -25,30 +25,31 @@ const ALIASES = {
   upc:                ['upc','barcode','ean','gtin','itemno','item#','upccode','scancode','itemcode_upc'],
   plu:                ['plu','plunumber','producelookup'],
   sku:                ['sku','internalsku','itemnumber'],
-  itemCode:           ['itemcode','vendoritemcode','mfrcode','vendorcode','distitemno'],
+  itemCode:           ['itemcode','item','vendoritemcode','mfrcode','vendorcode','distitemno'],
 
-  // Product display
+  // Product display — 'description' maps to name (product name), NOT long description
   name:               ['name','description','productname','itemdesc','itemdescription','proddesc','itemname','prodname'],
-  brand:              ['brand','manufacturer','mfr','brandname','mfrname'],
-  size:               ['size','packsize','unitsize','itemsize','productsize'],
-  sizeUnit:           ['sizeunit','unit','uom','unitofmeasure'],
+  brand:              ['brand','brandname','mfrname'],
+  size:               ['size','itemsize','packsize','unitsize','productsize'],
+  sizeUnit:           ['sizeunit','unit','uom','unitofmeasure','itemuom','item_uom'],
   pack:               ['pack','casepack','casepacks','casesizecf','units','unitspercase'],
   casePacks:          ['casepacks','innerpack','packspercase'],
   sellUnitSize:       ['sellunitsize','unitsperpack','countperpack'],
 
   // Pricing
   defaultCostPrice:   ['cost','unitcost','invoicecost','eachcost','purchaseprice','ourcost','costprice','unitprice'],
-  defaultRetailPrice: ['retail','price','sellprice','retailprice','suggestedretail','msrp','srp','regprice'],
-  defaultCasePrice:   ['casecost','caseprice','costpercase','invoicecasecost'],
+  defaultRetailPrice: ['retail','price','sellprice','retailprice','suggestedretail','msrp','srp','regprice','regretail','reg_retail','normalretail','normal_price'],
+  defaultCasePrice:   ['casecost','caseprice','costpercase','invoicecasecost','regularcost','reg_cost'],
+  regMultiple:        ['regmultiple','reg_multiple','regularmultiple'],
 
   // Classification
   departmentId:       ['dept','department','deptid','deptno','departmentid','category','deptcode','deptnumber','dept_no'],
-  vendorId:           ['vendor','supplier','vendorid','vendorno','supplierid','distributor','vendorname'],
-  taxClass:           ['taxclass','tax','taxtype','taxcategory','taxcode'],
+  vendorId:           ['vendor','supplier','vendorid','vendorno','supplierid','distributor','vendorname','vendor_name'],
+  taxClass:           ['taxclass','tax1','taxtype','taxcategory','taxcode'],
 
   // Compliance
-  ageRequired:        ['agerequired','minage','age','agerestriction','ageverification'],
-  ebtEligible:        ['ebt','ebteligible','foodstamp','snap','ebtsnap'],
+  ageRequired:        ['agerequired','minage','age','agerestriction','ageverification','validage'],
+  ebtEligible:        ['ebt','ebteligible','foodstamp','food_stamp','snap','ebtsnap'],
   discountEligible:   ['discount','discounteligible','discountable','allowdiscount'],
   taxable:            ['taxable','istaxable','taxed'],
   active:             ['active','status','enabled','isenabled','isactive'],
@@ -63,7 +64,7 @@ const ALIASES = {
   sortOrder:          ['sortorder','sort','order','sequence','displayorder'],
   showInPOS:          ['showinpos','posvisible','visible','showonpos'],
   bottleDeposit:      ['bottledeposit','deposit','crv','depositrequired'],
-  description:        ['description','notes','longdesc','longdescription','comments'],
+  description:        ['longdesc','longdescription','notes','comments','productdescription','fulldescription'],
 
   // Vendor-specific
   contactName:        ['contactname','contact','repname','salesrep','contactperson'],
@@ -93,6 +94,65 @@ const ALIASES = {
 
   // Invoice cost update
   receivedQty:        ['receivedqty','casesordered','qtyreceived','casesreceived','cases'],
+
+  // ── Grocery / Scale features ──
+  wicEligible:        ['wicable','wic','wiceligible','wicapproved'],
+  tareWeight:         ['tareweight','tare','tarewt','tarelbs'],
+  scaleByCount:       ['scalebycount','countscale','bycount'],
+  scalePluType:       ['scaleplutype','casscaleplutype','plutype'],
+  ingredients:        ['ingredients','casscaleingredients','ingredientlist','scaleingredients'],
+  nutritionFacts:     ['nutritionfacts','casscalenutrition','nutrition','scalenutrition','nutritionfact'],
+  certCode:           ['certcode','certification','certificationcode','cert','organic','kosher','pbhn'],
+  sectionId:          ['sectionid','section','subsection','subcategory','subcatid','class'],
+  sectionName:        ['sectionname','section_name','subsectionname'],
+  expirationDate:     ['expirationdate','expiration','expiry','bestby','usebydate','expdate'],
+  labelFormatId:      ['labelformatid','eplumlabelformatno','eplumformat','labelformat'],
+
+  // ── E-commerce extended ──
+  ecomExternalId:     ['ecommerceid','ecomid','ecomexternalid','externalid','shopifyid'],
+  ecomPackWeight:     ['ecommercepackweight','ecomweight','packweight','shippingweight'],
+  ecomPrice:          ['ecommerceprice','ecomprice','onlineprice','webprice'],
+  ecomSalePrice:      ['ecommercesaleprice','ecomsaleprice','onlinesaleprice'],
+  ecomOnSale:         ['ecommerceonsale','ecomonsale','onlineonsale'],
+  ecomSummary:        ['ecommercesummary','ecomsummary','onlinesummary'],
+  ecomDescription:    ['ecommercedescription','ecomdescription','onlinedescription','ecommerceunitdescription'],
+  hideFromEcom:       ['hidefromecommerce','hidefromecom','hidefromweb','excludeecom'],
+
+  // ── Pricing method / group pricing (for SALE promotion) ──
+  priceMethod:        ['pricemethod','pricingmethod','pricetype','prc_grp','prcgrp'],
+  groupPrice:         ['groupprice','grouppricingamt','mixmatchprice'],
+  groupQty:           ['groupqty','groupquantity','mixmatchqty','quantity'],
+  specialPrice:       ['specialprice','special_price','saleprice','promoprice','saleretail','sale_retail'],
+  specialCost:        ['specialcost','promotioncost','promocost','salecost','sale_cost'],
+  saleMultiple:       ['salemultiple','sale_multiple','salemult'],
+  startDate:          ['startdate','start','validfrom','effectivedate','promostart','salestartdate','sale_start_date'],
+  endDate:            ['enddate','end','validto','expirydate','expiredate','promoend','saleenddate','sale_end_date'],
+
+  // ── TPR (Temporary Price Reduction) — second promotion slot ──
+  tprMultiple:        ['tprmultiple','tpr_multiple','tprmult'],
+  tprRetail:          ['tprretail','tpr_retail','tprprice'],
+  tprCost:            ['tprcost','tpr_cost'],
+  tprStartDate:       ['tprstartdate','tpr_start_date','tprstart'],
+  tprEndDate:         ['tprenddate','tpr_end_date','tprend'],
+
+  // ── Future pricing (scheduled price change) ──
+  futureRetail:       ['futureretail','future_retail','futureprice'],
+  futureCost:         ['futurecost','future_cost'],
+  futureActiveDate:   ['futureactivedate','future_active_date','futuredate'],
+  futureMultiple:     ['futuremultiple','future_multiple'],
+
+  // ── Deposits ──
+  depositPerUnit:     ['bottledeposit','bottle_deposit','depositperunit','unitdeposit'],
+  caseDeposit:        ['casedeposit','case_deposit','casedep'],
+
+  // ── Linked UPC ──
+  linkedUpc:          ['linkedupc','caseupc','case_upc','relatedupc','altbarcode','altupc','secondaryupc'],
+
+  // ── Legacy / misc ──
+  quantityOnHand:     ['quantityonhand','qoh','stockqty','onhand','currentstock','inventoryqty'],
+  byWeight:           ['scale','byweight','soldbyweight','scalable','weightitem'],
+  foodstamp:          ['foodstamp','food_stamp','snap','ebt','snapeligible'],
+  productCode:        ['productcode','mfrcode','manufacturercode'],
 };
 
 // ─── Valid enum values ───────────────────────────────────────────────────────
@@ -389,6 +449,65 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
       reorderPoint:       parseIntVal(get('reorderPoint')),
       reorderQty:         parseIntVal(get('reorderQty')),
       active:             parseBool(get('active') || 'true', true),
+
+      // ── Grocery / Scale fields ──
+      wicEligible:        parseBool(get('wicEligible')),
+      tareWeight:         parseDecimal(get('tareWeight')),
+      scaleByCount:       parseBool(get('scaleByCount')),
+      scalePluType:       get('scalePluType') || null,
+      ingredients:        get('ingredients') || null,
+      nutritionFacts:     get('nutritionFacts') || null,
+      certCode:           get('certCode') || null,
+      sectionId:          parseIntVal(get('sectionId')),
+      expirationDate:     get('expirationDate') ? new Date(get('expirationDate')) : null,
+      labelFormatId:      parseIntVal(get('labelFormatId')),
+      byWeight:           parseBool(get('byWeight')),
+      foodstamp:          parseBool(get('foodstamp')),
+
+      // ── E-commerce extended ──
+      hideFromEcom:       parseBool(get('hideFromEcom')),
+      ecomExternalId:     get('ecomExternalId') || null,
+      ecomPackWeight:     parseDecimal(get('ecomPackWeight')),
+      ecomPrice:          parseDecimal(get('ecomPrice')),
+      ecomSalePrice:      parseDecimal(get('ecomSalePrice')),
+      ecomOnSale:         parseBool(get('ecomOnSale')),
+      ecomDescription:    get('ecomDescription') || null,
+      ecomSummary:        get('ecomSummary') || null,
+
+      // ── For linked UPC (processed in importProductRows) ──
+      _linkedUpc:         get('linkedUpc') || null,
+
+      // ── Deposits ──
+      depositPerUnit:     parseDecimal(get('depositPerUnit')),
+      caseDeposit:        parseDecimal(get('caseDeposit')),
+
+      // ── For SALE promotion (processed in importProductRows) ──
+      _specialPrice:      parseDecimal(get('specialPrice')),
+      _specialCost:       parseDecimal(get('specialCost')),
+      _priceMethod:       get('priceMethod') || null,
+      _groupPrice:        parseDecimal(get('groupPrice')),
+      _groupQty:          parseIntVal(get('groupQty')),
+      _saleMultiple:      parseIntVal(get('saleMultiple')),
+      _startDate:         get('startDate') || null,
+      _endDate:           get('endDate') || null,
+      _regMultiple:       parseIntVal(get('regMultiple')),
+
+      // ── For TPR promotion (second promo slot) ──
+      _tprRetail:         parseDecimal(get('tprRetail')),
+      _tprCost:           parseDecimal(get('tprCost')),
+      _tprMultiple:       parseIntVal(get('tprMultiple')),
+      _tprStartDate:      get('tprStartDate') || null,
+      _tprEndDate:        get('tprEndDate') || null,
+
+      // ── Future pricing (scheduled price change) ──
+      _futureRetail:      parseDecimal(get('futureRetail')),
+      _futureCost:        parseDecimal(get('futureCost')),
+      _futureActiveDate:  get('futureActiveDate') || null,
+      _futureMultiple:    parseIntVal(get('futureMultiple')),
+
+      // ── Stock quantity (processed in importProductRows for StoreProduct) ──
+      _quantityOnHand:    parseDecimal(get('quantityOnHand')),
+      _sectionName:       get('sectionName') || null,
     },
   };
 }
@@ -713,7 +832,15 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
 
   for (const { cleaned } of validRows) {
     // Strip internal tracking fields before DB write
-    const { _existingId, _createDeptName, _createVendorName, ...data } = cleaned;
+    const {
+      _existingId, _createDeptName, _createVendorName,
+      _linkedUpc, _specialPrice, _specialCost, _priceMethod, _groupPrice, _groupQty,
+      _saleMultiple, _startDate, _endDate, _regMultiple,
+      _tprRetail, _tprCost, _tprMultiple, _tprStartDate, _tprEndDate,
+      _futureRetail, _futureCost, _futureActiveDate, _futureMultiple,
+      _quantityOnHand, _sectionName,
+      ...data
+    } = cleaned;
 
     // Re-resolve auto-created dept/vendor IDs
     if (_createDeptName && !data.departmentId) {
@@ -760,12 +887,14 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
     }
   }
 
-  // If storeId provided, also upsert StoreProduct
+  // If storeId provided, also upsert StoreProduct + set stock quantities
   if (storeId && (created > 0 || updated > 0)) {
     const allProducts = await prisma.masterProduct.findMany({
       where: { orgId, upc: { in: upcs } },
-      select: { id: true },
+      select: { id: true, upc: true },
     });
+    const productByUpc = new Map(allProducts.map(p => [p.upc, p]));
+
     for (const chunk of chunkArray(allProducts, 100)) {
       try {
         await prisma.$transaction(
@@ -777,9 +906,154 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
         );
       } catch (_) { /* best-effort */ }
     }
+
+    // Set stock quantities from CSV
+    for (const { cleaned } of validRows) {
+      if (cleaned._quantityOnHand != null && cleaned.upc) {
+        const prod = productByUpc.get(cleaned.upc);
+        if (prod) {
+          try {
+            await prisma.storeProduct.updateMany({
+              where: { storeId, masterProductId: prod.id },
+              data: { quantityOnHand: cleaned._quantityOnHand, lastStockUpdate: new Date() },
+            });
+          } catch { /* best-effort */ }
+        }
+      }
+    }
   }
 
-  return { created, updated, skipped, errors };
+  // ── Post-import: Create linked UPC entries ──────────────────────────────────
+  const allProductsFinal = await prisma.masterProduct.findMany({
+    where: { orgId, upc: { in: upcs } },
+    select: { id: true, upc: true },
+  });
+  const productByUpcFinal = new Map(allProductsFinal.map(p => [p.upc, p]));
+
+  let linkedCreated = 0, promosCreated = 0;
+
+  for (const { cleaned } of validRows) {
+    const product = cleaned.upc ? productByUpcFinal.get(cleaned.upc) : null;
+    if (!product) continue;
+
+    // ── Linked UPC → ProductUpc ────────────────────────────────────────────
+    if (cleaned._linkedUpc) {
+      try {
+        await prisma.productUpc.upsert({
+          where: { orgId_upc: { orgId, upc: cleaned._linkedUpc } },
+          create: { orgId, masterProductId: product.id, upc: cleaned._linkedUpc, label: 'Linked from import' },
+          update: { masterProductId: product.id },
+        });
+        linkedCreated++;
+      } catch { /* dupe OK */ }
+    }
+
+    // Helper: parse YYYYMMDD dates from wholesale files
+    const parseWholesaleDate = (d) => {
+      if (!d) return null;
+      const s = String(d).trim();
+      if (s.length === 8 && /^\d{8}$/.test(s)) return new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
+      return new Date(s);
+    };
+
+    // ── SALE Promotion (Promo #1) ──────────────────────────────────────────
+    const salePrice = cleaned._specialPrice;
+    const saleMult  = cleaned._saleMultiple || 1;
+    if (salePrice && salePrice > 0) {
+      try {
+        const isMult = saleMult > 1;
+        await prisma.promotion.create({
+          data: {
+            orgId,
+            name: isMult
+              ? `Sale: ${saleMult} for $${salePrice} — ${cleaned.name || cleaned.upc}`
+              : `Sale: $${salePrice} — ${cleaned.name || cleaned.upc}`,
+            promoType: isMult ? 'volume' : 'sale',
+            dealConfig: isMult
+              ? { minQty: saleMult, fixedPrice: salePrice, vendorCost: cleaned._specialCost || null }
+              : { salePrice, vendorCost: cleaned._specialCost || null },
+            productIds: [String(product.id)],
+            startDate: parseWholesaleDate(cleaned._startDate) || new Date(),
+            endDate: parseWholesaleDate(cleaned._endDate) || null,
+            active: true,
+          },
+        });
+        promosCreated++;
+      } catch { /* best-effort */ }
+    }
+
+    // ── Group pricing (REG_MULTIPLE > 1) ───────────────────────────────────
+    if (!salePrice && cleaned._regMultiple && cleaned._regMultiple > 1 && cleaned.defaultRetailPrice) {
+      try {
+        await prisma.promotion.create({
+          data: {
+            orgId,
+            name: `Reg: ${cleaned._regMultiple} for $${cleaned.defaultRetailPrice} — ${cleaned.name || cleaned.upc}`,
+            promoType: 'volume',
+            dealConfig: { minQty: cleaned._regMultiple, fixedPrice: cleaned.defaultRetailPrice },
+            productIds: [String(product.id)],
+            active: true,
+          },
+        });
+        promosCreated++;
+      } catch { /* best-effort */ }
+    }
+
+    // ── TPR Promotion (Promo #2 — Temporary Price Reduction) ───────────────
+    if (cleaned._tprRetail && cleaned._tprRetail > 0) {
+      try {
+        const tprMult = cleaned._tprMultiple || 1;
+        const isMult = tprMult > 1;
+        await prisma.promotion.create({
+          data: {
+            orgId,
+            name: isMult
+              ? `TPR: ${tprMult} for $${cleaned._tprRetail} — ${cleaned.name || cleaned.upc}`
+              : `TPR: $${cleaned._tprRetail} — ${cleaned.name || cleaned.upc}`,
+            promoType: isMult ? 'volume' : 'sale',
+            dealConfig: isMult
+              ? { minQty: tprMult, fixedPrice: cleaned._tprRetail, vendorCost: cleaned._tprCost || null }
+              : { salePrice: cleaned._tprRetail, vendorCost: cleaned._tprCost || null },
+            productIds: [String(product.id)],
+            startDate: parseWholesaleDate(cleaned._tprStartDate) || new Date(),
+            endDate: parseWholesaleDate(cleaned._tprEndDate) || null,
+            active: true,
+            badgeLabel: 'TPR',
+          },
+        });
+        promosCreated++;
+      } catch { /* best-effort */ }
+    }
+
+    // ── Future Pricing (scheduled price change, not a promo) ───────────────
+    // Creates a scheduled promotion that activates on futureActiveDate
+    if (cleaned._futureRetail && cleaned._futureRetail > 0 && cleaned._futureActiveDate) {
+      try {
+        const futMult = cleaned._futureMultiple || 1;
+        await prisma.promotion.create({
+          data: {
+            orgId,
+            name: `Future: $${cleaned._futureRetail} — ${cleaned.name || cleaned.upc}`,
+            promoType: futMult > 1 ? 'volume' : 'sale',
+            dealConfig: futMult > 1
+              ? { minQty: futMult, fixedPrice: cleaned._futureRetail, vendorCost: cleaned._futureCost || null }
+              : { salePrice: cleaned._futureRetail, vendorCost: cleaned._futureCost || null },
+            productIds: [String(product.id)],
+            startDate: parseWholesaleDate(cleaned._futureActiveDate),
+            endDate: null, // permanent until next update
+            active: true,
+            badgeLabel: 'FUTURE',
+          },
+        });
+        promosCreated++;
+      } catch { /* best-effort */ }
+    }
+  }
+
+  if (linkedCreated > 0) console.log(`🔗 Created ${linkedCreated} linked UPC entries`);
+  if (promosCreated > 0) console.log(`🏷️ Created ${promosCreated} promotion entries from import`);
+
+  return { created, updated, skipped, errors, linkedUPCs: linkedCreated, promotions: promosCreated };
 }
 
 async function importDepartmentRows(validRows, orgId, duplicateStrategy) {

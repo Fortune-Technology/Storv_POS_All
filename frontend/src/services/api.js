@@ -84,6 +84,7 @@ export const getInvoiceById = (id) => api.get(`/invoice/${id}`);
 export const saveInvoiceDraft = (id, data) => api.patch(`/invoice/${id}/draft`, data);
 export const deleteInvoiceDraft = (id) => api.delete(`/invoice/drafts/${id}`);
 export const clearInvoicePOSCache = () => api.post('/invoice/clear-pos-cache');
+export const getInvoiceAccuracy = () => api.get('/invoice/accuracy').then(r => r.data);
 
 // Products
 export const getProducts = () => api.get('/products');

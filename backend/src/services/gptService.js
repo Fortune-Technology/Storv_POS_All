@@ -613,18 +613,59 @@ export const extractMultiplePages = async (files) => {
     throw new Error("All page extractions failed — no data could be read from the uploaded files");
   }
 
-  // Merge: vendor header from first file; all line items concatenated
+  // ── Pick best vendor header (not just first page) ─────────────────────────
+  // Choose the extraction with the most vendor fields populated
+  const vendorQuality = (v) => {
+    if (!v) return 0;
+    let score = 0;
+    if (v.vendorName) score += 3;
+    if (v.invoiceNumber) score += 2;
+    if (v.invoiceDate) score += 1;
+    if (v.totalInvoiceAmount) score += 1;
+    if (v.customerNumber) score += 1;
+    return score;
+  };
+  const bestVendorIdx = extractions.reduce((bestIdx, e, idx) =>
+    vendorQuality(e.vendor) > vendorQuality(extractions[bestIdx]?.vendor) ? idx : bestIdx
+  , 0);
+
+  // ── Tag each line item with its page number ──────────────────────────────
+  const taggedItems = extractions.flatMap((e, pageIdx) =>
+    (e.lineItems || []).map(item => ({ ...item, _pageNumber: pageIdx + 1 }))
+  );
+
+  // ── Deduplicate: merge items with same itemCode + description + qty ──────
+  const deduped = [];
+  const seen = new Map(); // key → index in deduped
+
+  for (const item of taggedItems) {
+    const key = [
+      (item.itemCode || '').trim().toLowerCase(),
+      (item.description || '').trim().toLowerCase().slice(0, 40),
+      String(item.quantity || 1),
+    ].join('|');
+
+    if (key && key !== '||1' && seen.has(key)) {
+      // Duplicate detected — skip (keep the first occurrence)
+      console.log(`  🔄 Dedup: skipping duplicate "${item.description}" (page ${item._pageNumber})`);
+    } else {
+      seen.set(key, deduped.length);
+      deduped.push(item);
+    }
+  }
+
   const merged = {
-    vendor: { ...extractions[0].vendor },
-    lineItems: extractions.flatMap(e => e.lineItems || []),
+    vendor: { ...extractions[bestVendorIdx].vendor },
+    lineItems: deduped,
   };
 
-  // Sum numeric totals across pages (totalInvoiceAmount stays from first since it's the invoice total)
+  // Sum numeric totals across pages
   if (extractions.length > 1) {
     merged.vendor.totalCasesReceived = extractions.reduce((s, e) => s + (e.vendor?.totalCasesReceived || 0), 0);
     merged.vendor.totalUnitsReceived = extractions.reduce((s, e) => s + (e.vendor?.totalUnitsReceived || 0), 0);
   }
 
-  console.log(`✅ Multi-page merge: ${extractions.length} pages → ${merged.lineItems.length} total line items`);
+  const removed = taggedItems.length - deduped.length;
+  console.log(`✅ Multi-page merge: ${extractions.length} pages → ${taggedItems.length} items → ${deduped.length} after dedup (${removed} duplicates removed)`);
   return { data: merged, pages: combinedPages };
 };

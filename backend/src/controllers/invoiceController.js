@@ -4,6 +4,7 @@ import * as gptService from '../services/gptService.js';
 import {
   matchLineItems,
   saveConfirmedMappings,
+  decrementMapping,
   getPOSCache,
   setPOSCache,
   clearPOSCache,
@@ -385,7 +386,42 @@ export const confirmInvoice = async (req, res) => {
       },
     });
 
+    // ── Negative feedback: detect overridden matches ─────────────────────────
+    // Compare confirmed lineItems against the original draft to find where
+    // the user changed the linked product (corrected a wrong match).
+    try {
+      const originalItems = Array.isArray(existing.lineItems) ? existing.lineItems : [];
+      for (const confirmed of (lineItems || [])) {
+        if (!confirmed.originalItemCode || !confirmed.linkedProductId) continue;
+        // Find the same item in the original draft
+        const original = originalItems.find(o =>
+          o.originalItemCode === confirmed.originalItemCode &&
+          o.originalVendorDescription === confirmed.originalVendorDescription
+        );
+        // If the user changed the linked product → decrement the wrong mapping
+        if (original && original.linkedProductId && original.linkedProductId !== confirmed.linkedProductId) {
+          await decrementMapping(req.orgId, vendorName, confirmed.originalItemCode, original.linkedProductId);
+        }
+      }
+    } catch { /* non-fatal — negative feedback is a bonus, not critical */ }
+
+    // ── Save confirmed mappings (store-specific + global) ────────────────────
     await saveConfirmedMappings(lineItems, vendorName, req.orgId);
+
+    // ── Compute and save match stats ─────────────────────────────────────────
+    try {
+      const matched = (lineItems || []).filter(i => i.mappingStatus === 'matched' || i.mappingStatus === 'manual').length;
+      const total = (lineItems || []).length;
+      const byTier = (lineItems || []).reduce((acc, r) => {
+        const key = r.matchTier || 'unmatched';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      await prisma.invoice.update({
+        where: { id: existing.id },
+        data: { matchStats: { total, matched, unmatched: total - matched, matchRate: total > 0 ? Math.round((matched / total) * 10000) / 100 : 0, byTier } },
+      });
+    } catch { /* non-fatal */ }
 
     res.json({ message: 'Invoice synchronized with system', invoice });
   } catch (error) {
@@ -460,6 +496,80 @@ export const clearInvoicePOSCache = async (req, res) => {
     res.json({
       success: true,
       message: 'POS product cache cleared',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Get match accuracy analytics
+// @route   GET /api/invoice/accuracy
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+export const getMatchAccuracy = async (req, res) => {
+  try {
+    const where = { status: 'synced', matchStats: { not: null } };
+    if (req.orgId) where.orgId = req.orgId;
+
+    const invoices = await prisma.invoice.findMany({
+      where,
+      select: { vendorName: true, matchStats: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    // Aggregate by vendor
+    const byVendor = {};
+    let totalMatched = 0, totalItems = 0;
+    const tierTotals = {};
+    const timeline = [];
+
+    for (const inv of invoices) {
+      const stats = inv.matchStats;
+      if (!stats) continue;
+
+      totalMatched += stats.matched || 0;
+      totalItems += stats.total || 0;
+
+      // By tier
+      if (stats.byTier) {
+        for (const [tier, count] of Object.entries(stats.byTier)) {
+          tierTotals[tier] = (tierTotals[tier] || 0) + count;
+        }
+      }
+
+      // By vendor
+      const v = inv.vendorName || 'Unknown';
+      if (!byVendor[v]) byVendor[v] = { vendor: v, invoices: 0, totalItems: 0, matched: 0 };
+      byVendor[v].invoices += 1;
+      byVendor[v].totalItems += stats.total || 0;
+      byVendor[v].matched += stats.matched || 0;
+
+      // Timeline
+      timeline.push({
+        date: inv.createdAt?.toISOString().slice(0, 10),
+        matchRate: stats.matchRate || 0,
+        vendor: v,
+      });
+    }
+
+    // Vendor match rates
+    const vendors = Object.values(byVendor).map(v => ({
+      ...v,
+      matchRate: v.totalItems > 0 ? Math.round((v.matched / v.totalItems) * 10000) / 100 : 0,
+    })).sort((a, b) => a.matchRate - b.matchRate);
+
+    res.json({
+      overall: {
+        totalInvoices: invoices.length,
+        totalItems,
+        totalMatched,
+        overallMatchRate: totalItems > 0 ? Math.round((totalMatched / totalItems) * 10000) / 100 : 0,
+      },
+      tierBreakdown: tierTotals,
+      byVendor: vendors,
+      timeline: timeline.slice(0, 50),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

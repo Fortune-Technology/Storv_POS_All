@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import prisma from '../config/postgres.js';
-import { upcVariants as sharedUpcVariants } from '../utils/upc.js';
+import { upcVariants as sharedUpcVariants, extractSizeFromDescription } from '../utils/upc.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -171,6 +171,132 @@ const findBestFuzzyMatch = (description, posProducts) => {
     }
   }
   return best && bestScore > 0 ? { product: best, score: bestScore } : null;
+};
+
+// ─── COMPOSITE SCORING (Enhanced Tier 3) ─────────────────────────────────────
+// Multi-factor match scoring: name + brand + size + cost + department
+
+/**
+ * Match brand from description against product name/brand.
+ * Returns 1.0 if brand matches, 0 otherwise.
+ */
+const brandMatch = (desc, productName) => {
+  const descTokens = tokenize(desc);
+  const prodTokens = tokenize(productName);
+  // Check if any significant token (brand word) appears in both
+  const brandWords = descTokens.filter(t => t.length > 3); // brand names are usually >3 chars
+  for (const w of brandWords) {
+    if (prodTokens.includes(w)) return 1.0;
+  }
+  return 0;
+};
+
+/**
+ * Compare sizes extracted from descriptions.
+ * Returns 1.0 if sizes match, 0.5 if close, 0 if different.
+ */
+const sizeMatch = (desc1, desc2) => {
+  const s1 = extractSizeFromDescription(desc1);
+  const s2 = extractSizeFromDescription(desc2);
+  if (!s1 || !s2) return 0;
+
+  let score = 0;
+  // Pack size match
+  if (s1.packSize && s2.packSize && s1.packSize === s2.packSize) score += 0.5;
+  // Volume/weight match
+  if (s1.size && s2.size && s1.unit === s2.unit) {
+    const ratio = Math.min(s1.size, s2.size) / Math.max(s1.size, s2.size);
+    if (ratio > 0.95) score += 0.5;
+    else if (ratio > 0.80) score += 0.25;
+  }
+  return Math.min(1.0, score);
+};
+
+/**
+ * Cost proximity score.
+ * Returns 1.0 if within 5%, 0.5 if within 15%, 0 otherwise.
+ */
+const costProximity = (itemCost, productCost) => {
+  if (!itemCost || !productCost || productCost === 0) return 0;
+  const ratio = Math.abs(itemCost - productCost) / productCost;
+  if (ratio <= 0.05) return 1.0;
+  if (ratio <= 0.10) return 0.7;
+  if (ratio <= 0.15) return 0.5;
+  if (ratio <= 0.25) return 0.3;
+  return 0;
+};
+
+/**
+ * Multi-factor composite score for matching.
+ * Weighs: name similarity (40%), brand (15%), size (15%), cost (20%), department (10%)
+ */
+const compositeScore = (invoiceItem, posProduct) => {
+  const desc = invoiceItem.originalVendorDescription || invoiceItem.description || '';
+  const nameScore  = fuzzyScore(desc, posProduct.name);
+  const brand      = brandMatch(desc, posProduct.name);
+  const size       = sizeMatch(desc, posProduct.name);
+  const cost       = costProximity(
+    invoiceItem.caseCost || invoiceItem.netCost,
+    posProduct.costPrice || posProduct.retailPrice
+  );
+  const dept = (invoiceItem.departmentId && posProduct.departmentId &&
+    String(invoiceItem.departmentId) === String(posProduct.departmentId)) ? 1.0 : 0;
+
+  return (0.40 * nameScore) + (0.15 * brand) + (0.15 * size) + (0.20 * cost) + (0.10 * dept);
+};
+
+/**
+ * Find best composite match from posProducts.
+ * Returns { product, score } or null.
+ */
+const findBestCompositeMatch = (invoiceItem, posProducts) => {
+  let best = null;
+  let bestScore = 0;
+
+  for (const p of posProducts) {
+    const score = compositeScore(invoiceItem, p);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  return best && bestScore > 0.55 ? { product: best, score: bestScore } : null;
+};
+
+// ─── COST-PROXIMITY TIER (2.5) ───────────────────────────────────────────────
+
+/**
+ * Match by cost + weak name similarity.
+ * For items where we know the case cost but UPC/code didn't match.
+ */
+const matchByCostProximity = (invoiceItem, posProducts) => {
+  const itemCost = invoiceItem.caseCost || invoiceItem.netCost;
+  if (!itemCost || itemCost <= 0) return null;
+
+  let best = null;
+  let bestCombined = 0;
+
+  for (const p of posProducts) {
+    const pCost = p.costPrice || (p.retailPrice ? p.retailPrice * 0.65 : 0);
+    if (!pCost) continue;
+
+    const costScore = costProximity(itemCost, pCost);
+    if (costScore < 0.5) continue; // must be within ~15%
+
+    const nameScore = fuzzyScore(
+      invoiceItem.originalVendorDescription || invoiceItem.description || '',
+      p.name
+    );
+    if (nameScore < 0.40) continue; // must have SOME name similarity
+
+    const combined = (0.55 * nameScore) + (0.45 * costScore);
+    if (combined > bestCombined) {
+      bestCombined = combined;
+      best = p;
+    }
+  }
+
+  return best && bestCombined >= 0.60 ? { product: best, score: bestCombined } : null;
 };
 
 // ─── AI BATCH MATCHING (Tier 4) ───────────────────────────────────────────────
@@ -401,14 +527,16 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       }
     }
 
-    // ── Tier 2a: Learned vendor map — by item code ────────────────────────────
+    // ── Tier 2a: Learned vendor map — by item code (confidence-weighted) ─────
     if (item.itemCode) {
       const key = String(item.itemCode).trim().toLowerCase();
       const vm = vendorMapByCode.get(key);
       if (vm) {
         const posProduct = idIndex.get(vm.posProductId);
         if (posProduct) {
-          applyMatch(results, i, posProduct, 'vendorMap', 'high');
+          // Confidence based on how many times this mapping was confirmed
+          const conf = (vm.confirmedCount || 0) >= 2 ? 'high' : 'medium';
+          applyMatch(results, i, posProduct, 'vendorMap', conf);
           continue;
         }
       }
@@ -433,8 +561,42 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       }
     }
 
-    // ── Tier 3: Local fuzzy text (Jaccard ≥ 0.70) ────────────────────────────
+    // ── Tier 2d: Cross-store global matches ──────────────────────────────────
+    if (item.itemCode && vendorName) {
+      try {
+        const globalMatch = await prisma.globalProductMatch.findUnique({
+          where: { vendorName_vendorItemCode: { vendorName: vendorName.toLowerCase().trim(), vendorItemCode: String(item.itemCode).trim() } },
+        });
+        if (globalMatch && globalMatch.matchedUPC) {
+          // Find POS product by the globally-matched UPC
+          const globalPosMatch = matchByUPC(globalMatch.matchedUPC, upcIndex);
+          if (globalPosMatch) {
+            const conf = globalMatch.orgCount >= 3 ? 'high' : 'medium';
+            applyMatch(results, i, globalPosMatch, 'global', conf);
+            continue;
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // ── Tier 2.5: Cost-proximity matching ────────────────────────────────────
+    if (item.caseCost || item.netCost) {
+      const costMatch = matchByCostProximity(item, posProducts);
+      if (costMatch) {
+        applyMatch(results, i, costMatch.product, 'costProx', costMatch.score >= 0.75 ? 'medium' : 'low');
+        continue;
+      }
+    }
+
+    // ── Tier 3: Composite scoring (name + brand + size + cost + dept) ────────
     if (item.description) {
+      const compResult = findBestCompositeMatch(item, posProducts);
+      if (compResult && compResult.score >= 0.55) {
+        const confidence = compResult.score >= 0.80 ? 'medium' : 'low';
+        applyMatch(results, i, compResult.product, 'fuzzy', confidence);
+        continue;
+      }
+      // Fallback to simple Jaccard if composite didn't find anything
       const fuzzyResult = findBestFuzzyMatch(item.description, posProducts);
       if (fuzzyResult && fuzzyResult.score >= 0.70) {
         const confidence = fuzzyResult.score >= 0.85 ? 'medium' : 'low';
@@ -461,14 +623,32 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
     }
   }
 
-  // ── Summary log ──────────────────────────────────────────────────────────
+  // ── Summary + matchStats ─────────────────────────────────────────────────
   const matched = results.filter((r) => r.mappingStatus === 'matched').length;
+  const unmatched = results.length - matched;
   const byTier = results.reduce((acc, r) => {
     const key = r.matchTier || 'unmatched';
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
+
+  // Calculate average confidence
+  const confScores = { high: 3, medium: 2, low: 1 };
+  const confSum = results.reduce((s, r) => s + (confScores[r.confidence] || 0), 0);
+  const avgConfidence = results.length > 0 ? Math.round((confSum / results.length) * 100) / 100 : 0;
+
   console.log(`✅ Match result: ${matched}/${results.length} matched — breakdown:`, byTier);
+
+  // Attach stats to the results array for invoice persistence
+  results._matchStats = {
+    total: results.length,
+    matched,
+    unmatched,
+    matchRate: results.length > 0 ? Math.round((matched / results.length) * 10000) / 100 : 0,
+    byTier,
+    avgConfidence,
+    timestamp: new Date().toISOString(),
+  };
 
   return results;
 };
@@ -570,5 +750,92 @@ export const saveConfirmedMappings = async (lineItems, vendorName, orgId = 'unkn
       }
     }
     console.log(`💾 Saved/updated ${saved} vendor map entries for "${vendorName}"`);
+  }
+
+  // ── Save to global cross-store database ────────────────────────────────────
+  try {
+    const normalizedVendor = vendorName.toLowerCase().trim();
+    let globalSaved = 0;
+
+    for (const item of lineItems) {
+      if (!['matched', 'manual'].includes(item.mappingStatus)) continue;
+      if (!item.linkedProductId || !item.upc || !item.originalItemCode) continue;
+
+      try {
+        const existing = await prisma.globalProductMatch.findUnique({
+          where: { vendorName_vendorItemCode: { vendorName: normalizedVendor, vendorItemCode: String(item.originalItemCode).trim() } },
+        });
+
+        if (existing) {
+          const isNewOrg = !existing.orgs.includes(orgId);
+          await prisma.globalProductMatch.update({
+            where: { id: existing.id },
+            data: {
+              matchedUPC:     item.upc,
+              matchedName:    item.description || existing.matchedName,
+              confirmedCount: { increment: 1 },
+              ...(isNewOrg ? {
+                orgCount: { increment: 1 },
+                orgs: { push: orgId },
+              } : {}),
+              updatedAt: new Date(),
+            },
+          });
+        } else {
+          await prisma.globalProductMatch.create({
+            data: {
+              vendorName:        normalizedVendor,
+              vendorItemCode:    String(item.originalItemCode).trim(),
+              vendorDescription: item.originalVendorDescription || null,
+              matchedUPC:        item.upc,
+              matchedName:       item.description || '',
+              confirmedCount:    1,
+              orgCount:          1,
+              orgs:              [orgId],
+            },
+          });
+        }
+        globalSaved++;
+      } catch { /* non-fatal — unique constraint race is OK */ }
+    }
+
+    if (globalSaved > 0) console.log(`🌐 Saved ${globalSaved} global match entries for "${vendorName}"`);
+  } catch (err) {
+    console.warn('⚠ Failed to save global matches:', err.message);
+  }
+};
+
+// ─── NEGATIVE FEEDBACK ──────────────────────────────────────────────────────
+/**
+ * Decrement confidence on a wrong mapping when user overrides a match.
+ * If confirmedCount drops to 0 or below, remove the mapping entirely.
+ */
+export const decrementMapping = async (orgId, vendorName, vendorItemCode, wrongProductId) => {
+  if (!vendorName || !vendorItemCode) return;
+  try {
+    const existing = await prisma.vendorProductMap.findFirst({
+      where: {
+        orgId,
+        vendorName: { contains: vendorName, mode: 'insensitive' },
+        vendorItemCode: String(vendorItemCode).trim(),
+        posProductId: wrongProductId,
+      },
+    });
+    if (!existing) return;
+
+    if (existing.confirmedCount <= 1) {
+      // Remove the bad mapping entirely
+      await prisma.vendorProductMap.delete({ where: { id: existing.id } });
+      console.log(`🗑 Removed bad vendor map: "${vendorName}" / "${vendorItemCode}" → ${wrongProductId}`);
+    } else {
+      // Decrement confidence
+      await prisma.vendorProductMap.update({
+        where: { id: existing.id },
+        data: { confirmedCount: { decrement: 1 } },
+      });
+      console.log(`📉 Decremented vendor map confidence: "${vendorName}" / "${vendorItemCode}" (now ${existing.confirmedCount - 1})`);
+    }
+  } catch (err) {
+    console.warn('⚠ Failed to decrement mapping:', err.message);
   }
 };
