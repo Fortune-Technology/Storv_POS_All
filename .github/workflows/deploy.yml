@@ -79,46 +79,37 @@ jobs:
           curl -f http://localhost:5003/health || exit 1
           echo "Ecom backend is healthy"
 
-      # ── Frontend (Portal Dashboard) ────────────────────────────────────
-      - name: Deploy frontend
+      # ── Build all static apps before touching dist ─────────────────────
+      - name: Build frontend + cashier + admin
         shell: bash
         run: |
           set -e
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
           cd /var/www/Storv_POS_All/frontend
-          rm -rf dist
-          rm -f package-lock.json
-          npm install
-          npm run build
-          sudo systemctl reload nginx
+          rm -f package-lock.json && npm install
+          npm run build -- --outDir dist_new
 
-      # ── Cashier App (POS Web) ──────────────────────────────────────────
-      - name: Deploy cashier-app (web)
-        shell: bash
-        run: |
-          set -e
-          export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           cd /var/www/Storv_POS_All/cashier-app
-          rm -rf dist
-          rm -f package-lock.json
-          npm install
-          npm run build
-          sudo systemctl reload nginx
+          rm -f package-lock.json && npm install
+          npm run build -- --outDir dist_new
 
-      # ── Admin Panel ────────────────────────────────────────────────────
-      - name: Deploy admin-app
+          cd /var/www/Storv_POS_All/admin-app
+          rm -f package-lock.json && npm install
+          npm run build -- --outDir dist_new
+
+      # ── Swap dist atomically + reload Nginx + cleanup ──────────────────
+      - name: Swap builds and reload Nginx
         shell: bash
         run: |
           set -e
-          export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-          cd /var/www/Storv_POS_All/admin-app
-          rm -rf dist
-          rm -f package-lock.json
-          npm install
-          npm run build
+          for app in frontend cashier-app admin-app; do
+            cd /var/www/Storv_POS_All/$app
+            rm -rf dist
+            mv dist_new dist
+            cd /var/www/Storv_POS_All
+          done
           sudo systemctl reload nginx
 
       # ── Storefront (Next.js) ───────────────────────────────────────────
