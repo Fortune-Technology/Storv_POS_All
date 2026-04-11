@@ -157,6 +157,35 @@ export const addToLabelQueue    = (data)   => api.post('/label-queue/add', data)
 export const printLabelQueue    = (data)   => api.post('/label-queue/print', data).then(r => r.data);
 export const dismissLabelQueue  = (data)   => api.post('/label-queue/dismiss', data).then(r => r.data);
 
+// ── Reports Hub ─────────────────────────────────────────────────────────────
+export const getReportSummary       = (params) => api.get('/reports/hub/summary', { params }).then(r => r.data);
+export const getReportTax           = (params) => api.get('/reports/hub/tax', { params }).then(r => r.data);
+export const getReportInventory     = (params) => api.get('/reports/hub/inventory', { params }).then(r => r.data);
+export const getReportCompare       = (params) => api.get('/reports/hub/compare', { params }).then(r => r.data);
+export const getReportNotes         = (params) => api.get('/reports/hub/notes', { params }).then(r => r.data);
+export const getReportEvents        = (params) => api.get('/reports/hub/events', { params }).then(r => r.data);
+export const getReportReceive       = (params) => api.get('/reports/hub/receive', { params }).then(r => r.data);
+export const getReportHouseAccounts = ()       => api.get('/reports/hub/house-accounts').then(r => r.data);
+
+// ── Chat ────────────────────────────────────────────────────────────────────
+export const getChatChannels  = ()       => api.get('/chat/channels').then(r => r.data);
+export const getChatMessages  = (params) => api.get('/chat/messages', { params }).then(r => r.data);
+export const sendChatMessage  = (data)   => api.post('/chat/messages', data).then(r => r.data);
+export const markChatRead     = (data)   => api.post('/chat/read', data).then(r => r.data);
+export const getChatUnread    = ()       => api.get('/chat/unread').then(r => r.data);
+export const getChatUsers     = ()       => api.get('/chat/users').then(r => r.data);
+
+// ── Tasks ───────────────────────────────────────────────────────────────────
+export const getTasks          = (params) => api.get('/tasks', { params }).then(r => r.data);
+export const createTask        = (data)   => api.post('/tasks', data).then(r => r.data);
+export const updateTask        = (id, d)  => api.put(`/tasks/${id}`, d).then(r => r.data);
+export const deleteTask        = (id)     => api.delete(`/tasks/${id}`).then(r => r.data);
+export const getMyTasks        = ()       => api.get('/tasks/my').then(r => r.data);
+export const getTaskCounts     = ()       => api.get('/tasks/counts').then(r => r.data);
+
+// ── Audit Logs ──────────────────────────────────────────────────────────────
+export const getAuditLogs      = (params) => api.get('/audit', { params }).then(r => r.data);
+
 // Weather
 export const getWeatherRange = (params) => api.get('/weather/range', { params }).then(r => r.data);
 export const getCurrentWeather = () => api.get('/weather/current').then(r => r.data);

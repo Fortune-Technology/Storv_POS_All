@@ -1,0 +1,138 @@
+/* ══════════════════════════════════════════════════════════════
+   AuditLogPage.css  —  Read-only audit log viewer
+   Prefix: al-
+══════════════════════════════════════════════════════════════ */
+
+/* ── Filter Bar ─────────────────────────────────────────────── */
+.al-filter-bar {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.al-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 130px;
+}
+
+.al-filter-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.al-filter-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.al-filter-search {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* ── Search ─────────────────────────────────────────────────── */
+.al-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.al-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.al-search-input {
+  padding-left: 30px !important;
+}
+
+/* ── Table tweaks ───────────────────────────────────────────── */
+.al-mono {
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  font-size: 0.76rem;
+}
+
+.al-muted {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* ── Details Cell ───────────────────────────────────────────── */
+.al-details-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.al-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--accent-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  transition: background 0.1s;
+}
+.al-details-toggle:hover {
+  background: var(--brand-05);
+}
+
+.al-details-json {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.625rem;
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-width: 350px;
+}
+
+/* ── Pagination ─────────────────────────────────────────────── */
+.al-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.al-page-info {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.al-page-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .al-filter-bar {
+    flex-direction: column;
+  }
+  .al-filter-group {
+    width: 100%;
+  }
+}

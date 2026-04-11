@@ -1,0 +1,312 @@
+/* ══════════════════════════════════════════════════════════════
+   ChatPage.css  —  Internal messaging page
+   Prefix: ch-
+══════════════════════════════════════════════════════════════ */
+
+/* ── Container: sidebar + messages ──────────────────────────── */
+.ch-container {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  height: calc(100vh - 200px);
+  min-height: 480px;
+  overflow: hidden;
+}
+
+/* ── Left Sidebar ───────────────────────────────────────────── */
+.ch-sidebar {
+  width: 250px;
+  min-width: 250px;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.ch-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.875rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ch-sidebar-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.ch-channel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.35rem 0;
+}
+
+.ch-empty-channels {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+/* ── Channel Item ───────────────────────────────────────────── */
+.ch-channel-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+  color: var(--text-secondary);
+}
+.ch-channel-item:hover {
+  background: var(--brand-05);
+}
+.ch-channel-active {
+  background: var(--brand-08);
+  color: var(--accent-primary);
+}
+.ch-channel-active .ch-channel-name {
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.ch-channel-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.ch-channel-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ch-channel-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ch-channel-preview {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.ch-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--error);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+/* ── Right: Messages Panel ──────────────────────────────────── */
+.ch-messages-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ch-no-channel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+.ch-no-channel svg { opacity: 0.2; }
+
+.ch-messages-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.ch-messages-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ── Message List ───────────────────────────────────────────── */
+.ch-messages-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ch-no-messages {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  padding: 3rem 1rem;
+}
+
+/* ── Message Bubble ─────────────────────────────────────────── */
+.ch-msg {
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ch-msg-mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.ch-msg-other {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.ch-msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.ch-msg-sender {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ch-msg-time {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.ch-msg-bubble {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ch-msg-mine .ch-msg-bubble {
+  background: var(--accent-primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.ch-msg-other .ch-msg-bubble {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-bottom-left-radius: 4px;
+}
+
+/* ── System Message ─────────────────────────────────────────── */
+.ch-msg-system {
+  align-self: center;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0.3rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+}
+
+/* ── Input Bar ──────────────────────────────────────────────── */
+.ch-input-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.ch-text-input {
+  flex: 1;
+}
+
+.ch-send-btn {
+  flex-shrink: 0;
+}
+
+/* ── New DM Modal: User List ────────────────────────────────── */
+.ch-user-list {
+  margin-top: 0.75rem;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ch-user-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  transition: background 0.12s;
+}
+.ch-user-item:hover {
+  background: var(--brand-05);
+  color: var(--accent-primary);
+}
+
+.ch-user-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ch-container {
+    flex-direction: column;
+    height: calc(100vh - 160px);
+  }
+  .ch-sidebar {
+    width: 100%;
+    min-width: unset;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+}

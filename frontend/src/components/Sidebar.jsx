@@ -36,6 +36,8 @@ import {
   Settings2,
   MessageSquare,
   CreditCard,
+  CheckSquare,
+  Shield,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 
@@ -44,6 +46,8 @@ const menuGroups = [
     label: 'Operations',
     items: [
       { name: 'Live Dashboard', icon: <Radio size={13} />, path: '/portal/realtime' },
+      { name: 'Chat', icon: <MessageSquare size={13} />, path: '/portal/chat' },
+      { name: 'Tasks', icon: <CheckSquare size={13} />, path: '/portal/tasks' },
     ],
   },
   {
@@ -85,6 +89,8 @@ const menuGroups = [
       { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/pos-reports' },
       { name: 'Analytics', icon: <BarChart2 size={13} />, path: '/portal/analytics' },
       { name: 'Employees', icon: <Users size={13} />, path: '/portal/employees' },
+      { name: 'Reports', icon: <FileText size={13} />, path: '/portal/reports' },
+      { name: 'Audit Log', icon: <Shield size={13} />, path: '/portal/audit' },
     ],
   },
   {

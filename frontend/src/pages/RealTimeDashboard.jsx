@@ -199,11 +199,16 @@ export default function RealTimeDashboard({ embedded = false }) {
   const ebtT     = ts?.ebtTender   ?? 0;
   const tenderSum = cashT + cardT + ebtT || 1;
 
+  const avgMargin = ts?.avgMargin ?? null;
+  const invGrade  = data?.inventoryGrade;
+
   const kpis = [
     { label: 'Net Sales',        value: fmt(netSales),  icon: <DollarSign size={20} />, color: 'var(--accent-primary)', bg: 'var(--brand-12)' },
     { label: 'Transactions',     value: fmtN(txCount),  icon: <ShoppingCart size={20} />, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     { label: 'Avg Transaction',  value: fmt(avgTx),     icon: <TrendingUp size={20} />, color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    { label: 'Avg Margin',       value: avgMargin != null ? `${avgMargin}%` : '—', icon: <Activity size={20} />, color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
     { label: 'Tax Collected',    value: fmt(taxTotal),  icon: <Activity size={20} />,   color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    { label: 'Inventory Grade',  value: invGrade ? `${invGrade.grade} (${invGrade.fillRate}%)` : '—', icon: <Package size={20} />, color: invGrade?.grade === 'A' ? '#10b981' : invGrade?.grade === 'B' ? '#3b82f6' : invGrade?.grade === 'C' ? '#f59e0b' : '#ef4444', bg: invGrade?.grade === 'A' ? 'rgba(16,185,129,0.12)' : invGrade?.grade === 'B' ? 'rgba(59,130,246,0.12)' : 'rgba(245,158,11,0.12)' },
   ];
 
   /* Weather data */

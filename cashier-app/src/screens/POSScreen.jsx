@@ -44,6 +44,9 @@ import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 import AddProductModal from '../components/modals/AddProductModal.jsx';
+import ProductEditModal from '../components/modals/ProductEditModal.jsx';
+import TasksPanel      from '../components/modals/TasksPanel.jsx';
+import ChatPanel       from '../components/modals/ChatPanel.jsx';
 import HardwareSettingsModal from '../components/modals/HardwareSettingsModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
@@ -281,6 +284,9 @@ export default function POSScreen() {
   const [showBottleReturn,   setShowBottleReturn]   = useState(false);
   const [showVendorPayout,   setShowVendorPayout]   = useState(false);
   const [showHardwareSettings, setShowHardwareSettings] = useState(false);
+  const [editProduct,        setEditProduct]        = useState(null);  // cart item being quick-edited
+  const [showTasks,          setShowTasks]          = useState(false);
+  const [showChat,           setShowChat]           = useState(false);
   const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick'
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Lottery shift reconciliation state
@@ -1087,6 +1093,7 @@ export default function POSScreen() {
                   item={item}
                   selected={item.lineId === selectedLineId}
                   onSelect={selectItem}
+                  onEdit={(itm) => setEditProduct(itm)}
                 />
               ))
             )}
@@ -1444,6 +1451,8 @@ export default function POSScreen() {
             window.open(`${window.location.origin}/#/customer-display`, 'customer-display', 'width=1024,height=768');
           }
         }}
+        onTasks={() => setShowTasks(true)}
+        onChat={() => setShowChat(true)}
         shiftOpen={!!shift}
         heldCount={heldCount}
         actionBarHeight={({'compact':48,'normal':58,'large':72}[posConfig.actionBarHeight] || 58)}
@@ -1457,6 +1466,13 @@ export default function POSScreen() {
       {showHardwareSettings && (
         <HardwareSettingsModal onClose={() => setShowHardwareSettings(false)} />
       )}
+
+      {editProduct && (
+        <ProductEditModal item={editProduct} onClose={() => setEditProduct(null)} />
+      )}
+
+      {showTasks && <TasksPanel onClose={() => setShowTasks(false)} />}
+      {showChat && <ChatPanel onClose={() => setShowChat(false)} />}
 
       {showTender && (
         <TenderModal

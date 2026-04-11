@@ -43,6 +43,7 @@ import {
   listShifts,
   listPayouts,
   listCashDrops,
+  updateShiftBalance,
 } from '../controllers/shiftController.js';
 import { getVendors } from '../controllers/catalogController.js';
 
@@ -100,6 +101,7 @@ router.post('/shift/:id/close',  ...guard, closeShift);
 router.post('/shift/:id/drop',   ...guard, addCashDrop);
 router.post('/shift/:id/payout', ...guard, addPayout);
 router.get('/shift/:id/report',  ...guard, getShiftReport);
+router.put('/shift/:id/balance', ...guard, updateShiftBalance);
 
 // Payout & Cash Drop reporting (back-office)
 router.get('/payouts',           ...guard, listPayouts);

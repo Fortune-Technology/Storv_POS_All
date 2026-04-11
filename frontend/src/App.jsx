@@ -69,8 +69,12 @@ import EcomDomain        from './pages/EcomDomain';
 import EcomAnalytics     from './pages/EcomAnalytics';
 import EcomCustomers     from './pages/EcomCustomers';
 import Lottery from './pages/Lottery';
+import ReportsHub from './pages/ReportsHub';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
+import ChatPage from './pages/ChatPage';
+import TasksPage from './pages/TasksPage';
+import AuditLogPage from './pages/AuditLogPage';
 
 
 // Billing Portal
@@ -202,6 +206,9 @@ function App() {
           <Route path="/portal/fees-mappings"   element={<FeesMappings />} />
           <Route path="/portal/pos-api"         element={<POSAPI />} />
           <Route path="/portal/realtime"        element={<RealTimeDashboard />} />
+          <Route path="/portal/chat"            element={<ChatPage />} />
+          <Route path="/portal/tasks"           element={<TasksPage />} />
+          <Route path="/portal/audit"           element={<AuditLogPage />} />
 
           {/* ── Analytics Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/analytics"       element={<AnalyticsHub />} />
@@ -242,6 +249,7 @@ function App() {
 
           {/* ── Lottery ───────────────────────────────────────────────── */}
           <Route path="/portal/lottery"          element={<Lottery />} />
+          <Route path="/portal/reports"          element={<ReportsHub />} />
           <Route path="/portal/support-tickets"  element={<SupportTickets />} />
 
           {/* ── Online Store (E-commerce) ──────────────────────────── */}

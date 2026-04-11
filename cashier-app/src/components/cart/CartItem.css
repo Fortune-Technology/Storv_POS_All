@@ -277,6 +277,44 @@
   font-weight: 600;
 }
 
+/* ── UPC code display ── */
+.ci-upc {
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+.ci-upc-sep {
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin: 0 2px;
+}
+
+/* ── Action buttons (edit + remove) ── */
+.ci-action-btns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ci-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ci-edit-btn:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .ci-name {

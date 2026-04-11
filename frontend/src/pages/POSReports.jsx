@@ -4,10 +4,11 @@
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Receipt, ClipboardList, ArrowUpCircle } from 'lucide-react';
+import { Receipt, ClipboardList, ArrowUpCircle, Scale } from 'lucide-react';
 import Transactions from './Transactions';
 import PosEventLog from './PosEventLog';
 import PayoutsReport from './PayoutsReport';
+import ShiftBalancing from './ShiftBalancing';
 import '../styles/portal.css';
 import './POSReports.css';
 
@@ -15,6 +16,7 @@ const TABS = [
   { key: 'transactions', label: 'Transactions', icon: <Receipt size={14} /> },
   { key: 'events',       label: 'Event Log',    icon: <ClipboardList size={14} /> },
   { key: 'payouts',      label: 'Payouts',      icon: <ArrowUpCircle size={14} /> },
+  { key: 'balancing',    label: 'Balancing',     icon: <Scale size={14} /> },
 ];
 
 export default function POSReports() {
@@ -45,6 +47,7 @@ export default function POSReports() {
       {tab === 'transactions' && <Transactions embedded />}
       {tab === 'events'       && <PosEventLog embedded />}
       {tab === 'payouts'      && <PayoutsReport embedded />}
+      {tab === 'balancing'    && <ShiftBalancing embedded />}
     </div>
   );
 }

@@ -299,6 +299,26 @@
 .osm-open-btn--active { background: var(--green); color: #fff; cursor: pointer; }
 .osm-open-btn--loading { background: var(--bg-input); color: var(--text-muted); cursor: not-allowed; }
 
+.osm-signout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 1rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.osm-signout-btn:hover {
+  background: rgba(224, 63, 63, 0.1);
+  color: var(--red);
+  border-color: rgba(224, 63, 63, 0.3);
+}
+
 @media (max-width: 768px) {
   .osm-modal { max-width: 100%; border-radius: 16px; }
   .osm-body { flex-direction: column; }

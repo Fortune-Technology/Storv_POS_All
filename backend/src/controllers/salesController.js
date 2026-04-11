@@ -793,6 +793,7 @@ export const realtimeSales = async (req, res) => {
     // ── Aggregate totals ──────────────────────────────────────────────────────
     let netSales = 0, taxTotal = 0, depositTotal = 0, ebtTotal = 0;
     let cashTotal = 0, cardTotal = 0, ebtTender = 0;
+    let totalCost = 0, totalRevenue = 0;
     const productMap = {};
     const hourlyMap  = {};
 
@@ -817,14 +818,19 @@ export const realtimeSales = async (req, res) => {
         else if (m === 'ebt')                      ebtTender  += amt;
       }
 
-      // Top products from lineItems
+      // Top products from lineItems + cost tracking for margin
       const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
       for (const li of items) {
-        if (!li.name || li.isLottery || li.isBottleReturn) continue;
+        if (!li.name || li.isLottery || li.isBottleReturn || li.isBagFee) continue;
         const key = li.name;
-        if (!productMap[key]) productMap[key] = { name: key, qty: 0, revenue: 0 };
+        const rev = Number(li.totalPrice ?? li.lineTotal ?? 0);
+        const cost = (Number(li.costPrice) || Number(li.unitPrice) * 0.65) * (Number(li.qty) || 1);
+        if (!productMap[key]) productMap[key] = { name: key, qty: 0, revenue: 0, cost: 0 };
         productMap[key].qty     += Number(li.qty || 1);
-        productMap[key].revenue += Number(li.totalPrice ?? li.lineTotal ?? 0);
+        productMap[key].revenue += rev;
+        productMap[key].cost    += cost;
+        totalRevenue += rev;
+        totalCost    += cost;
       }
 
       // Hourly buckets
@@ -948,6 +954,29 @@ export const realtimeSales = async (req, res) => {
       trend.push(dateMap[ds] || { date: ds, netSales: 0, txCount: 0 });
     }
 
+    // ── Margin calculation ──────────────────────────────────────────────────────
+    const grossProfit  = totalRevenue - totalCost;
+    const avgMargin    = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 10000) / 100 : 0;
+
+    // ── Inventory grade (non-blocking) ───────────────────────────────────────
+    let inventoryGrade = null;
+    try {
+      const invWhere = { orgId, active: true, deleted: false, trackInventory: true };
+      const [totalProducts, storeProducts] = await Promise.all([
+        prisma.masterProduct.count({ where: invWhere }),
+        prisma.storeProduct.findMany({
+          where: { orgId, ...(storeId ? { storeId } : {}) },
+          select: { quantityOnHand: true },
+        }),
+      ]);
+      const inStock = storeProducts.filter(sp => Number(sp.quantityOnHand) > 0).length;
+      const outOfStock = storeProducts.filter(sp => Number(sp.quantityOnHand) <= 0).length;
+      const fillRate = storeProducts.length > 0 ? Math.round((inStock / storeProducts.length) * 100) : 0;
+      // Grade: A (95%+), B (85-94%), C (70-84%), D (50-69%), F (<50%)
+      const grade = fillRate >= 95 ? 'A' : fillRate >= 85 ? 'B' : fillRate >= 70 ? 'C' : fillRate >= 50 ? 'D' : 'F';
+      inventoryGrade = { grade, fillRate, inStock, outOfStock, totalTracked: storeProducts.length };
+    } catch { /* non-fatal */ }
+
     // ── Weather data (non-blocking — don't fail if weather is unavailable) ────
     let weather = null;
     try {
@@ -975,7 +1004,8 @@ export const realtimeSales = async (req, res) => {
     }
 
     res.json({
-      todaySales: { netSales, grossSales: netSales, txCount, avgTx, taxTotal, depositTotal, ebtTotal, cashTotal, cardTotal, ebtTender },
+      todaySales: { netSales, grossSales: netSales, txCount, avgTx, taxTotal, depositTotal, ebtTotal, cashTotal, cardTotal, ebtTender, avgMargin, grossProfit: Math.round(grossProfit * 100) / 100 },
+      inventoryGrade,
       lottery,
       hourly,
       topProducts,

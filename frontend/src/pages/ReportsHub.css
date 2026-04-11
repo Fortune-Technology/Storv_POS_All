@@ -1,0 +1,216 @@
+/* ==============================================================
+   ReportsHub.css  —  rh- prefix
+   Colors use design-system variables from index.css
+============================================================== */
+
+/* -- Date Controls Bar ------------------------------------ */
+.rh-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.rh-controls .p-field {
+  margin-bottom: 0;
+  min-width: 140px;
+  flex: 0 0 auto;
+}
+
+.rh-controls .p-btn {
+  align-self: flex-end;
+}
+
+/* -- Section headers ------------------------------------- */
+.rh-section {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.rh-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+/* -- Export row ------------------------------------------- */
+.rh-export-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  justify-content: flex-end;
+}
+
+/* -- Tender cards row ------------------------------------ */
+.rh-tender-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.rh-tender-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.875rem 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.rh-tender-card-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.3rem;
+}
+
+.rh-tender-card-value {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+}
+
+.rh-tender-card-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* -- Chart wrapper --------------------------------------- */
+.rh-chart-wrap {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.rh-chart-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+/* -- Compare period inputs ------------------------------- */
+.rh-compare-periods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.rh-period-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.rh-period-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.625rem;
+}
+
+.rh-period-dates {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.rh-period-dates .p-input {
+  width: auto;
+  flex: 1;
+}
+
+/* -- Change arrows --------------------------------------- */
+.rh-change-up {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.rh-change-down {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.rh-change-flat {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* -- Inventory sub-filter buttons ------------------------ */
+.rh-inv-filters {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.rh-inv-filters .p-btn {
+  font-size: 0.76rem;
+}
+
+.rh-inv-filters .p-btn.rh-filter-active {
+  background: var(--accent-gradient);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+/* -- Totals row ------------------------------------------ */
+.rh-totals-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.rh-total-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.rh-total-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.rh-total-value {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+}
+
+/* -- Responsive ------------------------------------------ */
+@media (max-width: 768px) {
+  .rh-controls { flex-direction: column; align-items: stretch; }
+  .rh-compare-periods { grid-template-columns: 1fr; }
+  .rh-tender-cards { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 480px) {
+  .rh-tender-cards { grid-template-columns: 1fr; }
+}

@@ -50,9 +50,10 @@ export const useAuthStore = create((set) => ({
         await cacheCashierLocally({ ...cashier, pinHash });
       } catch { /* non-critical — cache failure shouldn't block login */ }
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cashier));
-      set({ cashier, loading: false });
-      return cashier;
+      const sessionData = { ...cashier, loginAt: new Date().toISOString() };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
+      set({ cashier: sessionData, loading: false });
+      return sessionData;
 
     } catch (err) {
       // ── Offline / network-error path ───────────────────────────────────────
@@ -66,7 +67,7 @@ export const useAuthStore = create((set) => ({
           if (cached) {
             // Strip the internal pinHash before exposing to the app
             const { pinHash: _ph, cachedAt: _ca, ...cashierData } = cached;
-            const offlineCashier = { ...cashierData, offlineMode: true };
+            const offlineCashier = { ...cashierData, offlineMode: true, loginAt: new Date().toISOString() };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(offlineCashier));
             set({ cashier: offlineCashier, loading: false });
             return offlineCashier;

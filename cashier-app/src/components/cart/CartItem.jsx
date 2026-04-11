@@ -1,10 +1,10 @@
 import React from 'react';
-import { Minus, Plus, Trash2, Tag, Zap } from 'lucide-react';
+import { Minus, Plus, Trash2, Tag, Zap, Edit3 } from 'lucide-react';
 import { fmt$ } from '../../utils/formatters.js';
 import { useCartStore } from '../../stores/useCartStore.js';
 import './CartItem.css';
 
-export default function CartItem({ item, selected, onSelect }) {
+export default function CartItem({ item, selected, onSelect, onEdit }) {
   const updateQty  = useCartStore(s => s.updateQty);
   const removeItem = useCartStore(s => s.removeItem);
 
@@ -120,6 +120,8 @@ export default function CartItem({ item, selected, onSelect }) {
           </div>
 
           <div className="ci-price-line">
+            {item.upc && <span className="ci-upc">{item.upc}</span>}
+            {item.upc && <span className="ci-upc-sep">&middot;</span>}
             {hasDiscount ? (
               <>
                 <span className="ci-price-struck">{fmt$(item.unitPrice)}</span>
@@ -145,13 +147,24 @@ export default function CartItem({ item, selected, onSelect }) {
           </div>
 
           {selected && (
-            <button
-              onClick={e => { e.stopPropagation(); removeItem(item.lineId); }}
-              title="Remove item"
-              className="ci-remove-btn"
-            >
-              <Trash2 size={12} />
-            </button>
+            <div className="ci-action-btns">
+              {onEdit && (
+                <button
+                  onClick={e => { e.stopPropagation(); onEdit(item); }}
+                  title="Edit product"
+                  className="ci-edit-btn"
+                >
+                  <Edit3 size={11} />
+                </button>
+              )}
+              <button
+                onClick={e => { e.stopPropagation(); removeItem(item.lineId); }}
+                title="Remove item"
+                className="ci-remove-btn"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           )}
         </div>
       </div>
