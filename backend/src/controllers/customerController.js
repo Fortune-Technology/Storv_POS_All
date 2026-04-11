@@ -13,6 +13,7 @@
  *   POST   /api/customers/check-points — phone-based loyalty lookup
  */
 
+import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,12 +96,18 @@ export const createCustomer = async (req, res, next) => {
   try {
     const {
       firstName, lastName, name,
-      email, phone, cardNo,
+      email, phone, cardNo, password,
       loyaltyPoints, discount, balance, balanceLimit,
       instoreChargeEnabled, birthDate, expirationDate,
     } = req.body;
 
     const displayName = buildName({ name, firstName, lastName });
+
+    // Hash password if provided (enables storefront login)
+    let passwordHash = null;
+    if (password && password.length >= 6) {
+      passwordHash = await bcrypt.hash(password, 10);
+    }
 
     const customer = await prisma.customer.create({
       data: {
@@ -112,6 +119,7 @@ export const createCustomer = async (req, res, next) => {
         email:               email            || null,
         phone:               phone            || null,
         cardNo:              cardNo           || null,
+        passwordHash,
         loyaltyPoints:       int(loyaltyPoints, 0),
         discount:            dec(discount),
         balance:             dec(balance),
@@ -140,7 +148,7 @@ export const updateCustomer = async (req, res, next) => {
 
     const {
       firstName, lastName, name,
-      email, phone, cardNo,
+      email, phone, cardNo, password,
       loyaltyPoints, discount, balance, balanceLimit,
       instoreChargeEnabled, birthDate, expirationDate,
     } = req.body;
@@ -174,6 +182,11 @@ export const updateCustomer = async (req, res, next) => {
       data.birthDate = birthDate ? new Date(birthDate) : null;
     if (expirationDate      !== undefined)
       data.expirationDate = expirationDate ? new Date(expirationDate) : null;
+
+    // Hash new password if provided (enables/updates storefront login)
+    if (password && password.length >= 6) {
+      data.passwordHash = await bcrypt.hash(password, 10);
+    }
 
     const customer = await prisma.customer.update({
       where: { id: req.params.id },

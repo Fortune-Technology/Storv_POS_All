@@ -687,6 +687,10 @@ model Customer {
   email                String?
   phone                String?
 
+  // Storefront auth (nullable — POS-only customers have no password)
+  passwordHash         String?
+  addresses            Json     @default("[]")
+
   // Loyalty
   loyaltyPoints        Int      @default(0)
   // Array of { date, points, reason, balance } — JSONB for flexibility

@@ -38,6 +38,7 @@ import taskRoutes        from './routes/taskRoutes.js';
 import auditRoutes       from './routes/auditRoutes.js';
 import { spawnRecurringTasks } from './controllers/taskController.js';
 import labelQueueRoutes  from './routes/labelQueueRoutes.js';
+import storefrontAuthRoutes from './routes/storefrontAuthRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
 import { startBillingScheduler } from './services/billingScheduler.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
@@ -102,6 +103,7 @@ app.use('/api/audit',          auditRoutes);
 app.use('/api/label-queue',    labelQueueRoutes);
 app.use('/api/public',         publicRoutes);
 app.use('/api/tickets',      ticketRoutes);
+app.use('/api/storefront',   storefrontAuthRoutes);
 app.use('/api',              apiRoutes);
 
 // Health check

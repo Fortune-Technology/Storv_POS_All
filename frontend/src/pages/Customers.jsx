@@ -41,6 +41,7 @@ const initial = (c) => displayName(c).charAt(0).toUpperCase() || '?';
 /* ── Empty form state ─────────────────────────────────────────────────────── */
 const EMPTY_FORM = {
   firstName: '', lastName: '', email: '', phone: '',
+  password: '',
   cardNo: '', loyaltyPoints: '', discount: '', balance: '',
   balanceLimit: '', instoreChargeEnabled: false,
   birthDate: '', expirationDate: '',
@@ -53,6 +54,7 @@ function CustomerForm({ initial: init, onSave, onClose, saving }) {
     lastName:             init.lastName         ?? '',
     email:                init.email            ?? '',
     phone:                init.phone            ?? '',
+    password:             '',
     cardNo:               init.cardNo           ?? '',
     loyaltyPoints:        String(init.loyaltyPoints ?? 0),
     discount:             init.discount != null ? String(parseFloat(init.discount) * 100) : '',
@@ -76,6 +78,7 @@ function CustomerForm({ initial: init, onSave, onClose, saving }) {
       lastName:             form.lastName.trim()  || undefined,
       email:                form.email.trim()     || undefined,
       phone:                form.phone.trim()     || undefined,
+      password:             form.password.trim()  || undefined,
       cardNo:               form.cardNo.trim()    || undefined,
       loyaltyPoints:        form.loyaltyPoints !== '' ? parseInt(form.loyaltyPoints) : 0,
       // discount stored as decimal (e.g. 0.05 = 5%)
@@ -115,6 +118,13 @@ function CustomerForm({ initial: init, onSave, onClose, saving }) {
             </label>
             <label className="cust-label">Email
               <input className="cust-input" value={form.email} onChange={e => set('email', e.target.value)} placeholder="john@example.com" type="email" />
+            </label>
+          </div>
+
+          {/* E-Commerce Password */}
+          <div className="cust-form-row">
+            <label className="cust-label">{init ? 'New Password (leave blank to keep)' : 'E-Commerce Password'}
+              <input className="cust-input" value={form.password} onChange={e => set('password', e.target.value)} type="password" placeholder={init ? '••••••••' : 'Min 6 characters'} autoComplete="new-password" minLength={6} />
             </label>
           </div>
 

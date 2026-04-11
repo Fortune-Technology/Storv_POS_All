@@ -3,16 +3,22 @@
  */
 
 import prisma from '../config/postgres.js';
+import { posCountCustomers } from '../services/posCustomerAuthService.js';
 
 export const getAnalytics = async (req, res) => {
   try {
     const storeId = req.storeId;
     if (!storeId) return res.status(400).json({ error: 'X-Store-Id required' });
 
-    // KPIs
-    const [orderCount, customerCount, orders] = await Promise.all([
+    // KPIs — customer count from POS backend, orders from ecom DB
+    let customerCount = 0;
+    try {
+      const countResult = await posCountCustomers(req.orgId, storeId);
+      customerCount = countResult.count || 0;
+    } catch { /* POS backend unreachable — use 0 */ }
+
+    const [orderCount, orders] = await Promise.all([
       prisma.ecomOrder.count({ where: { storeId } }),
-      prisma.ecomCustomer.count({ where: { storeId } }),
       prisma.ecomOrder.findMany({ where: { storeId }, select: { grandTotal: true, status: true, createdAt: true, lineItems: true } }),
     ]);
 

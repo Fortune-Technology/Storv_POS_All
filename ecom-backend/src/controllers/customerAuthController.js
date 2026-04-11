@@ -1,10 +1,12 @@
 /**
- * Customer auth controller — signup, login, profile, addresses, order history.
+ * Customer auth controller — proxies to POS backend for signup/login/profile.
+ * Uses POS Customer table as single source of truth.
+ * JWT signing stays here in ecom-backend.
  */
 
-import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
 import { signCustomerToken } from '../middleware/customerAuth.js';
+import { posSignup, posLogin, posGetProfile, posUpdateProfile } from '../services/posCustomerAuthService.js';
 
 export const signup = async (req, res) => {
   try {
@@ -16,38 +18,33 @@ export const signup = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const existing = await prisma.ecomCustomer.findUnique({
-      where: { storeId_email: { storeId: req.storeId, email: email.toLowerCase() } },
-    });
-    if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
-    }
-
-    const fName = firstName || (name ? name.split(' ')[0] : '');
-    const lName = lastName || (name ? name.split(' ').slice(1).join(' ') : '');
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const customer = await prisma.ecomCustomer.create({
-      data: {
-        orgId: req.orgId,
-        storeId: req.storeId,
-        name: name || `${fName} ${lName}`.trim(),
-        firstName: fName,
-        lastName: lName,
-        email: email.toLowerCase(),
-        phone: phone || null,
-        passwordHash,
-      },
+    const result = await posSignup(req.orgId, req.storeId, {
+      email, password, firstName, lastName, name, phone,
     });
 
-    const token = signCustomerToken(customer);
-    res.status(201).json({
+    const customer = result.customer;
+    const token = signCustomerToken({
+      id: customer.id,
+      storeId: customer.storeId,
+      email: customer.email,
+    });
+
+    res.status(result.claimed ? 200 : 201).json({
       success: true,
       token,
-      customer: { id: customer.id, name: customer.name, firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Signup failed';
+    res.status(status).json({ error: message });
   }
 };
 
@@ -58,63 +55,85 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const customer = await prisma.ecomCustomer.findUnique({
-      where: { storeId_email: { storeId: req.storeId, email: email.toLowerCase() } },
+    const result = await posLogin(req.orgId, req.storeId, email, password);
+    const customer = result.customer;
+
+    const token = signCustomerToken({
+      id: customer.id,
+      storeId: customer.storeId,
+      email: customer.email,
     });
-    if (!customer || !customer.passwordHash) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
 
-    const valid = await bcrypt.compare(password, customer.passwordHash);
-    if (!valid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    const token = signCustomerToken(customer);
     res.json({
       success: true,
       token,
-      customer: { id: customer.id, name: customer.name, firstName: customer.firstName, lastName: customer.lastName, email: customer.email, phone: customer.phone },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Login failed';
+    res.status(status).json({ error: message });
   }
 };
 
 export const getProfile = async (req, res) => {
   try {
-    const customer = await prisma.ecomCustomer.findUnique({
-      where: { id: req.customer.customerId },
-      select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, addresses: true, orderCount: true, totalSpent: true, createdAt: true },
+    const result = await posGetProfile(req.customer.customerId);
+    if (!result?.data) return res.status(404).json({ error: 'Account not found' });
+
+    const c = result.data;
+
+    // Enrich with order stats from ecom database
+    const orderStats = await prisma.ecomOrder.aggregate({
+      where: { storeId: req.customer.storeId, customerEmail: req.customer.email },
+      _count: true,
+      _sum: { grandTotal: true },
     });
-    if (!customer) return res.status(404).json({ error: 'Account not found' });
-    res.json({ success: true, data: customer });
+
+    res.json({
+      success: true,
+      data: {
+        id: c.id,
+        name: c.name,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: c.email,
+        phone: c.phone,
+        addresses: c.addresses,
+        loyaltyPoints: c.loyaltyPoints,
+        discount: c.discount,
+        balance: c.balance,
+        orderCount: orderStats._count || 0,
+        totalSpent: orderStats._sum?.grandTotal || 0,
+        createdAt: c.createdAt,
+      },
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Failed to load profile';
+    res.status(status).json({ error: message });
   }
 };
 
 export const updateProfile = async (req, res) => {
   try {
     const { firstName, lastName, name, phone, addresses } = req.body;
-    const data = {};
-    if (firstName !== undefined) data.firstName = firstName;
-    if (lastName !== undefined) data.lastName = lastName;
-    if (firstName !== undefined || lastName !== undefined) {
-      data.name = `${firstName || ''} ${lastName || ''}`.trim();
-    }
-    if (name !== undefined && !firstName && !lastName) data.name = name;
-    if (phone !== undefined) data.phone = phone;
-    if (addresses !== undefined) data.addresses = addresses;
-
-    const customer = await prisma.ecomCustomer.update({
-      where: { id: req.customer.customerId },
-      data,
-      select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, addresses: true },
+    const result = await posUpdateProfile(req.customer.customerId, {
+      firstName, lastName, name, phone, addresses,
     });
-    res.json({ success: true, data: customer });
+
+    res.json({ success: true, data: result.data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Update failed';
+    res.status(status).json({ error: message });
   }
 };
 

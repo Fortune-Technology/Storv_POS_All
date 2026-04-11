@@ -1,59 +1,49 @@
 /**
  * Customer management controller — portal-side customer list + detail.
+ * Proxies to POS backend for customer data, enriches with ecom order history.
  */
 
 import prisma from '../config/postgres.js';
+import { posListCustomers, posGetProfile } from '../services/posCustomerAuthService.js';
 
 export const listCustomers = async (req, res) => {
   try {
-    const storeId = req.storeId;
-    const { search, page: p, limit: l } = req.query;
-    const page = Math.max(1, parseInt(p) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(l) || 20));
-    const skip = (page - 1) * limit;
+    const { search, page, limit } = req.query;
 
-    const where = { storeId };
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search } },
-      ];
-    }
-
-    const [customers, total] = await Promise.all([
-      prisma.ecomCustomer.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-        select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, orderCount: true, totalSpent: true, createdAt: true },
-      }),
-      prisma.ecomCustomer.count({ where }),
-    ]);
-
-    res.json({ success: true, data: customers, total, page, pages: Math.ceil(total / limit) });
+    const result = await posListCustomers(req.orgId, req.storeId, { search, page, limit });
+    res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Failed to load customers';
+    res.status(status).json({ error: message });
   }
 };
 
 export const getCustomerDetail = async (req, res) => {
   try {
-    const customer = await prisma.ecomCustomer.findUnique({
-      where: { id: req.params.id },
-      select: { id: true, name: true, firstName: true, lastName: true, email: true, phone: true, addresses: true, orderCount: true, totalSpent: true, createdAt: true },
-    });
-    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const result = await posGetProfile(req.params.id);
+    if (!result?.data) return res.status(404).json({ error: 'Customer not found' });
 
+    const customer = result.data;
+
+    // Enrich with order history from ecom database
     const orders = await prisma.ecomOrder.findMany({
       where: { customerEmail: customer.email, storeId: req.storeId },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
-    res.json({ success: true, data: { ...customer, orders } });
+    // Compute order stats
+    const orderCount = orders.length;
+    const totalSpent = orders.reduce((s, o) => s + Number(o.grandTotal || 0), 0);
+
+    res.json({
+      success: true,
+      data: { ...customer, orderCount, totalSpent, orders },
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Failed to load customer';
+    res.status(status).json({ error: message });
   }
 };
