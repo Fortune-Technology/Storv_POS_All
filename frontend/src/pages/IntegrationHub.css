@@ -1,0 +1,597 @@
+/* ══════════════════════════════════════════════════════════════
+   IntegrationHub.css  —  Delivery Platform Integration Hub
+   Uses `ih-` prefix for page-specific styles
+══════════════════════════════════════════════════════════════ */
+
+/* ── Platform connection cards grid ─────────────────────── */
+.ih-platforms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ih-platform-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.ih-platform-card:hover {
+  box-shadow: var(--shadow-md, var(--shadow-sm));
+}
+
+.ih-platform-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.ih-platform-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.ih-platform-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ih-platform-status {
+  margin-left: auto;
+}
+
+/* ── Status badges ──────────────────────────────────────── */
+.ih-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ih-badge--connected {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.ih-badge--disconnected {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.ih-badge--error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.ih-badge--coming-soon {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+/* Coming soon state */
+.ih-coming-soon {
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.ih-coming-soon-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.ih-coming-soon-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ── Credential form inside card ────────────────────────── */
+.ih-cred-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.ih-cred-field label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  text-transform: capitalize;
+}
+
+.ih-cred-field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ih-cred-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Connected info block ───────────────────────────────── */
+.ih-connected-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ih-info-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.ih-info-row svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.ih-connected-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Webhook URL display ────────────────────────────────── */
+.ih-webhook {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+}
+
+.ih-webhook-label {
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+}
+
+.ih-webhook-url {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ih-webhook-url code {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--accent-primary);
+  word-break: break-all;
+}
+
+/* ── Settings tab ───────────────────────────────────────── */
+.ih-settings-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.ih-platform-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.ih-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ih-pill:hover {
+  border-color: var(--border-brand);
+  color: var(--accent-primary);
+}
+.ih-pill.active {
+  background: var(--brand-08);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.ih-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ih-settings-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.ih-settings-section h3 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 1rem;
+}
+
+.ih-form-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.ih-form-row label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 180px;
+  flex-shrink: 0;
+}
+
+.ih-form-row .p-select,
+.ih-form-row .p-input {
+  max-width: 280px;
+}
+
+.ih-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.ih-toggle-row span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ── Toggle switch ──────────────────────────────────────── */
+.ih-toggle {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.ih-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ih-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.ih-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.ih-toggle input:checked + .ih-toggle-slider {
+  background: var(--brand-08);
+  border-color: var(--accent-primary);
+}
+
+.ih-toggle input:checked + .ih-toggle-slider::before {
+  transform: translateX(18px);
+  background: var(--accent-primary);
+}
+
+/* ── Department overrides table ─────────────────────────── */
+.ih-dept-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+}
+
+/* ── Orders tab ─────────────────────────────────────────── */
+.ih-filter-bar {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.ih-filter-bar .p-select,
+.ih-filter-bar .p-input {
+  max-width: 180px;
+}
+
+.ih-orders-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ih-order-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s;
+}
+.ih-order-card:hover {
+  border-color: var(--border-brand);
+}
+
+.ih-order-card--new {
+  border-left: 3px solid var(--warning, #f59e0b);
+}
+
+.ih-order-card--confirmed {
+  border-left: 3px solid var(--accent-primary);
+}
+
+.ih-order-card--ready {
+  border-left: 3px solid #22c55e;
+}
+
+.ih-order-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.ih-order-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ih-order-platform-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ih-order-id {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ih-order-customer {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.ih-order-status {
+  margin-left: auto;
+}
+
+.ih-order-sla {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.08);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  animation: ih-pulse 1s infinite;
+}
+
+@keyframes ih-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Order items table (expandable) ─────────────────────── */
+.ih-order-items {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.ih-order-items table {
+  width: 100%;
+  font-size: 0.78rem;
+}
+
+.ih-order-items td {
+  padding: 3px 6px;
+  color: var(--text-secondary);
+}
+
+.ih-order-items td:last-child {
+  text-align: right;
+  font-weight: 600;
+}
+
+.ih-order-totals {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.ih-order-totals strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.ih-order-pickup {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.4rem;
+}
+
+.ih-order-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ih-order-expand-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 0.25rem;
+}
+.ih-order-expand-btn:hover {
+  text-decoration: underline;
+}
+
+/* ── Analytics tab ──────────────────────────────────────── */
+.ih-analytics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.ih-chart-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1rem;
+}
+
+.ih-chart-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.ih-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Loading spinner ────────────────────────────────────── */
+.ih-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-muted);
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.ih-spinner svg {
+  animation: ih-spin 1s linear infinite;
+}
+
+@keyframes ih-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .ih-platforms-grid {
+    grid-template-columns: 1fr;
+  }
+  .ih-charts-row {
+    grid-template-columns: 1fr;
+  }
+  .ih-form-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+  .ih-form-row .p-select,
+  .ih-form-row .p-input {
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .ih-order-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ih-order-status {
+    margin-left: 0;
+  }
+  .ih-analytics-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -38,6 +38,8 @@ import taskRoutes        from './routes/taskRoutes.js';
 import auditRoutes       from './routes/auditRoutes.js';
 import { spawnRecurringTasks } from './controllers/taskController.js';
 import labelQueueRoutes  from './routes/labelQueueRoutes.js';
+import integrationRoutes from './routes/integrationRoutes.js';
+import webhookRoutes     from './routes/webhookRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
 import { startBillingScheduler } from './services/billingScheduler.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
@@ -101,8 +103,10 @@ app.use('/api/tasks',          taskRoutes);
 app.use('/api/audit',          auditRoutes);
 app.use('/api/label-queue',    labelQueueRoutes);
 app.use('/api/public',         publicRoutes);
-app.use('/api/tickets',      ticketRoutes);
-app.use('/api',              apiRoutes);
+app.use('/api/tickets',        ticketRoutes);
+app.use('/api/integrations',   integrationRoutes);
+app.use('/webhook',            webhookRoutes);      // PUBLIC — no auth middleware
+app.use('/api',                apiRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

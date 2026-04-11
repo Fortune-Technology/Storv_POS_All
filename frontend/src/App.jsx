@@ -62,6 +62,7 @@ import Promotions        from './pages/Promotions';
 import BulkImport from './pages/BulkImport';
 import LabelQueue from './pages/LabelQueue';
 import EcommIntegration  from './pages/EcommIntegration';
+import IntegrationHub    from './pages/IntegrationHub';
 import EcomSetup         from './pages/EcomSetup';
 // EcomPages functionality moved into EcomSetup > Pages tab
 import EcomOrders        from './pages/EcomOrders';
@@ -257,8 +258,10 @@ function App() {
           <Route path="/portal/ecom/orders"      element={<EcomOrders />} />
           <Route path="/portal/ecom/analytics"   element={<EcomAnalytics />} />
 
+          {/* ── Delivery Platform Integrations ───────────────────────── */}
+          <Route path="/portal/integrations"     element={<IntegrationHub />} />
+
           {/* ── Placeholders ──────────────────────────────────────────── */}
-          <Route path="/portal/ecomm"            element={<EcommIntegration />} />
           <Route path="/portal/products"         element={<Placeholder name="Products" />} />
 
           {/* ── Legacy CSV Transformer ────────────────────────────────── */}
@@ -292,6 +295,7 @@ function App() {
         <Route path="/portal/deposit-rules"      element={<Navigate to="/portal/rules?tab=deposits" replace />} />
         <Route path="/portal/tax-rules"          element={<Navigate to="/portal/rules?tab=tax" replace />} />
         <Route path="/portal/quick-access"       element={<Navigate to="/portal/pos-config?tab=quick-keys" replace />} />
+        <Route path="/portal/ecomm"            element={<Navigate to="/portal/integrations" replace />} />
         <Route path="/portal/ecom/domain"     element={<Navigate to="/portal/ecom/setup?tab=domain" replace />} />
         <Route path="/portal/ecom/customers"  element={<Navigate to="/portal/customers-hub?tab=customers" replace />} />
 
