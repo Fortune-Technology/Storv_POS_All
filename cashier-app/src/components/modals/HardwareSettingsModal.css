@@ -253,6 +253,73 @@
   cursor: pointer;
 }
 
+/* ── Scale test area ────────────────────────────────────────────────── */
+.hsm-scale-test {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+}
+.hsm-scale-test-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+.hsm-scale-test-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-bottom: 0.5rem;
+}
+.hsm-scale-test-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.hsm-scale-test-status {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.hsm-scale-test-status--ok { color: #22c55e; }
+.hsm-test-btn--disconnect {
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hsm-scale-test-readings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.hsm-scale-test-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hsm-scale-test-label {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  min-width: 80px;
+}
+.hsm-scale-test-value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e5e7eb;
+  font-family: 'JetBrains Mono', monospace;
+}
+
 @media (max-width: 768px) {
   .hsm-modal { max-width: 100%; padding: 1.25rem; border-radius: 16px; }
   .hsm-hw-grid-row { grid-template-columns: 1fr; }

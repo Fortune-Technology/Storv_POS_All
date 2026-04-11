@@ -419,6 +419,89 @@ function registerAppIPC(ipcMain, win) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// SCALE / SCANNER — TCP connection for Serial-over-LAN (Magellan 9800i etc.)
+// ══════════════════════════════════════════════════════════════════════════
+
+let scaleSocket = null;
+let scaleBuffer = '';
+
+ipcMain.handle('scale:connect', async (_, { ip, port = 4001 }) => {
+  if (scaleSocket) {
+    try { scaleSocket.destroy(); } catch {}
+    scaleSocket = null;
+  }
+
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(10000);
+
+    socket.connect(Number(port), ip, () => {
+      scaleSocket = socket;
+      scaleBuffer = '';
+      console.log(`[Scale] Connected to ${ip}:${port}`);
+      resolve({ ok: true });
+    });
+
+    socket.on('data', (data) => {
+      scaleBuffer += data.toString('utf8');
+      const lines = scaleBuffer.split(/[\r\n]+/);
+      scaleBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        // Forward every line to the renderer — useScale parses weight vs barcode
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('scale:data', line.trim());
+        }
+      }
+    });
+
+    socket.on('error', (err) => {
+      console.error(`[Scale] Error: ${err.message}`);
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('scale:error', err.message);
+      }
+      scaleSocket = null;
+      resolve({ ok: false, error: err.message });
+    });
+
+    socket.on('close', () => {
+      console.log('[Scale] Disconnected');
+      scaleSocket = null;
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('scale:disconnected');
+      }
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve({ ok: false, error: 'Connection timeout' });
+    });
+  });
+});
+
+ipcMain.handle('scale:disconnect', () => {
+  if (scaleSocket) {
+    scaleSocket.destroy();
+    scaleSocket = null;
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('scale:send', async (_, cmd) => {
+  if (!scaleSocket) return { ok: false, error: 'Not connected' };
+  try {
+    scaleSocket.write(cmd);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 // PERSISTENT CONFIG — backs up critical settings to disk
 //
 // Why: Electron's localStorage (LevelDB) lives in userData and persists

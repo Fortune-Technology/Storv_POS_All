@@ -45,11 +45,18 @@ export function useHardware({ onBarcode } = {}) {
 
   useEffect(() => {
     if (!hw?.scale || hw.scale.type === 'none') return;
-    scale.getGrantedPorts().then(ports => {
-      if (ports.length > 0) {
-        scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label);
-      }
-    });
+
+    if (hw.scale.connection === 'tcp' && hw.scale.ip) {
+      // TCP mode: connect via Electron IPC
+      scale.connectTCP(hw.scale.ip, hw.scale.port || 4001).catch(() => {});
+    } else {
+      // USB Serial mode: auto-connect to first granted port
+      scale.getGrantedPorts().then(ports => {
+        if (ports.length > 0) {
+          scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label);
+        }
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

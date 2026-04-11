@@ -619,6 +619,43 @@
   }
 }
 
+/* ── Scale weight strip ─────────────────────────────────────────────── */
+.pos-scale-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.35rem 1rem;
+  background: rgba(122,193,67,0.08);
+  border-bottom: 1px solid rgba(122,193,67,0.2);
+  flex-shrink: 0;
+}
+.pos-scale-icon { font-size: 0.9rem; }
+.pos-scale-weight {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+}
+.pos-scale-stable {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--green);
+  background: var(--green-dim);
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.pos-scale-moving {
+  font-size: 0.9rem;
+  color: var(--amber);
+  animation: pos-scale-pulse 1s infinite;
+}
+@keyframes pos-scale-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
 @media (max-width: 768px) {
   .pos-item-strip {
     flex-wrap: wrap;

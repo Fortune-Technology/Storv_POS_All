@@ -41,6 +41,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reload:           () => ipcRenderer.invoke('app:reload'),
   quit:             () => ipcRenderer.invoke('app:quit'),
 
+  // ── Scale / Scanner (TCP) ──────────────────────────────────────────────────
+  /** Connect to scale/scanner via TCP (Serial-over-LAN) */
+  scaleConnect:     (ip, port) => ipcRenderer.invoke('scale:connect', { ip, port }),
+  scaleDisconnect:  ()         => ipcRenderer.invoke('scale:disconnect'),
+  scaleSend:        (cmd)      => ipcRenderer.invoke('scale:send', cmd),
+  /** Listen for scale data (weight lines + barcode lines) */
+  onScaleData:      (cb) => { ipcRenderer.on('scale:data', (_, line) => cb(line)); },
+  onScaleError:     (cb) => { ipcRenderer.on('scale:error', (_, msg) => cb(msg)); },
+  onScaleDisconnect:(cb) => { ipcRenderer.on('scale:disconnected', () => cb()); },
+  removeScaleListeners: () => {
+    ipcRenderer.removeAllListeners('scale:data');
+    ipcRenderer.removeAllListeners('scale:error');
+    ipcRenderer.removeAllListeners('scale:disconnected');
+  },
+
   // ── Customer Display ───────────────────────────────────────────────────────
   /** Open customer display on secondary monitor (or focus if already open) */
   openCustomerDisplay:  () => ipcRenderer.invoke('app:open-customer-display'),

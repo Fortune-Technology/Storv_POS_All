@@ -243,6 +243,12 @@ export function useScale({ onBarcode } = {}) {
 
   // ── Send command to scale (e.g. 'W\r\n' for weight request) ─────────────
   const sendCommand = useCallback(async (cmd) => {
+    // TCP mode (Electron)
+    if (connectionModeRef.current === 'tcp' && window.electronAPI?.scaleSend) {
+      await window.electronAPI.scaleSend(cmd);
+      return;
+    }
+    // USB Serial mode
     if (!portRef.current?.writable) return;
     const writer = portRef.current.writable.getWriter();
     try {
@@ -254,18 +260,95 @@ export function useScale({ onBarcode } = {}) {
 
   const requestWeight = useCallback(() => sendCommand('W\r\n'), [sendCommand]);
 
+  // ── TCP connection mode (Serial-over-LAN via Electron) ─────────────────
+  const connectionModeRef = useRef('serial'); // 'serial' | 'tcp'
+
+  const connectTCP = useCallback(async (ip, port = 4001) => {
+    if (!window.electronAPI?.scaleConnect) {
+      setError('TCP scale requires Electron desktop app');
+      return false;
+    }
+
+    setError(null);
+    connectionModeRef.current = 'tcp';
+
+    // Set up IPC listeners for incoming data
+    window.electronAPI.removeScaleListeners();
+
+    window.electronAPI.onScaleData((line) => {
+      if (!line) return;
+      setRawOutput(line);
+
+      // 1. Try weight
+      const weightData = parseWeightLine(line);
+      if (weightData) {
+        setWeight(weightData.weight);
+        setUnit(weightData.unit);
+        setStable(weightData.stable);
+        return;
+      }
+
+      // 2. Try barcode
+      const barcode = parseBarcodeOutput(line);
+      if (barcode && onBarcodeRef.current) {
+        onBarcodeRef.current(barcode);
+      }
+    });
+
+    window.electronAPI.onScaleError((msg) => {
+      setError('Scale error: ' + msg);
+      setConnected(false);
+    });
+
+    window.electronAPI.onScaleDisconnect(() => {
+      setConnected(false);
+      setWeight(null);
+    });
+
+    try {
+      const result = await window.electronAPI.scaleConnect(ip, port);
+      if (result.ok) {
+        setConnected(true);
+        setPortLabel(`Magellan TCP ${ip}:${port}`);
+        return true;
+      } else {
+        setError(result.error || 'Failed to connect');
+        return false;
+      }
+    } catch (err) {
+      setError('Connection failed: ' + err.message);
+      return false;
+    }
+  }, []);
+
+  const disconnectTCP = useCallback(async () => {
+    if (window.electronAPI?.scaleDisconnect) {
+      await window.electronAPI.scaleDisconnect();
+    }
+    window.electronAPI?.removeScaleListeners?.();
+    setConnected(false);
+    setWeight(null);
+    setStable(false);
+    setPortLabel('');
+    connectionModeRef.current = 'serial';
+  }, []);
+
   const formattedWeight = weight != null
     ? `${weight.toFixed(3)} ${unit}`
     : '---';
 
-  useEffect(() => () => { disconnect(); }, [disconnect]);
+  useEffect(() => () => {
+    disconnect();
+    if (connectionModeRef.current === 'tcp') disconnectTCP();
+  }, [disconnect, disconnectTCP]);
 
   return {
     weight, unit, stable, connected, error, rawOutput,
     formattedWeight, portLabel,
-    connect, connectToPort, disconnect,
+    connect, connectToPort, connectTCP, disconnect, disconnectTCP,
     requestWeight, sendCommand,
     getGrantedPorts, requestPort,
     isSupported: 'serial' in navigator,
+    isTCPSupported: !!window.electronAPI?.scaleConnect,
   };
 }

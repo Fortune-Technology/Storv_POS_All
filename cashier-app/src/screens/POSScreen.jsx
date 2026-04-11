@@ -99,7 +99,7 @@ export default function POSScreen() {
   const cashier        = useAuthStore(s => s.cashier);
 
   // ── Hardware (receipt printer, cash drawer) ──────────────────────────────
-  const { printReceipt, openDrawer, hasReceiptPrinter, hasCashDrawer } = useHardware();
+  const { printReceipt, openDrawer, hasReceiptPrinter, hasCashDrawer, scale, hasScale } = useHardware();
 
   // ── Shift / Cash Drawer ─────────────────────────────────────────────────
   const station = useStationStore(s => s.station);
@@ -419,6 +419,11 @@ export default function POSScreen() {
   const [addProductUpc, setAddProductUpc]   = useState(null);  // UPC string when manager creates product
   const scanErrorTimer = useRef(null);
 
+  // ── Scale weight warning (by-weight product scanned without stable weight) ──
+  const [scaleWeightWarning, setScaleWeightWarning] = useState(null);
+  const scaleWarnTimer = useRef(null);
+  useEffect(() => () => clearTimeout(scaleWarnTimer.current), []);
+
   const showScanError = useCallback((upc) => {
     clearTimeout(scanErrorTimer.current);
     setScanError({ upc, ts: Date.now() });
@@ -469,9 +474,23 @@ export default function POSScreen() {
       flash('hit');
       return;
     }
+    // If by-weight product, use scale weight as quantity
+    if (product.byWeight) {
+      if (scale?.weight > 0 && scale?.stable) {
+        const weightQty = scale.weight;
+        addWithAgeCheck({ ...product, qty: weightQty, unitPrice: product.retailPrice, retailPrice: product.retailPrice });
+        flash('hit');
+      } else {
+        flash('miss');
+        setScaleWeightWarning('Place item on scale first');
+        clearTimeout(scaleWarnTimer.current);
+        scaleWarnTimer.current = setTimeout(() => setScaleWeightWarning(null), 3000);
+      }
+      return;
+    }
     addWithAgeCheck({ ...product, retailPrice: product.retailPrice });
     flash('hit');
-  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError]);
+  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale]);
 
   useBarcodeScanner(handleScan, scanMode === 'normal');
 
@@ -612,6 +631,16 @@ export default function POSScreen() {
     <div className="pos-shell">
       <StatusBar onRefresh={manualSync} />
 
+      {/* ── Scale weight strip ──────────────────────────────────────────── */}
+      {hasScale && scale.connected && (
+        <div className="pos-scale-strip">
+          <span className="pos-scale-icon">{'\u2696\uFE0F'}</span>
+          <span className="pos-scale-weight">{scale.formattedWeight}</span>
+          {scale.stable && <span className="pos-scale-stable">STABLE</span>}
+          {!scale.stable && scale.weight > 0 && <span className="pos-scale-moving">...</span>}
+        </div>
+      )}
+
       {/* ── Midnight shift warning ───────────────────────────────────────── */}
       {shift?._crossedMidnight && (
         <div className="pos-midnight-warn">
@@ -636,6 +665,14 @@ export default function POSScreen() {
           >
             + Add Product
           </button>
+        </div>
+      )}
+
+      {/* ── Scale weight warning toast ─────────────────────────────────── */}
+      {scaleWeightWarning && (
+        <div className="pos-scan-error" style={{ background: '#78350f' }}>
+          <span style={{ fontSize: '1rem' }}>{'\u2696\uFE0F'}</span>
+          <span>{scaleWeightWarning}</span>
         </div>
       )}
 

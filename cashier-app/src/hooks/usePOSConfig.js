@@ -62,9 +62,13 @@ export const DEFAULT_POS_CONFIG = {
       port:   9100,
     },
     scale: {
-      type:      'none',    // 'cas' | 'mettler' | 'avery' | 'generic' | 'none'
+      type:      'none',    // 'cas' | 'mettler' | 'avery' | 'datalogic' | 'generic' | 'none'
+      connection:'serial',  // 'serial' (USB Web Serial) | 'tcp' (Serial-over-LAN)
       baud:      9600,
+      ip:        '',        // for TCP/Serial-over-LAN connection
+      port:      4001,      // TCP port (common for serial-to-ethernet adapters)
       portLabel: '',        // display label
+      weightUnit:'lbs',     // 'lbs' | 'kg'
     },
     paxTerminal: {
       enabled: false,

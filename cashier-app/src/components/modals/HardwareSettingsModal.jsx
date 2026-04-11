@@ -8,7 +8,7 @@
  * Step 2 — Hardware configuration (receipt printer, cash drawer, scale, label printer)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Loader, Shield, ChevronDown, ChevronUp, Printer,
   Scale, Tag, Check, AlertCircle, RefreshCw,
@@ -85,13 +85,109 @@ export default function HardwareSettingsModal({ onClose }) {
   const [hw, setHW] = useState(() => loadHW() || {
     receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', baud: 9600, portLabel: '' },
+    scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '' },
     cashDrawer:     { type: 'none' },
   });
 
   const [detectedPrinters, setDetectedPrinters] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ── Scale test state ────────────────────────────────────────────────────
+  const [scaleTestConnected, setScaleTestConnected] = useState(false);
+  const [scaleTestWeight, setScaleTestWeight]       = useState('');
+  const [scaleTestBarcode, setScaleTestBarcode]     = useState('');
+  const [scaleTestError, setScaleTestError]         = useState('');
+  const scaleSerialPort = useRef(null);
+  const scaleSerialReader = useRef(null);
+  const scaleTestCleanup = useRef(null);
+
+  const stopScaleTest = useCallback(() => {
+    // Clean up TCP IPC listeners
+    if (scaleTestCleanup.current) { scaleTestCleanup.current(); scaleTestCleanup.current = null; }
+    // Clean up Web Serial
+    if (scaleSerialReader.current) {
+      try { scaleSerialReader.current.cancel(); } catch {}
+      scaleSerialReader.current = null;
+    }
+    if (scaleSerialPort.current) {
+      try { scaleSerialPort.current.close(); } catch {}
+      scaleSerialPort.current = null;
+    }
+    setScaleTestConnected(false);
+    setScaleTestWeight('');
+    setScaleTestBarcode('');
+    setScaleTestError('');
+  }, []);
+
+  const startScaleTest = useCallback(async () => {
+    stopScaleTest();
+    setScaleTestError('');
+
+    if (hw.scale.connection === 'tcp') {
+      // TCP via Electron IPC
+      if (!window.electronAPI?.scaleConnect) {
+        setScaleTestError('Electron IPC not available — TCP scale requires the desktop app.');
+        return;
+      }
+      try {
+        await window.electronAPI.scaleConnect(hw.scale.ip, hw.scale.port);
+        setScaleTestConnected(true);
+        const handler = (line) => {
+          const match = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|oz|OZ)/);
+          if (match) setScaleTestWeight(parseFloat(match[1]) + ' ' + match[2]);
+          else if (/^[A-Za-z0-9\-\.]{4,}$/.test(line.trim())) setScaleTestBarcode(line.trim());
+        };
+        window.electronAPI.onScaleData(handler);
+        scaleTestCleanup.current = () => {
+          window.electronAPI.offScaleData?.(handler);
+          window.electronAPI.scaleDisconnect?.();
+        };
+      } catch (err) {
+        setScaleTestError('TCP connect failed: ' + (err.message || err));
+        setScaleTestConnected(false);
+      }
+    } else {
+      // Web Serial API
+      if (!navigator.serial) {
+        setScaleTestError('Web Serial API not available in this browser.');
+        return;
+      }
+      try {
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: hw.scale.baud || 9600 });
+        scaleSerialPort.current = port;
+        setScaleTestConnected(true);
+        const reader = port.readable.getReader();
+        scaleSerialReader.current = reader;
+        const decoder = new TextDecoder();
+        let buffer = '';
+        (async () => {
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/[\r\n]+/);
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                const match = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|oz|OZ)/);
+                if (match) setScaleTestWeight(parseFloat(match[1]) + ' ' + match[2]);
+                else if (/^[A-Za-z0-9\-\.]{4,}$/.test(line.trim())) setScaleTestBarcode(line.trim());
+              }
+            }
+          } catch {}
+        })();
+      } catch (err) {
+        setScaleTestError('Serial connect failed: ' + (err.message || err));
+        setScaleTestConnected(false);
+      }
+    }
+  }, [hw.scale, stopScaleTest]);
+
+  // Clean up scale test on unmount
+  useEffect(() => () => stopScaleTest(), [stopScaleTest]);
 
   const updHW = (section, fields) => setHW(p => ({ ...p, [section]: { ...p[section], ...fields } }));
 
@@ -235,13 +331,13 @@ export default function HardwareSettingsModal({ onClose }) {
               </div>
             </HWSection>
 
-            <HWSection icon={Scale} title="Weighing Scale" status={hw.scale.type !== 'none' ? 'ok' : 'idle'}>
+            <HWSection icon={Scale} title="Weighing Scale / Scanner" status={hw.scale.type !== 'none' ? 'ok' : 'idle'}>
               <div className="hsm-hw-grid">
                 <div>
                   <label className="hsm-label">Scale Brand</label>
                   <select className="hsm-select" value={hw.scale.type === 'none' ? '' : hw.scale.brand || ''} onChange={e => {
                     const brand = SCALE_BRANDS.find(b => b.id === e.target.value);
-                    updHW('scale', { brand: e.target.value, type: e.target.value ? 'serial' : 'none', baud: brand?.baud || 9600 });
+                    updHW('scale', { brand: e.target.value, type: e.target.value ? (hw.scale.connection || 'serial') : 'none', baud: brand?.baud || 9600 });
                   }}>
                     <option value="">-- None --</option>
                     {SCALE_BRANDS.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
@@ -250,18 +346,76 @@ export default function HardwareSettingsModal({ onClose }) {
                 {hw.scale.type !== 'none' && (
                   <>
                     <div>
-                      <label className="hsm-label">Baud Rate</label>
-                      <select className="hsm-select" value={hw.scale.baud || 9600} onChange={e => updHW('scale', { baud: Number(e.target.value) })}>
-                        {BAUD_RATES.map(b => <option key={b} value={b}>{b}</option>)}
+                      <label className="hsm-label">Connection</label>
+                      <select className="hsm-select" value={hw.scale.connection || 'serial'} onChange={e => updHW('scale', { connection: e.target.value })}>
+                        <option value="serial">USB Serial (Web Serial API)</option>
+                        <option value="tcp">TCP / Serial-over-LAN</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="hsm-label">Serial Port</label>
-                      <input className="hsm-field" value={hw.scale.portLabel || ''} onChange={e => updHW('scale', { portLabel: e.target.value })} placeholder="e.g. COM3 or /dev/ttyUSB0" />
-                    </div>
+                    {hw.scale.connection === 'tcp' ? (
+                      <>
+                        <div>
+                          <label className="hsm-label">IP Address</label>
+                          <input className="hsm-field" value={hw.scale.ip || ''} onChange={e => updHW('scale', { ip: e.target.value })} placeholder="192.168.1.100" />
+                        </div>
+                        <div>
+                          <label className="hsm-label">TCP Port</label>
+                          <input className="hsm-field" type="number" value={hw.scale.port || 4001} onChange={e => updHW('scale', { port: Number(e.target.value) })} placeholder="4001" />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="hsm-label">Baud Rate</label>
+                          <select className="hsm-select" value={hw.scale.baud || 9600} onChange={e => updHW('scale', { baud: Number(e.target.value) })}>
+                            {BAUD_RATES.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Serial Port</label>
+                          <input className="hsm-field" value={hw.scale.portLabel || ''} onChange={e => updHW('scale', { portLabel: e.target.value })} placeholder="e.g. COM3 or /dev/ttyUSB0" />
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
+
+              {/* ── Scale Test Area ─────────────────────────────────────── */}
+              {hw.scale.type !== 'none' && (
+                <div className="hsm-scale-test">
+                  <div className="hsm-scale-test-header">Test Scale</div>
+                  {scaleTestError && (
+                    <div className="hsm-scale-test-error"><AlertCircle size={13} /> {scaleTestError}</div>
+                  )}
+                  <div className="hsm-scale-test-controls">
+                    {!scaleTestConnected ? (
+                      <button type="button" className="hsm-test-btn" onClick={startScaleTest}>
+                        <RefreshCw size={12} /> Connect &amp; Test
+                      </button>
+                    ) : (
+                      <>
+                        <span className="hsm-scale-test-status hsm-scale-test-status--ok">Connected &#x2705;</span>
+                        <button type="button" className="hsm-test-btn hsm-test-btn--disconnect" onClick={stopScaleTest}>
+                          Disconnect
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {scaleTestConnected && (
+                    <div className="hsm-scale-test-readings">
+                      <div className="hsm-scale-test-row">
+                        <span className="hsm-scale-test-label">Weight:</span>
+                        <span className="hsm-scale-test-value">{scaleTestWeight || '— waiting —'}</span>
+                      </div>
+                      <div className="hsm-scale-test-row">
+                        <span className="hsm-scale-test-label">Last Barcode:</span>
+                        <span className="hsm-scale-test-value">{scaleTestBarcode || '— none —'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </HWSection>
 
             <HWSection icon={Tag} title="Label Printer" status={hw.labelPrinter.type !== 'none' ? 'ok' : 'idle'}>
