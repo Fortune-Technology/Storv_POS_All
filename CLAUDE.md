@@ -4,6 +4,7 @@
 > **This file is read automatically by Claude Code at the start of every session.**
 > It keeps Claude aligned with the project's vision, conventions, and current state
 > so every session produces consistent, high-quality results.
+
 ---
 
 ## 🎯 Vision & Mission
