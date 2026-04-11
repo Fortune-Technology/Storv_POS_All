@@ -104,13 +104,20 @@ jobs:
         shell: bash
         run: |
           set -e
+          # Step 1: Rename old dist → dist_old (atomic, no lock issue)
           for app in frontend cashier-app admin-app; do
             cd /var/www/Storv_POS_All/$app
-            rm -rf dist
+            mv dist dist_old 2>/dev/null || true
             mv dist_new dist
             cd /var/www/Storv_POS_All
           done
+          # Step 2: Reload Nginx so it releases old file handles
           sudo systemctl reload nginx
+          sleep 2
+          # Step 3: Now safe to delete old files
+          for app in frontend cashier-app admin-app; do
+            rm -rf /var/www/Storv_POS_All/$app/dist_old
+          done
 
       # ── Storefront (Next.js) ───────────────────────────────────────────
       - name: Deploy storefront
