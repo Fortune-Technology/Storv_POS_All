@@ -114,9 +114,9 @@ jobs:
           # Step 2: Reload Nginx so it releases old file handles
           sudo systemctl reload nginx
           sleep 2
-          # Step 3: Now safe to delete old files (sudo in case Nginx owns them)
+          # Step 3: Now safe to delete old files
           for app in frontend cashier-app admin-app; do
-            sudo rm -rf /var/www/Storv_POS_All/$app/dist_old
+            rm -rf /var/www/Storv_POS_All/$app/dist_old
           done
 
       # ── Storefront (Next.js) ───────────────────────────────────────────
