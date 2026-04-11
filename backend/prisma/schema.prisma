@@ -2120,3 +2120,66 @@ model Task {
   @@map("tasks")
 }
 
+// ─────────────────────────────────────────────────
+// STORE INTEGRATION — Multi-platform delivery credentials
+// One row per store + platform combination
+// ─────────────────────────────────────────────────
+model StoreIntegration {
+  id              String    @id @default(cuid())
+  orgId           String
+  storeId         String
+  platform        String    // "doordash"|"ubereats"|"instacart"|"grubhub"|"postmates"
+  credentials     Json      // platform-specific: { developerId, keyId, signingSecret, storeLocationId, ... }
+  config          Json      @default("{}")  // { autoConfirm, syncInterval, syncEnabled, menuId }
+  inventoryConfig Json      @default("{}")  // { syncFrequency, departments, defaultBehavior }
+  status          String    @default("inactive") // "inactive"|"active"|"error"
+  storeName       String?   // name on the platform
+  lastSyncAt      DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([storeId, platform])
+  @@index([orgId, status])
+  @@map("store_integrations")
+}
+
+// ─────────────────────────────────────────────────
+// PLATFORM ORDER — Delivery orders from all platforms
+// ─────────────────────────────────────────────────
+model PlatformOrder {
+  id              String    @id @default(cuid())
+  orgId           String
+  storeId         String
+  platform        String    // "doordash"|"ubereats"|"instacart"|"grubhub"
+  platformOrderId String    // external platform order ID
+  shortCode       String?   // delivery short code (DoorDash)
+  status          String    @default("new") // new|confirmed|preparing|ready|picked_up|delivered|cancelled|failed
+  fulfillmentType String?   // "delivery"|"pickup"|"merchant_delivery"
+  items           Json      // [{name, qty, price, merchantItemId, specialInstructions}]
+  customerName    String?
+  customerPhone   String?
+  subtotal        Decimal   @db.Decimal(10, 2)
+  tax             Decimal   @db.Decimal(10, 2) @default(0)
+  deliveryFee     Decimal   @db.Decimal(10, 2) @default(0)
+  tip             Decimal   @db.Decimal(10, 2) @default(0)
+  grandTotal      Decimal   @db.Decimal(10, 2)
+  estimatedPickup DateTime?
+  confirmedAt     DateTime?
+  readyAt         DateTime?
+  pickedUpAt      DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  dasherStatus    String?   // DASHER_CONFIRMED|ARRIVED|PICKED_UP|DROPPED_OFF
+  webhookData     Json?     // raw webhook payload for audit
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([platform, platformOrderId])
+  @@index([orgId, storeId, status])
+  @@index([orgId, platform, createdAt])
+  @@map("platform_orders")
+}
+

@@ -186,6 +186,20 @@ export const getTaskCounts     = ()       => api.get('/tasks/counts').then(r => 
 // ── Audit Logs ──────────────────────────────────────────────────────────────
 export const getAuditLogs      = (params) => api.get('/audit', { params }).then(r => r.data);
 
+// ── Delivery Platform Integrations ──────────────────────────────────────────
+export const getIntegrationPlatforms   = ()          => api.get('/integrations/platforms').then(r => r.data);
+export const connectIntegration        = (data)      => api.post('/integrations/connect', data).then(r => r.data);
+export const disconnectIntegration     = (data)      => api.delete('/integrations/disconnect', { data }).then(r => r.data);
+export const getIntegrationSettings    = (platform)  => api.get(`/integrations/settings/${platform}`).then(r => r.data);
+export const updateIntegrationSettings = (platform, d) => api.put(`/integrations/settings/${platform}`, d).then(r => r.data);
+export const syncIntegrationInventory  = (data)      => api.post('/integrations/sync-inventory', data).then(r => r.data);
+export const getIntegrationOrders      = (params)    => api.get('/integrations/orders', { params }).then(r => r.data);
+export const getIntegrationOrder       = (id)        => api.get(`/integrations/orders/${id}`).then(r => r.data);
+export const confirmIntegrationOrder   = (id)        => api.put(`/integrations/orders/${id}/confirm`).then(r => r.data);
+export const readyIntegrationOrder     = (id)        => api.put(`/integrations/orders/${id}/ready`).then(r => r.data);
+export const cancelIntegrationOrder    = (id, data)  => api.put(`/integrations/orders/${id}/cancel`, data).then(r => r.data);
+export const getIntegrationAnalytics   = (params)    => api.get('/integrations/analytics', { params }).then(r => r.data);
+
 // Weather
 export const getWeatherRange = (params) => api.get('/weather/range', { params }).then(r => r.data);
 export const getCurrentWeather = () => api.get('/weather/current').then(r => r.data);
