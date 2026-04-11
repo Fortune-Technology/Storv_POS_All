@@ -2018,3 +2018,101 @@ model LabelQueue {
   @@map("label_queue")
 }
 
+// ─────────────────────────────────────────────────
+// AUDIT LOG — Immutable record of all user actions
+// Cannot be deleted by any user including admin.
+// ─────────────────────────────────────────────────
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  orgId       String
+  storeId     String?
+  userId      String             // who performed the action
+  userName    String?            // denormalized for fast display
+  userRole    String?            // role at time of action
+  action      String             // "create"|"update"|"delete"|"void"|"refund"|"login"|"logout"|"shift_open"|"shift_close"|"price_change"|"settings_change"
+  entity      String             // "product"|"transaction"|"shift"|"user"|"store"|"order"|"customer"|"label"|"settings"
+  entityId    String?            // ID of the affected record
+  details     Json?              // { field: "retailPrice", oldValue: 4.99, newValue: 5.49 }
+  ipAddress   String?
+  userAgent   String?
+  source      String   @default("portal") // "portal"|"cashier"|"admin"|"api"
+
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([orgId, userId])
+  @@index([orgId, entity, action])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────
+// CHAT MESSAGE — Internal messaging (cashier ↔ back-office)
+// ─────────────────────────────────────────────────
+model ChatMessage {
+  id          String   @id @default(cuid())
+  orgId       String
+  storeId     String?
+  channelId   String             // "store:{storeId}" for store-wide, "direct:{userId1}:{userId2}" for DM
+  senderId    String
+  senderName  String             // denormalized
+  senderRole  String?            // "owner"|"manager"|"cashier" etc
+  message     String   @db.Text
+  messageType String   @default("text")  // "text"|"image"|"system"|"alert"
+  readBy      String[] @default([])       // array of userIds who read it
+  pinned      Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, channelId, createdAt])
+  @@index([orgId, storeId, createdAt])
+  @@map("chat_messages")
+}
+
+// ─────────────────────────────────────────────────
+// TASK — Task assignment system
+// ─────────────────────────────────────────────────
+model Task {
+  id          String    @id @default(cuid())
+  orgId       String
+  storeId     String?
+  title       String
+  description String?   @db.Text
+  priority    String    @default("normal")   // "low"|"normal"|"high"|"urgent"
+  status      String    @default("open")     // "open"|"in_progress"|"completed"|"cancelled"
+  category    String?                         // "cleaning"|"stocking"|"display"|"inventory"|"other"
+
+  assignedTo  String?            // userId — who should do it
+  assignedBy  String             // userId — who created it
+  assigneeName String?           // denormalized
+  assignerName String?           // denormalized
+
+  // Checklist items: [{ id, text, done, completedAt, completedBy }]
+  checklist   Json      @default("[]")
+
+  // Assign to register (optional — in addition to assignedTo user)
+  stationId   String?                         // which register this task is for
+  stationName String?                         // denormalized
+
+  // Recurring schedule
+  isRecurring Boolean   @default(false)
+  recurType   String?                         // "daily"|"weekly"|"biweekly"|"monthly"
+  recurDays   String[]  @default([])          // ["Monday","Wednesday","Friday"] for weekly
+  recurDayOfMonth Int?                        // 1-31 for monthly
+  recurTime   String?                         // "09:00" — time of day to create instance
+  templateId  String?                         // if this task was spawned from a template, link to parent
+  nextRunAt   DateTime?                       // when next recurring instance should be created
+  lastRunAt   DateTime?                       // when last instance was created
+
+  dueDate     DateTime?
+  completedAt DateTime?
+  completedBy String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([orgId, assignedTo, status])
+  @@index([orgId, isRecurring, nextRunAt])
+  @@map("tasks")
+}
+

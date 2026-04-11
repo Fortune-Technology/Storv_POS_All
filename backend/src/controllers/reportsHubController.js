@@ -430,3 +430,162 @@ export const getCompareReport = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/reports/hub/notes — Transaction notes
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const getNotesReport = async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+
+    const where = {
+      orgId: req.orgId, status: 'complete',
+      notes: { not: null },
+      createdAt: { gte: new Date(`${from}T00:00:00`), lte: new Date(`${to}T23:59:59.999`) },
+    };
+    if (req.storeId) where.storeId = req.storeId;
+
+    const txns = await prisma.transaction.findMany({
+      where,
+      select: { id: true, txNumber: true, notes: true, grandTotal: true, cashierId: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    // Filter out empty strings
+    const notes = txns.filter(t => t.notes && t.notes.trim().length > 0).map(t => ({
+      txNumber: t.txNumber,
+      notes: t.notes,
+      total: r2(t.grandTotal),
+      cashierId: t.cashierId,
+      date: t.createdAt,
+    }));
+
+    res.json({ notes, total: notes.length, period: { from, to } });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/reports/hub/events — POS event log (logins, voids, refunds, etc.)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const getEventsReport = async (req, res, next) => {
+  try {
+    const { from, to, type } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+
+    const where = {
+      orgId: req.orgId,
+      createdAt: { gte: new Date(`${from}T00:00:00`), lte: new Date(`${to}T23:59:59.999`) },
+    };
+    if (req.storeId) where.storeId = req.storeId;
+    if (type) where.type = type;
+
+    const events = await prisma.posLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    });
+
+    // Group by type for summary
+    const byType = {};
+    for (const e of events) {
+      const t = e.type || 'unknown';
+      if (!byType[t]) byType[t] = { type: t, count: 0 };
+      byType[t].count += 1;
+    }
+
+    res.json({
+      events,
+      summary: Object.values(byType).sort((a, b) => b.count - a.count),
+      total: events.length,
+      period: { from, to },
+    });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/reports/hub/receive — Received purchase orders
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const getReceiveReport = async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+
+    const where = {
+      orgId: req.orgId,
+      status: { in: ['received', 'partial'] },
+      receivedDate: { gte: new Date(`${from}T00:00:00`), lte: new Date(`${to}T23:59:59.999`) },
+    };
+    if (req.storeId) where.storeId = req.storeId;
+
+    const orders = await prisma.purchaseOrder.findMany({
+      where,
+      include: {
+        vendor: { select: { name: true, code: true } },
+        items: {
+          include: { product: { select: { name: true, upc: true } } },
+        },
+      },
+      orderBy: { receivedDate: 'desc' },
+    });
+
+    const summary = {
+      totalOrders: orders.length,
+      totalItems: orders.reduce((s, o) => s + o.items.length, 0),
+      totalValue: r2(orders.reduce((s, o) => s + (Number(o.grandTotal) || 0), 0)),
+    };
+
+    res.json({ orders, summary, period: { from, to } });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/reports/hub/house-accounts — Customer balances / store credit
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const getHouseAccountReport = async (req, res, next) => {
+  try {
+    const where = { orgId: req.orgId, deleted: false };
+    if (req.storeId) where.storeId = req.storeId;
+
+    const customers = await prisma.customer.findMany({
+      where: {
+        ...where,
+        OR: [
+          { balance: { not: null, gt: 0 } },
+          { instoreChargeEnabled: true },
+        ],
+      },
+      select: {
+        id: true, name: true, firstName: true, lastName: true,
+        email: true, phone: true, cardNo: true,
+        balance: true, balanceLimit: true, discount: true,
+        instoreChargeEnabled: true, loyaltyPoints: true,
+      },
+      orderBy: { balance: 'desc' },
+    });
+
+    const totalBalance = r2(customers.reduce((s, c) => s + (Number(c.balance) || 0), 0));
+    const totalLimit = r2(customers.reduce((s, c) => s + (Number(c.balanceLimit) || 0), 0));
+
+    res.json({
+      customers: customers.map(c => ({
+        ...c,
+        name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || 'Unknown',
+        balance: r2(c.balance),
+        balanceLimit: r2(c.balanceLimit),
+        discount: c.discount ? r2(Number(c.discount) * 100) : null,
+      })),
+      summary: {
+        totalAccounts: customers.length,
+        totalBalance,
+        totalLimit,
+        activeChargeAccounts: customers.filter(c => c.instoreChargeEnabled).length,
+      },
+    });
+  } catch (err) { next(err); }
+};

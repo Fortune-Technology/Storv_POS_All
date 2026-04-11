@@ -3,9 +3,10 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, DollarSign, Delete } from 'lucide-react';
+import { X, DollarSign, Delete, LogOut } from 'lucide-react';
 import { useShiftStore }   from '../../stores/useShiftStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
+import { useAuthStore }    from '../../stores/useAuthStore.js';
 import './OpenShiftModal.css';
 
 const BILLS = [
@@ -37,6 +38,7 @@ function DenomRow({ denom, count, active, onClick }) {
 export default function OpenShiftModal({ storeId, onClose, onOpened }) {
   const { openShift, loading, error, clearError } = useShiftStore();
   const stationId = useStationStore(s => s.station?.id);
+  const logout = useAuthStore(s => s.logout);
 
   const [mode, setMode] = useState('denominations');
   const [counts, setCounts] = useState(initCounts);
@@ -159,6 +161,13 @@ export default function OpenShiftModal({ storeId, onClose, onOpened }) {
             <div className="osm-footer-label">OPENING FLOAT</div>
             <div className="osm-footer-amount">${openingAmount.toFixed(2)}</div>
           </div>
+          <button
+            className="osm-signout-btn"
+            onClick={logout}
+            title="Sign out and return to PIN login"
+          >
+            <LogOut size={14} /> Sign Out
+          </button>
           <button className={`osm-open-btn${loading ? ' osm-open-btn--loading' : ' osm-open-btn--active'}`} onClick={handleOpen} disabled={loading}>
             {loading ? 'Opening...' : 'Open Shift'}
           </button>

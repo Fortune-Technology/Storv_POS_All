@@ -302,24 +302,90 @@ export const listShifts = async (req, res) => {
     });
 
     const cashierIds = [...new Set(shifts.map(s => s.cashierId).filter(Boolean))];
-    const users = cashierIds.length
-      ? await prisma.user.findMany({ where: { id: { in: cashierIds } }, select: { id: true, name: true } })
-      : [];
+    const stationIds = [...new Set(shifts.map(s => s.stationId).filter(Boolean))];
+    const [users, stations] = await Promise.all([
+      cashierIds.length ? prisma.user.findMany({ where: { id: { in: cashierIds } }, select: { id: true, name: true } }) : [],
+      stationIds.length ? prisma.station.findMany({ where: { id: { in: stationIds } }, select: { id: true, name: true } }) : [],
+    ]);
     const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
+    const stationMap = Object.fromEntries(stations.map(s => [s.id, s.name]));
+
+    // Fetch transactions for the same period to compute tender breakdown per shift
+    const txWhere = { orgId, status: 'complete' };
+    if (storeId) txWhere.storeId = storeId;
+    if (dateFrom || dateTo) {
+      txWhere.createdAt = {};
+      if (dateFrom) { const d = new Date(dateFrom); txWhere.createdAt.gte = new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+      if (dateTo)   { const d = new Date(dateTo);   txWhere.createdAt.lte = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: txWhere,
+      select: { grandTotal: true, taxTotal: true, tenderLines: true, stationId: true, createdAt: true },
+    });
+
+    // Build per-shift sales summary
+    const shiftSalesMap = {};
+    for (const s of shifts) {
+      const openT = new Date(s.openedAt).getTime();
+      const closeT = s.closedAt ? new Date(s.closedAt).getTime() : Date.now();
+      const key = s.id;
+      shiftSalesMap[key] = { totalSales: 0, totalTax: 0, cashAmount: 0, cardAmount: 0, ebtAmount: 0, otherAmount: 0, txCount: 0 };
+
+      for (const tx of transactions) {
+        const txTime = new Date(tx.createdAt).getTime();
+        const matchStation = !s.stationId || !tx.stationId || s.stationId === tx.stationId;
+        if (txTime >= openT && txTime <= closeT && matchStation) {
+          const sm = shiftSalesMap[key];
+          sm.totalSales += Number(tx.grandTotal) || 0;
+          sm.totalTax += Number(tx.taxTotal) || 0;
+          sm.txCount += 1;
+          const tenders = Array.isArray(tx.tenderLines) ? tx.tenderLines : [];
+          for (const t of tenders) {
+            const amt = Number(t.amount) || 0;
+            const m = (t.method || '').toLowerCase();
+            if (m === 'cash') sm.cashAmount += amt;
+            else if (['card', 'credit', 'debit'].includes(m)) sm.cardAmount += amt;
+            else if (m === 'ebt') sm.ebtAmount += amt;
+            else sm.otherAmount += amt;
+          }
+        }
+      }
+    }
+
+    const r2 = (n) => Math.round(n * 100) / 100;
 
     res.json({
-      shifts: shifts.map(s => ({
-        ...s,
-        cashierName:    userMap[s.cashierId] || 'Unknown',
-        openingAmount:  Number(s.openingAmount),
-        closingAmount:  s.closingAmount  ? Number(s.closingAmount)  : null,
-        expectedAmount: s.expectedAmount ? Number(s.expectedAmount) : null,
-        variance:       s.variance       ? Number(s.variance)       : null,
-        dropsCount:     s.drops.length,
-        payoutsCount:   s.payouts.length,
-        drops:   undefined,
-        payouts: undefined,
-      })),
+      shifts: shifts.map(s => {
+        const sales = shiftSalesMap[s.id] || {};
+        return {
+          ...s,
+          cashierName:    userMap[s.cashierId] || 'Unknown',
+          stationName:    stationMap[s.stationId] || s.stationId || 'Unassigned',
+          openingAmount:  Number(s.openingAmount),
+          closingAmount:  s.closingAmount  ? Number(s.closingAmount)  : null,
+          expectedAmount: s.expectedAmount ? Number(s.expectedAmount) : null,
+          variance:       s.variance       ? Number(s.variance)       : null,
+          cashSales:      s.cashSales ? Number(s.cashSales) : r2(sales.cashAmount),
+          cashRefunds:    s.cashRefunds ? Number(s.cashRefunds) : 0,
+          dropsCount:     s.drops.length,
+          payoutsCount:   s.payouts.length,
+          cashDropsTotal: s.cashDropsTotal ? Number(s.cashDropsTotal) : r2(s.drops.reduce((sum, d) => sum + Number(d.amount), 0)),
+          payoutsTotal:   s.payoutsTotal ? Number(s.payoutsTotal) : r2(s.payouts.reduce((sum, p) => sum + Number(p.amount), 0)),
+          // Tender breakdown
+          salesSummary: {
+            totalSales: r2(sales.totalSales || 0),
+            totalTax:   r2(sales.totalTax || 0),
+            txCount:    sales.txCount || 0,
+            cash:       r2(sales.cashAmount || 0),
+            card:       r2(sales.cardAmount || 0),
+            ebt:        r2(sales.ebtAmount || 0),
+            other:      r2(sales.otherAmount || 0),
+          },
+          drops:   undefined,
+          payouts: undefined,
+        };
+      }),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -409,6 +475,49 @@ export const listCashDrops = async (req, res) => {
     res.json({
       drops: drops.map(d => ({ ...d, amount: Number(d.amount), cashierName: userMap[d.createdById] || '' })),
       summary: { total: drops.reduce((s, d) => s + Number(d.amount), 0), count: drops.length },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── PUT /api/pos-terminal/shift/:id/balance — Back-office cash adjustment ────
+// Allows managers to edit the closing cash amount after a shift is closed.
+// Recalculates variance. Only works on closed shifts.
+export const updateShiftBalance = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { closingAmount, closingNote } = req.body;
+
+    if (closingAmount == null) return res.status(400).json({ error: 'closingAmount is required' });
+
+    const shift = await prisma.shift.findFirst({ where: { id, orgId } });
+    if (!shift) return res.status(404).json({ error: 'Shift not found' });
+    if (shift.status !== 'closed') return res.status(400).json({ error: 'Can only adjust closed shifts' });
+
+    const newClosing = parseFloat(closingAmount);
+    const expected = shift.expectedAmount ? Number(shift.expectedAmount) : 0;
+    const newVariance = Math.round((newClosing - expected) * 10000) / 10000;
+
+    const updated = await prisma.shift.update({
+      where: { id },
+      data: {
+        closingAmount: newClosing,
+        variance: newVariance,
+        ...(closingNote !== undefined ? { closingNote } : {}),
+      },
+    });
+
+    res.json({
+      success: true,
+      shift: {
+        ...updated,
+        openingAmount:  Number(updated.openingAmount),
+        closingAmount:  Number(updated.closingAmount),
+        expectedAmount: updated.expectedAmount ? Number(updated.expectedAmount) : null,
+        variance:       Number(updated.variance),
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

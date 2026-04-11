@@ -14,11 +14,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Tag, Printer, Save, Plus, Trash2, Eye, Search, Download,
   Type, Barcode, DollarSign, Package, MapPin, Layers, Hash,
-  ChevronDown, X, Loader, Settings, Copy, RotateCcw, Star,
+  ChevronDown, X, Loader, Settings, Copy, RotateCcw, Star, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import Sidebar from '../components/Sidebar';
 import api from '../services/api';
+import { connectZebra, getZebraStatus, selectZebraPrinter, printZPL, printTestLabel, isZebraAvailable } from '../services/zebraPrint';
 import { downloadCSV } from '../utils/exportUtils';
 import '../styles/portal.css';
 
@@ -337,7 +337,43 @@ export default function LabelDesign({ embedded }) {
   const [showZPL, setShowZPL] = useState(false);
   const [generatedZPL, setGeneratedZPL] = useState('');
 
+  // ── Zebra Browser Print state ─────────────────────────────────────
+  const [zebraConnected, setZebraConnected] = useState(false);
+  const [zebraPrinters, setZebraPrinters] = useState([]);
+  const [zebraSelected, setZebraSelected] = useState('');
+  const [zebraConnecting, setZebraConnecting] = useState(false);
+  const [zebraPrinting, setZebraPrinting] = useState(false);
+
   const searchTimer = useRef(null);
+
+  // Auto-connect to Zebra Browser Print on mount
+  useEffect(() => {
+    isZebraAvailable().then(available => {
+      if (available) handleZebraConnect();
+    });
+  }, []); // eslint-disable-line
+
+  const handleZebraConnect = async () => {
+    setZebraConnecting(true);
+    const result = await connectZebra();
+    setZebraConnected(result.connected);
+    setZebraPrinters(result.printers || []);
+    setZebraSelected(result.selectedPrinter || '');
+    if (result.connected) {
+      toast.success(`Zebra connected — ${result.printers.length} printer(s) found`);
+    } else {
+      toast.error(result.error || 'Could not connect to Zebra Browser Print');
+    }
+    setZebraConnecting(false);
+  };
+
+  const handleZebraTestPrint = async () => {
+    setZebraPrinting(true);
+    const result = await printTestLabel(zebraSelected);
+    if (result.success) toast.success('Test label sent to printer');
+    else toast.error(result.error || 'Test print failed');
+    setZebraPrinting(false);
+  };
 
   const activeTemplate = editingTemplate || templates.find(t => t.id === activeTemplateId) || templates[0];
   const activeLabelSize = LABEL_SIZES.find(s => s.id === activeTemplate?.labelSize) || LABEL_SIZES[1];
@@ -460,13 +496,33 @@ export default function LabelDesign({ embedded }) {
 
   const handlePrint = async () => {
     const zpl = generateAllZPL();
-    // Try Electron label printer first
-    if (window.electronAPI?.printLabelNetwork) {
-      // Would need hardware config — for now, copy to clipboard
+    const labelCount = (selectedProducts.length || 1) * printQty;
+
+    // 1. Try Zebra Browser Print (preferred for back-office)
+    if (zebraConnected && zebraSelected) {
+      setZebraPrinting(true);
+      const result = await printZPL(zpl, zebraSelected);
+      setZebraPrinting(false);
+      if (result.success) {
+        toast.success(`Printed ${labelCount} label(s) to ${zebraSelected}`);
+        return;
+      }
+      toast.warn(`Zebra print failed: ${result.error}. ZPL copied to clipboard instead.`);
     }
+
+    // 2. Try Electron (cashier-app)
+    if (window.electronAPI?.printLabelNetwork) {
+      try {
+        await window.electronAPI.printLabelNetwork('', 9100, zpl);
+        toast.success(`Printed ${labelCount} label(s)`);
+        return;
+      } catch { /* fallback */ }
+    }
+
+    // 3. Fallback: copy to clipboard
     try {
       await navigator.clipboard.writeText(zpl);
-      toast.success(`ZPL copied to clipboard (${selectedProducts.length || 1} labels × ${printQty})`);
+      toast.success(`ZPL copied to clipboard (${labelCount} labels)`);
     } catch {
       toast.info('ZPL generated — see preview below');
     }
@@ -618,6 +674,55 @@ export default function LabelDesign({ embedded }) {
 
         {/* ── Right: Preview + Field config + Print ──────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+          {/* Printer Connection */}
+          <div className="p-card" style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: zebraConnected ? 8 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Printer size={15} color={zebraConnected ? 'var(--success)' : 'var(--text-muted)'} />
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Zebra Printer
+                    {zebraConnected
+                      ? <span style={{ marginLeft: 6, fontSize: '0.65rem', fontWeight: 700, color: 'var(--success)' }}>● Connected</span>
+                      : <span style={{ marginLeft: 6, fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)' }}>○ Not connected</span>
+                    }
+                  </div>
+                  {!zebraConnected && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                      Install <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>Zebra Browser Print</a> to connect
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {zebraConnected && (
+                  <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleZebraTestPrint} disabled={zebraPrinting || !zebraSelected}>
+                    {zebraPrinting ? <Loader size={12} className="p-spin" /> : <Printer size={12} />} Test
+                  </button>
+                )}
+                <button className="p-btn p-btn-secondary p-btn-sm" onClick={handleZebraConnect} disabled={zebraConnecting}>
+                  {zebraConnecting ? <Loader size={12} className="p-spin" /> : <RefreshCw size={12} />}
+                  {zebraConnected ? 'Refresh' : 'Connect'}
+                </button>
+              </div>
+            </div>
+            {zebraConnected && zebraPrinters.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <select className="p-select" style={{ flex: 1, fontSize: '0.78rem', padding: '4px 8px' }}
+                  value={zebraSelected}
+                  onChange={e => { setZebraSelected(e.target.value); selectZebraPrinter(e.target.value); }}>
+                  {zebraPrinters.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                  {zebraPrinters.length} printer{zebraPrinters.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Preview */}
           <div className="p-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

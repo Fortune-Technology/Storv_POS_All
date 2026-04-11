@@ -1,0 +1,428 @@
+/* ══════════════════════════════════════════════════════════════
+   TasksPage.css  —  Task management page
+   Prefix: tk-
+══════════════════════════════════════════════════════════════ */
+
+/* ── Filter Bar ─────────────────────────────────────────────── */
+.tk-filter-bar {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tk-filter-select {
+  width: auto;
+  min-width: 150px;
+  max-width: 200px;
+}
+
+/* ── Task List ──────────────────────────────────────────────── */
+.tk-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* ── Task Card ──────────────────────────────────────────────── */
+.tk-task-card {
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.tk-task-card:hover {
+  border-color: var(--border-brand);
+}
+.tk-expanded {
+  border-color: var(--border-brand);
+  box-shadow: var(--shadow-brand);
+}
+
+/* ── Task Header (clickable) ────────────────────────────────── */
+.tk-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.tk-task-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.tk-task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tk-task-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.tk-task-badges {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tk-task-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.tk-assignee {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.tk-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Recurring Badge ───────────────────────────────────────── */
+.tk-recurring-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--brand);
+  background: rgba(var(--brand-rgb, 99, 102, 241), 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.tk-recurring-badge::before {
+  content: '\1F501';
+  font-size: 0.72rem;
+}
+
+.tk-instance-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Task Body (expanded) ───────────────────────────────────── */
+.tk-task-body {
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.tk-description {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  margin: 0 0 0.875rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.tk-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tk-status-select {
+  width: auto;
+  min-width: 130px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+/* ── Textarea ───────────────────────────────────────────────── */
+.tk-textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Checklist  — on task cards (expanded)
+══════════════════════════════════════════════════════════════ */
+.tk-checklist-section {
+  margin-bottom: 0.875rem;
+}
+
+.tk-checklist-header {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tk-checklist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tk-checklist-item {
+  display: flex;
+  align-items: center;
+}
+
+.tk-checklist-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  padding: 0.2rem 0;
+}
+
+.tk-checklist-cb {
+  accent-color: var(--brand);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tk-checklist-done .tk-checklist-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* ── Checklist Progress (compact, in task header area) ──────── */
+.tk-checklist-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.tk-checklist-progress-bar {
+  width: 80px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border-color, #e5e7eb);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tk-checklist-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--brand, #6366f1);
+  transition: width 0.25s ease;
+}
+
+.tk-checklist-progress-text {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Checklist  — in New/Edit Task Modal
+══════════════════════════════════════════════════════════════ */
+.tk-modal-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.tk-checklist-add-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.tk-checklist-input {
+  flex: 1;
+}
+
+.tk-checklist-edit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.tk-checklist-edit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.5rem;
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.tk-checklist-edit-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.tk-checklist-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.tk-checklist-remove-btn:hover {
+  color: var(--error, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Recurring Schedule  — in New/Edit Task Modal
+══════════════════════════════════════════════════════════════ */
+.tk-recurring-toggle {
+  margin-bottom: 0.5rem;
+}
+
+.tk-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tk-toggle-checkbox {
+  display: none;
+}
+
+.tk-toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 12px;
+  background: var(--border-color, #d1d5db);
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.tk-toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s;
+}
+.tk-toggle-checkbox:checked + .tk-toggle-switch {
+  background: var(--brand, #6366f1);
+}
+.tk-toggle-checkbox:checked + .tk-toggle-switch::after {
+  transform: translateX(16px);
+}
+
+.tk-toggle-text {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tk-recurring-options {
+  margin-top: 0.35rem;
+  padding: 0.65rem;
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+/* ── Day Chips (Mon-Sun) ───────────────────────────────────── */
+.tk-day-checkboxes {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tk-day-hidden-cb {
+  display: none;
+}
+
+.tk-day-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #d1d5db);
+  background: var(--bg-primary, #fff);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tk-day-chip:hover {
+  border-color: var(--brand, #6366f1);
+}
+.tk-day-chip-active {
+  background: var(--brand, #6366f1);
+  color: #fff;
+  border-color: var(--brand, #6366f1);
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .tk-task-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .tk-task-right {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .tk-filter-bar {
+    flex-direction: column;
+  }
+  .tk-filter-select {
+    max-width: 100%;
+    width: 100%;
+  }
+  .tk-day-checkboxes {
+    gap: 0.25rem;
+  }
+  .tk-day-chip {
+    padding: 0.22rem 0.45rem;
+    font-size: 0.7rem;
+  }
+}

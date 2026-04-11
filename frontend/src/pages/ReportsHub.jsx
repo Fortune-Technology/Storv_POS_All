@@ -2,6 +2,7 @@
  * ReportsHub.jsx — Comprehensive Store Reports Page
  *
  * Tabs: Summary | Tender | Sales | Day | Tax | Inventory | Compare | Expenses
+ *       | Notes | Logins | Modifications | Receiving | House Accounts
  *
  * Uses shared portal.css classes (p-*) + page-specific ReportsHub.css (rh-*).
  */
@@ -12,13 +13,17 @@ import {
   TrendingUp, TrendingDown, Minus, AlertCircle, Loader,
   DollarSign, ShoppingCart, Percent, CreditCard, Users,
   Package, Calendar, ArrowUpRight, ArrowDownRight,
+  Shield, RotateCcw, Truck, Eye, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 import { toast } from 'react-toastify';
-import { getReportSummary, getReportTax, getReportInventory, getReportCompare } from '../services/api';
+import {
+  getReportSummary, getReportTax, getReportInventory, getReportCompare,
+  getReportNotes, getReportEvents, getReportReceive, getReportHouseAccounts,
+} from '../services/api';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import '../styles/portal.css';
 import './ReportsHub.css';
@@ -32,7 +37,10 @@ const toDateStr  = (d) => d.toISOString().slice(0, 10);
 const todayStr   = () => toDateStr(new Date());
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
 
-const TABS = ['Summary', 'Tender', 'Sales', 'Day', 'Tax', 'Inventory', 'Compare', 'Expenses'];
+const TABS = [
+  'Summary', 'Tender', 'Sales', 'Day', 'Tax', 'Inventory', 'Compare', 'Expenses',
+  'Notes', 'Logins', 'Modifications', 'Receiving', 'House Accounts',
+];
 
 /* ── Stat Card ────────────────────────────────────────────────────────────── */
 function StatCard({ label, value, sub }) {
@@ -60,6 +68,10 @@ export default function ReportsHub() {
   const [taxData,   setTaxData]   = useState(null);
   const [invData,   setInvData]   = useState(null);
   const [cmpData,   setCmpData]   = useState(null);
+  const [notesData, setNotesData] = useState(null);
+  const [eventsData, setEventsData] = useState(null);
+  const [receiveData, setReceiveData] = useState(null);
+  const [houseData, setHouseData] = useState(null);
 
   /* compare periods */
   const [from1, setFrom1] = useState(daysAgoStr(60));
@@ -70,6 +82,9 @@ export default function ReportsHub() {
   /* UI state */
   const [loading, setLoading] = useState(false);
   const [invFilter, setInvFilter] = useState('all');
+  const [loginFilter, setLoginFilter] = useState('all');
+  const [modFilter, setModFilter] = useState('all');
+  const [expandedPO, setExpandedPO] = useState(null);
 
   /* ── Fetch helpers ──────────────────────────────────────────────────────── */
   const fetchSummary = useCallback(async () => {
@@ -96,10 +111,11 @@ export default function ReportsHub() {
     }
   }, [from, to]);
 
-  const fetchInventory = useCallback(async () => {
+  const fetchInventory = useCallback(async (type) => {
     setLoading(true);
     try {
-      const data = await getReportInventory();
+      const params = type && type !== 'all' ? { type } : {};
+      const data = await getReportInventory(params);
       setInvData(data);
     } catch (e) {
       toast.error('Failed to load inventory report');
@@ -120,12 +136,64 @@ export default function ReportsHub() {
     }
   }, [from1, to1, from2, to2]);
 
+  const fetchNotes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getReportNotes({ from, to });
+      setNotesData(data);
+    } catch (e) {
+      toast.error('Failed to load notes report');
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  const fetchEvents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getReportEvents({ from, to });
+      setEventsData(data);
+    } catch (e) {
+      toast.error('Failed to load events report');
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  const fetchReceive = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getReportReceive({ from, to });
+      setReceiveData(data);
+    } catch (e) {
+      toast.error('Failed to load receiving report');
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  const fetchHouseAccounts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getReportHouseAccounts();
+      setHouseData(data);
+    } catch (e) {
+      toast.error('Failed to load house accounts report');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   /* ── Auto-load on tab switch ────────────────────────────────────────────── */
   useEffect(() => {
     if (['Summary', 'Tender', 'Sales', 'Day', 'Expenses'].includes(tab) && !summary) fetchSummary();
     if (tab === 'Tax' && !taxData) fetchTax();
     if (tab === 'Inventory' && !invData) fetchInventory();
     if (tab === 'Compare' && !cmpData) fetchCompare();
+    if (tab === 'Notes' && !notesData) fetchNotes();
+    if ((tab === 'Logins' || tab === 'Modifications') && !eventsData) fetchEvents();
+    if (tab === 'Receiving' && !receiveData) fetchReceive();
+    if (tab === 'House Accounts' && !houseData) fetchHouseAccounts();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Run button handler ─────────────────────────────────────────────────── */
@@ -133,10 +201,18 @@ export default function ReportsHub() {
     setSummary(null);
     setTaxData(null);
     setCmpData(null);
+    setNotesData(null);
+    setEventsData(null);
+    setReceiveData(null);
+    setHouseData(null);
     if (['Summary', 'Tender', 'Sales', 'Day', 'Expenses'].includes(tab)) fetchSummary();
     else if (tab === 'Tax') fetchTax();
-    else if (tab === 'Inventory') fetchInventory();
+    else if (tab === 'Inventory') fetchInventory(invFilter);
     else if (tab === 'Compare') fetchCompare();
+    else if (tab === 'Notes') fetchNotes();
+    else if (tab === 'Logins' || tab === 'Modifications') fetchEvents();
+    else if (tab === 'Receiving') fetchReceive();
+    else if (tab === 'House Accounts') fetchHouseAccounts();
   };
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -586,6 +662,11 @@ export default function ReportsHub() {
       { key: 'retailValue', label: 'Retail Value' },
     ];
 
+    const handleInvFilter = (key) => {
+      setInvFilter(key);
+      fetchInventory(key);
+    };
+
     return (
       <>
         <div className="p-stat-grid">
@@ -600,18 +681,18 @@ export default function ReportsHub() {
 
         <div className="rh-inv-filters">
           {[
-            { key: 'all', label: 'All' },
-            { key: 'low', label: 'Low Stock' },
-            { key: 'dead', label: 'Dead Stock' },
-            { key: 'over', label: 'Over Stock' },
-            { key: 'out', label: 'Out of Stock' },
+            { key: 'all',  label: 'All',           count: products.length },
+            { key: 'low',  label: 'Low Stock',     count: lowCount },
+            { key: 'dead', label: 'Dead Stock',    count: deadCount },
+            { key: 'over', label: 'Over Stock',    count: overCount },
+            { key: 'out',  label: 'Out of Stock',  count: outCount },
           ].map(f => (
             <button
               key={f.key}
               className={`p-btn p-btn-ghost p-btn-sm ${invFilter === f.key ? 'rh-filter-active' : ''}`}
-              onClick={() => setInvFilter(f.key)}
+              onClick={() => handleInvFilter(f.key)}
             >
-              {f.label}
+              {f.label} <span className="p-badge p-badge-count">{f.count}</span>
             </button>
           ))}
         </div>
@@ -831,6 +912,488 @@ export default function ReportsHub() {
   };
 
   /* ══════════════════════════════════════════════════════════════════════════
+     TAB: NOTES
+  ══════════════════════════════════════════════════════════════════════════ */
+  const renderNotes = () => {
+    if (!notesData) return <div className="p-empty">No data loaded. Click Run to fetch report.</div>;
+    const notes = notesData.notes || [];
+
+    const notesCols = [
+      { key: 'date',     label: 'Date' },
+      { key: 'txNumber', label: 'Tx#' },
+      { key: 'total',    label: 'Amount' },
+      { key: 'notes',    label: 'Notes' },
+      { key: 'cashierId', label: 'Cashier' },
+    ];
+
+    return (
+      <>
+        <div className="p-stat-grid">
+          <StatCard label="Transactions with Notes" value={fmtNum(notes.length)} />
+          <StatCard label="Total Amount" value={fmt(notesData.total)} />
+        </div>
+
+        <div className="rh-section">
+          <div className="rh-section-title">Transaction Notes</div>
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr><th>Date</th><th>Tx#</th><th>Amount</th><th>Notes</th><th>Cashier</th></tr>
+              </thead>
+              <tbody>
+                {notes.map((n, i) => (
+                  <tr key={i}>
+                    <td>{n.date}</td>
+                    <td className="p-td-strong">{n.txNumber}</td>
+                    <td>{fmt(n.total)}</td>
+                    <td>{n.notes}</td>
+                    <td>{n.cashierId}</td>
+                  </tr>
+                ))}
+                {!notes.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No transaction notes found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rh-export-row">
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadCSV(notes, notesCols, 'notes-report')}>
+            <Download size={14} /> CSV
+          </button>
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadPDF({
+            title: 'Transaction Notes Report', subtitle: `${from} to ${to}`,
+            summary: [
+              { label: 'Total Notes', value: fmtNum(notes.length) },
+              { label: 'Total Amount', value: fmt(notesData.total) },
+            ],
+            data: notes, columns: notesCols, filename: 'notes-report',
+          })}>
+            <FileText size={14} /> PDF
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     TAB: LOGINS
+  ══════════════════════════════════════════════════════════════════════════ */
+  const renderLogins = () => {
+    if (!eventsData) return <div className="p-empty">No data loaded. Click Run to fetch report.</div>;
+    const allEvents = eventsData.events || [];
+    const loginTypes = ['login', 'logout', 'clock_in', 'clock_out'];
+    const loginEvents = allEvents.filter(e => loginTypes.includes(e.type));
+
+    const filtered = loginFilter === 'all'
+      ? loginEvents
+      : loginEvents.filter(e => e.type === loginFilter);
+
+    const summaryItems = eventsData.summary || [];
+    const loginSummary = summaryItems.filter(s => loginTypes.includes(s.type));
+
+    const loginCols = [
+      { key: 'date',    label: 'Date/Time' },
+      { key: 'user',    label: 'User' },
+      { key: 'type',    label: 'Event Type' },
+      { key: 'details', label: 'Details' },
+    ];
+
+    const typeBadge = (type) => {
+      const map = {
+        login:     { cls: 'p-badge-green',  label: 'Login' },
+        logout:    { cls: 'p-badge-gray',   label: 'Logout' },
+        clock_in:  { cls: 'p-badge-blue',   label: 'Clock In' },
+        clock_out: { cls: 'p-badge-amber',  label: 'Clock Out' },
+      };
+      const b = map[type] || { cls: 'p-badge-gray', label: type };
+      return <span className={`p-badge ${b.cls}`}>{b.label}</span>;
+    };
+
+    return (
+      <>
+        <div className="p-stat-grid">
+          <StatCard label="Total Login Events" value={fmtNum(loginEvents.length)} />
+          {loginSummary.map((s, i) => (
+            <StatCard key={i} label={s.type.replace('_', ' ')} value={fmtNum(s.count)} />
+          ))}
+        </div>
+
+        <div className="rh-inv-filters">
+          {[
+            { key: 'all',       label: 'All' },
+            { key: 'login',     label: 'Login' },
+            { key: 'logout',    label: 'Logout' },
+            { key: 'clock_in',  label: 'Clock In' },
+            { key: 'clock_out', label: 'Clock Out' },
+          ].map(f => (
+            <button
+              key={f.key}
+              className={`p-btn p-btn-ghost p-btn-sm ${loginFilter === f.key ? 'rh-filter-active' : ''}`}
+              onClick={() => setLoginFilter(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="rh-section">
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr><th>Date/Time</th><th>User</th><th>Event Type</th><th>Details</th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((e, i) => (
+                  <tr key={i}>
+                    <td>{e.date}</td>
+                    <td className="p-td-strong">{e.user}</td>
+                    <td>{typeBadge(e.type)}</td>
+                    <td>{e.details}</td>
+                  </tr>
+                ))}
+                {!filtered.length && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No login events found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rh-export-row">
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadCSV(filtered, loginCols, 'logins-report')}>
+            <Download size={14} /> CSV
+          </button>
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadPDF({
+            title: 'Login Events Report', subtitle: `${from} to ${to}`,
+            summary: [{ label: 'Total Events', value: fmtNum(filtered.length) }],
+            data: filtered, columns: loginCols, filename: 'logins-report',
+          })}>
+            <FileText size={14} /> PDF
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     TAB: MODIFICATIONS
+  ══════════════════════════════════════════════════════════════════════════ */
+  const renderModifications = () => {
+    if (!eventsData) return <div className="p-empty">No data loaded. Click Run to fetch report.</div>;
+    const allEvents = eventsData.events || [];
+    const modTypes = ['void', 'refund', 'override', 'price_change'];
+    const modEvents = allEvents.filter(e => modTypes.includes(e.type));
+
+    const filtered = modFilter === 'all'
+      ? modEvents
+      : modEvents.filter(e => e.type === modFilter);
+
+    const voidCount     = modEvents.filter(e => e.type === 'void').length;
+    const refundCount   = modEvents.filter(e => e.type === 'refund').length;
+    const overrideCount = modEvents.filter(e => e.type === 'override').length;
+    const priceCount    = modEvents.filter(e => e.type === 'price_change').length;
+
+    const modCols = [
+      { key: 'date',    label: 'Date/Time' },
+      { key: 'type',    label: 'Type' },
+      { key: 'user',    label: 'User' },
+      { key: 'details', label: 'Details' },
+      { key: 'amount',  label: 'Amount' },
+    ];
+
+    const modBadge = (type) => {
+      const map = {
+        void:         { cls: 'p-badge-red',    label: 'Void' },
+        refund:       { cls: 'p-badge-amber',  label: 'Refund' },
+        override:     { cls: 'p-badge-purple', label: 'Override' },
+        price_change: { cls: 'p-badge-blue',   label: 'Price Change' },
+      };
+      const b = map[type] || { cls: 'p-badge-gray', label: type };
+      return <span className={`p-badge ${b.cls}`}>{b.label}</span>;
+    };
+
+    return (
+      <>
+        <div className="p-stat-grid">
+          <StatCard label="Total Modifications" value={fmtNum(modEvents.length)} />
+          <StatCard label="Voids"     value={fmtNum(voidCount)} />
+          <StatCard label="Refunds"   value={fmtNum(refundCount)} />
+          <StatCard label="Overrides" value={fmtNum(overrideCount)} />
+        </div>
+
+        <div className="rh-inv-filters">
+          {[
+            { key: 'all',          label: 'All',        count: modEvents.length },
+            { key: 'void',         label: 'Voids',      count: voidCount },
+            { key: 'refund',       label: 'Refunds',    count: refundCount },
+            { key: 'override',     label: 'Overrides',  count: overrideCount },
+            { key: 'price_change', label: 'Price Changes', count: priceCount },
+          ].map(f => (
+            <button
+              key={f.key}
+              className={`p-btn p-btn-ghost p-btn-sm ${modFilter === f.key ? 'rh-filter-active' : ''}`}
+              onClick={() => setModFilter(f.key)}
+            >
+              {f.label} <span className="p-badge p-badge-count">{f.count}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="rh-section">
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr><th>Date/Time</th><th>Type</th><th>User</th><th>Details</th><th>Amount</th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((e, i) => (
+                  <tr key={i}>
+                    <td>{e.date}</td>
+                    <td>{modBadge(e.type)}</td>
+                    <td className="p-td-strong">{e.user}</td>
+                    <td>{e.details}</td>
+                    <td>{fmt(e.amount)}</td>
+                  </tr>
+                ))}
+                {!filtered.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No modifications found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rh-export-row">
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadCSV(filtered, modCols, 'modifications-report')}>
+            <Download size={14} /> CSV
+          </button>
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadPDF({
+            title: 'Modifications Report', subtitle: `${from} to ${to}`,
+            summary: [
+              { label: 'Total', value: fmtNum(modEvents.length) },
+              { label: 'Voids', value: fmtNum(voidCount) },
+              { label: 'Refunds', value: fmtNum(refundCount) },
+              { label: 'Overrides', value: fmtNum(overrideCount) },
+            ],
+            data: filtered, columns: modCols, filename: 'modifications-report',
+          })}>
+            <FileText size={14} /> PDF
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     TAB: RECEIVING
+  ══════════════════════════════════════════════════════════════════════════ */
+  const renderReceiving = () => {
+    if (!receiveData) return <div className="p-empty">No data loaded. Click Run to fetch report.</div>;
+    const orders  = receiveData.orders  || [];
+    const summ    = receiveData.summary || {};
+
+    const recCols = [
+      { key: 'poNumber',     label: 'PO#' },
+      { key: 'vendor',       label: 'Vendor' },
+      { key: 'receivedDate', label: 'Received Date' },
+      { key: 'items',        label: 'Items' },
+      { key: 'grandTotal',   label: 'Total' },
+      { key: 'status',       label: 'Status' },
+    ];
+
+    const statusBadge = (status) => {
+      const map = {
+        received: { cls: 'p-badge-green',  label: 'Received' },
+        partial:  { cls: 'p-badge-amber',  label: 'Partial' },
+        pending:  { cls: 'p-badge-blue',   label: 'Pending' },
+        rejected: { cls: 'p-badge-red',    label: 'Rejected' },
+      };
+      const b = map[(status || '').toLowerCase()] || { cls: 'p-badge-gray', label: status || 'Unknown' };
+      return <span className={`p-badge ${b.cls}`}>{b.label}</span>;
+    };
+
+    const togglePO = (poNumber) => {
+      setExpandedPO(expandedPO === poNumber ? null : poNumber);
+    };
+
+    return (
+      <>
+        <div className="p-stat-grid">
+          <StatCard label="Total Orders Received" value={fmtNum(summ.totalOrders)} />
+          <StatCard label="Total Items"           value={fmtNum(summ.totalItems)} />
+          <StatCard label="Total Value"            value={fmt(summ.totalValue)} />
+        </div>
+
+        <div className="rh-section">
+          <div className="rh-section-title">Purchase Orders</div>
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr><th></th><th>PO#</th><th>Vendor</th><th>Received Date</th><th>Items</th><th>Total</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {orders.map((o, i) => (
+                  <React.Fragment key={i}>
+                    <tr
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => togglePO(o.poNumber)}
+                    >
+                      <td style={{ width: 28, textAlign: 'center' }}>
+                        {expandedPO === o.poNumber ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </td>
+                      <td className="p-td-strong">{o.poNumber}</td>
+                      <td>{o.vendor}</td>
+                      <td>{o.receivedDate}</td>
+                      <td>{fmtNum(Array.isArray(o.items) ? o.items.length : o.items)}</td>
+                      <td>{fmt(o.grandTotal)}</td>
+                      <td>{statusBadge(o.status)}</td>
+                    </tr>
+                    {expandedPO === o.poNumber && Array.isArray(o.items) && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: 0 }}>
+                          <div style={{ padding: '0.5rem 1rem 0.5rem 2.5rem', background: 'var(--bg-secondary)' }}>
+                            <table className="p-table" style={{ marginBottom: 0 }}>
+                              <thead>
+                                <tr><th>Item</th><th>UPC</th><th>Qty Ordered</th><th>Qty Received</th><th>Cost</th><th>Total</th></tr>
+                              </thead>
+                              <tbody>
+                                {o.items.map((item, j) => (
+                                  <tr key={j}>
+                                    <td>{item.name || item.description}</td>
+                                    <td>{item.upc}</td>
+                                    <td>{fmtNum(item.qtyOrdered)}</td>
+                                    <td>{fmtNum(item.qtyReceived)}</td>
+                                    <td>{fmt(item.cost)}</td>
+                                    <td>{fmt(item.total)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+                {!orders.length && <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No receiving orders found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rh-export-row">
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadCSV(
+            orders.map(o => ({ ...o, items: Array.isArray(o.items) ? o.items.length : o.items })),
+            recCols, 'receiving-report'
+          )}>
+            <Download size={14} /> CSV
+          </button>
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadPDF({
+            title: 'Receiving Report', subtitle: `${from} to ${to}`,
+            summary: [
+              { label: 'Total Orders', value: fmtNum(summ.totalOrders) },
+              { label: 'Total Items',  value: fmtNum(summ.totalItems) },
+              { label: 'Total Value',  value: fmt(summ.totalValue) },
+            ],
+            data: orders.map(o => ({ ...o, items: Array.isArray(o.items) ? o.items.length : o.items })),
+            columns: recCols, filename: 'receiving-report',
+          })}>
+            <FileText size={14} /> PDF
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     TAB: HOUSE ACCOUNTS
+  ══════════════════════════════════════════════════════════════════════════ */
+  const renderHouseAccounts = () => {
+    if (!houseData) return <div className="p-empty">No data loaded. Click Run to fetch report.</div>;
+    const customers = houseData.customers || [];
+    const summ      = houseData.summary   || {};
+
+    const haCols = [
+      { key: 'name',                label: 'Customer Name' },
+      { key: 'phone',               label: 'Phone' },
+      { key: 'balance',             label: 'Balance' },
+      { key: 'balanceLimit',        label: 'Limit' },
+      { key: 'discount',            label: 'Discount %' },
+      { key: 'instoreChargeEnabled', label: 'Charge Enabled' },
+      { key: 'loyaltyPoints',       label: 'Loyalty Points' },
+    ];
+
+    const balanceClass = (balance, limit) => {
+      const bal = Number(balance) || 0;
+      const lim = Number(limit)   || 0;
+      if (bal === 0) return 'p-td-green';
+      if (lim > 0 && bal >= lim) return 'p-td-red';
+      if (bal > 0) return 'p-td-amber';
+      return '';
+    };
+
+    return (
+      <>
+        <div className="p-stat-grid">
+          <StatCard label="Total Accounts"         value={fmtNum(summ.totalAccounts)} />
+          <StatCard label="Total Balance Owed"      value={fmt(summ.totalBalance)} />
+          <StatCard label="Total Limit"              value={fmt(summ.totalLimit)} />
+          <StatCard label="Active Charge Accounts"  value={fmtNum(summ.activeChargeAccounts)} />
+        </div>
+
+        <div className="rh-section">
+          <div className="rh-section-title">Customer Accounts</div>
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr>
+                  <th>Customer Name</th><th>Phone</th><th>Balance</th><th>Limit</th>
+                  <th>Discount %</th><th>Charge Enabled</th><th>Loyalty Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((c, i) => (
+                  <tr key={i}>
+                    <td className="p-td-strong">{c.name}</td>
+                    <td>{c.phone}</td>
+                    <td className={balanceClass(c.balance, c.balanceLimit)}>{fmt(c.balance)}</td>
+                    <td>{fmt(c.balanceLimit)}</td>
+                    <td>{c.discount != null ? `${c.discount}%` : '--'}</td>
+                    <td>
+                      <span className={`p-badge ${c.instoreChargeEnabled ? 'p-badge-green' : 'p-badge-gray'}`}>
+                        {c.instoreChargeEnabled ? 'Yes' : 'No'}
+                      </span>
+                    </td>
+                    <td>{fmtNum(c.loyaltyPoints)}</td>
+                  </tr>
+                ))}
+                {!customers.length && <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No house accounts found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rh-export-row">
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadCSV(
+            customers.map(c => ({ ...c, instoreChargeEnabled: c.instoreChargeEnabled ? 'Yes' : 'No' })),
+            haCols, 'house-accounts-report'
+          )}>
+            <Download size={14} /> CSV
+          </button>
+          <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => downloadPDF({
+            title: 'House Accounts Report',
+            summary: [
+              { label: 'Total Accounts', value: fmtNum(summ.totalAccounts) },
+              { label: 'Total Balance',  value: fmt(summ.totalBalance) },
+              { label: 'Active Charge',  value: fmtNum(summ.activeChargeAccounts) },
+            ],
+            data: customers.map(c => ({ ...c, instoreChargeEnabled: c.instoreChargeEnabled ? 'Yes' : 'No' })),
+            columns: haCols, filename: 'house-accounts-report',
+          })}>
+            <FileText size={14} /> PDF
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════════════════════════ */
   return (
@@ -847,7 +1410,7 @@ export default function ReportsHub() {
       </div>
 
       {/* Shared Date Controls */}
-      {tab !== 'Compare' && tab !== 'Inventory' && (
+      {tab !== 'Compare' && tab !== 'Inventory' && tab !== 'House Accounts' && (
         <div className="rh-controls">
           <div className="p-field">
             <label className="p-field-label">From</label>
@@ -886,14 +1449,19 @@ export default function ReportsHub() {
       {/* Tab Content */}
       {!loading && (
         <>
-          {tab === 'Summary'   && renderSummary()}
-          {tab === 'Tender'    && renderTender()}
-          {tab === 'Sales'     && renderSales()}
-          {tab === 'Day'       && renderDay()}
-          {tab === 'Tax'       && renderTax()}
-          {tab === 'Inventory' && renderInventory()}
-          {tab === 'Compare'   && renderCompare()}
-          {tab === 'Expenses'  && renderExpenses()}
+          {tab === 'Summary'        && renderSummary()}
+          {tab === 'Tender'         && renderTender()}
+          {tab === 'Sales'          && renderSales()}
+          {tab === 'Day'            && renderDay()}
+          {tab === 'Tax'            && renderTax()}
+          {tab === 'Inventory'      && renderInventory()}
+          {tab === 'Compare'        && renderCompare()}
+          {tab === 'Expenses'       && renderExpenses()}
+          {tab === 'Notes'          && renderNotes()}
+          {tab === 'Logins'         && renderLogins()}
+          {tab === 'Modifications'  && renderModifications()}
+          {tab === 'Receiving'      && renderReceiving()}
+          {tab === 'House Accounts' && renderHouseAccounts()}
         </>
       )}
     </div>

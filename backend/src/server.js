@@ -33,6 +33,10 @@ import billingRoutes     from './routes/billingRoutes.js';
 import equipmentRoutes   from './routes/equipmentRoutes.js';
 import orderRoutes       from './routes/orderRoutes.js';
 import reportsHubRoutes  from './routes/reportsHubRoutes.js';
+import chatRoutes        from './routes/chatRoutes.js';
+import taskRoutes        from './routes/taskRoutes.js';
+import auditRoutes       from './routes/auditRoutes.js';
+import { spawnRecurringTasks } from './controllers/taskController.js';
 import labelQueueRoutes  from './routes/labelQueueRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
 import { startBillingScheduler } from './services/billingScheduler.js';
@@ -92,6 +96,9 @@ app.use('/api/billing',        billingRoutes);
 app.use('/api/equipment',      equipmentRoutes);
 app.use('/api/vendor-orders',  orderRoutes);
 app.use('/api/reports/hub',    reportsHubRoutes);
+app.use('/api/chat',           chatRoutes);
+app.use('/api/tasks',          taskRoutes);
+app.use('/api/audit',          auditRoutes);
 app.use('/api/label-queue',    labelQueueRoutes);
 app.use('/api/public',         publicRoutes);
 app.use('/api/tickets',      ticketRoutes);
@@ -132,6 +139,10 @@ const startServer = async () => {
 
   startTokenRefreshScheduler();
   startBillingScheduler();
+
+  // Recurring task spawner — checks every 15 minutes for tasks due
+  setInterval(() => spawnRecurringTasks().catch(() => {}), 15 * 60 * 1000);
+  spawnRecurringTasks().catch(() => {}); // Initial run on startup
 
   app.listen(PORT, () => {
     console.log(`✓ Server running on port ${PORT}`);

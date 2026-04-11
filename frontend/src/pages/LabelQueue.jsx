@@ -16,6 +16,8 @@ import {
 } from '../services/api';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import { connectZebra, printZPL, getZebraStatus, isZebraAvailable } from '../services/zebraPrint';
+import { generateZPL, getDefaultTemplate } from './LabelDesign';
 import {
   Tag, Printer, X, Search, Plus, CheckSquare, Square,
   ChevronDown, ChevronUp, Package, Clock, AlertCircle, Check,
@@ -316,13 +318,52 @@ export default function LabelQueue({ embedded }) {
   // ── Bulk actions ─────────────────────────────────────────────────────────
   const handlePrint = async () => {
     if (selected.size === 0) { toast.warn('Select items to print'); return; }
+
+    const selectedItems = items.filter(i => selected.has(i._id || i.id));
+    const ids = Array.from(selected);
+
+    // Try Zebra Browser Print — generate ZPL from default template
+    let zebraSent = false;
     try {
-      await printLabelQueue({ ids: Array.from(selected) });
-      toast.success(`Printed ${selected.size} label(s)`);
+      const zebraOk = await isZebraAvailable();
+      if (zebraOk) {
+        const { connected, selectedPrinter } = await connectZebra();
+        if (connected && selectedPrinter) {
+          const template = getDefaultTemplate();
+          let allZPL = '';
+          for (const item of selectedItems) {
+            const productData = {
+              name: item.product?.name || '',
+              brand: item.product?.brand || '',
+              size: item.product?.size || '',
+              sizeUnit: item.product?.sizeUnit || '',
+              upc: item.product?.upc || '',
+              retailPrice: Number(item.newPrice || item.product?.defaultRetailPrice) || 0,
+              salePrice: item.reason === 'sale_started' ? Number(item.newPrice) || null : null,
+              departmentName: item.product?.department?.name || '',
+            };
+            allZPL += generateZPL(template, productData, template.labelSize);
+          }
+          const result = await printZPL(allZPL, selectedPrinter);
+          if (result.success) {
+            toast.success(`Printed ${selectedItems.length} label(s) to ${selectedPrinter}`);
+            zebraSent = true;
+          }
+        }
+      }
+    } catch { /* Zebra not available — fallback below */ }
+
+    if (!zebraSent) {
+      toast.info(`${selectedItems.length} label(s) marked as printed (no Zebra printer connected)`);
+    }
+
+    // Mark as printed in the database regardless
+    try {
+      await printLabelQueue({ ids });
       setSelected(new Set());
       fetchQueue();
     } catch (err) {
-      toast.error(err?.response?.data?.message || 'Print failed');
+      toast.error(err?.response?.data?.message || 'Failed to update queue');
     }
   };
 

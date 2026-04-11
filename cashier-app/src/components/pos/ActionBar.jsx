@@ -7,7 +7,7 @@ import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
   ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
-  ClipboardList, Settings, Monitor,
+  ClipboardList, Settings, Monitor, MessageSquare,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -40,6 +40,8 @@ export default function ActionBar({
   onLotteryShift,
   onHardwareSettings,
   onCustomerDisplay,
+  onTasks,
+  onChat,
   onOpenShift, onCloseShift, onCashDrop, onPayout,
   shiftOpen = false,
   lotteryEnabled = true,
@@ -108,6 +110,8 @@ export default function ActionBar({
           {shiftOpen && <ACT icon={LockKeyhole} label="Close Shift" onClick={onCloseShift} color="var(--red)" locked={!valid} />}
           <ACT icon={Settings} label="Hardware" onClick={onHardwareSettings} color="var(--text-muted)" />
           {onCustomerDisplay && <ACT icon={Monitor} label="Cust. Display" onClick={onCustomerDisplay} color="var(--blue)" />}
+          {onTasks && <ACT icon={ClipboardList} label="Tasks" onClick={onTasks} color="var(--green)" />}
+          {onChat && <ACT icon={MessageSquare} label="Chat" onClick={onChat} color="#8b5cf6" />}
           <Divider />
         </>
       )}

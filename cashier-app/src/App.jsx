@@ -29,6 +29,7 @@ export default function App() {
   const station    = useStationStore(s => s.station);
   const setStation = useStationStore(s => s.setStation);
   const cashier    = useAuthStore(s => s.cashier);
+  const logout     = useAuthStore(s => s.logout);
   const loadPendingCount = useSyncStore(s => s.loadPendingCount);
 
   const [booting, setBooting] = useState(true);
@@ -51,6 +52,71 @@ export default function App() {
       setBooting(false);
     }
     boot();
+  }, []); // eslint-disable-line
+
+  // ── Auto-logout when browser tab/window is closed (not Electron) ────────
+  useEffect(() => {
+    if (window.electronAPI?.isElectron) return;
+    const handleUnload = () => { localStorage.removeItem('pos_user'); };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
+  // ── Stale session check on boot ───────────────────────────────────────
+  // If the cached cashier session is from a previous day, clear it immediately.
+  // This handles the case where the browser was closed overnight without logout.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('pos_user');
+      if (!raw) return;
+      const cached = JSON.parse(raw);
+      if (!cached?.loginAt) return;
+      const loginDate = new Date(cached.loginAt).toDateString();
+      const today = new Date().toDateString();
+      if (loginDate !== today) {
+        console.info('[App] Stale session detected (logged in on', loginDate, ') — auto-clearing');
+        localStorage.removeItem('pos_user');
+        logout();
+      }
+    } catch {}
+  }, []); // eslint-disable-line
+
+  // ── Midnight auto-close shift + logout ─────────────────────────────────
+  // Runs at App level so it works regardless of which screen is active.
+  // At midnight: auto-close the active shift (amount=0) and log out.
+  useEffect(() => {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setDate(midnight.getDate() + 1);
+    midnight.setHours(0, 0, 0, 0);
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+
+    const timerId = setTimeout(async () => {
+      console.info('[App] Midnight reached — auto-closing shift and logging out');
+
+      // Try to close the active shift via API
+      try {
+        const { shift: currentShift, closeShift: closeFn } = (await import('./stores/useShiftStore.js')).useShiftStore.getState();
+        if (currentShift?.id) {
+          await closeFn({
+            closingAmount: 0,
+            closingNote: 'Auto-settled at midnight',
+          }).catch(() => {});
+        }
+      } catch {}
+
+      // Clear cart
+      try {
+        const { useCartStore } = await import('./stores/useCartStore.js');
+        useCartStore.getState().clearCart();
+      } catch {}
+
+      // Logout
+      localStorage.removeItem('pos_user');
+      logout();
+    }, msUntilMidnight);
+
+    return () => clearTimeout(timerId);
   }, []); // eslint-disable-line
 
   if (booting) {
