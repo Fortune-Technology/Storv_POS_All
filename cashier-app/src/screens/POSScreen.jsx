@@ -734,16 +734,7 @@ export default function POSScreen() {
 
             {/* Search dropdown */}
             {showSearch && searchResults.length > 0 && (
-              <div style={{
-                position: 'absolute', zIndex: 50,
-                left: '0.875rem',
-                right: '0.875rem',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-light)',
-                borderRadius: 'var(--r-md)',
-                marginTop: 4, maxHeight: 300, overflowY: 'auto',
-                boxShadow: '0 8px 32px rgba(0,0,0,.45)',
-              }}>
+              <div className="pos-search-dropdown">
                 {searchResults.map(p => (
                   <button
                     key={p.id}
@@ -1111,8 +1102,7 @@ export default function POSScreen() {
 
           {/* Cart items list */}
           <div
-            className="scroll"
-            style={{ flex: 1, padding: '0.4rem 0.5rem', overflowY: 'auto' }}
+            className="pos-cart-list scroll"
             onClick={e => { if (e.target === e.currentTarget) clearSelection(); }}
           >
             {items.length === 0 ? (

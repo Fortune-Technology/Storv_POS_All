@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { Monitor, Download } from 'lucide-react';
 import StoreveuLogo from '../StoreveuLogo';
 import axios from 'axios';
 import './MarketingFooter.css';
@@ -31,6 +32,8 @@ const MarketingFooter = () => {
   }));
 
   const companyLinks = [...staticCompanyLinks, ...cmsLinks];
+
+  const POS_DOWNLOAD_URL = (import.meta.env.VITE_POS_DOWNLOAD_URL || '/downloads/StoreVeu-POS-Setup.exe');
 
   const footerGroups = [
     {
@@ -69,6 +72,13 @@ const MarketingFooter = () => {
             <p className="mkt-footer-desc">
               The smartest POS solution for modern retailers. Powered by AI to simplify your inventory, billing, and growth.
             </p>
+            <a href={POS_DOWNLOAD_URL} download className="mkt-footer-download">
+              <Download size={16} />
+              <div>
+                <div className="mkt-footer-download-title">Download POS App</div>
+                <div className="mkt-footer-download-sub">Windows Desktop — v2.0</div>
+              </div>
+            </a>
           </div>
 
           {/* Link Groups */}

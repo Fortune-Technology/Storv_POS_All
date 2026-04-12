@@ -60,10 +60,24 @@ html, body, #root {
   overflow: hidden;
   background: var(--bg-base);
   color: var(--text-primary);
+  touch-action: manipulation; /* allow pan + tap on touchscreens, disable double-tap-zoom */
 }
 
 /* Scrollable areas */
-.scroll { overflow-y: auto; overflow-x: hidden; }
+.scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* ── Global touch-scroll fix for POS touchscreens ──
+   On Windows touch devices, the browser needs explicit touch-action
+   declarations to allow touch-based scrolling inside overflow containers.
+   Without this, touch events get consumed by the parent and scrolling
+   doesn't work on embedded touchscreens (Elo, HP, etc.)                */
+.modal-backdrop { touch-action: pan-y; }
+.modal-box      { touch-action: pan-y; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 /* ── Scrollbar (global) ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

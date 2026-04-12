@@ -168,7 +168,7 @@ export default function StationSetupScreen() {
   const [hw, setHW] = useState({
     receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', baud: 9600, portLabel: '' },
+    scale:          { type: 'none', connection: 'serial', baud: 9600, portLabel: '', ip: '', port: 4001 },
     paxTerminal:    { enabled: false, model: 'A35', ip: '', port: 10009 },
     cashDrawer:     { type: 'none' },
   });
@@ -318,14 +318,54 @@ export default function StationSetupScreen() {
     setDetectingPorts(false);
   };
 
-  // ── Test scale connection — read live weight for 4 seconds ───────────
+  // ── Test scale connection — read live weight for 5 seconds ───────────
   const testScaleConnection = async () => {
-    if (!('serial' in navigator)) {
-      alert('Web Serial API not supported. Use Chrome or Edge.');
-      return;
-    }
     setScaleTestingState(true);
     setScaleTestWeight(null);
+
+    // ── TCP mode (Electron only) ──────────────────────────────────────
+    if (hw.scale.connection === 'tcp') {
+      if (!window.electronAPI?.scaleConnect) {
+        setScaleTestWeight('no signal');
+        setScaleTestingState(false);
+        alert('TCP scale requires the Electron desktop app.');
+        return;
+      }
+      try {
+        const ip   = hw.scale.ip || '192.168.1.100';
+        const port = hw.scale.port || 4001;
+        const res  = await window.electronAPI.scaleConnect(ip, port);
+        if (!res?.ok) { setScaleTestWeight('no signal'); setScaleTestingState(false); return; }
+
+        let found = false;
+        const handler = (line) => {
+          const m = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|g\b|G\b|oz|OZ)/);
+          if (m && !found) {
+            found = true;
+            setScaleTestWeight(`${parseFloat(m[1].replace(/\s/g, ''))} ${m[2].toLowerCase()}`);
+          }
+        };
+        window.electronAPI.onScaleData(handler);
+
+        // Listen for 5 seconds
+        await new Promise(r => setTimeout(r, 5000));
+        window.electronAPI.removeScaleListeners?.();
+        window.electronAPI.scaleDisconnect?.();
+        if (!found) setScaleTestWeight('no signal');
+      } catch (err) {
+        setScaleTestWeight('no signal');
+      } finally {
+        setScaleTestingState(false);
+      }
+      return;
+    }
+
+    // ── USB Serial mode ───────────────────────────────────────────────
+    if (!('serial' in navigator)) {
+      alert('Web Serial API not supported. Use Chrome or Edge.');
+      setScaleTestingState(false);
+      return;
+    }
     let port;
     let reader;
     try {
@@ -870,67 +910,110 @@ export default function StationSetupScreen() {
 
                 {hw.scale.type !== 'none' && (
                   <>
-                    {/* Port selection */}
-                    <Field label="Serial Port">
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <select
-                          value={hw.scale.portLabel || ''}
-                          onChange={e => {
-                            const chosen = detectedPorts.find(p => p.label === e.target.value);
-                            if (chosen?.source === 'picker') {
-                              // Trigger native port picker
-                              navigator.serial?.requestPort({
-                                filters: [{ usbVendorId: 0x05F9 }, { usbVendorId: 0x04B4 }],
-                              }).then(port => {
-                                const info = port.getInfo?.() ?? {};
-                                const label = info.usbVendorId === 0x05F9 || info.usbVendorId === 0x04B4
-                                  ? 'Datalogic Magellan'
-                                  : 'USB Serial Port';
-                                const newEntry = { label, source: 'webserial', port };
-                                setDetectedPorts(prev => [...prev.filter(p => p.source !== 'picker'), newEntry]);
-                                updHW('scale', { portLabel: label });
-                              }).catch(() => {});
-                            } else if (chosen) {
-                              updHW('scale', { portLabel: chosen.label, portSource: chosen.source, portName: chosen.name || '' });
-                            }
-                          }}
-                          className="sss-select" style={{ flex: 1 }}
-                        >
-                          <option value="">-- Select port --</option>
-                          {detectedPorts.map(p => (
-                            <option key={p.label} value={p.label}>{p.label}</option>
-                          ))}
-                          {hw.scale.portLabel && !detectedPorts.find(p => p.label === hw.scale.portLabel) && (
-                            <option value={hw.scale.portLabel}>{hw.scale.portLabel} (saved)</option>
-                          )}
-                        </select>
-                        <button
-                          onClick={detectScalePorts}
-                          disabled={detectingPorts}
-                          className={`sss-test-btn ${detectedPorts.length > 0 ? 'sss-test-btn--ok' : 'sss-test-btn--idle'}`}
-                          title="Auto-detect connected serial ports"
-                        >
-                          {detectingPorts
-                            ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                            : <RefreshCw size={13} />}
-                          {detectingPorts ? 'Detecting…' : 'Detect'}
-                        </button>
-                      </div>
-                      {detectedPorts.length === 0 && (
-                        <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
-                          Click <strong style={{ color: '#94a3b8' }}>Detect</strong> to auto-find connected scale ports
-                        </div>
-                      )}
-                    </Field>
-
-                    {/* Baud rate */}
-                    <Field label="Baud Rate">
-                      <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} className="sss-select">
-                        {BAUD_RATES.map(b => (
-                          <option key={b} value={b}>{b}{b === 9600 ? ' (most common)' : ''}</option>
-                        ))}
+                    {/* Connection type */}
+                    <Field label="Connection">
+                      <select
+                        value={hw.scale.connection || 'serial'}
+                        onChange={e => updHW('scale', { connection: e.target.value })}
+                        className="sss-select"
+                      >
+                        <option value="serial">USB Serial (Web Serial API)</option>
+                        <option value="tcp">TCP / Serial-over-LAN (Ethernet)</option>
                       </select>
                     </Field>
+
+                    {hw.scale.connection === 'tcp' ? (
+                      <>
+                        {/* TCP IP + Port */}
+                        <div className="sss-grid-equal-2">
+                          <Field label="IP Address">
+                            <input
+                              className="sss-field"
+                              value={hw.scale.ip || ''}
+                              onChange={e => updHW('scale', { ip: e.target.value })}
+                              placeholder="192.168.1.100"
+                            />
+                          </Field>
+                          <Field label="TCP Port">
+                            <input
+                              className="sss-field"
+                              type="number"
+                              value={hw.scale.port || 4001}
+                              onChange={e => updHW('scale', { port: Number(e.target.value) })}
+                              placeholder="4001"
+                            />
+                          </Field>
+                        </div>
+                        <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7 }}>
+                          <div style={{ fontWeight: 700, color: '#7b95e0', marginBottom: 4 }}>TCP / Serial-over-LAN</div>
+                          Connect to the scale via Ethernet using a serial-to-TCP adapter (e.g. Moxa NPort, USR-TCP232).
+                          The Datalogic Magellan 9800i also supports Ethernet mode. Requires the <strong style={{ color: '#e8eaf0' }}>desktop Electron app</strong>.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* USB Serial — Port selection */}
+                        <Field label="Serial Port">
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <select
+                              value={hw.scale.portLabel || ''}
+                              onChange={e => {
+                                const chosen = detectedPorts.find(p => p.label === e.target.value);
+                                if (chosen?.source === 'picker') {
+                                  navigator.serial?.requestPort({
+                                    filters: [{ usbVendorId: 0x05F9 }, { usbVendorId: 0x04B4 }],
+                                  }).then(port => {
+                                    const info = port.getInfo?.() ?? {};
+                                    const label = info.usbVendorId === 0x05F9 || info.usbVendorId === 0x04B4
+                                      ? 'Datalogic Magellan'
+                                      : 'USB Serial Port';
+                                    const newEntry = { label, source: 'webserial', port };
+                                    setDetectedPorts(prev => [...prev.filter(p => p.source !== 'picker'), newEntry]);
+                                    updHW('scale', { portLabel: label });
+                                  }).catch(() => {});
+                                } else if (chosen) {
+                                  updHW('scale', { portLabel: chosen.label, portSource: chosen.source, portName: chosen.name || '' });
+                                }
+                              }}
+                              className="sss-select" style={{ flex: 1 }}
+                            >
+                              <option value="">-- Select port --</option>
+                              {detectedPorts.map(p => (
+                                <option key={p.label} value={p.label}>{p.label}</option>
+                              ))}
+                              {hw.scale.portLabel && !detectedPorts.find(p => p.label === hw.scale.portLabel) && (
+                                <option value={hw.scale.portLabel}>{hw.scale.portLabel} (saved)</option>
+                              )}
+                            </select>
+                            <button
+                              onClick={detectScalePorts}
+                              disabled={detectingPorts}
+                              className={`sss-test-btn ${detectedPorts.length > 0 ? 'sss-test-btn--ok' : 'sss-test-btn--idle'}`}
+                              title="Auto-detect connected serial ports"
+                            >
+                              {detectingPorts
+                                ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                                : <RefreshCw size={13} />}
+                              {detectingPorts ? 'Detecting…' : 'Detect'}
+                            </button>
+                          </div>
+                          {detectedPorts.length === 0 && (
+                            <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
+                              Click <strong style={{ color: '#94a3b8' }}>Detect</strong> to auto-find connected scale ports
+                            </div>
+                          )}
+                        </Field>
+
+                        {/* Baud rate */}
+                        <Field label="Baud Rate">
+                          <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} className="sss-select">
+                            {BAUD_RATES.map(b => (
+                              <option key={b} value={b}>{b}{b === 9600 ? ' (most common)' : ''}</option>
+                            ))}
+                          </select>
+                        </Field>
+                      </>
+                    )}
 
                     {/* Test weight button + live reading */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
@@ -1115,7 +1198,7 @@ export default function StationSetupScreen() {
                     return `${modelLabel} — ${hw.receiptPrinter.name || 'USB/QZ Tray'}`;
                   })(), icon: Printer },
                 { label: 'Cash Drawer',    value: hw.cashDrawer.type === 'none' ? 'Not configured' : 'Via receipt printer', icon: Package },
-                { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`, icon: Scale },
+                { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.connection === 'tcp' ? `TCP ${hw.scale.ip || '?'}:${hw.scale.port || 4001}` : `${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`}`, icon: Scale },
                 { label: 'PAX Terminal',   value: hw.paxTerminal.enabled ? `${hw.paxTerminal.model} @ ${hw.paxTerminal.ip}:${hw.paxTerminal.port}` : 'Not configured', icon: CreditCard },
                 { label: 'Label Printer',  value: hw.labelPrinter.type === 'none' ? 'Not configured' : (hw.labelPrinter.name || hw.labelPrinter.ip || hw.labelPrinter.type), icon: Tag },
               ].map(({ label, value, icon: Icon }) => (

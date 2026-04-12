@@ -145,6 +145,8 @@
   margin-top: 4px;
   max-height: 300px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
@@ -402,6 +404,8 @@
   flex: 1;
   padding: 0.4rem 0.5rem;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .pos-cart-empty {

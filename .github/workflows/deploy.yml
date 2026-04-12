@@ -45,9 +45,16 @@ jobs:
           rm -f package-lock.json
           npm install
           npx prisma generate
-          npx prisma db push --accept-data-loss
-          npx prisma migrate deploy
-          pm2 restart storv-pos-backend
+
+          # Run any pending SQL migrations (safe — all use IF NOT EXISTS)
+          for f in prisma/migrations/*.sql; do
+            if [ -f "$f" ]; then
+              echo "Running migration: $f"
+              npx prisma db execute --file "$f" --schema prisma/schema.prisma || echo "  ⚠ Migration $f had warnings (non-fatal)"
+            fi
+          done
+
+          pm2 restart api-pos || pm2 restart storv-pos-backend || echo "PM2 restart attempted"
           pm2 save
 
       - name: Verify backend is running
@@ -252,3 +259,38 @@ jobs:
           EOF
           )" \
             --latest
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Copy .exe installer to frontend so it's served from the website
+  # Runs AFTER both deploy and build-electron finish successfully.
+  # ──────────────────────────────────────────────────────────────────────────
+  publish-installer:
+    needs: [deploy, build-electron]
+    runs-on: [self-hosted, Linux, X64]
+
+    steps:
+      - name: Download installer from GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          DOWNLOADS_DIR="/var/www/Storv_POS_All/frontend/dist/downloads"
+          mkdir -p "$DOWNLOADS_DIR"
+
+          # Remove old installer(s)
+          rm -f "$DOWNLOADS_DIR"/*.exe
+
+          # Download the latest .exe from the GitHub Release
+          cd "$DOWNLOADS_DIR"
+          gh release download latest-desktop -p "*.exe" --clobber \
+            -R "$GITHUB_REPOSITORY"
+
+          # Rename to a consistent filename for the website download link
+          for f in *.exe; do
+            if [ "$f" != "StoreVeu-POS-Setup.exe" ]; then
+              mv "$f" StoreVeu-POS-Setup.exe
+            fi
+          done
+
+          echo "✅ Installer published: $(ls -lh StoreVeu-POS-Setup.exe)"
