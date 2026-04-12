@@ -300,3 +300,51 @@ export async function getProductMovement(user, storeId, upc, from, to, weekly = 
 export async function getDailyProductMovement(user, storeId, from, to) {
   return getProductMovement(user, storeId, null, from, to, false);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 52-WEEK STATS (high / low / avg weekly units for a single product)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function getProduct52WeekStats(user, storeId, upc) {
+  // Query last 365 days of transactions
+  const now = new Date();
+  const yearAgo = new Date(now);
+  yearAgo.setDate(yearAgo.getDate() - 364);
+  const from = toDateStr(yearAgo);
+  const to   = toDateStr(now);
+
+  const txns = await prisma.transaction.findMany({
+    where: buildWhere(user, storeId, from, to),
+    select: { lineItems: true, createdAt: true },
+  });
+
+  // Aggregate into weekly buckets
+  const weeks = {};
+  for (const tx of txns) {
+    const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    for (const li of items) {
+      // Match by UPC — check both upc and any additionalUpcs
+      const liUpc = li.upc || '';
+      if (liUpc !== upc) continue;
+
+      const d = new Date(tx.createdAt);
+      const wk = getWeekStart(d);
+      if (!weeks[wk]) weeks[wk] = 0;
+      weeks[wk] += Number(li.qty || 1);
+    }
+  }
+
+  const weeklyValues = Object.values(weeks);
+  if (weeklyValues.length === 0) {
+    return { weeklyHigh: null, weeklyLow: null, avgWeekly: null, totalUnits: 0, weeksWithSales: 0, suggestedQoH: null };
+  }
+
+  const totalUnits     = weeklyValues.reduce((s, v) => s + v, 0);
+  const weeksWithSales = weeklyValues.length;
+  const weeklyHigh     = Math.max(...weeklyValues);
+  const weeklyLow      = Math.min(...weeklyValues);
+  const avgWeekly      = r2(totalUnits / 52); // avg over full 52 weeks, not just weeks with sales
+  const suggestedQoH   = Math.ceil(avgWeekly * 2); // 2-week cover
+
+  return { weeklyHigh, weeklyLow, avgWeekly, totalUnits, weeksWithSales, suggestedQoH };
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import StoreveuLogo from './StoreveuLogo';
 import './AdminSidebar.css';
@@ -20,7 +20,9 @@ import {
   Activity,
   Store,
   CreditCard,
+  MessageSquare,
 } from 'lucide-react';
+import api from '../services/api';
 
 const adminMenuGroups = [
   {
@@ -68,8 +70,9 @@ const adminMenuGroups = [
   {
     label: 'Support',
     items: [
-      { name: 'Tickets',       icon: <Ticket size={13} />,   path: '/tickets' },
-      { name: 'System Config', icon: <Settings size={13} />,  path: '/config' },
+      { name: 'Chat',          icon: <MessageSquare size={13} />, path: '/chat' },
+      { name: 'Tickets',       icon: <Ticket size={13} />,        path: '/tickets' },
+      { name: 'System Config', icon: <Settings size={13} />,      path: '/config' },
     ],
   },
 ];
@@ -78,6 +81,23 @@ const AdminSidebar = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
+
+  const fetchUnread = useCallback(() => {
+    api.get('/chat/unread')
+      .then(res => setChatUnread(res.data?.count || 0))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchUnread();
+    const iv = setInterval(fetchUnread, 15000);
+    return () => clearInterval(iv);
+  }, [fetchUnread]);
+
+  useEffect(() => {
+    if (location.pathname === '/chat') setChatUnread(0);
+  }, [location.pathname]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -136,17 +156,21 @@ const AdminSidebar = () => {
           {adminMenuGroups.map((group) => (
             <div key={group.label} className="nav-group">
               <span className="nav-group-label">{group.label}</span>
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  end
-                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                >
-                  <span className="nav-icon">{item.icon}</span>
-                  <span className="nav-text">{item.name}</span>
-                </NavLink>
-              ))}
+              {group.items.map((item) => {
+                const badge = item.path === '/chat' && chatUnread > 0 ? chatUnread : 0;
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    <span className="nav-text">{item.name}</span>
+                    {badge > 0 && <span className="nav-badge">{badge > 99 ? '99+' : badge}</span>}
+                  </NavLink>
+                );
+              })}
             </div>
           ))}
 

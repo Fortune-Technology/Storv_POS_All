@@ -23,6 +23,7 @@ import AdminUserActivity from './pages/AdminUserActivity';
 import AdminStores from './pages/AdminStores';
 import AdminPaymentSettings from './pages/AdminPaymentSettings';
 import AdminBilling         from './pages/AdminBilling';
+import AdminChat            from './pages/AdminChat';
 
 const ProtectedRoute = ({ children }) => {
   const user = JSON.parse(localStorage.getItem('admin_user'));
@@ -56,6 +57,7 @@ function App() {
         <Route path="/config" element={<ProtectedRoute><AdminLayout><AdminSystemConfig /></AdminLayout></ProtectedRoute>} />
         <Route path="/payment" element={<ProtectedRoute><AdminLayout><AdminPaymentSettings /></AdminLayout></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><AdminLayout><AdminBilling /></AdminLayout></ProtectedRoute>} />
+        <Route path="/chat" element={<ProtectedRoute><AdminLayout><AdminChat /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

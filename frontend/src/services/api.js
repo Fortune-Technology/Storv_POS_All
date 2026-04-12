@@ -125,6 +125,7 @@ export const getTopProducts = (params) => api.get('/sales/products/top', { param
 export const getProductsGrouped = (params) => api.get('/sales/products/grouped', { params }).then(r => r.data);
 export const getProductMovement = (params) => api.get('/sales/products/movement', { params }).then(r => r.data);
 export const getDailyProductMovement = (params) => api.get('/sales/products/daily-movement', { params }).then(r => r.data);
+export const getProduct52WeekStats = (params) => api.get('/sales/products/52week-stats', { params }).then(r => r.data);
 export const getSalesPredictionsDaily = (params) => api.get('/sales/predictions/daily', { params }).then(r => r.data);
 export const getSalesPredictionsWeekly = (params) => api.get('/sales/predictions/weekly', { params }).then(r => r.data);
 export const getSalesPredictionsHourly = (params) => api.get('/sales/predictions/hourly', { params }).then(r => r.data);
