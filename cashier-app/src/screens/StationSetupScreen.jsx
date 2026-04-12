@@ -168,7 +168,7 @@ export default function StationSetupScreen() {
   const [hw, setHW] = useState({
     receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', connection: 'serial', baud: 9600, portLabel: '', ip: '', port: 4001 },
+    scale:          { type: 'none', connection: 'serial', baud: 9600, portLabel: '', ip: '', port: 4001, comPort: '' },
     paxTerminal:    { enabled: false, model: 'A35', ip: '', port: 10009 },
     cashDrawer:     { type: 'none' },
   });
@@ -185,6 +185,8 @@ export default function StationSetupScreen() {
   // Scale port detection
   const [detectedPorts,    setDetectedPorts]    = useState([]); // { label, port|name }
   const [detectingPorts,   setDetectingPorts]   = useState(false);
+  const [nativeComPorts,   setNativeComPorts]   = useState([]); // [{ path, friendlyName, manufacturer }]
+  const [detectingNative,  setDetectingNative]  = useState(false);
   const [scaleTestWeight,  setScaleTestWeight]  = useState(null);
   const [scaleTesting,     setScaleTestingState] = useState(false);
   const scaleReaderCleanup = React.useRef(null);
@@ -318,10 +320,61 @@ export default function StationSetupScreen() {
     setDetectingPorts(false);
   };
 
+  // ── Detect native COM ports (Electron only) ─────────────────────────
+  const detectNativeComPorts = async () => {
+    if (!window.electronAPI?.serialList) return;
+    setDetectingNative(true);
+    try {
+      const res = await window.electronAPI.serialList();
+      setNativeComPorts(res?.ports || []);
+      // Auto-select first port if none selected
+      if (res?.ports?.length > 0 && !hw.scale.comPort) {
+        updHW('scale', { comPort: res.ports[0].path });
+      }
+    } catch {}
+    finally { setDetectingNative(false); }
+  };
+
   // ── Test scale connection — read live weight for 5 seconds ───────────
   const testScaleConnection = async () => {
     setScaleTestingState(true);
     setScaleTestWeight(null);
+
+    // ── Native COM port mode (Electron only) ─────────────────────────
+    if (hw.scale.connection === 'serial-native') {
+      if (!window.electronAPI?.serialConnect) {
+        setScaleTestWeight('no signal');
+        setScaleTestingState(false);
+        alert('Native COM port requires the Electron desktop app.');
+        return;
+      }
+      try {
+        const comPath = hw.scale.comPort;
+        if (!comPath) { setScaleTestWeight('no signal'); setScaleTestingState(false); alert('Select a COM port first.'); return; }
+        const res = await window.electronAPI.serialConnect(comPath, hw.scale.baud || 9600);
+        if (!res?.ok) { setScaleTestWeight('no signal'); setScaleTestingState(false); return; }
+
+        let found = false;
+        const handler = (line) => {
+          const m = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|g\b|G\b|oz|OZ)/);
+          if (m && !found) {
+            found = true;
+            setScaleTestWeight(`${parseFloat(m[1].replace(/\s/g, ''))} ${m[2].toLowerCase()}`);
+          }
+        };
+        window.electronAPI.onScaleData(handler);
+
+        await new Promise(r => setTimeout(r, 5000));
+        window.electronAPI.removeScaleListeners?.();
+        window.electronAPI.serialDisconnect?.();
+        if (!found) setScaleTestWeight('no signal');
+      } catch {
+        setScaleTestWeight('no signal');
+      } finally {
+        setScaleTestingState(false);
+      }
+      return;
+    }
 
     // ── TCP mode (Electron only) ──────────────────────────────────────
     if (hw.scale.connection === 'tcp') {
@@ -918,11 +971,66 @@ export default function StationSetupScreen() {
                         className="sss-select"
                       >
                         <option value="serial">USB Serial (Web Serial API)</option>
+                        <option value="serial-native">Native COM Port (Electron)</option>
                         <option value="tcp">TCP / Serial-over-LAN (Ethernet)</option>
                       </select>
                     </Field>
 
-                    {hw.scale.connection === 'tcp' ? (
+                    {hw.scale.connection === 'serial-native' ? (
+                      <>
+                        {/* Native COM Port — port picker */}
+                        <Field label="COM Port">
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <select
+                              value={hw.scale.comPort || ''}
+                              onChange={e => updHW('scale', { comPort: e.target.value })}
+                              className="sss-select" style={{ flex: 1 }}
+                            >
+                              <option value="">-- Select COM port --</option>
+                              {nativeComPorts.map(p => (
+                                <option key={p.path} value={p.path}>
+                                  {p.path}{p.manufacturer ? ` — ${p.manufacturer}` : ''}{p.friendlyName && p.friendlyName !== p.path ? ` (${p.friendlyName})` : ''}
+                                </option>
+                              ))}
+                              {hw.scale.comPort && !nativeComPorts.find(p => p.path === hw.scale.comPort) && (
+                                <option value={hw.scale.comPort}>{hw.scale.comPort} (saved)</option>
+                              )}
+                            </select>
+                            <button
+                              onClick={detectNativeComPorts}
+                              disabled={detectingNative}
+                              className={`sss-test-btn ${nativeComPorts.length > 0 ? 'sss-test-btn--ok' : 'sss-test-btn--idle'}`}
+                              title="List available COM ports"
+                            >
+                              {detectingNative
+                                ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                                : <RefreshCw size={13} />}
+                              {detectingNative ? 'Scanning…' : 'Detect'}
+                            </button>
+                          </div>
+                          {nativeComPorts.length === 0 && (
+                            <div style={{ fontSize: '0.72rem', color: '#4b5563', marginTop: 4 }}>
+                              Click <strong style={{ color: '#94a3b8' }}>Detect</strong> to list available COM ports
+                            </div>
+                          )}
+                        </Field>
+
+                        {/* Baud rate */}
+                        <Field label="Baud Rate">
+                          <select value={hw.scale.baud} onChange={e => updHW('scale', { baud: Number(e.target.value) })} className="sss-select">
+                            {BAUD_RATES.map(b => (
+                              <option key={b} value={b}>{b}{b === 9600 ? ' (most common)' : ''}</option>
+                            ))}
+                          </select>
+                        </Field>
+
+                        <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7 }}>
+                          <div style={{ fontWeight: 700, color: '#7b95e0', marginBottom: 4 }}>Native COM Port</div>
+                          Direct RS-232 serial connection via the PC's built-in COM ports. Requires the <strong style={{ color: '#e8eaf0' }}>desktop Electron app</strong>.
+                          Use this when the scale is connected with an RS-232 cable (DB9 / RJ45-to-DB9).
+                        </div>
+                      </>
+                    ) : hw.scale.connection === 'tcp' ? (
                       <>
                         {/* TCP IP + Port */}
                         <div className="sss-grid-equal-2">
@@ -1198,7 +1306,7 @@ export default function StationSetupScreen() {
                     return `${modelLabel} — ${hw.receiptPrinter.name || 'USB/QZ Tray'}`;
                   })(), icon: Printer },
                 { label: 'Cash Drawer',    value: hw.cashDrawer.type === 'none' ? 'Not configured' : 'Via receipt printer', icon: Package },
-                { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.connection === 'tcp' ? `TCP ${hw.scale.ip || '?'}:${hw.scale.port || 4001}` : `${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`}`, icon: Scale },
+                { label: 'Scale', value: hw.scale.type === 'none' ? 'Not configured' : `${hw.scale.type === 'datalogic' ? 'Datalogic Magellan 9800i' : hw.scale.type.toUpperCase()} — ${hw.scale.connection === 'tcp' ? `TCP ${hw.scale.ip || '?'}:${hw.scale.port || 4001}` : hw.scale.connection === 'serial-native' ? `COM ${hw.scale.comPort || '?'} @ ${hw.scale.baud} baud` : `${hw.scale.baud} baud${hw.scale.portLabel ? ' · ' + hw.scale.portLabel : ''}`}`, icon: Scale },
                 { label: 'PAX Terminal',   value: hw.paxTerminal.enabled ? `${hw.paxTerminal.model} @ ${hw.paxTerminal.ip}:${hw.paxTerminal.port}` : 'Not configured', icon: CreditCard },
                 { label: 'Label Printer',  value: hw.labelPrinter.type === 'none' ? 'Not configured' : (hw.labelPrinter.name || hw.labelPrinter.ip || hw.labelPrinter.type), icon: Tag },
               ].map(({ label, value, icon: Icon }) => (

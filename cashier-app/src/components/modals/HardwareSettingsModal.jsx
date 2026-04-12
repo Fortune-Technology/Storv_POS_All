@@ -85,13 +85,30 @@ export default function HardwareSettingsModal({ onClose }) {
   const [hw, setHW] = useState(() => loadHW() || {
     receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '' },
+    scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '', comPort: '' },
     cashDrawer:     { type: 'none' },
   });
 
   const [detectedPrinters, setDetectedPrinters] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ── Native COM port state ────────────────────────────────────────────────
+  const [nativeComPorts, setNativeComPorts]   = useState([]);
+  const [detectingNative, setDetectingNative] = useState(false);
+
+  const detectNativeComPorts = useCallback(async () => {
+    if (!window.electronAPI?.serialList) return;
+    setDetectingNative(true);
+    try {
+      const res = await window.electronAPI.serialList();
+      setNativeComPorts(res?.ports || []);
+      if (res?.ports?.length > 0 && !hw.scale.comPort) {
+        updHW('scale', { comPort: res.ports[0].path });
+      }
+    } catch {}
+    finally { setDetectingNative(false); }
+  }, [hw.scale.comPort]);
 
   // ── Scale test state ────────────────────────────────────────────────────
   const [scaleTestConnected, setScaleTestConnected] = useState(false);
@@ -123,6 +140,37 @@ export default function HardwareSettingsModal({ onClose }) {
   const startScaleTest = useCallback(async () => {
     stopScaleTest();
     setScaleTestError('');
+
+    if (hw.scale.connection === 'serial-native') {
+      // Native COM port via Electron IPC
+      if (!window.electronAPI?.serialConnect) {
+        setScaleTestError('Electron IPC not available — native COM port requires the desktop app.');
+        return;
+      }
+      if (!hw.scale.comPort) {
+        setScaleTestError('Select a COM port first.');
+        return;
+      }
+      try {
+        const res = await window.electronAPI.serialConnect(hw.scale.comPort, hw.scale.baud || 9600);
+        if (!res?.ok) { setScaleTestError('Failed to open ' + hw.scale.comPort + ': ' + (res?.error || 'unknown')); return; }
+        setScaleTestConnected(true);
+        const handler = (line) => {
+          const match = line.match(/([+-]?\s*\d+\.?\d*)\s*(kg|KG|lb|LB|oz|OZ)/);
+          if (match) setScaleTestWeight(parseFloat(match[1]) + ' ' + match[2]);
+          else if (/^[A-Za-z0-9\-\.]{4,}$/.test(line.trim())) setScaleTestBarcode(line.trim());
+        };
+        window.electronAPI.onScaleData(handler);
+        scaleTestCleanup.current = () => {
+          window.electronAPI.removeScaleListeners?.();
+          window.electronAPI.serialDisconnect?.();
+        };
+      } catch (err) {
+        setScaleTestError('COM port connect failed: ' + (err.message || err));
+        setScaleTestConnected(false);
+      }
+      return;
+    }
 
     if (hw.scale.connection === 'tcp') {
       // TCP via Electron IPC
@@ -349,10 +397,37 @@ export default function HardwareSettingsModal({ onClose }) {
                       <label className="hsm-label">Connection</label>
                       <select className="hsm-select" value={hw.scale.connection || 'serial'} onChange={e => updHW('scale', { connection: e.target.value })}>
                         <option value="serial">USB Serial (Web Serial API)</option>
+                        <option value="serial-native">Native COM Port (Electron)</option>
                         <option value="tcp">TCP / Serial-over-LAN</option>
                       </select>
                     </div>
-                    {hw.scale.connection === 'tcp' ? (
+                    {hw.scale.connection === 'serial-native' ? (
+                      <>
+                        <div>
+                          <label className="hsm-label">COM Port</label>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select className="hsm-select" style={{ flex: 1 }} value={hw.scale.comPort || ''} onChange={e => updHW('scale', { comPort: e.target.value })}>
+                              <option value="">-- Select --</option>
+                              {nativeComPorts.map(p => (
+                                <option key={p.path} value={p.path}>{p.path}{p.manufacturer ? ` — ${p.manufacturer}` : ''}</option>
+                              ))}
+                              {hw.scale.comPort && !nativeComPorts.find(p => p.path === hw.scale.comPort) && (
+                                <option value={hw.scale.comPort}>{hw.scale.comPort} (saved)</option>
+                              )}
+                            </select>
+                            <button type="button" className="hsm-test-btn" onClick={detectNativeComPorts} disabled={detectingNative}>
+                              {detectingNative ? <Loader size={12} /> : <RefreshCw size={12} />} Detect
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Baud Rate</label>
+                          <select className="hsm-select" value={hw.scale.baud || 9600} onChange={e => updHW('scale', { baud: Number(e.target.value) })}>
+                            {BAUD_RATES.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    ) : hw.scale.connection === 'tcp' ? (
                       <>
                         <div>
                           <label className="hsm-label">IP Address</label>

@@ -12,6 +12,15 @@ const fs     = require('fs');
 const os     = require('os');
 const { exec, execFile } = require('child_process');
 
+// ── serialport (native COM port access) ─────────────────────────────────
+let SerialPort, ReadlineParser;
+try {
+  ({ SerialPort } = require('serialport'));
+  ({ ReadlineParser } = require('@serialport/parser-readline'));
+} catch (err) {
+  console.warn('[Serial] serialport module not available:', err.message);
+}
+
 const isDev = process.env.NODE_ENV === 'development';
 
 // ── Create main window ─────────────────────────────────────────────────────
@@ -495,6 +504,112 @@ ipcMain.handle('scale:send', async (_, cmd) => {
   if (!scaleSocket) return { ok: false, error: 'Not connected' };
   try {
     scaleSocket.write(cmd);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// NATIVE COM PORT — direct RS-232 access via serialport package
+// ══════════════════════════════════════════════════════════════════════════
+
+let serialPortInstance = null;
+
+ipcMain.handle('serial:list', async () => {
+  if (!SerialPort) return { ok: false, ports: [], error: 'serialport module not available' };
+  try {
+    const ports = await SerialPort.list();
+    return { ok: true, ports: ports.map(p => ({
+      path:         p.path,
+      manufacturer: p.manufacturer || '',
+      serialNumber: p.serialNumber || '',
+      vendorId:     p.vendorId || '',
+      productId:    p.productId || '',
+      friendlyName: p.friendlyName || p.path,
+    }))};
+  } catch (err) {
+    return { ok: false, ports: [], error: err.message };
+  }
+});
+
+ipcMain.handle('serial:connect', async (_, { path: comPath, baud = 9600 }) => {
+  if (!SerialPort) return { ok: false, error: 'serialport module not available' };
+
+  // Close existing connection
+  if (serialPortInstance) {
+    try { serialPortInstance.close(); } catch {}
+    serialPortInstance = null;
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const port = new SerialPort({
+        path: comPath,
+        baudRate: Number(baud),
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none',
+        autoOpen: false,
+      });
+
+      const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+      port.open((err) => {
+        if (err) {
+          console.error(`[Serial] Failed to open ${comPath}:`, err.message);
+          resolve({ ok: false, error: err.message });
+          return;
+        }
+
+        serialPortInstance = port;
+        console.log(`[Serial] Connected to ${comPath} @ ${baud} baud`);
+        resolve({ ok: true });
+      });
+
+      // Forward every line to the renderer using the SAME channel as TCP scale
+      parser.on('data', (line) => {
+        if (!line.trim()) return;
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('scale:data', line.trim());
+        }
+      });
+
+      port.on('error', (err) => {
+        console.error(`[Serial] Error on ${comPath}:`, err.message);
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('scale:error', err.message);
+        }
+      });
+
+      port.on('close', () => {
+        console.log(`[Serial] ${comPath} closed`);
+        serialPortInstance = null;
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('scale:disconnected');
+        }
+      });
+    } catch (err) {
+      resolve({ ok: false, error: err.message });
+    }
+  });
+});
+
+ipcMain.handle('serial:disconnect', () => {
+  if (serialPortInstance) {
+    try { serialPortInstance.close(); } catch {}
+    serialPortInstance = null;
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('serial:send', async (_, cmd) => {
+  if (!serialPortInstance || !serialPortInstance.isOpen) return { ok: false, error: 'Not connected' };
+  try {
+    serialPortInstance.write(cmd);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };

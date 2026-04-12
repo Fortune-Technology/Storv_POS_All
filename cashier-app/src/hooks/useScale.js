@@ -333,6 +333,73 @@ export function useScale({ onBarcode } = {}) {
     connectionModeRef.current = 'serial';
   }, []);
 
+  // ── Native COM port connection (Electron serialport) ──────────────────
+  const connectSerial = useCallback(async (comPath, baud = 9600) => {
+    if (!window.electronAPI?.serialConnect) {
+      setError('Native COM port requires Electron desktop app');
+      return false;
+    }
+
+    setError(null);
+    connectionModeRef.current = 'serial-native';
+
+    // Reuse the same IPC listeners as TCP (both emit on 'scale:data')
+    window.electronAPI.removeScaleListeners();
+
+    window.electronAPI.onScaleData((line) => {
+      if (!line) return;
+      setRawOutput(line);
+      const weightData = parseWeightLine(line);
+      if (weightData) {
+        setWeight(weightData.weight);
+        setUnit(weightData.unit);
+        setStable(weightData.stable);
+        return;
+      }
+      const barcode = parseBarcodeOutput(line);
+      if (barcode && onBarcodeRef.current) {
+        onBarcodeRef.current(barcode);
+      }
+    });
+
+    window.electronAPI.onScaleError((msg) => {
+      setError('Scale error: ' + msg);
+      setConnected(false);
+    });
+
+    window.electronAPI.onScaleDisconnect(() => {
+      setConnected(false);
+      setWeight(null);
+    });
+
+    try {
+      const result = await window.electronAPI.serialConnect(comPath, baud);
+      if (result.ok) {
+        setConnected(true);
+        setPortLabel(`COM ${comPath} @ ${baud}`);
+        return true;
+      } else {
+        setError(result.error || 'Failed to open ' + comPath);
+        return false;
+      }
+    } catch (err) {
+      setError('Connection failed: ' + err.message);
+      return false;
+    }
+  }, []);
+
+  const disconnectSerial = useCallback(async () => {
+    if (window.electronAPI?.serialDisconnect) {
+      await window.electronAPI.serialDisconnect();
+    }
+    window.electronAPI?.removeScaleListeners?.();
+    setConnected(false);
+    setWeight(null);
+    setStable(false);
+    setPortLabel('');
+    connectionModeRef.current = 'serial';
+  }, []);
+
   const formattedWeight = weight != null
     ? `${weight.toFixed(3)} ${unit}`
     : '---';
@@ -340,15 +407,18 @@ export function useScale({ onBarcode } = {}) {
   useEffect(() => () => {
     disconnect();
     if (connectionModeRef.current === 'tcp') disconnectTCP();
-  }, [disconnect, disconnectTCP]);
+    if (connectionModeRef.current === 'serial-native') disconnectSerial();
+  }, [disconnect, disconnectTCP, disconnectSerial]);
 
   return {
     weight, unit, stable, connected, error, rawOutput,
     formattedWeight, portLabel,
-    connect, connectToPort, connectTCP, disconnect, disconnectTCP,
+    connect, connectToPort, connectTCP, connectSerial,
+    disconnect, disconnectTCP, disconnectSerial,
     requestWeight, sendCommand,
     getGrantedPorts, requestPort,
     isSupported: 'serial' in navigator,
     isTCPSupported: !!window.electronAPI?.scaleConnect,
+    isSerialNativeSupported: !!window.electronAPI?.serialConnect,
   };
 }

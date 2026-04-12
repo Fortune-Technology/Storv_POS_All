@@ -29,6 +29,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
+    "serialport": "^13.0.0",
     "storv-pos-platform": "file:..",
     "zustand": "^5.0.1"
   },
@@ -47,13 +48,16 @@
     "productName": "StoreVeu POS",
     "copyright": "Copyright © 2025 StoreVeu",
     "forceCodeSigning": false,
+    "npmRebuild": true,
     "directories": {
       "output": "dist-electron"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "public/icon.*"
+      "public/icon.*",
+      "node_modules/serialport/**/*",
+      "node_modules/@serialport/**/*"
     ],
     "win": {
       "target": [

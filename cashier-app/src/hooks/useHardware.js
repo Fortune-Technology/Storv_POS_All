@@ -49,6 +49,9 @@ export function useHardware({ onBarcode } = {}) {
     if (hw.scale.connection === 'tcp' && hw.scale.ip) {
       // TCP mode: connect via Electron IPC
       scale.connectTCP(hw.scale.ip, hw.scale.port || 4001).catch(() => {});
+    } else if (hw.scale.connection === 'serial-native' && hw.scale.comPort) {
+      // Native COM port: connect via Electron serialport
+      scale.connectSerial(hw.scale.comPort, hw.scale.baud || 9600).catch(() => {});
     } else {
       // USB Serial mode: auto-connect to first granted port
       scale.getGrantedPorts().then(ports => {

@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scaleConnect:     (ip, port) => ipcRenderer.invoke('scale:connect', { ip, port }),
   scaleDisconnect:  ()         => ipcRenderer.invoke('scale:disconnect'),
   scaleSend:        (cmd)      => ipcRenderer.invoke('scale:send', cmd),
-  /** Listen for scale data (weight lines + barcode lines) */
+  /** Listen for scale data (weight lines + barcode lines) — shared by TCP & native serial */
   onScaleData:      (cb) => { ipcRenderer.on('scale:data', (_, line) => cb(line)); },
   onScaleError:     (cb) => { ipcRenderer.on('scale:error', (_, msg) => cb(msg)); },
   onScaleDisconnect:(cb) => { ipcRenderer.on('scale:disconnected', () => cb()); },
@@ -55,6 +55,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('scale:error');
     ipcRenderer.removeAllListeners('scale:disconnected');
   },
+
+  // ── Scale / Scanner (Native COM Port) ─────────────────────────────────────
+  /** List available COM ports */
+  serialList:       ()             => ipcRenderer.invoke('serial:list'),
+  /** Connect to a COM port at given baud rate — data arrives via onScaleData */
+  serialConnect:    (path, baud)   => ipcRenderer.invoke('serial:connect', { path, baud }),
+  serialDisconnect: ()             => ipcRenderer.invoke('serial:disconnect'),
+  serialSend:       (cmd)          => ipcRenderer.invoke('serial:send', cmd),
 
   // ── Customer Display ───────────────────────────────────────────────────────
   /** Open customer display on secondary monitor (or focus if already open) */
