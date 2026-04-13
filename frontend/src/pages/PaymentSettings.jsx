@@ -11,9 +11,8 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Loader, Shield, CreditCard } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+import { fmtMoney as fmt$ } from '../utils/formatters';
 import './PaymentSettings.css';
-
-function fmt$(n) { return `$${Number(n || 0).toFixed(2)}`; }
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

@@ -205,32 +205,32 @@
 ✅ **Easy Maintainability**: Clear structure, documentation, utilities  
 ✅ **Future-proof**: Extensible architecture, clean boundaries
 
-## 📊 Code Quality Metrics
+## 📊 Code Quality Metrics (Actual Audit — April 2026)
 
-- **Code Duplication**: Minimal (DRY applied)
-- **Cyclomatic Complexity**: Low (KISS applied)
-- **Coupling**: Low (loose coupling)
-- **Cohesion**: High (focused modules)
-- **Test Coverage**: Ready for testing
-- **Documentation**: Comprehensive
+- **Code Duplication**: Improved — shared `formatters.js` created, 30+ duplicate functions consolidated
+- **Inline Styles**: Frontend portal pages clean; cashier-app still has ~390 inline styles (known debt)
+- **CSS Utilization**: ~77% (some orphaned/unused classes in BulkImport.css, Departments.css)
+- **Error Handling**: Mixed — 88 `next(err)` vs 209 direct `res.status().json()` in backend
+- **Debug Artifacts**: Zero console.log debug statements, zero TODO/FIXME/HACK comments
+- **Test Coverage**: 2 test files in `backend/tests/` — needs expansion
 
 ## Continuous Improvement Areas
 
-While the current implementation follows all principles, here are areas for future enhancement:
-
 1. **Add unit tests** (Jest, Supertest, React Testing Library)
-2. **Implement caching** (Redis for frequently accessed data)
-3. **Add error boundaries** in React
-4. **Implement logging service** (Winston with log levels)
-5. **Add monitoring** (APM tools like New Relic)
-6. **Add API documentation** (Swagger/OpenAPI)
-7. **Performance monitoring** (Lighthouse, Web Vitals)
+2. **Standardize backend error handling** — consolidate on `next(err)` pattern
+3. **Complete cashier-app CSS migration** (~390 remaining inline styles)
+4. **Add error boundaries** in React apps
+5. **Add API documentation** (Swagger/OpenAPI)
+6. **Implement structured logging** (Winston with log levels)
+7. **Clean up orphaned CSS** (Departments.css, unused BulkImport.css classes)
 
 **Already implemented:**
 - CI/CD pipeline (GitHub Actions — `.github/workflows/deploy.yml`)
 - Health check endpoints (`/health`)
 - PM2 process management (production)
 - Nginx reverse proxy (production)
+- SEO/AEO/GEO optimization (meta tags, JSON-LD, robots.txt, sitemap.xml)
+- Shared formatting utilities (`frontend/src/utils/formatters.js`)
 
 🧩 What Was Missing (Now Added) 12. Type Safety & Language Discipline (JS + TypeScript)
 JavaScript (JS)

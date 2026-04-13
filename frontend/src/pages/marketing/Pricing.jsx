@@ -4,6 +4,7 @@ import MarketingFooter from '../../components/marketing/MarketingFooter';
 import MarketingSection from '../../components/marketing/MarketingSection';
 import MarketingButton from '../../components/marketing/MarketingButton';
 import { Check, X, HelpCircle, ChevronDown, ShieldCheck, Zap, Store, BarChart3, ShoppingCart, Package, Users, FileText, Cloud, Headphones, Monitor, Plus } from 'lucide-react';
+import SEO from '../../components/SEO';
 import './Pricing.css';
 
 const Pricing = () => {
@@ -218,6 +219,23 @@ const Pricing = () => {
 
   return (
     <div className="pricing-page">
+      <SEO
+        title="Pricing"
+        description="Simple, transparent pricing starting at $49/mo. Starter, Growth, and Enterprise plans with no hidden fees. E-commerce and analytics add-ons available."
+        url="https://storeveu.com/pricing"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "Product",
+          "name": "Storeveu POS Platform",
+          "description": "Complete retail POS and management platform.",
+          "brand": { "@type": "Brand", "name": "Storeveu" },
+          "offers": [
+            { "@type": "Offer", "name": "Starter", "price": "49", "priceCurrency": "USD", "description": "1 store, 1 register. Full POS, basic analytics." },
+            { "@type": "Offer", "name": "Growth", "price": "99", "priceCurrency": "USD", "description": "Up to 3 stores. Lottery, predictions, vendor management." },
+            { "@type": "Offer", "name": "Enterprise", "price": "0", "priceCurrency": "USD", "description": "Custom pricing. Unlimited stores, e-commerce, dedicated support." }
+          ]
+        }}
+      />
       <MarketingNavbar />
 
       {/* Hero */}

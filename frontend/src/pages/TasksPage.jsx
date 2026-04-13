@@ -15,16 +15,11 @@ import {
   getStoreEmployees,
   getTenantUsers,
 } from '../services/api';
+import { fmtDate } from '../utils/formatters';
 import '../styles/portal.css';
 import './TasksPage.css';
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
-function fmtDate(d) {
-  if (!d) return '--';
-  return new Date(d).toLocaleDateString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric',
-  });
-}
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

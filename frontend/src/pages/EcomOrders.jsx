@@ -23,8 +23,9 @@ async function api(method, path, body) {
   return data;
 }
 
-function fmt(n) { return `$${Number(n).toFixed(2)}`; }
-function fmtDate(d) { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+import { fmtMoney, fmtDateTime } from '../utils/formatters';
+const fmt = fmtMoney;
+const fmtDate = fmtDateTime;
 
 const STATUSES = ['all', 'pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled'];
 const NEXT_STATUS = { pending: 'confirmed', confirmed: 'preparing', preparing: 'ready', ready: 'completed' };

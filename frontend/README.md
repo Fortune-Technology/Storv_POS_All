@@ -1,6 +1,6 @@
-# StoreVeu POS — Portal Frontend
+# Storeveu POS — Portal Frontend
 
-A premium, dark-themed management portal for StoreVeu POS store owners and managers. Built with **React 19**, **Vite 7**, and **Redux Toolkit**.
+A premium, dark-themed management portal for Storeveu POS store owners and managers. Built with **React 19**, **Vite 7**, and **Redux Toolkit**.
 
 ---
 
@@ -34,7 +34,7 @@ frontend/
 ├── public/              → Static assets (favicon, manifest)
 ├── src/
 │   ├── assets/          → Logos and imagery
-│   ├── components/      → Shared UI (Sidebar, Layout, Navbar, StoreSwitcher, SetupGuide)
+│   ├── components/      → Shared UI (Sidebar, Layout, Navbar, StoreSwitcher, SetupGuide, SEO)
 │   ├── contexts/        → React contexts (StoreContext)
 │   ├── pages/           → Module-specific views (45+ pages)
 │   │   ├── marketing/   → Home, About, Features, Pricing, Contact
@@ -51,7 +51,9 @@ frontend/
 │   │   └── ...
 │   ├── services/        → Centralized Axios API instances
 │   ├── store/           → Redux slices
-│   ├── utils/           → Helpers (weather icons, formatters)
+│   ├── utils/
+│   │   ├── formatters.js  → Shared formatting utilities (currency, dates, percentages)
+│   │   └── exportUtils.js → CSV/PDF download helpers
 │   ├── App.jsx          → Main router and route definitions
 │   └── main.jsx         → Entry point
 ├── index.html           → Base HTML template
@@ -94,6 +96,15 @@ CSV/Excel product import pipeline with preview, validation, column mapping, and 
 
 ### 11. Fee & Deposit Management
 Service fee mapping (bottle deposit, bag fee, alcohol surcharge) and cross-store deposit rules.
+
+### 12. Shared Layout & Persistent Sidebar
+All portal routes are nested under a shared `Layout.jsx` wrapper that renders the `Sidebar` once and uses React Router's `Outlet` for page content. The sidebar persists across all navigation and scrolls independently from the main content area.
+
+### 13. SEO Component
+`components/SEO.jsx` provides consistent meta tag management (title, description, Open Graph) across all marketing and portal pages.
+
+### 14. Shared Formatters
+`utils/formatters.js` provides centralized currency, date, and percentage formatting utilities used across all portal pages for consistent display.
 
 ---
 

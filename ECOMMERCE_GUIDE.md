@@ -24,7 +24,7 @@ Redis (optional)           :6379  → BullMQ queue + inventory cache
 | **Product Sync** | Auto-sync from POS via BullMQ (Redis) or HTTP fallback (no Redis) |
 | **Shopping Cart** | Cart drawer + full page, localStorage + server sync |
 | **Checkout** | Requires login, pickup/delivery, stock check with POS |
-| **Customer Auth** | Signup, login, profile edit (first/last name, phone), saved addresses |
+| **Unified Customer Auth** | POS `Customer` table is the single source of truth; storefront auth (signup/login) proxies through ecom-backend to POS backend. Supports profile edit (first/last name, phone), saved addresses, and password change |
 | **Order Management** | Portal: status progression, customer detail. Storefront: order history + detail |
 | **Email Notifications** | Contact form, order confirmation, status updates via SMTP |
 | **Order Alerts** | Real-time polling (15s) with MP3 sound + toast notification in portal |

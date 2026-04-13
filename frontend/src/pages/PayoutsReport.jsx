@@ -8,19 +8,10 @@ import {
   ArrowUpCircle, DollarSign, ShoppingCart, RefreshCw,
   AlertCircle, Search, Filter, ChevronDown, Wallet,
 } from 'lucide-react';
+import { fmt$, todayStr, firstOfMonthStr } from '../utils/formatters';
 import './PayoutsReport.css';
 
 // ── helpers ────────────────────────────────────────────────────────────────
-function fmt$(n) {
-  return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-function firstOfMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
 function fmtDatetime(iso) {
   if (!iso) return '—';
   const d = new Date(iso);

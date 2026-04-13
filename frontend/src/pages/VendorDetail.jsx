@@ -22,11 +22,9 @@ import {
   ShoppingBag, CreditCard, AlertCircle,
 } from 'lucide-react';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+import { fmt$ as fmt, fmtDate, fmtDateTime } from '../utils/formatters';
 
-const fmt = (n) => Number(n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // ─── Shared styles ─────────────────────────────────────────────────────────────
 

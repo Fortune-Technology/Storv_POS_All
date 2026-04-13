@@ -26,11 +26,10 @@ import {
   createCustomer, updateCustomer, deleteCustomer,
 } from '../services/api';
 
+import { fmtMoney as fmt, fmtDate as fmtDt, fmtDateTime as fmtTs } from '../utils/formatters';
+
 /* ── Formatters ───────────────────────────────────────────────────────────── */
-const fmt   = (v) => v != null ? `$${parseFloat(v).toFixed(2)}` : '—';
 const fmtPc = (v) => v != null ? `${parseFloat(v * 100).toFixed(1)}%` : '—';
-const fmtDt = (v) => { try { return v ? new Date(v).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '—'; } catch { return '—'; } };
-const fmtTs = (v) => { try { return v ? new Date(v).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'; } catch { return '—'; } };
 
 const displayName = (c) => {
   if (c.name) return c.name;

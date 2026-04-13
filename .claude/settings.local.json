@@ -5,7 +5,26 @@
       "Bash(find \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\cashier-app\\\\src\" -name \"*.jsx\" -exec grep -l \"style=\" {} \\\\;)",
       "Bash(find \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\cashier-app\\\\src\" -name \"*.css\" -exec grep -l \"@media\" {} \\\\;)",
       "Bash(npx vite:*)",
-      "Bash(findstr /s /n \"type=\\\\\"password\\\\\"\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\frontend\\\\src\\\\*.jsx\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\admin-app\\\\src\\\\*.jsx\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\storefront\\\\*.js\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\cashier-app\\\\src\\\\*.jsx\")"
+      "Bash(findstr /s /n \"type=\\\\\"password\\\\\"\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\frontend\\\\src\\\\*.jsx\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\admin-app\\\\src\\\\*.jsx\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\storefront\\\\*.js\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform\\\\cashier-app\\\\src\\\\*.jsx\")",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\" && head -30 \"{}\"')",
+      "Bash(xargs -I{} dirname {})",
+      "Bash(xargs wc:*)",
+      "Bash(find \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\" -name \"*.jsx\" -type f -exec wc -l {} +)",
+      "Bash(grep -c \"^  //\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/ProductForm.jsx\")",
+      "Bash(grep -c \"^  //\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/InvoiceImport.jsx\")",
+      "Bash(grep -c \"^  //\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/Lottery.jsx\")",
+      "Bash(grep -c \"^  //\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/ReportsHub.jsx\")",
+      "Bash(grep -c \"^  //\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/POSSettings.jsx\")",
+      "Bash(grep -r \"const fmt.*=.*\\\\$.*toFixed\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\" --include=\"*.jsx\")",
+      "Bash(grep -h \"^function fmt\\\\|^const fmt.*=\\\\|^const fmtDate\\\\|^const fmtMoney\\\\|^const fmtInt\\\\|^const fmtPct\\\\|^const fmtTs\\\\|^const fmtDt\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\"/*.jsx)",
+      "Bash(grep -h \"function.*Date\\\\|function.*Fmt\\\\|function.*format\\\\|function.*Money\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\"/*.jsx)",
+      "Bash(grep -l \"function todayStr\\\\|const todayStr\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\"/*.jsx)",
+      "Bash(grep \"^\\\\\\\\.\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages/BulkImport.css\")",
+      "Bash(grep -A 1 \"catch.*{\" \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/frontend/src/pages\"/*.jsx)",
+      "Bash(grep -B1 \"^--$\")",
+      "Bash(find \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/admin-app/src/pages\" -name \"*.jsx\" -type f -exec wc -l {} +)",
+      "Bash(grep -rn \"function fmt\\\\$\\\\|const fmt\\\\$\\\\|function fmtDate\\\\|const fmtDate\\\\|function todayStr\\\\|const todayStr\\\\|function fmtMoney\\\\|const fmtMoney\\\\|function fmtTime\\\\|const fmtTime\" pages/*.jsx)",
+      "Bash(grep -rn \"function fmt\\\\b\\\\|const fmt\\\\b\\\\|function fmt\\\\$\\\\|const fmt\\\\$\" pages/*.jsx)"
     ]
   }
 }

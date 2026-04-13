@@ -19,7 +19,8 @@ async function api(method, path) {
   return data;
 }
 
-function fmt(n) { return `$${Number(n).toFixed(2)}`; }
+import { fmtMoney } from '../utils/formatters';
+const fmt = fmtMoney;
 
 export default function EcomCustomers() {
   const [customers, setCustomers] = useState([]);

@@ -1,4 +1,4 @@
-# StoreVeu POS — Cashier Terminal (Electron + PWA)
+# Storeveu POS — Cashier Terminal (Electron + PWA)
 
 A fast, full-featured, and offline-first Point of Sale terminal designed for high-performance retail checkout. Available as an **Electron desktop app** (Windows) or **Progressive Web App**, with native hardware integration for receipt printers, cash drawers, barcode scanners, scales, and PAX payment terminals.
 
@@ -97,7 +97,7 @@ cashier-app/
 
 ### Prerequisites
 - Node.js 18+
-- Future Foods Portal Backend running on `:5000`
+- Storeveu POS Backend running on `:5000`
 
 ### Installation
 ```bash
@@ -438,16 +438,16 @@ After the build completes, find the output in:
 
 ```
 cashier-app/dist-electron/
-├── StoreVeu POS Setup 1.0.0.exe    ← NSIS installer (distribute this)
+├── Storeveu POS Setup 1.0.0.exe    ← NSIS installer (distribute this)
 ├── win-unpacked/                     ← Unpacked app (for testing)
 └── builder-effective-config.yaml     ← Build config used
 ```
 
 ### Step 5: Install on Target POS Machine
 
-1. Copy `StoreVeu POS Setup 1.0.0.exe` to the target Windows PC
+1. Copy `Storeveu POS Setup 1.0.0.exe` to the target Windows PC
 2. Run the installer — it allows choosing the install directory
-3. After installation, a desktop shortcut **"StoreVeu POS"** is created
+3. After installation, a desktop shortcut **"Storeveu POS"** is created
 4. Launch the app — it opens fullscreen (kiosk mode) in production
 
 ### Step 6: Station Setup (First Launch)
@@ -464,7 +464,7 @@ cashier-app/dist-electron/
 | Setting | Value |
 |---------|-------|
 | **App ID** | `com.storeveu.pos` |
-| **Product Name** | `StoreVeu POS` |
+| **Product Name** | `Storeveu POS` |
 | **Output Dir** | `dist-electron/` |
 | **Windows Target** | NSIS installer (x64) |
 | **Persistent Config** | `%APPDATA%/storeveu_station.json` |
