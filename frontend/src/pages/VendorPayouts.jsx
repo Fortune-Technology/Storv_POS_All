@@ -8,20 +8,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowUpCircle, Plus, DollarSign, ShoppingCart, RefreshCw, Check, AlertCircle, X } from 'lucide-react';
 import { getVendorPayments, createVendorPaymentEntry, getCatalogVendors, getPOSConfig } from '../services/api';
 
+import { fmt$, todayStr, firstOfMonthStr, fmtDate } from '../utils/formatters';
 import './VendorPayouts.css';
-
-function fmt$(n) {
-  return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 const EMPTY_FORM = {
   vendorId: '', vendorName: '', amount: '', paymentType: 'expense',

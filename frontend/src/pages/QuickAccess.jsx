@@ -9,6 +9,7 @@ import { getStores } from '../services/api';
 import { searchCatalogProducts } from '../services/api';
 import api from '../services/api';
 
+import { fmtMoney as fmt$ } from '../utils/formatters';
 import './QuickAccess.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -19,10 +20,6 @@ const FOLDER_COLORS = [
   '#a78bfa', '#fb923c', '#38bdf8', '#4ade80',
   '#e879f9', '#facc15',
 ];
-
-function fmt$(n) {
-  return '$' + (Number(n) || 0).toFixed(2);
-}
 
 // ── FolderCard ─────────────────────────────────────────────────────────────
 function FolderCard({ folder, onUpdate, onDelete }) {

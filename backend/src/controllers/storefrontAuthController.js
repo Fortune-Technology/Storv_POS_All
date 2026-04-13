@@ -159,6 +159,46 @@ export const updateProfile = async (req, res) => {
   }
 };
 
+// ── Change Password ──────────────────────────────────────────────────────────
+
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const { customerId } = req.params;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, deleted: false },
+    });
+
+    if (!customer || !customer.passwordHash) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, customer.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { passwordHash },
+    });
+
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('[storefront-auth] changePassword error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // ── List Customers (for portal management) ───────────────────────────────────
 
 export const listCustomers = async (req, res) => {

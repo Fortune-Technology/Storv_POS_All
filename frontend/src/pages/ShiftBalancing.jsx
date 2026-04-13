@@ -11,6 +11,7 @@ import {
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
+import { fmtTime, todayStr } from '../utils/formatters';
 import '../styles/portal.css';
 import './ShiftBalancing.css';
 
@@ -24,8 +25,6 @@ const fmtV = (n) => {
   return '$0.00';
 };
 const fmtDate = (d) => new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-const fmtTime = (d) => new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function ShiftBalancing({ embedded }) {
   const [date, setDate] = useState(todayStr());

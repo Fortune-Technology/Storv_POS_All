@@ -15,18 +15,11 @@ import {
   Users, Clock, ShoppingCart, DollarSign, RefreshCw,
   AlertCircle, FileText, ChevronDown,
 } from 'lucide-react';
+import { fmt$, todayStr, firstOfMonthStr } from '../utils/formatters';
 import '../styles/portal.css';
 import './EmployeeReports.css';
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
-function fmt$(n) {
-  return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
 function fmtDate(iso) {
   if (!iso) return '\u2014';
   return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });

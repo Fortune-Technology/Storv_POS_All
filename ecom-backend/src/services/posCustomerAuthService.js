@@ -58,6 +58,18 @@ export async function posUpdateProfile(customerId, data) {
 }
 
 /**
+ * Change customer password.
+ */
+export async function posChangePassword(customerId, currentPassword, newPassword) {
+  const resp = await axios.put(
+    `${POS_BACKEND_URL}/api/storefront/auth/password/${customerId}`,
+    { currentPassword, newPassword },
+    { timeout: TIMEOUT, headers: { 'Content-Type': 'application/json' } }
+  );
+  return resp.data;
+}
+
+/**
  * List customers for a store (portal management).
  */
 export async function posListCustomers(orgId, storeId, { search, page, limit } = {}) {

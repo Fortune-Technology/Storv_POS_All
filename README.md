@@ -1,7 +1,7 @@
-# StoreVeu POS — Full-Stack Multi-Tenant Retail Platform
+# Storeveu POS — Full-Stack Multi-Tenant Retail Platform
 ### POS Terminal + Management Portal + Business Intelligence
 
-A modern, cloud-first retail management system for independent convenience, grocery, and liquor stores. Combines a real-time management portal with an offline-first POS cashier terminal (Electron desktop app), AI-powered invoice processing, hardware integration (receipt printers, cash drawers, barcode scanners, scales, PAX payment terminals), and a complete lottery compliance module.
+A modern, cloud-first retail management system for independent convenience, grocery, and liquor stores. Combines a real-time management portal with an offline-first POS cashier terminal (Electron desktop app), a superadmin panel, an e-commerce module (backend + Next.js storefront), AI-powered invoice processing, hardware integration (receipt printers, cash drawers, barcode scanners, scales, PAX payment terminals), and a complete lottery compliance module.
 
 ---
 
@@ -197,6 +197,32 @@ Fortune_POS_Platform/
 │   │       ├── promoEngine.js            # Promo evaluation (excludes lottery items)
 │   │       └── taxCalc.js               # Tax calculation engine (EBT exemptions)
 │
+├── admin-app/                        # Superadmin panel (React 19, Vite 7, port 5175)
+│   ├── src/
+│   │   ├── pages/                    # 15 admin pages (dashboard, users, orgs, stores, tickets, etc.)
+│   │   ├── components/               # AdminSidebar, AdminLayout, StoreveuLogo, RichTextEditor
+│   │   ├── services/api.js           # 24+ admin API functions
+│   │   └── styles/                   # Light theme (global.css, admin.css)
+│   └── vite.config.js
+│
+├── ecom-backend/                     # E-commerce API (Express, Prisma, port 5005)
+│   ├── prisma/schema.prisma          # 8 ecom models (EcomStore, EcomProduct, EcomOrder, etc.)
+│   ├── src/
+│   │   ├── controllers/              # Storefront, orders, customer auth, analytics, sync
+│   │   ├── services/                 # Stock check, email, ISR revalidation
+│   │   └── workers/syncWorker.js     # BullMQ consumer for product sync
+│   └── uploads/                      # Uploaded store images
+│
+├── storefront/                       # Customer-facing online store (Next.js, port 3000)
+│   ├── pages/                        # SSR pages (products, cart, checkout, account, CMS)
+│   ├── components/                   # 15 premium templates, layout, icons
+│   ├── lib/                          # API client, cart context, auth context, store resolver
+│   └── styles/                       # globals.css, templates.css, cart-drawer.css
+│
+├── packages/                         # Shared npm workspaces
+│   ├── redis/index.js                # Shared ioredis client singleton
+│   └── queue/                        # BullMQ queue definitions + producers
+│
 └── frontend/
     ├── src/
     │   ├── App.jsx                       # All route definitions
@@ -248,7 +274,7 @@ Fortune_POS_Platform/
 
 ```bash
 # 1. Install all dependencies
-npm run install:all   # installs root + backend + frontend + cashier-app
+npm run install:all   # installs root + backend + frontend + cashier-app + admin-app + ecom-backend + storefront
 
 # 2. Set up environment files
 cp backend/.env.example backend/.env
@@ -264,7 +290,7 @@ node prisma/seedLottery.js   # Ontario OLGC lottery games + sample data
 
 # 5. Run all apps
 cd ..
-npm run dev          # starts backend (5000) + frontend (5173) + cashier-app (5174)
+npm run dev          # starts backend (5000) + frontend (5173) + cashier-app (5174) + admin-app (5175) + ecom-backend (5005) + storefront (3000)
 ```
 
 > ⚠️ **Always use `npx prisma db push`** — not `prisma migrate dev`. Shadow DB creation is blocked in this environment.
@@ -809,7 +835,7 @@ backdrop-filter: blur(12px);
 - Green (`#16a34a`) = sale / confirm / positive
 - Amber (`#d97706`) = payout / warning
 - Red (`#ef4444`) = void / error
-- All styles are inline (no CSS modules or Tailwind)
+- All new components use external CSS files with unique class-name prefixes (e.g. `tm-`, `lm-`, `pos-`)
 
 ---
 
@@ -819,19 +845,17 @@ backdrop-filter: blur(12px);
 
 ```jsx
 // 1. Create frontend/src/pages/NewFeature.jsx
+// Sidebar is provided by the shared Layout wrapper — do NOT import Sidebar here.
 export default function NewFeature() {
   return (
-    <div className="layout-container">
-      <Sidebar />
-      <main className="main-content" style={{ padding: '2rem' }}>
-        {/* content */}
-      </main>
+    <div className="p-page">
+      {/* content */}
     </div>
   );
 }
 
-// 2. Add route in frontend/src/App.jsx
-<Route path="/portal/new-feature" element={<ProtectedRoute><NewFeature /></ProtectedRoute>} />
+// 2. Add route in frontend/src/App.jsx (nested under the <Layout /> parent route)
+<Route path="new-feature" element={<ProtectedRoute><NewFeature /></ProtectedRoute>} />
 
 // 3. Add nav link in frontend/src/components/Sidebar.jsx
 { name: 'New Feature', icon: <IconName size={13} />, path: '/portal/new-feature' }
@@ -932,12 +956,15 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 
 ## 15. CI/CD & Deployment
 
-**GitHub Actions** (`.github/workflows/deploy.yml`) — auto-deploys on push to `main`:
+**GitHub Actions** (`.github/workflows/deploy.yml`) — auto-deploys on push to `main` with atomic deploys:
 
-1. Backend: `npm ci` → `prisma generate` → `prisma migrate deploy` → `pm2 restart`
-2. Frontend: `npm ci` → `npm run build` → `nginx reload`
-3. Cashier App: `npm ci` → `npm run build` → `nginx reload`
-4. Health checks: `curl -f` against all endpoints
+1. Backend: `npm ci` → `prisma generate` → `prisma db push` → `pm2 restart`
+2. Frontend: `npm ci` → `npm run build` → atomic `mv` + `nginx -s reload`
+3. Cashier App: `npm ci` → `npm run build` → atomic `mv` + `nginx -s reload`
+4. Admin App: `npm ci` → `npm run build` → atomic `mv` + `nginx -s reload`
+5. Ecom Backend: `npm ci` → `prisma generate` → `prisma db push` → `pm2 restart`
+6. Storefront: `npm ci` → `npm run build` → `pm2 restart`
+7. Health checks: `curl -f` against all endpoints
 
 **Production URLs:**
 | Service | URL |
@@ -945,6 +972,9 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 | API | `https://api-pos.thefortunetech.com` |
 | Dashboard | `https://dashboard.thefortunetech.com` |
 | POS Web | `https://pos.thefortunetech.com` |
+| Admin | `https://admin.thefortunetech.com` |
+| Ecom API | `https://api-ecom.thefortunetech.com` |
+| Storefront | `https://*.shop.thefortunetech.com` |
 
 ---
 
@@ -1279,4 +1309,4 @@ Storv_POS_All/
 
 ---
 
-*Built with care for Future Foods — StoreVeu POS v2.0*
+*Built with care — Storeveu POS v2.0*

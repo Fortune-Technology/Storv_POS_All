@@ -67,10 +67,15 @@ export function AuthProvider({ children }) {
     return data.data || [];
   }, [storeSlug, apiAuth]);
 
+  const changePassword = useCallback(async (currentPassword, newPassword) => {
+    const { data } = await axios.put(`${ECOM_API}/store/${storeSlug}/auth/password`, { currentPassword, newPassword }, apiAuth());
+    return data;
+  }, [storeSlug, apiAuth]);
+
   const isLoggedIn = !!token && !!customer;
 
   return (
-    <AuthContext.Provider value={{ token, customer, isLoggedIn, signup, login, logout, getOrders, storeSlug }}>
+    <AuthContext.Provider value={{ token, customer, isLoggedIn, signup, login, logout, getOrders, changePassword, storeSlug }}>
       {children}
     </AuthContext.Provider>
   );

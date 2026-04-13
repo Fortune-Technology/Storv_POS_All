@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { Eye, EyeOff } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import Footer from '../../components/layout/Footer';
 import CartDrawer from '../../components/cart/CartDrawer';
@@ -22,6 +23,8 @@ export default function SignupPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = async (e) => {
@@ -66,11 +69,17 @@ export default function SignupPage() {
               <div className="auth-row">
                 <div className="auth-field">
                   <label className="auth-label">Password</label>
-                  <input className="auth-input" type="password" value={form.password} onChange={set('password')} required minLength={6} />
+                  <div className="acc-pw-input-wrap">
+                    <input className="auth-input" type={showPw ? 'text' : 'password'} value={form.password} onChange={set('password')} required minLength={6} />
+                    <button type="button" className="acc-pw-toggle" onClick={() => setShowPw(v => !v)}>{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                  </div>
                 </div>
                 <div className="auth-field">
                   <label className="auth-label">Confirm</label>
-                  <input className="auth-input" type="password" value={form.confirm} onChange={set('confirm')} required />
+                  <div className="acc-pw-input-wrap">
+                    <input className="auth-input" type={showConfirm ? 'text' : 'password'} value={form.confirm} onChange={set('confirm')} required />
+                    <button type="button" className="acc-pw-toggle" onClick={() => setShowConfirm(v => !v)}>{showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                  </div>
                 </div>
               </div>
               <button className="auth-btn" type="submit" disabled={loading}>

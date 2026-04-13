@@ -340,6 +340,12 @@
 }
 .cust-input:focus { outline: none; border-color: var(--accent-primary); }
 
+/* password eye toggle */
+.cust-pw-wrap { position: relative; display: flex; align-items: center; }
+.cust-pw-wrap .cust-input { padding-right: 36px; width: 100%; }
+.cust-pw-eye { position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); display: flex; padding: 2px; }
+.cust-pw-eye:hover { color: var(--text-primary); }
+
 /* toggle row */
 .cust-form-toggle-row {
   display: flex;

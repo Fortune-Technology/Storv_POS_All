@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CreditCard } from 'lucide-react';
 import api from '../services/api';
+import { fmtMoney } from '../utils/formatters';
 import './BillingPortal.css';
 
 const STATUS_COLORS = {
@@ -32,7 +33,7 @@ export default function BillingPortal() {
     ]).finally(() => setLoading(false));
   }, []);
 
-  const fmt     = (n) => `$${Number(n || 0).toFixed(2)}`;
+  const fmt     = fmtMoney;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
   return (

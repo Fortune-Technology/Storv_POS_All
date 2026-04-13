@@ -2308,6 +2308,47 @@ button {
 /* Account page: empty orders icon */
 .acc-empty-icon { opacity: 0.2; margin-bottom: 12px; }
 
+/* Account: Profile split layout (left = profile, right = password) */
+.acc-profile-split {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 32px;
+  align-items: start;
+}
+.acc-profile-left { }
+.acc-profile-right {
+  padding: 24px;
+  background: var(--sf-bg-secondary);
+  border: 1px solid var(--sf-border);
+  border-radius: 12px;
+}
+.acc-pw-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--sf-text);
+}
+.acc-pw-header .acc-section-title { margin-bottom: 0; }
+.acc-section-title { font-size: 16px; font-weight: 700; color: var(--sf-text); }
+.acc-pw-form { display: flex; flex-direction: column; gap: 14px; }
+.acc-pw-input-wrap { position: relative; display: flex; align-items: center; }
+.acc-pw-input-wrap .acc-input { padding-right: 40px; }
+.acc-pw-toggle { position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--sf-text-muted); display: flex; padding: 4px; }
+.acc-pw-toggle:hover { color: var(--sf-text); }
+.acc-pw-success { padding: 10px 14px; border-radius: 8px; background: #dcfce7; border: 1px solid #86efac; color: #166534; font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+.acc-pw-error { padding: 10px 14px; border-radius: 8px; background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+
+@media (max-width: 768px) {
+  .acc-profile-split {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .acc-profile-right {
+    padding: 20px;
+  }
+}
+
 /* Account page: continue shopping link in empty */
 .sc-continue-btn--mt12 { margin-top: 12px; }
 

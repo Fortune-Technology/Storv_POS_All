@@ -4,6 +4,7 @@ import MarketingFooter from '../../components/marketing/MarketingFooter';
 import MarketingSection from '../../components/marketing/MarketingSection';
 import MarketingButton from '../../components/marketing/MarketingButton';
 import { Mail, Phone, MapPin, CheckCircle2, Clock, Globe, ShieldCheck } from 'lucide-react';
+import SEO from '../../components/SEO';
 import './Contact.css';
 
 const Contact = () => {
@@ -56,6 +57,11 @@ const Contact = () => {
 
   return (
     <div className="contact-page">
+      <SEO
+        title="Contact Us"
+        description="Get in touch with the Storeveu team. We'd love to hear from you — questions, feedback, or partnership inquiries."
+        url="https://storeveu.com/contact"
+      />
       <MarketingNavbar />
 
       <section className="contact-hero">

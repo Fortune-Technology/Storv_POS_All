@@ -10,6 +10,7 @@ import {
   login,
   getProfile,
   updateProfile,
+  changePassword,
   listCustomers,
   countCustomers,
 } from '../controllers/storefrontAuthController.js';
@@ -23,6 +24,7 @@ router.post('/auth/login', login);
 // Profile
 router.get('/auth/profile/:customerId', getProfile);
 router.put('/auth/profile/:customerId', updateProfile);
+router.put('/auth/password/:customerId', changePassword);
 
 // Management (called by ecom-backend portal endpoints)
 router.get('/customers', listCustomers);

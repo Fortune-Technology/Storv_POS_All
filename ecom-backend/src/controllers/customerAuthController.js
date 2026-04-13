@@ -6,7 +6,7 @@
 
 import prisma from '../config/postgres.js';
 import { signCustomerToken } from '../middleware/customerAuth.js';
-import { posSignup, posLogin, posGetProfile, posUpdateProfile } from '../services/posCustomerAuthService.js';
+import { posSignup, posLogin, posGetProfile, posUpdateProfile, posChangePassword } from '../services/posCustomerAuthService.js';
 
 export const signup = async (req, res) => {
   try {
@@ -133,6 +133,25 @@ export const updateProfile = async (req, res) => {
   } catch (err) {
     const status = err.response?.status || 500;
     const message = err.response?.data?.error || 'Update failed';
+    res.status(status).json({ error: message });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const result = await posChangePassword(req.customer.customerId, currentPassword, newPassword);
+    res.json(result);
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error || 'Password change failed';
     res.status(status).json({ error: message });
   }
 };

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { Eye, EyeOff } from 'lucide-react';
 import Header from '../../components/layout/Header';
 import Footer from '../../components/layout/Footer';
 import CartDrawer from '../../components/cart/CartDrawer';
@@ -16,6 +17,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
   // Redirect logged-in users away from login page
   useEffect(() => {
@@ -56,7 +58,10 @@ export default function LoginPage() {
               </div>
               <div className="auth-field">
                 <label className="auth-label">Password</label>
-                <input className="auth-input" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+                <div className="acc-pw-input-wrap">
+                  <input className="auth-input" type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required />
+                  <button type="button" className="acc-pw-toggle" onClick={() => setShowPw(v => !v)}>{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                </div>
               </div>
               <button className="auth-btn" type="submit" disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign In'}

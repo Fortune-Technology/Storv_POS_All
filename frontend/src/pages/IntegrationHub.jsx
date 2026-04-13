@@ -21,6 +21,7 @@ import {
   getIntegrationAnalytics,
 } from '../services/api';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
+import { fmtMoney } from '../utils/formatters';
 import '../styles/portal.css';
 import './IntegrationHub.css';
 
@@ -64,7 +65,7 @@ const PLATFORM_COLORS = Object.fromEntries(
   Object.entries(PLATFORM_META).map(([k, v]) => [k, v.color])
 );
 
-const fmt$ = (n) => `$${Number(n || 0).toFixed(2)}`;
+const fmt$ = fmtMoney;
 const fmtDate = (d) => d ? new Date(d).toLocaleString() : '--';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import MarketingNavbar from '../../components/marketing/MarketingNavbar';
 import MarketingFooter from '../../components/marketing/MarketingFooter';
 import { Briefcase, MapPin, Clock, Building2, ArrowRight } from 'lucide-react';
 import axios from 'axios';
+import SEO from '../../components/SEO';
 import './Careers.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -30,6 +31,11 @@ const Careers = () => {
 
   return (
     <div className="mcr-page">
+      <SEO
+        title="Careers"
+        description="Join the Storeveu team. Help us build the future of retail technology for independent store owners."
+        url="https://storeveu.com/careers"
+      />
       <MarketingNavbar />
 
       {/* Hero */}
