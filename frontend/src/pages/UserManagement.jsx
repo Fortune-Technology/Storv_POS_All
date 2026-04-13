@@ -509,6 +509,7 @@ export default function UserManagement({ embedded }) {
   const [pinValue,   setPinValue]   = useState('');
   const [pinLoading, setPinLoading] = useState(false);
   const [pinError,   setPinError]   = useState('');
+  const [showPinPw,  setShowPinPw]  = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -833,24 +834,29 @@ export default function UserManagement({ embedded }) {
             <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: 6 }}>
               PIN (4–6 digits)
             </label>
-            <input
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]{4,6}"
-              maxLength={6}
-              autoFocus
-              value={pinValue}
-              onChange={e => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }}
-              onKeyDown={e => e.key === 'Enter' && handleSetPin()}
-              placeholder="e.g. 1357"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                background: '#252836', color: '#f1f5f9',
-                border: '1px solid rgba(255,255,255,.12)', borderRadius: 10,
-                padding: '0.8rem 1rem', fontSize: '1.25rem', letterSpacing: '0.3em',
-                outline: 'none', marginBottom: '1.25rem',
-              }}
-            />
+            <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+              <input
+                type={showPinPw ? 'text' : 'password'}
+                inputMode="numeric"
+                pattern="[0-9]{4,6}"
+                maxLength={6}
+                autoFocus
+                value={pinValue}
+                onChange={e => { setPinValue(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleSetPin()}
+                placeholder="e.g. 1357"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: '#252836', color: '#f1f5f9',
+                  border: '1px solid rgba(255,255,255,.12)', borderRadius: 10,
+                  padding: '0.8rem 2.5rem 0.8rem 1rem', fontSize: '1.25rem', letterSpacing: '0.3em',
+                  outline: 'none',
+                }}
+              />
+              <button type="button" onClick={() => setShowPinPw(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', padding: 4 }}>
+                {showPinPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button

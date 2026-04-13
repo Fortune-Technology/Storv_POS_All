@@ -2456,7 +2456,7 @@ The sales service queries POS transaction data directly from PostgreSQL via Pris
 
 ---
 
-*Last updated: April 2026 — Session 16: Shared Layout Wrappers, Independent Scrolling, Consistent Page Structure*
+*Last updated: April 2026 — Session 17: CSS Refactoring, Unified Customer Auth, Marketing Pages, Storefront Improvements*
 
 ---
 
@@ -2726,4 +2726,74 @@ node backend/prisma/seedTransactions.js
 
 ---
 
-*Last updated: April 2026 — Session 15: Label Queue + Employee Hub + Shift Management + Production Deploy*
+*Last updated: April 2026 — Session 17: CSS Refactoring, Unified Customer Auth, Marketing Pages, Storefront Improvements*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 17)
+
+### CSS Refactoring & UI Consistency
+
+- Standardized page headers with `p-header` pattern (44px icon, 1.3rem title) across all portal pages
+- Removed duplicate page-level paddings — `main-content` provides padding, individual pages no longer add their own
+- Scrollbar standardized to thin 6px across all 4 apps
+- Logo spacing reduced between "store" and "veu" in brand mark
+- Hamburger menu repositioned to top-right across admin + portal apps
+- Storefront mobile nav hides static links when hamburger menu is active
+
+---
+
+### Storefront Improvements
+
+- **Category slider** — horizontal scroll layout replaces grid for department navigation
+- **Shop page department filter** — horizontal scroll pills for filtering by department
+- **Product card layout fix** — consistent heights with "Add to Cart" button always pinned to bottom
+- **Lucide icons** — all remaining emojis replaced with Lucide React icons across entire storefront
+- **Store data on auth pages** — `getServerSideProps` added to login, signup, cart, and checkout pages so store branding loads correctly
+- **Auth redirects** — logged-in customers redirected away from login/signup pages
+- **Environment variable** — hardcoded `localhost:3000` references replaced with `VITE_STOREFRONT_URL` env var
+
+---
+
+### Unified Customer Authentication
+
+POS `Customer` table is now the single source of truth for both in-store and online customers.
+
+**Schema changes** (`backend/prisma/schema.prisma` — `Customer` model):
+- `passwordHash String?` — bcrypt-hashed password for storefront login
+- `addresses Json? @default("[]")` — saved delivery/pickup addresses
+
+**New POS backend endpoints** (storefront auth):
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `POST` | `/api/storefront/:storeId/auth/signup` | Create customer account with password |
+| `POST` | `/api/storefront/:storeId/auth/login` | Validate password, return JWT |
+| `GET` | `/api/storefront/:storeId/auth/me` | Get customer profile |
+| `PUT` | `/api/storefront/:storeId/auth/password` | Change password (requires current password) |
+
+**Ecom-backend proxying:**
+- Storefront auth requests proxy through ecom-backend to POS backend via HTTP
+- Store-level isolation enforced — customer of Store A cannot authenticate on Store B's storefront
+
+**Portal Customers page:**
+- Password field added to create/edit customer modal (optional; hashed before save)
+
+**Storefront account page:**
+- New "Security" tab for password change (current password + new password + confirm)
+
+---
+
+### Marketing Pages Updated
+
+- **Home.jsx** — new hero section, 6 feature cards with icons, updated industry cards
+- **Features.jsx** — 8 detailed feature sections, updated "Coming Soon" items
+- **Pricing.jsx** — 3 pricing tiers with feature comparison table, add-ons section, FAQ accordion
+- **About.jsx** — updated mission statement, company values, timeline
+- **Footer** — logo size matched to navbar for consistency
+
+---
+
+### Deployment Fixes
+
+- **CI/CD workflow** — fixed Nginx file lock issue using `mv` + `nginx -s reload` + `sudo rm` pattern instead of direct overwrite
+- **Git merge conflicts** — resolved conflicts in `backend/src/server.js` from concurrent feature branches

@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Loader, Shield, ChevronDown, ChevronUp, Printer,
-  Scale, Tag, Check, AlertCircle, RefreshCw,
+  Scale, Tag, Check, AlertCircle, RefreshCw, Eye, EyeOff,
 } from 'lucide-react';
 import { loginWithPassword, saveHardwareConfig } from '../../api/pos.js';
 import { useStationStore } from '../../stores/useStationStore.js';
@@ -79,6 +79,7 @@ export default function HardwareSettingsModal({ onClose }) {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -312,7 +313,12 @@ export default function HardwareSettingsModal({ onClose }) {
               </div>
               <div>
                 <label className="hsm-label">Password</label>
-                <input className="hsm-field" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required />
+                <div style={{ position: 'relative' }}>
+                  <input className="hsm-field" type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required style={{ paddingRight: 40 }} />
+                  <button type="button" onClick={() => setShowPw(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', padding: 4 }}>
+                    {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <button type="submit" disabled={authLoading} className={`hsm-auth-btn${authLoading ? ' hsm-auth-btn--loading' : ''}`}>
                 {authLoading ? <><Loader size={16} /> Verifying...</> : <><Shield size={16} /> Authenticate</>}

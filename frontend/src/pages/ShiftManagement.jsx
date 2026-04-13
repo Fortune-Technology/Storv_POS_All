@@ -13,15 +13,11 @@ import {
 import {
   Clock, RefreshCw, AlertCircle, Plus, Pencil, Trash2, Check, X as XIcon,
 } from 'lucide-react';
+import { todayStr, firstOfMonthStr } from '../utils/formatters';
 import '../styles/portal.css';
 import './ShiftManagement.css';
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
 function fmtDate(iso) {
   if (!iso) return '\u2014';
   return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });

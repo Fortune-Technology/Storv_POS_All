@@ -8,7 +8,7 @@ import {
   Monitor, ChevronRight, Check, Loader, Printer, Scale,
   CreditCard, Tag, Package, Wifi, WifiOff, CheckCircle2,
   AlertCircle, RefreshCw, ChevronDown, ChevronUp, SkipForward,
-  Settings, Zap, TestTube,
+  Settings, Zap, TestTube, Eye, EyeOff,
 } from 'lucide-react';
 import StoreveuLogo      from '../components/StoreveuLogo.jsx';
 import { useStationStore }  from '../stores/useStationStore.js';
@@ -154,6 +154,7 @@ export default function StationSetupScreen() {
   // Step 1 — login
   const [email,        setEmail]        = useState('');
   const [password,     setPassword]     = useState('');
+  const [showPw,       setShowPw]       = useState(false);
   const [managerToken, setManagerToken] = useState('');
 
   // Step 2 — store
@@ -655,7 +656,12 @@ export default function StationSetupScreen() {
             </div>
             <div style={{ marginBottom: '1.5rem' }}>
               <label className="sss-label">Password</label>
-              <input type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="sss-field" />
+              <div style={{ position: 'relative' }}>
+                <input type={showPw ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="sss-field" style={{ paddingRight: 40 }} />
+                <button type="button" onClick={() => setShowPw(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', padding: 4 }}>
+                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
             <button type="submit" disabled={loading || !email || !password} className={`sss-btn sss-btn--full ${!loading && !!email && !!password ? 'sss-btn--active' : 'sss-btn--disabled'}`}>
               {loading ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <>Continue <ChevronRight size={15} /></>}

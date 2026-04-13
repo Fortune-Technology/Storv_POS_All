@@ -19,11 +19,11 @@ import {
   getLoyaltyRewards, createLoyaltyReward, updateLoyaltyReward, deleteLoyaltyReward,
   getCatalogDepartments, searchCatalogProducts,
 } from '../services/api.js';
+import { fmtMoney } from '../utils/formatters';
 import './LoyaltyProgram.css';
 
 /* ────────────────────────────────────────────────────────────── helpers ── */
 const fmtPts   = (n) => Number(n ?? 0).toLocaleString();
-const fmtMoney = (n) => `$${Number(n ?? 0).toFixed(2)}`;
 const fmtMult  = (n) => `${Number(n ?? 1).toFixed(2)}×`;
 
 /* ══════════════════════════════════════════════════════════════════════════

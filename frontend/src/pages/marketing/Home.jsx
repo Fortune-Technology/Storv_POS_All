@@ -19,6 +19,7 @@ import {
   Store,
   Building2
 } from 'lucide-react';
+import SEO from '../../components/SEO';
 import './Home.css';
 
 const Home = () => {
@@ -88,6 +89,21 @@ const Home = () => {
 
   return (
     <div className="home-page">
+      <SEO
+        title="Modern POS & Retail Platform"
+        description="The complete retail platform for convenience, grocery, and liquor stores. Offline-first POS, real-time analytics, AI-powered predictions, e-commerce, and vendor auto-ordering."
+        url="https://storeveu.com/"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          "name": "Storeveu",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web, Windows",
+          "description": "Complete retail POS platform with offline-first checkout, analytics, predictions, e-commerce, and multi-store management.",
+          "offers": { "@type": "Offer", "price": "49", "priceCurrency": "USD", "priceValidUntil": "2027-12-31" },
+          "aggregateRating": { "@type": "AggregateRating", "ratingValue": "4.8", "ratingCount": "120" }
+        }}
+      />
       <MarketingNavbar />
 
       {/* Hero Section */}

@@ -24,6 +24,7 @@ import {
   Layers,
   TrendingUp
 } from 'lucide-react';
+import SEO from '../../components/SEO';
 import './About.css';
 
 const About = () => {
@@ -105,6 +106,19 @@ const About = () => {
 
   return (
     <div className="about-page">
+      <SEO
+        title="About Us"
+        description="Built by store owners who were tired of overpaying for bad software. Storeveu replaces 5+ disconnected tools with one affordable platform."
+        url="https://storeveu.com/about"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": "Storeveu",
+          "url": "https://storeveu.com",
+          "description": "Modern POS and retail management platform for independent stores.",
+          "foundingDate": "2022"
+        }}
+      />
       <MarketingNavbar />
 
       {/* Hero */}

@@ -1,6 +1,6 @@
-# StoreVeu POS — Backend API
+# Storeveu POS — Backend API
 
-The backend REST API for the StoreVeu POS platform (portal + cashier terminal). Built with **Express.js** and **PostgreSQL** (via Prisma).
+The backend REST API for the Storeveu POS platform (portal + cashier terminal). Built with **Express.js** and **PostgreSQL** (via Prisma).
 
 ---
 
@@ -154,6 +154,16 @@ Used by the **Cashier App**.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/employees` | Detailed sales performance by staff member |
+
+### Storefront Auth (`/api/storefront`)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/:storeId/auth/signup` | Public | Create customer account with password |
+| POST | `/:storeId/auth/login` | Public | Validate password, return JWT |
+| GET | `/:storeId/auth/me` | Customer JWT | Get customer profile |
+| PUT | `/:storeId/auth/password` | Customer JWT | Change password |
+
+Controller: `storefrontAuthController.js` — Unified customer auth using the POS `Customer` table as the single source of truth for both in-store and online storefront authentication.
 
 ### Other Routes
 | Mount | Description |

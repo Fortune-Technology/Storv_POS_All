@@ -4,6 +4,7 @@ import MarketingFooter from '../../components/marketing/MarketingFooter';
 import { Send, CheckCircle2, Loader2, HelpCircle, Clock, Mail } from 'lucide-react';
 import { toast } from 'react-toastify';
 import axios from 'axios';
+import SEO from '../../components/SEO';
 import './Support.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -58,6 +59,11 @@ const Support = () => {
 
   return (
     <div className="msup-page">
+      <SEO
+        title="Support"
+        description="Need help? Contact Storeveu support. We're here to help you get the most out of your POS platform."
+        url="https://storeveu.com/support"
+      />
       <MarketingNavbar />
 
       {/* Hero */}

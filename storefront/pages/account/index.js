@@ -12,7 +12,7 @@ import CartDrawer from '../../components/cart/CartDrawer';
 import { useAuth } from '../../lib/auth';
 import { useCart } from '../../lib/cart';
 import { FulfillmentIcon } from '../../components/icons';
-import { User, Package, MapPin, LogOut, Save, Plus, Trash2, ChevronRight } from 'lucide-react';
+import { User, Package, MapPin, LogOut, Save, Plus, Trash2, ChevronRight, Lock, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 
 const ECOM_API = process.env.NEXT_PUBLIC_ECOM_API_URL || 'http://localhost:5005/api';
@@ -21,7 +21,7 @@ function fmt(n) { return `$${Number(n).toFixed(2)}`; }
 function fmtDate(d) { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
 
 export default function AccountPage() {
-  const { customer, token, isLoggedIn, logout, getOrders, storeSlug } = useAuth();
+  const { customer, token, isLoggedIn, logout, getOrders, changePassword, storeSlug } = useAuth();
   const { storeSlug: sq } = useCart();
   const router = useRouter();
   const [tab, setTab] = useState('profile');
@@ -29,6 +29,12 @@ export default function AccountPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn) { router.push(`/account/login?store=${sq}`); return; }
@@ -77,6 +83,22 @@ export default function AccountPage() {
 
   if (!isLoggedIn) return null;
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError(''); setPwSuccess('');
+    if (pwForm.newPw.length < 6) { setPwError('New password must be at least 6 characters'); return; }
+    if (pwForm.newPw !== pwForm.confirm) { setPwError('Passwords do not match'); return; }
+    setPwSaving(true);
+    try {
+      await changePassword(pwForm.current, pwForm.newPw);
+      setPwSuccess('Password updated successfully');
+      setPwForm({ current: '', newPw: '', confirm: '' });
+    } catch (err) {
+      setPwError(err.response?.data?.error || 'Failed to change password');
+    }
+    setPwSaving(false);
+  };
+
   const TABS = [
     { id: 'profile', label: 'Profile', Icon: User },
     { id: 'orders', label: 'My Orders', Icon: Package },
@@ -104,45 +126,86 @@ export default function AccountPage() {
 
         {loading ? <p className="acc-loading">Loading...</p> : (
           <>
-            {/* Profile Tab */}
+            {/* Profile Tab — two-column: profile form (left) + password change (right) */}
             {tab === 'profile' && profile && (
-              <div className="acc-section">
-                <div className="acc-avatar-row">
-                  <div className="acc-avatar-lg">{profile.firstName?.charAt(0)?.toUpperCase() || profile.name?.charAt(0)?.toUpperCase() || '?'}</div>
-                  <div>
-                    <div className="acc-name-lg">{profile.firstName} {profile.lastName}</div>
-                    <div className="acc-email-sm">{profile.email}</div>
-                    <div className="acc-member-since">Member since {fmtDate(profile.createdAt)}</div>
+              <div className="acc-profile-split">
+                {/* Left: Profile Info */}
+                <div className="acc-profile-left">
+                  <div className="acc-avatar-row">
+                    <div className="acc-avatar-lg">{profile.firstName?.charAt(0)?.toUpperCase() || profile.name?.charAt(0)?.toUpperCase() || '?'}</div>
+                    <div>
+                      <div className="acc-name-lg">{profile.firstName} {profile.lastName}</div>
+                      <div className="acc-email-sm">{profile.email}</div>
+                      <div className="acc-member-since">Member since {fmtDate(profile.createdAt)}</div>
+                    </div>
                   </div>
+
+                  <div className="acc-form-grid">
+                    <div className="acc-field">
+                      <label className="acc-label">First Name</label>
+                      <input className="acc-input" value={profile.firstName || ''} onChange={e => setProfile(p => ({ ...p, firstName: e.target.value }))} />
+                    </div>
+                    <div className="acc-field">
+                      <label className="acc-label">Last Name</label>
+                      <input className="acc-input" value={profile.lastName || ''} onChange={e => setProfile(p => ({ ...p, lastName: e.target.value }))} />
+                    </div>
+                    <div className="acc-field">
+                      <label className="acc-label">Email</label>
+                      <input className="acc-input acc-input--disabled" value={profile.email} disabled />
+                    </div>
+                    <div className="acc-field">
+                      <label className="acc-label">Phone</label>
+                      <input className="acc-input" value={profile.phone || ''} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 123-4567" />
+                    </div>
+                  </div>
+
+                  <div className="acc-stats-row">
+                    <div className="acc-stat"><span className="acc-stat-num">{profile.orderCount}</span><span className="acc-stat-label">Orders</span></div>
+                    <div className="acc-stat"><span className="acc-stat-num">{fmt(profile.totalSpent)}</span><span className="acc-stat-label">Total Spent</span></div>
+                  </div>
+
+                  <button className="acc-save-btn" onClick={handleSaveProfile} disabled={saving}>
+                    <Save size={16} /> {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
                 </div>
 
-                <div className="acc-form-grid">
-                  <div className="acc-field">
-                    <label className="acc-label">First Name</label>
-                    <input className="acc-input" value={profile.firstName || ''} onChange={e => setProfile(p => ({ ...p, firstName: e.target.value }))} />
+                {/* Right: Change Password */}
+                <div className="acc-profile-right">
+                  <div className="acc-pw-header">
+                    <Lock size={18} />
+                    <h3 className="acc-section-title">Change Password</h3>
                   </div>
-                  <div className="acc-field">
-                    <label className="acc-label">Last Name</label>
-                    <input className="acc-input" value={profile.lastName || ''} onChange={e => setProfile(p => ({ ...p, lastName: e.target.value }))} />
-                  </div>
-                  <div className="acc-field">
-                    <label className="acc-label">Email</label>
-                    <input className="acc-input acc-input--disabled" value={profile.email} disabled />
-                  </div>
-                  <div className="acc-field">
-                    <label className="acc-label">Phone</label>
-                    <input className="acc-input" value={profile.phone || ''} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} placeholder="(555) 123-4567" />
-                  </div>
-                </div>
 
-                <div className="acc-stats-row">
-                  <div className="acc-stat"><span className="acc-stat-num">{profile.orderCount}</span><span className="acc-stat-label">Orders</span></div>
-                  <div className="acc-stat"><span className="acc-stat-num">{fmt(profile.totalSpent)}</span><span className="acc-stat-label">Total Spent</span></div>
-                </div>
+                  {pwSuccess && <div className="acc-pw-success"><Lock size={14} /> {pwSuccess}</div>}
+                  {pwError && <div className="acc-pw-error">{pwError}</div>}
 
-                <button className="acc-save-btn" onClick={handleSaveProfile} disabled={saving}>
-                  <Save size={16} /> {saving ? 'Saving...' : 'Save Changes'}
-                </button>
+                  <form onSubmit={handleChangePassword} className="acc-pw-form">
+                    <div className="acc-field">
+                      <label className="acc-label">Current Password</label>
+                      <div className="acc-pw-input-wrap">
+                        <input className="acc-input" type={showCurrent ? 'text' : 'password'} value={pwForm.current} onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))} required />
+                        <button type="button" className="acc-pw-toggle" onClick={() => setShowCurrent(v => !v)}>{showCurrent ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                      </div>
+                    </div>
+                    <div className="acc-field">
+                      <label className="acc-label">New Password</label>
+                      <div className="acc-pw-input-wrap">
+                        <input className="acc-input" type={showNew ? 'text' : 'password'} value={pwForm.newPw} onChange={e => setPwForm(f => ({ ...f, newPw: e.target.value }))} required minLength={6} />
+                        <button type="button" className="acc-pw-toggle" onClick={() => setShowNew(v => !v)}>{showNew ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                      </div>
+                    </div>
+                    <div className="acc-field">
+                      <label className="acc-label">Confirm New Password</label>
+                      <div className="acc-pw-input-wrap">
+                        <input className="acc-input" type={showNew ? 'text' : 'password'} value={pwForm.confirm} onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} required minLength={6} />
+                        <button type="button" className="acc-pw-toggle" onClick={() => setShowNew(v => !v)}>{showNew ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                      </div>
+                    </div>
+                    <button type="submit" className="acc-save-btn" disabled={pwSaving}>
+                      <Lock size={16} /> {pwSaving ? 'Updating...' : 'Update Password'}
+                    </button>
+                  </form>
+                </div>
               </div>
             )}
 
@@ -200,6 +263,7 @@ export default function AccountPage() {
                 </button>
               </div>
             )}
+
           </>
         )}
       </main>

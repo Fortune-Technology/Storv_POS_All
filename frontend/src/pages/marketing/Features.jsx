@@ -3,6 +3,7 @@ import MarketingNavbar from '../../components/marketing/MarketingNavbar';
 import MarketingFooter from '../../components/marketing/MarketingFooter';
 import MarketingSection from '../../components/marketing/MarketingSection';
 import MarketingButton from '../../components/marketing/MarketingButton';
+import SEO from '../../components/SEO';
 import {
   Cpu,
   FileSearch,
@@ -58,6 +59,11 @@ import './Features.css';
 const Features = () => {
   return (
     <div className="features-page">
+      <SEO
+        title="Features"
+        description="Explore Storeveu's complete feature set: offline-first POS, lottery management, 14-factor auto-ordering, Holt-Winters sales predictions, e-commerce storefronts, and more."
+        url="https://storeveu.com/features"
+      />
       <MarketingNavbar />
 
       {/* Page Hero */}

@@ -1,6 +1,6 @@
-# StoreVeu POS Platform — Project Overview
+# Storeveu POS Platform — Project Overview
 
-The StoreVeu POS Platform (formerly Future Foods Business Portal) is a comprehensive, multi-tenant POS and management ecosystem designed for retail, convenience, grocery, and liquor store operations. It bridges the gap between traditional IT Retail systems and modern cloud-based analytics, providing real-time visibility, advanced forecasting, and full hardware integration.
+The Storeveu POS Platform is a comprehensive, multi-tenant POS and management ecosystem designed for retail, convenience, grocery, and liquor store operations. It bridges the gap between traditional IT Retail systems and modern cloud-based analytics, providing real-time visibility, advanced forecasting, and full hardware integration.
 
 ---
 
@@ -29,7 +29,7 @@ The StoreVeu POS Platform (formerly Future Foods Business Portal) is a comprehen
 | **Integrations** | `POS API` | Active | MarktPOS v2 live search & credentials |
 | | `Vendor Orders` | Active | Automated reordering recommendations |
 | | `PAX Payments` | Active | Card terminal integration (sale/refund/void) |
-| | `eComm` | Planned | Online storefront & delivery integration |
+| | `eComm` | Active | Online storefront & delivery integration (Next.js + ecom-backend) |
 | **Point of Sale** | `POS Settings` | Active | Terminal layout, Quick-keys, & behavior |
 | | `Receipt Settings`| Active | Per-store receipt configuration |
 | | `Branding` | Active | Logo, Colors, & Themes |
@@ -91,8 +91,13 @@ A full-featured, offline-first POS terminal available as an Electron desktop app
 - **Inventory Variance:** "Theoretical vs. Actual" stock level reporting from invoice data.
 - **Lottery Barcode Scanning:** Device camera integration for EOD ticket scanning.
 
+### Completed (Q2 2026)
+- **E-Commerce Module:** Full online store with Next.js storefront, product sync from POS, 15 premium templates, customer auth (unified with POS Customer table), checkout with stock check, order management, custom domains, analytics.
+- **Admin Panel:** Standalone superadmin app (admin-app/) with user/org/store CRUD, login-as-user impersonation, support tickets, billing management.
+- **Unified Customer Auth:** POS Customer table is now single source of truth for both in-store and online storefront authentication.
+- **CI/CD with Atomic Deploys:** GitHub Actions pipeline deploys all 6 apps with atomic file swaps and Nginx reload.
+
 ### Planned (Q3-Q4 2026)
-- **eComm Integration:** Syncing the PostgreSQL catalog to a customer-facing online shop.
 - **Customer Loyalty Points:** Points-per-dollar model with redemption as tender.
 - **Logo on Receipt:** ESC/POS raster graphics (base64 → bitmap).
 - **Digital Receipts:** Email/SMS receipt delivery after transaction.
