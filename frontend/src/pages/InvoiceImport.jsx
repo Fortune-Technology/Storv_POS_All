@@ -299,7 +299,7 @@ function ReviewPanel({
   onHeaderChange, onItemChange, onApplyVendorToAll,
   onOpenSearch, onUpdatePOS, onCreatePOS,
   onDeleteItem, onAddItem, onAcceptAllHigh,
-  readOnly,
+  readOnly, onConfirmWithPO,
 }) {
   const [expanded,    setExpanded]    = useState({});
   const [posLoading,  setPosLoading]  = useState(false);
@@ -452,10 +452,25 @@ function ReviewPanel({
                 style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
                 {isSavingDraft ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving…</> : <><Save size={14} /> Save Draft</>}
               </button>
-              <button onClick={onConfirm} disabled={isConfirming} className="btn btn-primary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
-                {isConfirming ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Syncing & updating POS…</> : <><CheckCircle size={15} /> Confirm & Sync to POS</>}
-              </button>
+              {invoice?.linkedPurchaseOrderId && onConfirmWithPO ? (
+                <>
+                  <button onClick={onConfirmWithPO} disabled={isConfirming} className="btn btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem', background: '#059669', borderColor: '#059669' }}>
+                    {isConfirming
+                      ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Receiving…</>
+                      : <><CheckCircle size={15} /> Confirm &amp; Receive PO</>}
+                  </button>
+                  <button onClick={onConfirm} disabled={isConfirming} className="btn btn-ghost"
+                    style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0.5rem' }}>
+                    Confirm only
+                  </button>
+                </>
+              ) : (
+                <button onClick={onConfirm} disabled={isConfirming} className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
+                  {isConfirming ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Syncing & updating POS…</> : <><CheckCircle size={15} /> Confirm & Sync to POS</>}
+                </button>
+              )}
             </>
           )}
           {readOnly && (
@@ -463,6 +478,63 @@ function ReviewPanel({
           )}
         </div>
       </div>
+
+      {/* ── PO Match Banner ── */}
+      {invoice?.linkedPurchaseOrderId && invoice?.poMatchResult?.matchedPO && (
+        <div style={{
+          padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+          background: 'rgba(5, 150, 105, 0.08)', borderBottom: '1px solid rgba(5, 150, 105, 0.2)',
+          fontSize: '0.82rem',
+        }}>
+          <span style={{ fontWeight: 700, color: '#059669', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Package size={15} /> PO Matched
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+            {invoice.poMatchResult.matchedPO.poNumber}
+          </span>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {invoice.poMatchResult.matchedPO.vendorName}
+          </span>
+          <span style={{ fontSize: '0.72rem', color: '#059669' }}>
+            {invoice.poMatchResult.summary?.matched || 0} items matched
+          </span>
+          {(invoice.poMatchResult.summary?.unmatched || 0) > 0 && (
+            <span style={{ fontSize: '0.72rem', color: '#f59e0b' }}>
+              {invoice.poMatchResult.summary.unmatched} unmatched
+            </span>
+          )}
+          {(invoice.poMatchResult.summary?.totalVariance || 0) > 0 && (
+            <span style={{ fontSize: '0.72rem', color: '#ef4444', fontWeight: 600 }}>
+              Cost variance: ${Number(invoice.poMatchResult.summary.totalVariance).toFixed(2)}
+            </span>
+          )}
+          {(invoice.poMatchResult.summary?.majorVariances || 0) > 0 && (
+            <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: 700 }}>
+              {invoice.poMatchResult.summary.majorVariances} MAJOR
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Credit/Return Items Banner ── */}
+      {(() => {
+        const creditItems = (editData?.lineItems || []).filter(li => {
+          const qty = Number(li.quantity || li.qty || 0);
+          const desc = (li.description || li.originalVendorDescription || '').toLowerCase();
+          return qty < 0 || /credit|return|adjustment|cr\s?memo|refund/.test(desc);
+        });
+        if (creditItems.length === 0) return null;
+        return (
+          <div style={{
+            padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'rgba(139, 92, 246, 0.08)', borderBottom: '1px solid rgba(139, 92, 246, 0.2)',
+            fontSize: '0.78rem', color: '#7c3aed',
+          }}>
+            <span style={{ fontWeight: 700 }}>↩ {creditItems.length} return/credit item{creditItems.length !== 1 ? 's' : ''} detected</span>
+            <span style={{ color: 'var(--text-muted)' }}>Will auto-create vendor return on confirm</span>
+          </div>
+        );
+      })()}
 
       {/* ── Body ── */}
       <div className="ii-review-body">
@@ -1510,12 +1582,12 @@ const InvoiceImport = () => {
     }
   };
 
-  const handleConfirm = async () => {
+  const doConfirm = async (acceptPOMatch = false) => {
     if (!editData) return;
     setIsConfirming(true);
     try {
-      // Step 1 — mark invoice as synced in MongoDB + save vendor-product mappings
-      await confirmInvoice({
+      // Step 1 — mark invoice as synced + save vendor-product mappings + optionally receive PO
+      const confirmResult = await confirmInvoice({
         id: editData.id, lineItems: editData.lineItems, vendorName: editData.vendorName,
         invoiceNumber: editData.invoiceNumber, invoiceDate: editData.invoiceDate,
         totalInvoiceAmount: editData.totalInvoiceAmount, customerNumber: editData.customerNumber,
@@ -1523,7 +1595,20 @@ const InvoiceImport = () => {
         checkNumber: editData.checkNumber, tax: editData.tax, totalDiscount: editData.totalDiscount,
         totalDeposit: editData.totalDeposit, otherFees: editData.otherFees,
         driverName: editData.driverName, salesRepName: editData.salesRepName, loadNumber: editData.loadNumber,
+        acceptPOMatch,
       });
+
+      // Show PO receive result
+      if (confirmResult?.poReceiveResult) {
+        const pr = confirmResult.poReceiveResult;
+        toast.success(`📦 PO received: ${pr.itemsReceived} items${pr.totalVariance > 0 ? ` · Cost variance: $${pr.totalVariance}` : ''}`);
+      }
+
+      // Show auto-return result
+      if (confirmResult?.autoReturnResult) {
+        const ar = confirmResult.autoReturnResult;
+        toast.info(`↩ Auto-return created: ${ar.returnNumber} · ${ar.itemCount} items · $${Number(ar.total).toFixed(2)}`);
+      }
 
       // Step 2 — bulk-push all matched items to catalog
       const matchedItems = editData.lineItems.filter(
@@ -1594,6 +1679,9 @@ const InvoiceImport = () => {
       setIsConfirming(false);
     }
   };
+
+  const handleConfirm = () => doConfirm(false);
+  const handleConfirmWithPO = () => doConfirm(true);
 
   const handleUpdatePOS = async (posProductId, posFields) => {
     // Map legacy POS field names → catalog field names
@@ -1838,6 +1926,7 @@ const InvoiceImport = () => {
           isSavingDraft={isSavingDraft}
           onClose={closeReview}
           onConfirm={handleConfirm}
+          onConfirmWithPO={handleConfirmWithPO}
           onSaveDraft={handleSaveDraft}
           onHeaderChange={handleHeaderChange}
           onItemChange={handleItemChange}

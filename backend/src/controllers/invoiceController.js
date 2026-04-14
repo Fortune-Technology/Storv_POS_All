@@ -31,6 +31,25 @@ async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
 
     const enrichedItems = await matchLineItems(data.lineItems, posProducts, data.vendor.vendorName);
 
+    // ── Auto-match to Purchase Order ──────────────────────────────────
+    let poMatchResult = null;
+    let linkedPurchaseOrderId = null;
+    try {
+      const { matchInvoiceToPO } = await import('../services/poInvoiceMatchService.js');
+      // Save enriched items first so the PO matcher can read them
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { lineItems: enrichedItems, vendorName: data.vendor.vendorName },
+      });
+      const poMatch = await matchInvoiceToPO(orgId, storeId, invoiceId);
+      if (poMatch.matchedPO) {
+        linkedPurchaseOrderId = poMatch.matchedPO.id;
+        poMatchResult = poMatch;
+      }
+    } catch (poErr) {
+      console.warn(`[Invoice ${invoiceId}] PO matching skipped:`, poErr.message);
+    }
+
     await prisma.invoice.update({
       where: { id: invoiceId },
       data: {
@@ -56,10 +75,12 @@ async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
         pages,
         rawText:            JSON.stringify(data),
         processingError:    null,
+        linkedPurchaseOrderId,
+        poMatchResult,
       },
     });
 
-    console.log(`✅ Invoice ${invoiceId} processing complete`);
+    console.log(`✅ Invoice ${invoiceId} processing complete${linkedPurchaseOrderId ? ` (matched PO: ${poMatchResult.matchedPO.poNumber})` : ''}`);
   } catch (err) {
     console.error(`❌ Invoice ${invoiceId} processing failed:`, err.message);
     await prisma.invoice.update({
@@ -423,7 +444,122 @@ export const confirmInvoice = async (req, res) => {
       });
     } catch { /* non-fatal */ }
 
-    res.json({ message: 'Invoice synchronized with system', invoice });
+    // ── PO Receiving — if user accepted the PO match ──────────────────────────
+    let poReceiveResult = null;
+    if (req.body.acceptPOMatch && existing.linkedPurchaseOrderId) {
+      try {
+        const poMatchData = existing.poMatchResult || {};
+        const matchedItems = poMatchData.matchedItems || [];
+        if (matchedItems.length > 0) {
+          const poId = existing.linkedPurchaseOrderId;
+          const receiveItems = matchedItems.map(m => ({
+            id: m.poItemId,
+            qtyReceived: parseInt(m.qtyFromInvoice) || 0,
+            actualUnitCost: m.invoiceUnitCost || undefined,
+          }));
+
+          // Receive the PO using same logic as receivePurchaseOrder
+          const po = await prisma.purchaseOrder.findUnique({
+            where: { id: poId },
+            include: { items: true },
+          });
+
+          if (po) {
+            let allReceived = true;
+            let totalVariance = 0;
+            for (const recv of receiveItems) {
+              const poItem = po.items.find(i => i.id === recv.id);
+              if (!poItem) continue;
+              const qtyRecv = parseInt(recv.qtyReceived) || 0;
+              const actualUnitCost = recv.actualUnitCost != null ? parseFloat(recv.actualUnitCost) : null;
+              let costVariance = null, varianceFlag = null;
+              if (actualUnitCost != null && Number(poItem.unitCost) > 0) {
+                costVariance = Math.round((actualUnitCost - Number(poItem.unitCost)) * 10000) / 10000;
+                const pct = Math.abs(costVariance) / Number(poItem.unitCost) * 100;
+                varianceFlag = pct < 5 ? 'none' : pct < 15 ? 'minor' : 'major';
+                totalVariance += Math.abs(costVariance) * qtyRecv;
+              }
+              const backorderQty = Math.max(0, poItem.qtyOrdered - qtyRecv);
+              await prisma.purchaseOrderItem.update({
+                where: { id: recv.id },
+                data: { qtyReceived: qtyRecv, actualUnitCost, costVariance, varianceFlag, backorderQty, backorderStatus: backorderQty > 0 ? 'pending' : null },
+              });
+              await prisma.storeProduct.updateMany({
+                where: { masterProductId: poItem.masterProductId, storeId: po.storeId },
+                data: { quantityOnHand: { increment: qtyRecv }, quantityOnOrder: { decrement: poItem.qtyOrdered }, lastReceivedAt: new Date(), lastStockUpdate: new Date() },
+              }).catch(() => {});
+              if (qtyRecv < poItem.qtyOrdered) allReceived = false;
+            }
+            const poStatus = allReceived ? 'received' : 'partial';
+            await prisma.purchaseOrder.update({
+              where: { id: poId },
+              data: { status: poStatus, receivedDate: allReceived ? new Date() : undefined, invoiceId: existing.id, invoiceNumber, totalVariance: Math.round(totalVariance * 100) / 100 },
+            });
+            poReceiveResult = { poId, status: poStatus, itemsReceived: receiveItems.length, totalVariance: Math.round(totalVariance * 100) / 100 };
+          }
+        }
+      } catch (poErr) {
+        console.warn('[Invoice confirm] PO receive failed:', poErr.message);
+      }
+    }
+
+    // ── Auto-detect returns (credit memos / negative quantities) ────────────
+    let autoReturnResult = null;
+    try {
+      const CREDIT_PATTERNS = /credit|return|adjustment|cr\s?memo|refund/i;
+      const returnItems = (lineItems || []).filter(li => {
+        const qty = Number(li.quantity || li.qty || li.unitQty || 0);
+        const desc = li.description || li.originalVendorDescription || '';
+        return qty < 0 || CREDIT_PATTERNS.test(desc);
+      });
+
+      if (returnItems.length > 0 && vendorName) {
+        // Find vendor
+        const vendor = await prisma.vendor.findFirst({
+          where: { orgId: req.orgId, OR: [{ name: { contains: vendorName, mode: 'insensitive' } }] },
+          select: { id: true },
+        });
+        if (vendor) {
+          const retNumber = `RET-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-INV`;
+          const retItems = returnItems.map(li => ({
+            masterProductId: parseInt(li.linkedProductId || li.posProductId) || 0,
+            qty: Math.abs(Number(li.quantity || li.qty || li.unitQty || 1)),
+            unitCost: Math.abs(Number(li.unitCost || li.caseCost || 0)),
+            lineTotal: Math.abs(Number(li.total || li.lineTotal || 0)),
+            reason: 'credit_memo',
+          })).filter(i => i.masterProductId > 0);
+
+          if (retItems.length > 0) {
+            const ret = await prisma.vendorReturn.create({
+              data: {
+                orgId: req.orgId,
+                storeId: req.storeId || '',
+                vendorId: vendor.id,
+                returnNumber: retNumber + '-' + String(Date.now()).slice(-4),
+                reason: 'credit_memo',
+                status: 'credited',
+                totalAmount: retItems.reduce((s, i) => s + i.lineTotal, 0),
+                creditReceived: retItems.reduce((s, i) => s + i.lineTotal, 0),
+                creditedAt: new Date(),
+                notes: `Auto-created from invoice ${invoiceNumber || existing.id}`,
+                createdById: req.user?.id || '',
+                items: { create: retItems },
+              },
+            });
+            autoReturnResult = { returnId: ret.id, returnNumber: ret.returnNumber, itemCount: retItems.length, total: ret.totalAmount };
+          }
+        }
+      }
+    } catch (retErr) {
+      console.warn('[Invoice confirm] Return detection failed:', retErr.message);
+    }
+
+    res.json({
+      message: 'Invoice synchronized with system',
+      invoice,
+      poReceiveResult,
+      autoReturnResult,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

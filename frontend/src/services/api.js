@@ -125,6 +125,7 @@ export const getTopProducts = (params) => api.get('/sales/products/top', { param
 export const getProductsGrouped = (params) => api.get('/sales/products/grouped', { params }).then(r => r.data);
 export const getProductMovement = (params) => api.get('/sales/products/movement', { params }).then(r => r.data);
 export const getDailyProductMovement = (params) => api.get('/sales/products/daily-movement', { params }).then(r => r.data);
+export const getProduct52WeekStats = (params) => api.get('/sales/products/52week-stats', { params }).then(r => r.data);
 export const getSalesPredictionsDaily = (params) => api.get('/sales/predictions/daily', { params }).then(r => r.data);
 export const getSalesPredictionsWeekly = (params) => api.get('/sales/predictions/weekly', { params }).then(r => r.data);
 export const getSalesPredictionsHourly = (params) => api.get('/sales/predictions/hourly', { params }).then(r => r.data);
@@ -149,7 +150,27 @@ export const updatePurchaseOrder    = (id, d)  => api.put(`/vendor-orders/purcha
 export const submitPurchaseOrder    = (id)     => api.post(`/vendor-orders/purchase-orders/${id}/submit`).then(r => r.data);
 export const receivePurchaseOrder   = (id, d)  => api.post(`/vendor-orders/purchase-orders/${id}/receive`, d).then(r => r.data);
 export const deletePurchaseOrder    = (id)     => api.delete(`/vendor-orders/purchase-orders/${id}`).then(r => r.data);
+export const approvePurchaseOrder   = (id, d)  => api.post(`/vendor-orders/purchase-orders/${id}/approve`, d).then(r => r.data);
+export const rejectPurchaseOrder    = (id, d)  => api.post(`/vendor-orders/purchase-orders/${id}/reject`, d).then(r => r.data);
+export const receiveByInvoice       = (data)   => api.post('/vendor-orders/receive-by-invoice', data).then(r => r.data);
+export const getCostVariance        = (params) => api.get('/vendor-orders/cost-variance', { params }).then(r => r.data);
+export const getVendorPerformance   = (params) => api.get('/vendor-orders/vendor-performance', { params }).then(r => r.data);
 export const getPurchaseOrderPDF    = (id)     => api.get(`/vendor-orders/purchase-orders/${id}/pdf`, { responseType: 'blob' });
+
+// Vendor Returns
+export const listVendorReturns      = (params) => api.get('/vendor-returns', { params }).then(r => r.data);
+export const getVendorReturn        = (id)     => api.get(`/vendor-returns/${id}`).then(r => r.data);
+export const createVendorReturn     = (data)   => api.post('/vendor-returns', data).then(r => r.data);
+export const submitVendorReturn     = (id)     => api.post(`/vendor-returns/${id}/submit`).then(r => r.data);
+export const recordVendorCredit     = (id, d)  => api.post(`/vendor-returns/${id}/credit`, d).then(r => r.data);
+export const closeVendorReturn      = (id)     => api.post(`/vendor-returns/${id}/close`).then(r => r.data);
+export const deleteVendorReturn     = (id)     => api.delete(`/vendor-returns/${id}`).then(r => r.data);
+export const createManualPO         = (data)   => api.post('/vendor-orders/purchase-orders', data).then(r => r.data);
+
+// Inventory Adjustments
+export const createInventoryAdjustment = (data)   => api.post('/inventory/adjustments', data).then(r => r.data);
+export const listInventoryAdjustments  = (params) => api.get('/inventory/adjustments', { params }).then(r => r.data);
+export const getAdjustmentSummary      = (params) => api.get('/inventory/adjustments/summary', { params }).then(r => r.data);
 
 // ── Label Queue ──────────────────────────────────────────────────────────────
 export const getLabelQueue      = (params) => api.get('/label-queue', { params }).then(r => r.data);

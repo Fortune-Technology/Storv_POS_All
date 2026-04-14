@@ -171,7 +171,7 @@ const ChatPage = () => {
     try {
       await sendChatMessage({
         channelId: activeChannel.id || activeChannel._id,
-        text: text.trim(),
+        message: text.trim(),
       });
       setText('');
       await loadMessages(activeChannel.id || activeChannel._id);
@@ -193,7 +193,7 @@ const ChatPage = () => {
     try {
       await sendChatMessage({
         recipientId: user.id || user._id,
-        text: '(started a conversation)',
+        message: '(started a conversation)',
       });
       await loadChannels();
       toast.success(`DM started with ${user.name || user.email}`);
@@ -248,7 +248,11 @@ const ChatPage = () => {
                     <div className="ch-channel-info">
                       <span className="ch-channel-name">{ch.name || ch.label || 'Channel'}</span>
                       {ch.lastMessage && (
-                        <span className="ch-channel-preview">{ch.lastMessage}</span>
+                        <span className="ch-channel-preview">
+                          {typeof ch.lastMessage === 'string'
+                            ? ch.lastMessage
+                            : ch.lastMessage.message || ch.lastMessage.text || ch.lastMessage.body || ''}
+                        </span>
                       )}
                     </div>
                     {unread > 0 && <span className="ch-unread-badge">{unread}</span>}

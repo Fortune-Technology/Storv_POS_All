@@ -22,13 +22,13 @@ import prisma from '../config/postgres.js';
 // (lowercased, stripped of spaces/underscores/hyphens).
 const ALIASES = {
   // Product identifiers
-  upc:                ['upc','barcode','ean','gtin','itemno','item#','upccode','scancode','itemcode_upc'],
+  upc:                ['upc','barcode','ean','gtin','upccode','scancode','itemcode_upc'],
   plu:                ['plu','plunumber','producelookup'],
-  sku:                ['sku','internalsku','itemnumber'],
-  itemCode:           ['itemcode','item','vendoritemcode','mfrcode','vendorcode','distitemno'],
+  sku:                ['sku','internalsku','publicid'],
+  itemCode:           ['itemcode','item','vendoritemcode','mfrcode','vendorcode','distitemno','itemnumber','itemno','item#'],
 
   // Product display — 'description' maps to name (product name), NOT long description
-  name:               ['name','description','productname','itemdesc','itemdescription','proddesc','itemname','prodname'],
+  name:               ['name','title','description','productname','itemdesc','itemdescription','proddesc','itemname','prodname','producttitle'],
   brand:              ['brand','brandname','mfrname'],
   size:               ['size','itemsize','packsize','unitsize','productsize'],
   sizeUnit:           ['sizeunit','unit','uom','unitofmeasure','itemuom','item_uom'],
@@ -44,8 +44,8 @@ const ALIASES = {
 
   // Classification
   departmentId:       ['dept','department','deptid','deptno','departmentid','category','deptcode','deptnumber','dept_no'],
-  vendorId:           ['vendor','supplier','vendorid','vendorno','supplierid','distributor','vendorname','vendor_name'],
-  taxClass:           ['taxclass','tax1','taxtype','taxcategory','taxcode'],
+  vendorId:           ['vendor','supplier','vendorid','vendorno','supplierid','distributor','vendorname','vendor_name','importer'],
+  taxClass:           ['taxclass','tax1','taxtype','taxcategory','taxcode','taxrate'],
 
   // Compliance
   ageRequired:        ['agerequired','minage','age','agerestriction','ageverification','validage'],
@@ -55,7 +55,7 @@ const ALIASES = {
   active:             ['active','status','enabled','isenabled','isactive'],
 
   // Inventory
-  reorderPoint:       ['reorderpoint','minstock','reorderat','minimumstock','minqtyonhand'],
+  reorderPoint:       ['reorderpoint','minstock','reorderat','minimumstock','minqtyonhand','reorderthreshold','reordermin'],
   reorderQty:         ['reorderqty','reorderquantity','orderqty','suggestedorderqty','reorderamt'],
 
   // Dept-specific
@@ -142,14 +142,14 @@ const ALIASES = {
   futureMultiple:     ['futuremultiple','future_multiple'],
 
   // ── Deposits ──
-  depositPerUnit:     ['bottledeposit','bottle_deposit','depositperunit','unitdeposit'],
+  depositPerUnit:     ['depositperunit','unitdeposit','bottledeposit','bottle_deposit','bottledep'],
   caseDeposit:        ['casedeposit','case_deposit','casedep'],
 
   // ── Linked UPC ──
   linkedUpc:          ['linkedupc','caseupc','case_upc','relatedupc','altbarcode','altupc','secondaryupc'],
 
   // ── Legacy / misc ──
-  quantityOnHand:     ['quantityonhand','qoh','stockqty','onhand','currentstock','inventoryqty'],
+  quantityOnHand:     ['quantityonhand','qoh','stockqty','onhand','currentstock','inventoryqty','instock','stockcount','inventory'],
   byWeight:           ['scale','byweight','soldbyweight','scalable','weightitem'],
   foodstamp:          ['foodstamp','food_stamp','snap','ebt','snapeligible'],
   productCode:        ['productcode','mfrcode','manufacturercode'],
@@ -367,8 +367,15 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
   const deptStrategy   = opts.unknownDeptStrategy   || 'skip';
   const vendorStrategy = opts.unknownVendorStrategy || 'skip';
 
-  const upc     = get('upc');
+  let upc       = get('upc');
   const name    = get('name');
+
+  // Clean UPC — strip leading underscores/spaces, remove non-numeric chars (keep digits only for standard barcodes)
+  if (upc) {
+    upc = upc.replace(/^[_\s]+/, ''); // strip leading _ or spaces
+    // If it looks like a numeric barcode, strip any remaining non-digits
+    if (/^\d/.test(upc)) upc = upc.replace(/[^0-9]/g, '');
+  }
 
   if (!name)               errors.push({ field: 'name',  message: 'Product name is required' });
   if (!upc && !get('sku') && !get('plu')) {

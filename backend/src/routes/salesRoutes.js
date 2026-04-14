@@ -17,6 +17,7 @@ import {
   productsGrouped,
   productMovement,
   dailyProductMovement,
+  product52WeekStats,
   predictionsDaily,
   predictionsWeekly,
   predictionsResiduals,
@@ -60,6 +61,7 @@ router.get('/products/top', topProducts);
 router.get('/products/grouped', productsGrouped);
 router.get('/products/movement', productMovement);
 router.get('/products/daily-movement', dailyProductMovement);
+router.get('/products/52week-stats', product52WeekStats);
 
 // Predictions
 router.get('/predictions/daily', predictionsDaily);

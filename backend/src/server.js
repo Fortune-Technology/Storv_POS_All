@@ -31,8 +31,10 @@ import publicRoutes      from './routes/publicRoutes.js';
 import ticketRoutes      from './routes/ticketRoutes.js';
 import billingRoutes     from './routes/billingRoutes.js';
 import equipmentRoutes   from './routes/equipmentRoutes.js';
-import orderRoutes       from './routes/orderRoutes.js';
-import reportsHubRoutes  from './routes/reportsHubRoutes.js';
+import orderRoutes        from './routes/orderRoutes.js';
+import vendorReturnRoutes         from './routes/vendorReturnRoutes.js';
+import inventoryAdjustmentRoutes  from './routes/inventoryAdjustmentRoutes.js';
+import reportsHubRoutes           from './routes/reportsHubRoutes.js';
 import chatRoutes        from './routes/chatRoutes.js';
 import taskRoutes        from './routes/taskRoutes.js';
 import auditRoutes       from './routes/auditRoutes.js';
@@ -97,7 +99,9 @@ app.use('/api/payment',      paymentRoutes);
 app.use('/api/admin',        adminRoutes);
 app.use('/api/billing',        billingRoutes);
 app.use('/api/equipment',      equipmentRoutes);
-app.use('/api/vendor-orders',  orderRoutes);
+app.use('/api/vendor-orders',   orderRoutes);
+app.use('/api/vendor-returns',          vendorReturnRoutes);
+app.use('/api/inventory/adjustments',  inventoryAdjustmentRoutes);
 app.use('/api/reports/hub',    reportsHubRoutes);
 app.use('/api/chat',           chatRoutes);
 app.use('/api/tasks',          taskRoutes);
@@ -149,6 +153,11 @@ const startServer = async () => {
   // Recurring task spawner — checks every 15 minutes for tasks due
   setInterval(() => spawnRecurringTasks().catch(() => {}), 15 * 60 * 1000);
   spawnRecurringTasks().catch(() => {}); // Initial run on startup
+
+  // Start order auto-scheduler (daily at 6 AM)
+  import('./services/orderScheduler.js')
+    .then(m => m.startOrderScheduler())
+    .catch(err => console.warn('⚠ Order scheduler not started:', err.message));
 
   app.listen(PORT, () => {
     console.log(`✓ Server running on port ${PORT}`);

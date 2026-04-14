@@ -50,6 +50,7 @@ import ChatPanel       from '../components/modals/ChatPanel.jsx';
 import HardwareSettingsModal from '../components/modals/HardwareSettingsModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
 import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
+import api from '../api/client.js';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -287,6 +288,7 @@ export default function POSScreen() {
   const [editProduct,        setEditProduct]        = useState(null);  // cart item being quick-edited
   const [showTasks,          setShowTasks]          = useState(false);
   const [showChat,           setShowChat]           = useState(false);
+  const [chatUnread,         setChatUnread]         = useState(0);
   const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick'
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Lottery shift reconciliation state
@@ -301,6 +303,34 @@ export default function POSScreen() {
     getHeldTransactions().then(list => setHeldCount(list.length)).catch(() => {});
   }, []);
   useEffect(() => { refreshHeldCount(); }, [refreshHeldCount]);
+
+  // ── Poll chat unread — badge on ActionBar + audio nudge ─────────────────
+  const chatUnreadRef = useRef(chatUnread);
+  useEffect(() => {
+    const poll = () => {
+      if (showChat) return; // panel is open, skip
+      api.get('/chat/unread').then(res => {
+        const count = res.data?.count || 0;
+        // Audio nudge when count increases
+        if (count > chatUnreadRef.current) {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.type = 'sine'; osc.frequency.value = 880;
+            gain.gain.value = 0.08;
+            osc.start(); osc.stop(ctx.currentTime + 0.12);
+          } catch {}
+        }
+        chatUnreadRef.current = count;
+        setChatUnread(count);
+      }).catch(() => {});
+    };
+    poll();
+    const iv = setInterval(poll, 15000);
+    return () => clearInterval(iv);
+  }, [showChat]);
 
   // Last completed transaction — used by Reprint button to print without opening history
   const [lastCompletedTx, setLastCompletedTx] = useState(null);
@@ -1479,7 +1509,8 @@ export default function POSScreen() {
           }
         }}
         onTasks={() => setShowTasks(true)}
-        onChat={() => setShowChat(true)}
+        onChat={() => { setChatUnread(0); chatUnreadRef.current = 0; setShowChat(true); }}
+        chatUnread={chatUnread}
         shiftOpen={!!shift}
         heldCount={heldCount}
         actionBarHeight={({'compact':48,'normal':58,'large':72}[posConfig.actionBarHeight] || 58)}

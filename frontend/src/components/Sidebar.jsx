@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { getChatUnread } from '../services/api';
 import StoreveuLogo from './StoreveuLogo';
 import {
   Radio,
@@ -134,6 +135,25 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
+
+  // ── Poll chat unread count every 15 s ────────────────────────────────────
+  const fetchUnread = useCallback(() => {
+    getChatUnread()
+      .then(data => setChatUnread(data?.count || 0))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchUnread();
+    const iv = setInterval(fetchUnread, 15000);
+    return () => clearInterval(iv);
+  }, [fetchUnread]);
+
+  // Clear badge when navigating to chat page
+  useEffect(() => {
+    if (location.pathname === '/portal/chat') setChatUnread(0);
+  }, [location.pathname]);
 
   // ── Persist sidebar scroll position across route changes ─────────────────
   // Each page mounts its own <Sidebar />, so scrollTop resets on navigation.
@@ -214,20 +234,23 @@ const Sidebar = () => {
           {menuGroups.map((group) => (
             <div key={group.label} className="nav-group">
               <span className="nav-group-label">{group.label}</span>
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                  onClick={(e) => {
-                    // Prevent re-navigation (and page scroll reset) when already on this route
-                    if (location.pathname === item.path) e.preventDefault();
-                  }}
-                >
-                  <span className="nav-icon">{item.icon}</span>
-                  <span className="nav-text">{item.name}</span>
-                </NavLink>
-              ))}
+              {group.items.map((item) => {
+                const badge = item.path === '/portal/chat' && chatUnread > 0 ? chatUnread : 0;
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                    onClick={(e) => {
+                      if (location.pathname === item.path) e.preventDefault();
+                    }}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    <span className="nav-text">{item.name}</span>
+                    {badge > 0 && <span className="nav-badge">{badge > 99 ? '99+' : badge}</span>}
+                  </NavLink>
+                );
+              })}
             </div>
           ))}
 

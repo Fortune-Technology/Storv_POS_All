@@ -327,6 +327,34 @@ h1, h2, h3, h4, h5, h6 {
   opacity: 1;
 }
 
+.nav-link { position: relative; }
+
+.nav-badge {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--error, #ef4444);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  animation: nav-badge-pop 0.25s ease;
+}
+
+@keyframes nav-badge-pop {
+  0%   { transform: translateY(-50%) scale(0); }
+  70%  { transform: translateY(-50%) scale(1.2); }
+  100% { transform: translateY(-50%) scale(1); }
+}
+
 /* ── TABLES ───────────────────────────────────────────── */
 .table-container {
   overflow-x: auto;

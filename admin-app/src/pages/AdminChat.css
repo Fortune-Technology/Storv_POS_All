@@ -1,0 +1,162 @@
+/* AdminChat.css — prefix: ach- */
+
+@keyframes ach-spin { to { transform: rotate(360deg); } }
+.ach-spin { animation: ach-spin 0.8s linear infinite; }
+
+.ach-page { display: flex; flex-direction: column; height: 100%; }
+
+.ach-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color);
+}
+.ach-header-icon { color: var(--accent-primary); }
+.ach-title { font-size: 1.15rem; font-weight: 800; color: var(--text-primary); margin: 0; }
+.ach-subtitle { font-size: 0.75rem; color: var(--text-muted); margin: 0; }
+
+.ach-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 8px; }
+.ach-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
+
+/* ── Layout ── */
+.ach-container { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Sidebar ── */
+.ach-sidebar {
+  width: 280px; min-width: 280px;
+  border-right: 1px solid var(--border-color);
+  display: flex; flex-direction: column;
+  background: var(--bg-secondary);
+}
+.ach-sidebar-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color);
+}
+.ach-sidebar-title { font-weight: 700; font-size: 0.82rem; color: var(--text-primary); }
+.ach-new-btn {
+  background: var(--accent-primary); color: #fff;
+  border: none; border-radius: 6px; padding: 5px 10px;
+  font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+}
+
+.ach-channel-list { flex: 1; overflow-y: auto; }
+.ach-channel {
+  width: 100%; text-align: left; background: none; border: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0.7rem 1rem; cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.12s;
+}
+.ach-channel:hover { background: var(--bg-tertiary); }
+.ach-channel-active { background: var(--brand-08, rgba(61,86,181,0.08)); }
+.ach-channel-icon { flex-shrink: 0; color: var(--text-muted); }
+.ach-channel-info { flex: 1; min-width: 0; }
+.ach-channel-name { display: block; font-weight: 600; font-size: 0.82rem; color: var(--text-primary); }
+.ach-channel-preview {
+  display: block; font-size: 0.7rem; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ach-unread {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--error, #ef4444); color: #fff;
+  font-size: 0.6rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── Messages Panel ── */
+.ach-messages-panel { flex: 1; display: flex; flex-direction: column; }
+.ach-no-channel {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  color: var(--text-muted); opacity: 0.4;
+}
+.ach-messages-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color);
+  font-weight: 700; font-size: 0.92rem; color: var(--text-primary);
+}
+.ach-messages-title { font-weight: 700; }
+.ach-messages-list { flex: 1; overflow-y: auto; padding: 1rem; }
+.ach-no-messages { text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem; }
+
+/* ── Message bubbles ── */
+.ach-msg { margin-bottom: 1rem; }
+.ach-msg-mine { text-align: right; }
+.ach-msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.7rem; }
+.ach-msg-mine .ach-msg-meta { justify-content: flex-end; }
+.ach-msg-sender { font-weight: 700; color: var(--text-primary); }
+.ach-msg-time { color: var(--text-muted); }
+.ach-msg-bubble {
+  display: inline-block; max-width: 75%;
+  padding: 0.5rem 0.85rem; border-radius: 12px;
+  font-size: 0.85rem; line-height: 1.5;
+  word-wrap: break-word;
+}
+.ach-msg-other .ach-msg-bubble {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+.ach-msg-mine .ach-msg-bubble {
+  background: var(--accent-primary); color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+/* ── Input bar ── */
+.ach-input-bar {
+  display: flex; gap: 8px; padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-color);
+}
+.ach-text-input {
+  flex: 1; background: var(--bg-tertiary);
+  border: 1px solid var(--border-color); border-radius: 8px;
+  color: var(--text-primary); padding: 0.6rem 0.85rem;
+  font-size: 0.85rem; outline: none;
+}
+.ach-text-input:focus { border-color: var(--accent-primary); }
+.ach-send-btn {
+  background: var(--accent-primary); color: #fff;
+  border: none; border-radius: 8px; padding: 0 1rem;
+  cursor: pointer; display: flex; align-items: center;
+}
+.ach-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Badges ── */
+.ach-badge { font-size: 0.58rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+.ach-badge-purple { background: rgba(124,58,237,0.12); color: #7c3aed; }
+.ach-badge-amber  { background: rgba(245,158,11,0.12); color: #d97706; }
+.ach-badge-gray   { background: var(--bg-tertiary); color: var(--text-muted); }
+
+/* ── Modal ── */
+.ach-modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.ach-modal {
+  background: var(--bg-primary); border: 1px solid var(--border-color);
+  border-radius: 14px; width: 90%; max-width: 440px;
+  padding: 1.25rem; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.ach-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.ach-modal-title { font-size: 1rem; font-weight: 800; color: var(--text-primary); margin: 0; }
+.ach-modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; }
+.ach-search {
+  width: 100%; box-sizing: border-box; background: var(--bg-tertiary);
+  border: 1px solid var(--border-color); border-radius: 8px;
+  color: var(--text-primary); padding: 0.6rem 0.85rem;
+  font-size: 0.85rem; margin-bottom: 0.75rem; outline: none;
+}
+.ach-user-list { max-height: 300px; overflow-y: auto; }
+.ach-user-item {
+  width: 100%; text-align: left; background: none; border: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0.6rem 0.5rem; cursor: pointer; border-radius: 6px;
+  color: var(--text-primary); font-size: 0.85rem;
+}
+.ach-user-item:hover { background: var(--bg-tertiary); }
+.ach-user-name { flex: 1; font-weight: 600; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .ach-sidebar { width: 220px; min-width: 220px; }
+}

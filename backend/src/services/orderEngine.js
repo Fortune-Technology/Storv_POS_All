@@ -71,10 +71,18 @@ export async function generateOrderSuggestions(orgId, storeId, options = {}) {
 
   const vendors = await prisma.vendor.findMany({
     where: { orgId, active: true },
-    select: { id: true, name: true, code: true, leadTimeDays: true, minOrderAmount: true, orderFrequency: true, deliveryDays: true, terms: true },
+    select: {
+      id: true, name: true, code: true, leadTimeDays: true,
+      minOrderAmount: true, orderFrequency: true, deliveryDays: true, terms: true,
+      orderCutoffTime: true, orderCutoffDaysBefore: true,
+      autoOrderEnabled: true, preferredServiceLevel: true,
+    },
   });
   const vendorMap = {};
-  for (const v of vendors) vendorMap[v.id] = v;
+  for (const v of vendors) {
+    v._delivery = computeNextDelivery(v);
+    vendorMap[v.id] = v;
+  }
 
   // ── 2. Fetch 90-day sales data for all products at once ────────────────
   const ninetyDaysAgo = new Date();
@@ -225,7 +233,7 @@ export async function generateOrderSuggestions(orgId, storeId, options = {}) {
     const cv = avgDaily > 0 ? stdDev / avgDaily : 0; // coefficient of variation
 
     // ── Factor 9: Safety stock ───────────────────────────────────────
-    const serviceLevel = product.serviceLevel || 'standard';
+    const serviceLevel = product.serviceLevel || vendor?.preferredServiceLevel || 'standard';
     const z = Z_SCORES[serviceLevel] || Z_SCORES.standard;
     const safetyStock = Math.ceil(z * stdDev * Math.sqrt(leadTime));
 
@@ -248,10 +256,13 @@ export async function generateOrderSuggestions(orgId, storeId, options = {}) {
 
     // ── CORE CALCULATION ─────────────────────────────────────────────
     let rawOrderQty = Math.max(0, (forecastDemand * stockoutPenalty) - onHand + safetyStock - onOrder);
+    if (!isFinite(rawOrderQty) || isNaN(rawOrderQty)) rawOrderQty = 0;
 
     // ── Factor 10: Round up to case quantity ─────────────────────────
     let orderUnits = casePacks > 1 ? Math.ceil(rawOrderQty / casePacks) * casePacks : Math.ceil(rawOrderQty);
     let orderCases = casePacks > 1 ? Math.ceil(rawOrderQty / casePacks) : orderUnits;
+    if (isNaN(orderUnits)) orderUnits = 0;
+    if (isNaN(orderCases)) orderCases = 0;
 
     // ── Factor 12 (cont): Cap at shelf life max ──────────────────────
     if (orderUnits > maxOrderQty) {
@@ -341,10 +352,20 @@ export async function generateOrderSuggestions(orgId, storeId, options = {}) {
   for (const s of suggestions) {
     if (!vendorGroups[s.vendorId]) {
       const v = vendorMap[s.vendorId];
+      const dlv = v._delivery || {};
       vendorGroups[s.vendorId] = {
         vendorId: s.vendorId, vendorName: s.vendorName, vendorCode: s.vendorCode,
         leadTime: v.leadTimeDays, minOrderAmount: Number(v.minOrderAmount) || 0,
         terms: v.terms, items: [], subtotal: 0, itemCount: 0,
+        // Delivery scheduling context
+        nextDeliveryDate:   dlv.nextDeliveryDate || null,
+        orderByDate:        dlv.orderByDate || null,
+        daysUntilDelivery:  dlv.daysUntilDelivery ?? null,
+        daysUntilCutoff:    dlv.daysUntilCutoff ?? null,
+        pastCutoff:         dlv.pastCutoff || false,
+        autoOrderEnabled:   v.autoOrderEnabled,
+        orderFrequency:     v.orderFrequency,
+        preferredServiceLevel: v.preferredServiceLevel,
       };
     }
     const g = vendorGroups[s.vendorId];
@@ -440,6 +461,55 @@ function standardDeviation(arr) {
   const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
   const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / (arr.length - 1);
   return Math.sqrt(variance);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DELIVERY DATE CALCULATION
+// ═════════════════════════════════════════════════════════════════════════════
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Compute next delivery date and order-by cutoff for a vendor.
+ * Returns { nextDeliveryDate, orderByDate, daysUntilDelivery, daysUntilCutoff, pastCutoff }
+ */
+function computeNextDelivery(vendor) {
+  const deliveryDays = vendor.deliveryDays || [];
+  if (deliveryDays.length === 0) return {};
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cutoffDaysBefore = vendor.orderCutoffDaysBefore ?? 1;
+
+  // Find the next delivery day from today (looking up to 14 days ahead)
+  for (let offset = 1; offset <= 14; offset++) {
+    const candidate = new Date(today);
+    candidate.setDate(today.getDate() + offset);
+    const dayName = DAY_NAMES[candidate.getDay()];
+
+    if (deliveryDays.includes(dayName)) {
+      const nextDeliveryDate = candidate.toISOString().slice(0, 10);
+
+      // Order-by date = delivery date minus cutoff days
+      const orderBy = new Date(candidate);
+      orderBy.setDate(candidate.getDate() - cutoffDaysBefore);
+      const orderByDate = orderBy.toISOString().slice(0, 10);
+
+      // Check if we're past cutoff
+      let pastCutoff = today > orderBy;
+      if (!pastCutoff && today.getTime() === orderBy.getTime() && vendor.orderCutoffTime) {
+        const [hh, mm] = vendor.orderCutoffTime.split(':').map(Number);
+        pastCutoff = now.getHours() > hh || (now.getHours() === hh && now.getMinutes() >= (mm || 0));
+      }
+
+      const daysUntilDelivery = offset;
+      const daysUntilCutoff = Math.round((orderBy - today) / 86400000);
+
+      return { nextDeliveryDate, orderByDate, daysUntilDelivery, daysUntilCutoff, pastCutoff };
+    }
+  }
+
+  return {};
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

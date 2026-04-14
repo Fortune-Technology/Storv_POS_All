@@ -14,8 +14,14 @@ import {
   updatePurchaseOrder,
   submitPurchaseOrder,
   receivePurchaseOrder,
+  receiveByInvoice,
+  approvePurchaseOrder,
+  rejectPurchaseOrder,
   deletePurchaseOrder,
   getPurchaseOrderPDF,
+  getCostVariance,
+  getVendorPerformance,
+  createManualPO,
 } from '../controllers/orderController.js';
 
 const router = Router();
@@ -30,6 +36,7 @@ router.get('/suggestions', getSuggestions);
 router.post('/generate', generatePOs);
 
 // Purchase Order CRUD
+router.post('/purchase-orders',           createManualPO);
 router.get('/purchase-orders',            listPurchaseOrders);
 router.get('/purchase-orders/:id',        getPurchaseOrder);
 router.put('/purchase-orders/:id',        updatePurchaseOrder);
@@ -37,7 +44,18 @@ router.delete('/purchase-orders/:id',     deletePurchaseOrder);
 
 // PO lifecycle
 router.post('/purchase-orders/:id/submit',  submitPurchaseOrder);
+router.post('/purchase-orders/:id/approve', approvePurchaseOrder);
+router.post('/purchase-orders/:id/reject',  rejectPurchaseOrder);
 router.post('/purchase-orders/:id/receive', receivePurchaseOrder);
+
+// Invoice-based receiving
+router.post('/receive-by-invoice', receiveByInvoice);
+
+// Cost variance analysis
+router.get('/cost-variance', getCostVariance);
+
+// Vendor performance metrics
+router.get('/vendor-performance', getVendorPerformance);
 
 // PDF export
 router.get('/purchase-orders/:id/pdf', getPurchaseOrderPDF);

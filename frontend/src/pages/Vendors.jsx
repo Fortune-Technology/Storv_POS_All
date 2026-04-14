@@ -68,12 +68,24 @@ function Toggle({ checked, onChange, size = 'md' }) {
 
 // ─── Empty form ───────────────────────────────────────────────────────────────
 
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
 const EMPTY_FORM = {
   name: '', code: '', contactName: '', email: '', phone: '',
   website: '', terms: '', accountNo: '',
   street: '', city: '', state: '', zip: '',
   aliases: '',
   active: true,
+  // Delivery & Ordering
+  leadTimeDays: '3',
+  minOrderAmount: '',
+  orderFrequency: 'weekly',
+  deliveryDays: [],
+  orderCutoffTime: '',
+  orderCutoffDaysBefore: '1',
+  autoOrderEnabled: false,
+  preferredServiceLevel: 'standard',
+  vendorNotes: '',
 };
 
 // ─── Vendor Form Panel ────────────────────────────────────────────────────────
@@ -97,6 +109,16 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
       zip:         addr.zip || '',
       aliases:     Array.isArray(vendor.aliases) ? vendor.aliases.join(', ') : '',
       active:      vendor.active ?? true,
+      // Delivery & Ordering
+      leadTimeDays:          String(vendor.leadTimeDays ?? 3),
+      minOrderAmount:        vendor.minOrderAmount != null ? String(vendor.minOrderAmount) : '',
+      orderFrequency:        vendor.orderFrequency || 'weekly',
+      deliveryDays:          Array.isArray(vendor.deliveryDays) ? vendor.deliveryDays : [],
+      orderCutoffTime:       vendor.orderCutoffTime || '',
+      orderCutoffDaysBefore: String(vendor.orderCutoffDaysBefore ?? 1),
+      autoOrderEnabled:      vendor.autoOrderEnabled ?? false,
+      preferredServiceLevel: vendor.preferredServiceLevel || 'standard',
+      vendorNotes:           vendor.vendorNotes || '',
     };
   });
 
@@ -140,6 +162,16 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
         ? form.aliases.split(',').map(a => a.trim()).filter(Boolean)
         : [],
       active: form.active,
+      // Delivery & Ordering
+      leadTimeDays:          parseInt(form.leadTimeDays) || 3,
+      minOrderAmount:        form.minOrderAmount ? parseFloat(form.minOrderAmount) : null,
+      orderFrequency:        form.orderFrequency || 'weekly',
+      deliveryDays:          form.deliveryDays || [],
+      orderCutoffTime:       form.orderCutoffTime || null,
+      orderCutoffDaysBefore: parseInt(form.orderCutoffDaysBefore) || 1,
+      autoOrderEnabled:      form.autoOrderEnabled,
+      preferredServiceLevel: form.preferredServiceLevel || 'standard',
+      vendorNotes:           form.vendorNotes?.trim() || null,
     };
     onSave(payload);
   };
@@ -264,6 +296,93 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
               <label style={labelStyle}>ZIP</label>
               <input value={form.zip} onChange={e => set('zip', e.target.value)} placeholder="60601" style={inputStyle} />
             </div>
+          </div>
+
+          {/* Delivery & Ordering */}
+          <div style={{ ...sectionLabel, marginTop: '0.5rem' }}>Delivery &amp; Ordering</div>
+
+          <div>
+            <label style={labelStyle}>DELIVERY DAYS</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {DAYS_OF_WEEK.map(day => {
+                const sel = form.deliveryDays.includes(day);
+                return (
+                  <button key={day} type="button" onClick={() => {
+                    set('deliveryDays', sel
+                      ? form.deliveryDays.filter(d => d !== day)
+                      : [...form.deliveryDays, day]);
+                  }} style={{
+                    padding: '5px 12px', borderRadius: 6, cursor: 'pointer',
+                    fontSize: '0.75rem', fontWeight: 700,
+                    border: sel ? '1.5px solid var(--accent-primary)' : '1px solid var(--border-color, #2a2a3a)',
+                    background: sel ? 'rgba(61,86,181,0.15)' : 'var(--bg-tertiary, #1a1a2e)',
+                    color: sel ? 'var(--accent-primary)' : 'var(--text-muted, #6b7280)',
+                  }}>
+                    {day.slice(0, 3)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={labelStyle}>ORDER FREQUENCY</label>
+              <select value={form.orderFrequency} onChange={e => set('orderFrequency', e.target.value)} style={inputStyle}>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Bi-Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>LEAD TIME (DAYS)</label>
+              <input type="number" min="0" value={form.leadTimeDays} onChange={e => set('leadTimeDays', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={labelStyle}>MIN ORDER AMOUNT ($)</label>
+              <input type="number" min="0" step="0.01" value={form.minOrderAmount} onChange={e => set('minOrderAmount', e.target.value)} placeholder="0.00" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>SERVICE LEVEL</label>
+              <select value={form.preferredServiceLevel} onChange={e => set('preferredServiceLevel', e.target.value)} style={inputStyle}>
+                <option value="critical">Critical (99%)</option>
+                <option value="standard">Standard (95%)</option>
+                <option value="low">Low (90%)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={labelStyle}>ORDER CUTOFF TIME</label>
+              <input type="time" value={form.orderCutoffTime} onChange={e => set('orderCutoffTime', e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>CUTOFF DAYS BEFORE</label>
+              <input type="number" min="0" value={form.orderCutoffDaysBefore} onChange={e => set('orderCutoffDaysBefore', e.target.value)} placeholder="1" style={inputStyle} />
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '0.55rem 0.75rem', borderRadius: 8,
+            border: '1px solid var(--border-color, #2a2a3a)',
+            background: 'var(--bg-tertiary, #1a1a2e)', cursor: 'pointer',
+          }} onClick={() => set('autoOrderEnabled', !form.autoOrderEnabled)}>
+            <Toggle checked={form.autoOrderEnabled} onChange={v => set('autoOrderEnabled', v)} />
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: form.autoOrderEnabled ? 'var(--green, var(--accent-primary))' : 'var(--text-muted, #6b7280)' }}>
+              {form.autoOrderEnabled ? 'Auto-Order Enabled' : 'Auto-Order Disabled'}
+            </span>
+          </div>
+
+          <div>
+            <label style={labelStyle}>VENDOR NOTES</label>
+            <textarea value={form.vendorNotes} onChange={e => set('vendorNotes', e.target.value)} placeholder="Internal notes about this vendor..." rows={3}
+              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
           </div>
 
           {/* Status */}

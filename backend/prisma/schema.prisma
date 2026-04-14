@@ -170,17 +170,25 @@ model Vendor {
   active      Boolean   @default(true)
 
   // ── Ordering / Fulfillment ──
-  leadTimeDays    Int       @default(3)         // avg days from order to delivery
-  minOrderAmount  Decimal?  @db.Decimal(10, 2)  // minimum $ per order
-  orderFrequency  String    @default("weekly")  // "daily","weekly","biweekly","monthly"
-  deliveryDays    String[]  @default([])        // ["Monday","Thursday"]
-  lastOrderedAt   DateTime?
+  leadTimeDays          Int       @default(3)         // avg days from order to delivery
+  minOrderAmount        Decimal?  @db.Decimal(10, 2)  // minimum $ per order
+  orderFrequency        String    @default("weekly")  // "daily","weekly","biweekly","monthly"
+  deliveryDays          String[]  @default([])        // ["Monday","Thursday"]
+  lastOrderedAt         DateTime?
+
+  // ── Delivery scheduling ──
+  orderCutoffTime       String?                       // "14:00" — must order by this time for next delivery
+  orderCutoffDaysBefore Int       @default(1)         // order N days before delivery day
+  autoOrderEnabled      Boolean   @default(false)     // auto-generate draft POs
+  preferredServiceLevel String    @default("standard") // "critical","standard","low"
+  vendorNotes           String?                       // internal notes
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   products        MasterProduct[]
   purchaseOrders  PurchaseOrder[]
+  vendorReturns   VendorReturn[]
 
   @@unique([orgId, name])
   @@index([orgId, active])
@@ -338,7 +346,9 @@ model MasterProduct {
   upcs                ProductUpc[]
   packSizes           ProductPackSize[]
   purchaseOrderItems  PurchaseOrderItem[]
-  labelQueueItems     LabelQueue[]
+  vendorReturnItems       VendorReturnItem[]
+  inventoryAdjustments    InventoryAdjustment[]
+  labelQueueItems         LabelQueue[]
 
   @@index([orgId, upc])
   @@index([orgId, deleted, active])
@@ -583,6 +593,7 @@ model Organization {
   cpMerchant      CardPointeMerchant?
   subscription    OrgSubscription?
   purchaseOrders  PurchaseOrder[]
+  vendorReturns   VendorReturn[]
 
   @@map("organizations")
 }
@@ -794,6 +805,10 @@ model Invoice {
 
   // Match accuracy tracking
   matchStats          Json?    // { total, matched, unmatched, byTier: {upc, vendorMap, fuzzy, ai, manual, costProx, global}, avgConfidence }
+
+  // PO linkage — auto-matched after OCR
+  linkedPurchaseOrderId String?
+  poMatchResult         Json?    // { matchedPO, matchedItems, costVariances, summary }
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -1965,7 +1980,7 @@ model PurchaseOrder {
   storeId       String
   vendorId      Int
   poNumber      String   @unique   // "PO-YYYYMMDD-001"
-  status        String   @default("draft")  // draft, submitted, partial, received, cancelled
+  status        String   @default("draft")  // draft, pending_approval, approved, submitted, partial, received, cancelled
 
   orderDate     DateTime @default(now())
   expectedDate  DateTime?           // orderDate + vendor.leadTimeDays
@@ -1978,6 +1993,26 @@ model PurchaseOrder {
   notes         String?
   generatedBy   String   @default("manual")  // "manual" | "auto" | "suggestion"
   createdById   String
+
+  // ── Invoice linkage ──
+  invoiceId       String?
+  invoiceNumber   String?
+
+  // ── Receiving ──
+  receivedById    String?
+  receiverNotes   String?
+  totalVariance   Decimal  @db.Decimal(10, 2) @default(0)
+
+  // ── Approval workflow ──
+  approvalRequired Boolean  @default(false)
+  approvedById     String?
+  approvedAt       DateTime?
+  approvalNotes    String?
+
+  // ── Vendor communication ──
+  sentToVendor     Boolean  @default(false)
+  sentAt           DateTime?
+  sentMethod       String?  // "email" | "manual"
 
   items         PurchaseOrderItem[]
   vendor        Vendor       @relation(fields: [vendorId], references: [id])
@@ -1999,17 +2034,31 @@ model PurchaseOrderItem {
   qtyOrdered      Int                // units ordered
   qtyCases        Int     @default(0) // cases ordered (for display)
   qtyReceived     Int     @default(0) // units actually received
+  qtyDamaged      Int     @default(0) // units damaged on arrival
+  qtyReturned     Int     @default(0) // units returned to vendor
 
   unitCost        Decimal @db.Decimal(10, 4)
   caseCost        Decimal @db.Decimal(10, 4) @default(0)
   lineTotal       Decimal @db.Decimal(10, 2)
+
+  // ── Invoice reconciliation ──
+  actualUnitCost  Decimal? @db.Decimal(10, 4) // cost from invoice (may differ)
+  actualCaseCost  Decimal? @db.Decimal(10, 4)
+  costVariance    Decimal? @db.Decimal(10, 4) // actualUnitCost - unitCost
+  varianceFlag    String?  // "none" | "minor" | "major"
+
+  // ── Backorder tracking ──
+  backorderQty    Int      @default(0)  // qtyOrdered - qtyReceived when short
+  backorderStatus String?  // "pending" | "on_next_po" | "cancelled"
+
+  receivedNotes   String?
 
   // Algorithm metadata — why this qty was suggested
   forecastDemand    Decimal? @db.Decimal(10, 2)
   safetyStock       Decimal? @db.Decimal(10, 2)
   currentOnHand     Decimal? @db.Decimal(10, 2)
   avgDailySales     Decimal? @db.Decimal(10, 4)
-  reorderReason     String?  // "below_reorder_point","forecast_demand","trending_up","low_days_supply"
+  reorderReason     String?  // "below_reorder_point","forecast_demand","trending_up","low_days_supply","backorder"
 
   order           PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         MasterProduct  @relation(fields: [masterProductId], references: [id])
@@ -2017,6 +2066,75 @@ model PurchaseOrderItem {
   createdAt       DateTime @default(now())
 
   @@map("purchase_order_items")
+}
+
+// ─────────────────────────────────────────────────
+// VENDOR RETURNS — Track returns to vendors for credit
+// ─────────────────────────────────────────────────
+model VendorReturn {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String
+  vendorId        Int
+  purchaseOrderId String?  // optional link to original PO
+  returnNumber    String   @unique  // "RET-YYYYMMDD-001"
+  status          String   @default("draft")  // draft, submitted, credited, closed
+  reason          String   // damaged, expired, wrong_item, overstock, recall
+  totalAmount     Decimal  @db.Decimal(10, 2) @default(0)
+  creditReceived  Decimal  @db.Decimal(10, 2) @default(0)
+  notes           String?
+  submittedAt     DateTime?
+  creditedAt      DateTime?
+  createdById     String
+
+  items           VendorReturnItem[]
+  vendor          Vendor       @relation(fields: [vendorId], references: [id])
+  organization    Organization @relation(fields: [orgId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([vendorId])
+  @@map("vendor_returns")
+}
+
+model VendorReturnItem {
+  id              String   @id @default(cuid())
+  returnId        String
+  masterProductId Int
+  qty             Int
+  unitCost        Decimal  @db.Decimal(10, 4)
+  lineTotal       Decimal  @db.Decimal(10, 2)
+  reason          String   // per-item reason
+
+  return          VendorReturn  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product         MasterProduct @relation(fields: [masterProductId], references: [id])
+
+  @@map("vendor_return_items")
+}
+
+// ─────────────────────────────────────────────────
+// INVENTORY ADJUSTMENTS — Shrinkage, damage, corrections
+// ─────────────────────────────────────────────────
+model InventoryAdjustment {
+  id              String   @id @default(cuid())
+  orgId           String
+  storeId         String
+  masterProductId Int
+  adjustmentQty   Int           // negative = shrinkage, positive = found stock
+  previousQty     Int           @default(0)
+  newQty          Int           @default(0)
+  reason          String        // shrinkage, damage, spoilage, expired, theft, count_correction, found, return
+  notes           String?
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  product         MasterProduct @relation(fields: [masterProductId], references: [id])
+
+  @@index([orgId, storeId, createdAt])
+  @@index([masterProductId])
+  @@map("inventory_adjustments")
 }
 
 // ─────────────────────────────────────────────────

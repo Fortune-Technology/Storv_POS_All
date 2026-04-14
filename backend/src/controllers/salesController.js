@@ -16,6 +16,7 @@ import {
   getProductsGrouped,
   getProductMovement,
   getDailyProductMovement,
+  getProduct52WeekStats,
 } from '../services/salesService.js';
 
 import {
@@ -193,6 +194,17 @@ export const dailyProductMovement = async (req, res) => {
   } catch (err) {
     const detailedError = err.response?.data?.message || err.response?.data?.Message || err.message;
     res.status(500).json({ error: detailedError });
+  }
+};
+
+export const product52WeekStats = async (req, res) => {
+  try {
+    const { upc } = req.query;
+    if (!upc) return res.status(400).json({ error: 'upc is required' });
+    const data = await getProduct52WeekStats(req.posUser ?? req.user, req.storeId, upc);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 

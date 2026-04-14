@@ -24,7 +24,7 @@ import {
   getCatalogPromotions, createCatalogPromotion, updateCatalogPromotion, deleteCatalogPromotion,
   getProductUpcs, addProductUpc, deleteProductUpc,
   getProductPackSizes, bulkReplaceProductPackSizes,
-  getPOSConfig,
+  getPOSConfig, getProduct52WeekStats,
 } from '../services/api';
 import './ProductForm.css';
 import { toast } from 'react-toastify';
@@ -685,6 +685,7 @@ export default function ProductForm() {
 
   // ── Per-store Qty on Hand ────────────────────────────────────────────────────
   const [storeQty,    setStoreQty]    = useState({}); // { [storeId]: string }
+  const [stats52w,    setStats52w]    = useState(null); // { weeklyHigh, weeklyLow, suggestedQoH, ... }
 
   // ── Product UPCs ─────────────────────────────────────────────────────────────
   const [upcs,        setUpcs]        = useState([]);
@@ -838,6 +839,17 @@ export default function ProductForm() {
       finally  { setLoading(false); }
     })();
   }, [id]);
+
+  // ── Load 52-week stats when we have a UPC ────────────────────────────────────
+  useEffect(() => {
+    if (!isEdit) return;
+    const upc = form.upc;
+    if (!upc) return;
+    setStats52w(null);
+    getProduct52WeekStats({ upc })
+      .then(data => setStats52w(data))
+      .catch(() => setStats52w(null));
+  }, [isEdit, form.upc]);
 
   // ── Load per-store Qty on Hand ───────────────────────────────────────────────
   // Use storeCount + loading as stable deps to avoid array reference churn
@@ -1712,6 +1724,25 @@ export default function ProductForm() {
                         onChange={e => setStoreQty(q => ({ ...q, [activeStore.id]: e.target.value }))} />
                       <span className="pf-qty-unit">units</span>
                     </div>
+                    {isEdit && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: '0.4rem' }}>
+                        {[
+                          { label: '-1', val: -1, color: '#ef4444' },
+                          { label: '-5', val: -5, color: '#ef4444' },
+                          { label: '+1', val: 1, color: '#22c55e' },
+                          { label: '+5', val: 5, color: '#22c55e' },
+                        ].map(btn => (
+                          <button key={btn.label} type="button" onClick={() => {
+                            const cur = parseInt(storeQty[activeStore.id] || '0');
+                            setStoreQty(q => ({ ...q, [activeStore.id]: String(cur + btn.val) }));
+                          }} style={{
+                            padding: '2px 8px', borderRadius: 4, border: `1px solid ${btn.color}30`,
+                            background: `${btn.color}10`, color: btn.color, fontSize: '0.68rem',
+                            fontWeight: 700, cursor: 'pointer',
+                          }}>{btn.label}</button>
+                        ))}
+                      </div>
+                    )}
                     <p style={{ fontSize:'0.68rem', color:'var(--text-muted)', margin:'0.4rem 0 0', lineHeight:1.4 }}>
                       Updates on save. Switch store to edit other locations.
                     </p>
@@ -1726,17 +1757,29 @@ export default function ProductForm() {
                       </div>
                     </div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.4rem', marginTop:'0.5rem' }}>
-                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}
+                        title={stats52w?.weeksWithSales ? `${stats52w.weeksWithSales} weeks with sales out of 52` : ''}>
                         <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>52w High</div>
-                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--success)' }}>&mdash;</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--success)' }}>
+                          {stats52w?.weeklyHigh != null ? stats52w.weeklyHigh : '\u2014'}
+                        </div>
+                        <div style={{ fontSize:'0.5rem', color:'var(--text-muted)' }}>units/wk</div>
                       </div>
-                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}
+                        title={stats52w?.totalUnits ? `${stats52w.totalUnits} total units sold in 52 weeks` : ''}>
                         <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>52w Low</div>
-                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--error)' }}>&mdash;</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--error)' }}>
+                          {stats52w?.weeklyLow != null ? stats52w.weeklyLow : '\u2014'}
+                        </div>
+                        <div style={{ fontSize:'0.5rem', color:'var(--text-muted)' }}>units/wk</div>
                       </div>
-                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}>
+                      <div style={{ background:'var(--bg-tertiary)', padding:'0.35rem 0.5rem', borderRadius:6, textAlign:'center' }}
+                        title={stats52w?.avgWeekly != null ? `Avg ${stats52w.avgWeekly} units/wk × 2 weeks cover` : ''}>
                         <div style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase' }}>Suggested</div>
-                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--accent-primary)' }}>&mdash;</div>
+                        <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--accent-primary)' }}>
+                          {stats52w?.suggestedQoH != null ? stats52w.suggestedQoH : '\u2014'}
+                        </div>
+                        <div style={{ fontSize:'0.5rem', color:'var(--text-muted)' }}>qty on hand</div>
                       </div>
                     </div>
                   </div>

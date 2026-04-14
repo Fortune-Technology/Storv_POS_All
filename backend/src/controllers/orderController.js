@@ -66,17 +66,17 @@ export const generatePOs = async (req, res, next) => {
           createdById: userId,
           items: {
             create: group.items.map(item => ({
-              masterProductId: item.productId,
-              qtyOrdered:      item.orderUnits,
-              qtyCases:        item.orderCases,
-              unitCost:        item.unitCost,
-              caseCost:        item.caseCost,
-              lineTotal:       item.lineTotal,
-              forecastDemand:  item.forecastDemand,
-              safetyStock:     item.safetyStock,
-              currentOnHand:   item.onHand,
-              avgDailySales:   item.avgDailySales,
-              reorderReason:   item.reorderReason,
+              masterProductId: parseInt(item.productId),
+              qtyOrdered:      parseInt(item.orderUnits) || parseInt(item.orderQty) || 1,
+              qtyCases:        parseInt(item.orderCases) || 0,
+              unitCost:        Number(item.unitCost) || 0,
+              caseCost:        Number(item.caseCost) || 0,
+              lineTotal:       Number(item.lineTotal) || 0,
+              forecastDemand:  item.forecastDemand != null ? Number(item.forecastDemand) : null,
+              safetyStock:     item.safetyStock != null ? Number(item.safetyStock) : null,
+              currentOnHand:   item.onHand != null ? Number(item.onHand) : null,
+              avgDailySales:   item.avgDailySales != null ? Number(item.avgDailySales) : null,
+              reorderReason:   item.reorderReason || null,
             })),
           },
         },
@@ -92,6 +92,50 @@ export const generatePOs = async (req, res, next) => {
     }
 
     res.status(201).json({ success: true, purchaseOrders: createdPOs, count: createdPOs.length });
+  } catch (err) { next(err); }
+};
+
+// ── POST /api/vendor-orders/purchase-orders — Manual PO creation ──────────
+export const createManualPO = async (req, res, next) => {
+  try {
+    const { vendorId, items, expectedDate, notes } = req.body;
+    if (!vendorId || !items?.length) return res.status(400).json({ error: 'vendorId and items required' });
+
+    const poNumber = await nextPONumber();
+    const subtotal = r2(items.reduce((s, i) => s + (Number(i.unitCost || 0) * (parseInt(i.qty) || 1)), 0));
+
+    const po = await prisma.purchaseOrder.create({
+      data: {
+        orgId: req.orgId,
+        storeId: req.storeId,
+        vendorId: parseInt(vendorId),
+        poNumber,
+        status: 'draft',
+        expectedDate: expectedDate ? new Date(expectedDate) : null,
+        subtotal,
+        grandTotal: subtotal,
+        generatedBy: 'manual',
+        createdById: req.user?.id || '',
+        notes: notes || null,
+        items: {
+          create: items.map(i => ({
+            masterProductId: parseInt(i.masterProductId || i.productId),
+            qtyOrdered:      parseInt(i.qty) || 1,
+            qtyCases:        parseInt(i.cases) || 0,
+            unitCost:        Number(i.unitCost) || 0,
+            caseCost:        Number(i.caseCost) || 0,
+            lineTotal:       r2((Number(i.unitCost) || 0) * (parseInt(i.qty) || 1)),
+            reorderReason:   'manual',
+          })),
+        },
+      },
+      include: {
+        items: { include: { product: { select: { name: true, upc: true } } } },
+        vendor: { select: { name: true, code: true } },
+      },
+    });
+
+    res.status(201).json(po);
   } catch (err) { next(err); }
 };
 
@@ -204,10 +248,10 @@ export const submitPurchaseOrder = async (req, res, next) => {
 };
 
 // ── POST /api/vendor-orders/purchase-orders/:id/receive ─────────────────────
-// Body: { items: [{ id: itemId, qtyReceived: number }] }
+// Body: { items: [{ id, qtyReceived, qtyDamaged?, actualUnitCost?, receivedNotes? }], invoiceId?, receiverNotes? }
 export const receivePurchaseOrder = async (req, res, next) => {
   try {
-    const { items } = req.body;
+    const { items, invoiceId, invoiceNumber, receiverNotes } = req.body;
     const po = await prisma.purchaseOrder.findUnique({
       where: { id: req.params.id },
       include: { items: true },
@@ -215,21 +259,49 @@ export const receivePurchaseOrder = async (req, res, next) => {
     if (!po) return res.status(404).json({ error: 'PO not found' });
 
     let allReceived = true;
+    let totalVariance = 0;
+
     for (const recv of (items || [])) {
       const poItem = po.items.find(i => i.id === recv.id);
       if (!poItem) continue;
 
-      const qtyRecv = parseInt(recv.qtyReceived) || 0;
+      const qtyRecv    = parseInt(recv.qtyReceived) || 0;
+      const qtyDamaged = parseInt(recv.qtyDamaged) || 0;
+      const actualUnitCost = recv.actualUnitCost != null ? parseFloat(recv.actualUnitCost) : null;
+
+      // Cost variance calculation
+      let costVariance = null, varianceFlag = null;
+      if (actualUnitCost != null && Number(poItem.unitCost) > 0) {
+        costVariance = Math.round((actualUnitCost - Number(poItem.unitCost)) * 10000) / 10000;
+        const pct = Math.abs(costVariance) / Number(poItem.unitCost) * 100;
+        varianceFlag = pct < 5 ? 'none' : pct < 15 ? 'minor' : 'major';
+        totalVariance += Math.abs(costVariance) * qtyRecv;
+      }
+
+      // Backorder detection
+      const shortQty = poItem.qtyOrdered - qtyRecv;
+      const backorderQty = shortQty > 0 ? shortQty : 0;
+
       await prisma.purchaseOrderItem.update({
         where: { id: recv.id },
-        data: { qtyReceived: qtyRecv },
+        data: {
+          qtyReceived: qtyRecv,
+          qtyDamaged,
+          actualUnitCost: actualUnitCost != null ? actualUnitCost : undefined,
+          costVariance,
+          varianceFlag,
+          backorderQty,
+          backorderStatus: backorderQty > 0 ? 'pending' : null,
+          receivedNotes: recv.receivedNotes || null,
+        },
       });
 
-      // Update store inventory
+      // Update store inventory (add good units, not damaged)
+      const goodUnits = Math.max(0, qtyRecv - qtyDamaged);
       await prisma.storeProduct.updateMany({
         where: { masterProductId: poItem.masterProductId, storeId: po.storeId },
         data: {
-          quantityOnHand:  { increment: qtyRecv },
+          quantityOnHand:  { increment: goodUnits },
           quantityOnOrder: { decrement: poItem.qtyOrdered },
           lastReceivedAt:  new Date(),
           lastStockUpdate: new Date(),
@@ -242,10 +314,130 @@ export const receivePurchaseOrder = async (req, res, next) => {
     const status = allReceived ? 'received' : 'partial';
     await prisma.purchaseOrder.update({
       where: { id: req.params.id },
-      data: { status, receivedDate: allReceived ? new Date() : undefined },
+      data: {
+        status,
+        receivedDate:  allReceived ? new Date() : undefined,
+        receivedById:  req.user?.id || null,
+        receiverNotes: receiverNotes || null,
+        invoiceId:     invoiceId || null,
+        invoiceNumber: invoiceNumber || null,
+        totalVariance: Math.round(totalVariance * 100) / 100,
+      },
     });
 
-    res.json({ success: true, status });
+    res.json({ success: true, status, totalVariance: Math.round(totalVariance * 100) / 100 });
+  } catch (err) { next(err); }
+};
+
+// ── POST /api/vendor-orders/receive-by-invoice ────────────────────────────
+// Auto-match an invoice to open POs and return pre-filled receive data
+import { matchInvoiceToPO } from '../services/poInvoiceMatchService.js';
+import { getVendorPerformance as getVendorPerfData, getAllVendorPerformance } from '../services/vendorPerformanceService.js';
+
+export const receiveByInvoice = async (req, res, next) => {
+  try {
+    const { invoiceId, purchaseOrderId } = req.body;
+    if (!invoiceId) return res.status(400).json({ error: 'invoiceId required' });
+
+    const result = await matchInvoiceToPO(req.orgId, req.storeId, invoiceId);
+
+    // If a specific PO was requested, filter matches to that PO
+    if (purchaseOrderId && result.matchedItems.length > 0) {
+      result.matchedItems = result.matchedItems.filter(m => m.poId === purchaseOrderId);
+    }
+
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+// ── POST /api/vendor-orders/purchase-orders/:id/approve ───────────────────
+export const approvePurchaseOrder = async (req, res, next) => {
+  try {
+    const po = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
+    if (!po) return res.status(404).json({ error: 'PO not found' });
+    if (!['draft', 'pending_approval'].includes(po.status)) {
+      return res.status(400).json({ error: `Cannot approve PO in ${po.status} status` });
+    }
+
+    await prisma.purchaseOrder.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'approved',
+        approvedById: req.user?.id,
+        approvedAt: new Date(),
+        approvalNotes: req.body.notes || null,
+      },
+    });
+
+    res.json({ success: true, status: 'approved' });
+  } catch (err) { next(err); }
+};
+
+// ── POST /api/vendor-orders/purchase-orders/:id/reject ────────────────────
+export const rejectPurchaseOrder = async (req, res, next) => {
+  try {
+    const po = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
+    if (!po) return res.status(404).json({ error: 'PO not found' });
+
+    await prisma.purchaseOrder.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'draft',
+        approvalNotes: req.body.reason || 'Rejected',
+      },
+    });
+
+    res.json({ success: true, status: 'draft' });
+  } catch (err) { next(err); }
+};
+
+// ── GET /api/vendor-orders/cost-variance ──────────────────────────────────
+export const getCostVariance = async (req, res, next) => {
+  try {
+    const { vendorId, from, to } = req.query;
+    const where = { order: { orgId: req.orgId } };
+    if (vendorId) where.order.vendorId = parseInt(vendorId);
+    if (from || to) {
+      where.order.receivedDate = {};
+      if (from) where.order.receivedDate.gte = new Date(from);
+      if (to) where.order.receivedDate.lte = new Date(to + 'T23:59:59');
+    }
+    where.costVariance = { not: null };
+
+    const items = await prisma.purchaseOrderItem.findMany({
+      where,
+      include: {
+        product: { select: { name: true, upc: true } },
+        order: { select: { poNumber: true, vendorId: true, receivedDate: true, vendor: { select: { name: true } } } },
+      },
+      orderBy: { costVariance: 'desc' },
+      take: 100,
+    });
+
+    const totalVariance = items.reduce((s, i) => s + Math.abs(Number(i.costVariance) || 0) * i.qtyReceived, 0);
+    const majorCount = items.filter(i => i.varianceFlag === 'major').length;
+    const minorCount = items.filter(i => i.varianceFlag === 'minor').length;
+
+    res.json({
+      items: items.map(i => ({
+        productName: i.product?.name,
+        upc: i.product?.upc,
+        poNumber: i.order?.poNumber,
+        vendorName: i.order?.vendor?.name,
+        receivedDate: i.order?.receivedDate,
+        poUnitCost: Number(i.unitCost),
+        actualUnitCost: Number(i.actualUnitCost),
+        variance: Number(i.costVariance),
+        flag: i.varianceFlag,
+        qtyReceived: i.qtyReceived,
+      })),
+      summary: {
+        totalVariance: Math.round(totalVariance * 100) / 100,
+        majorCount,
+        minorCount,
+        itemCount: items.length,
+      },
+    });
   } catch (err) { next(err); }
 };
 
@@ -352,5 +544,19 @@ export const getPurchaseOrderPDF = async (req, res, next) => {
     }
 
     doc.end();
+  } catch (err) { next(err); }
+};
+
+// ── GET /api/vendor-orders/vendor-performance ─────────────────────────────
+export const getVendorPerformance = async (req, res, next) => {
+  try {
+    const { vendorId, from, to } = req.query;
+    if (vendorId) {
+      const data = await getVendorPerfData(req.orgId, vendorId, from, to);
+      res.json(data);
+    } else {
+      const data = await getAllVendorPerformance(req.orgId, from, to);
+      res.json(data);
+    }
   } catch (err) { next(err); }
 };

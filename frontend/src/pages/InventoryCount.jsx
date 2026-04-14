@@ -15,12 +15,16 @@ import {
   getStoreInventory,
   adjustStoreStock,
   upsertStoreInventory,
+  createInventoryAdjustment,
+  listInventoryAdjustments,
+  getAdjustmentSummary,
 } from '../services/api';
 import { toast } from 'react-toastify';
 import {
   Scan, Search, Package, Plus, Minus, CheckCircle,
   RefreshCw, X, ChevronDown, ChevronUp, BarChart2,
-  AlertCircle, Loader, History, ClipboardList,
+  AlertCircle, Loader, History, ClipboardList, DollarSign,
+  Trash2, TrendingDown,
 } from 'lucide-react';
 import './InventoryCount.css';
 
@@ -329,22 +333,7 @@ const InventoryCount = () => {
   };
 
   return (
-      <div className="p-page ic-main">
-
-        {/* ── Header ── */}
-        <div className="p-header">
-          <div className="p-header-left">
-            <div className="p-header-icon">
-              <ClipboardList size={22} />
-            </div>
-            <div>
-              <h1 className="p-title">Inventory Count</h1>
-              <p className="p-subtitle">Scan barcodes or search to quickly update stock levels</p>
-            </div>
-          </div>
-          <div className="p-header-actions"></div>
-        </div>
-
+        <>
         {/* ── Mode toggle ── */}
         <div className="ic-mode-toggle">
           {[['adjust', '± Adjust', 'Add or subtract from current'], ['count', '# Set Count', 'Enter absolute on-hand count']].map(([key, label, desc]) => (
@@ -449,8 +438,258 @@ const InventoryCount = () => {
             </p>
           </div>
         )}
-      </div>
+      </>
   );
 };
 
-export default InventoryCount;
+/* ════════════════════════════════════════════════════════════
+   ADJUSTMENTS TAB — Shrinkage & Inventory Corrections
+════════════════════════════════════════════════════════════ */
+
+const ADJUSTMENT_REASONS = [
+  { value: 'shrinkage', label: 'Shrinkage (Unknown Loss)' },
+  { value: 'theft', label: 'Theft' },
+  { value: 'damage', label: 'Damage' },
+  { value: 'spoilage', label: 'Spoilage' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'count_correction', label: 'Count Correction' },
+  { value: 'found', label: 'Found / Extra Stock' },
+  { value: 'return', label: 'Customer Return to Shelf' },
+];
+
+const AdjustmentsTab = () => {
+  const [adjustments, setAdjustments] = useState([]);
+  const [summary, setSummary]         = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [searchQ, setSearchQ]         = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [form, setForm] = useState({ qty: '', reason: 'shrinkage', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const searchTimer = useRef(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [adjRes, sumRes] = await Promise.all([
+        listInventoryAdjustments({ limit: 100 }),
+        getAdjustmentSummary(),
+      ]);
+      setAdjustments(adjRes.adjustments || []);
+      setSummary(sumRes);
+    } catch { toast.error('Failed to load adjustments'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSearch = (q) => {
+    setSearchQ(q);
+    clearTimeout(searchTimer.current);
+    if (!q.trim()) { setSearchResults([]); return; }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await searchCatalogProducts({ q: q.trim() });
+        setSearchResults((res.data || res.products || res).slice(0, 8));
+      } catch { setSearchResults([]); }
+    }, 300);
+  };
+
+  const handleCreate = async () => {
+    if (!selectedProduct || !form.qty) { toast.error('Select a product and enter quantity'); return; }
+    setSaving(true);
+    try {
+      await createInventoryAdjustment({
+        masterProductId: selectedProduct.id,
+        adjustmentQty: parseInt(form.qty),
+        reason: form.reason,
+        notes: form.notes || undefined,
+      });
+      toast.success('Adjustment recorded');
+      setShowCreate(false);
+      setSelectedProduct(null);
+      setForm({ qty: '', reason: 'shrinkage', notes: '' });
+      setSearchQ('');
+      fetchData();
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed to create adjustment'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <>
+      {/* Summary cards */}
+      {summary && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div className="p-card" style={{ padding: '0.85rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Shrinkage</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ef4444' }}>{summary.totalUnits} units</div>
+          </div>
+          <div className="p-card" style={{ padding: '0.85rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Est. Value Lost</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f59e0b' }}>${Number(summary.totalValue || 0).toFixed(2)}</div>
+          </div>
+          <div className="p-card" style={{ padding: '0.85rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Adjustments</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>{summary.totalAdjustments}</div>
+          </div>
+          {(summary.byReason || []).slice(0, 1).map(r => (
+            <div key={r.reason} className="p-card" style={{ padding: '0.85rem', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Top Reason</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{r.reason.replace(/_/g, ' ')}</div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{r.units} units · ${Number(r.value).toFixed(2)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Action bar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: '0.75rem' }}>
+        <button className="p-btn p-btn-ghost" onClick={fetchData} disabled={loading}>
+          <RefreshCw size={15} /> Refresh
+        </button>
+        <button className="p-btn p-btn-primary p-btn-sm" onClick={() => setShowCreate(true)}>
+          <Plus size={13} /> Record Adjustment
+        </button>
+      </div>
+
+      {/* Create adjustment inline form */}
+      {showCreate && (
+        <div className="p-card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Record Inventory Adjustment</span>
+            <button className="p-btn p-btn-ghost p-btn-xs" onClick={() => setShowCreate(false)}><X size={13} /></button>
+          </div>
+
+          {/* Product search */}
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>PRODUCT</label>
+            {selectedProduct ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 0.75rem', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <Package size={14} />
+                <span style={{ fontWeight: 600, flex: 1 }}>{selectedProduct.name}</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{selectedProduct.upc}</span>
+                <button onClick={() => { setSelectedProduct(null); setSearchQ(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, display: 'flex' }}><X size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <input className="p-input" value={searchQ} onChange={e => handleSearch(e.target.value)} placeholder="Search by name, UPC, or SKU..." />
+                {searchResults.length > 0 && (
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto', background: 'var(--bg-secondary)' }}>
+                    {searchResults.map(p => (
+                      <button key={p.id} onClick={() => { setSelectedProduct(p); setSearchResults([]); setSearchQ(''); }}
+                        style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', padding: '0.5rem 0.75rem', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '0.85rem' }}>
+                        <div style={{ fontWeight: 600 }}>{p.name}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.upc || ''} {p.department?.name ? `· ${p.department.name}` : ''}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: '0.75rem' }}>
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>QTY CHANGE</label>
+              <input className="p-input" type="number" value={form.qty} onChange={e => setForm(f => ({ ...f, qty: e.target.value }))}
+                placeholder="-5 for shrink, +3 for found" />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>REASON</label>
+              <select className="p-input" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}>
+                {ADJUSTMENT_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>NOTES (optional)</label>
+            <input className="p-input" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="e.g. Found damaged in back room" />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="p-btn p-btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+            <button className="p-btn p-btn-primary" onClick={handleCreate} disabled={saving || !selectedProduct || !form.qty}>
+              {saving ? <Loader size={13} className="p-spin" /> : <CheckCircle size={13} />} Record Adjustment
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading && <div className="p-loading" style={{ justifyContent: 'center' }}><Loader size={16} className="p-spin" /> Loading adjustments...</div>}
+
+      {!loading && adjustments.length === 0 && (
+        <div className="p-empty"><TrendingDown size={40} /> No inventory adjustments recorded yet.</div>
+      )}
+
+      {!loading && adjustments.length > 0 && (
+        <div className="p-card">
+          <div className="p-table-wrap">
+            <table className="p-table">
+              <thead>
+                <tr><th>Date</th><th>Product</th><th>UPC</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                {adjustments.map(adj => (
+                  <tr key={adj.id}>
+                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                      {new Date(adj.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </td>
+                    <td className="p-td-strong">{adj.product?.name || `#${adj.masterProductId}`}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{adj.product?.upc || '--'}</td>
+                    <td style={{ fontWeight: 700, color: adj.adjustmentQty < 0 ? '#ef4444' : '#22c55e' }}>
+                      {adj.adjustmentQty > 0 ? '+' : ''}{adj.adjustmentQty}
+                    </td>
+                    <td>{adj.previousQty}</td>
+                    <td style={{ fontWeight: 600 }}>{adj.newQty}</td>
+                    <td><span className="p-badge p-badge-gray" style={{ textTransform: 'capitalize' }}>{(adj.reason || '').replace(/_/g, ' ')}</span></td>
+                    <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{adj.notes || '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+/* ════════════════════════════════════════════════════════════
+   MAIN WRAPPER — Tabs (Count + Adjustments)
+════════════════════════════════════════════════════════════ */
+
+const InventoryCountPage = () => {
+  const [tab, setTab] = useState('count');
+
+  return (
+    <div className="p-page ic-main">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon"><ClipboardList size={22} /></div>
+          <div>
+            <h1 className="p-title">Inventory</h1>
+            <p className="p-subtitle">Count stock, record adjustments & track shrinkage</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-tabs">
+        {[
+          { key: 'count', label: 'Quick Count', icon: Scan },
+          { key: 'adjustments', label: 'Adjustments & Shrinkage', icon: TrendingDown },
+        ].map(({ key, label, icon: Icon }) => (
+          <button key={key} className={`p-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'count' && <InventoryCount />}
+      {tab === 'adjustments' && <AdjustmentsTab />}
+    </div>
+  );
+};
+
+export default InventoryCountPage;
