@@ -190,10 +190,30 @@ export default function ProductCatalog() {
       const res = search?.trim()
         ? await searchCatalogProducts(search, params)
         : await getCatalogProducts(params);
-      const raw = res?.data || res;
-      setProducts(raw?.products || raw?.data || raw || []);
-      setPagination({ page:raw?.page||pg, pages:raw?.pages||1, total:raw?.total||0 });
-    } catch { toast.error('Failed to load products'); }
+
+      // Backend shape: { success, data: [...products], pagination: { page, limit, total, pages } }
+      // OR fallback: { products: [...], total, page, pages }
+      // OR raw array
+      const list = Array.isArray(res)          ? res
+                 : Array.isArray(res?.data)    ? res.data
+                 : res?.products               ? res.products
+                 : [];
+      const p = res?.pagination || {
+        page:  res?.page  ?? pg,
+        pages: res?.pages ?? 1,
+        total: res?.total ?? list.length,
+      };
+
+      setProducts(list);
+      setPagination({
+        page:  p.page  ?? pg,
+        pages: p.pages ?? Math.ceil((p.total || list.length) / (p.limit || 50)) ?? 1,
+        total: p.total ?? list.length,
+      });
+    } catch (e) {
+      console.error('[ProductCatalog] load failed:', e);
+      toast.error('Failed to load products');
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -242,16 +262,18 @@ export default function ProductCatalog() {
             <button onClick={() => { loadProducts(q, page, filters); loadSupport(); }} className="pc-refresh-btn">
               <RefreshCw size={14} />
             </button>
-            {pagination.total > 0 && (
-              <button
-                onClick={() => setShowDeleteAll(true)}
-                className="p-btn p-btn-ghost"
-                style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
-                title="Delete all products in this organization"
-              >
-                <Trash2 size={14} /> Delete All
-              </button>
-            )}
+            <button
+              onClick={() => setShowDeleteAll(true)}
+              className="pc-add-btn"
+              style={{
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                color: '#ef4444',
+              }}
+              title="Delete all products in this organization"
+            >
+              <Trash2 size={14} /> Delete All
+            </button>
             <button onClick={() => navigate('/portal/catalog/new')} className="pc-add-btn">
               <Plus size={14} /> Add Product
             </button>
@@ -528,16 +550,44 @@ export default function ProductCatalog() {
         </div>
 
         {/* ── Pagination ── */}
-        {pagination.pages > 1 && (
+        {pagination.total > 0 && (
           <div className="pc-pagination">
+            <button disabled={page<=1} onClick={() => setPage(1)} className="pc-pagination-btn" title="First page">
+              ⇤
+            </button>
             <button disabled={page<=1} onClick={() => setPage(p=>p-1)} className="pc-pagination-btn">
               <ChevronLeft size={14} />
             </button>
             <span className="pc-pagination-text">
-              Page {page} of {pagination.pages} · {pagination.total} products
+              Page <input
+                type="number"
+                min="1"
+                max={pagination.pages}
+                value={page}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value);
+                  if (!isNaN(n) && n >= 1 && n <= pagination.pages) setPage(n);
+                }}
+                style={{
+                  width: 55, textAlign: 'center',
+                  padding: '2px 4px', margin: '0 4px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 4,
+                  color: 'var(--text-primary)',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                }}
+              /> of {pagination.pages}
+              <span style={{ color: 'var(--text-muted)', marginLeft: 12 }}>
+                · {pagination.total.toLocaleString()} products
+              </span>
             </span>
             <button disabled={page>=pagination.pages} onClick={() => setPage(p=>p+1)} className="pc-pagination-btn">
               <ChevronRight size={14} />
+            </button>
+            <button disabled={page>=pagination.pages} onClick={() => setPage(pagination.pages)} className="pc-pagination-btn" title="Last page">
+              ⇥
             </button>
           </div>
         )}
