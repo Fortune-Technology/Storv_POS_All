@@ -570,7 +570,7 @@ export const dailyWithWeather = async (req, res) => {
     const merged = mergeSalesAndWeather(salesRows, weather);
 
     res.json({
-      ...salesData,
+      ...salesData,                         // preserves @odata.aggregation + @odata.count
       value: merged,
       weather,
       weatherEnabled: !!(req.user?.storeLatitude && req.user?.storeLongitude),

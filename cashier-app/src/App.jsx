@@ -74,6 +74,27 @@ export default function App() {
     return () => window.removeEventListener('pos-session-expired', handleExpired);
   }, [logout]);
 
+  // ── Listen for station token becoming invalid ────────────────────────
+  // If the backend says the station token doesn't match, it means the
+  // station record was deleted or we're pointing at a different backend.
+  // Clear the station config so the user is sent to the setup wizard.
+  useEffect(() => {
+    const handleStationInvalid = () => {
+      console.warn('[App] Station token invalid — clearing station, returning to setup');
+      try {
+        // Clear persistent station config
+        if (window.electronAPI?.saveConfig) {
+          window.electronAPI.saveConfig({ station: null }).catch(() => {});
+        }
+      } catch {}
+      // Clear Zustand store (setStation(null))
+      setStation(null);
+      logout();
+    };
+    window.addEventListener('pos-station-invalid', handleStationInvalid);
+    return () => window.removeEventListener('pos-station-invalid', handleStationInvalid);
+  }, [setStation, logout]);
+
   // ── Stale session check on boot ───────────────────────────────────────
   // If the cached cashier session is from a previous day, clear it immediately.
   // This handles the case where the browser was closed overnight without logout.

@@ -189,10 +189,35 @@ export const getSummaryReport = async (req, res, next) => {
     const grossProfit = r2(grossSales - totalCost);
     const grossMargin = grossSales > 0 ? r2((grossProfit / grossSales) * 100) : 0;
 
+    // ── Response — FLATTENED for frontend ───────────────────────────────
+    // Frontend does `const s = summary; s.grossSales; s.departments`
+    // so we put everything at top-level (not nested under `summary`)
     res.json({
       period: { from, to },
+      from, to,
 
-      // P&L Summary
+      // P&L Summary (flat fields for ReportsHub KPI cards)
+      grossSales:      r2(grossSales),
+      netSales:        r2(netSales),
+      taxCollected:    r2(taxTotal),   // ReportsHub uses `taxCollected`
+      taxTotal:        r2(taxTotal),   // Alias
+      depositTotal:    r2(depositTotal),
+      ebtTotal:        r2(ebtTotal),
+      totalDiscount:   r2(totalDiscount),
+      bagFeeTotal:     r2(bagFeeTotal),
+      refunds:         refundTotal,    // Alias
+      refundTotal,
+      voids:           voidCount,      // Alias
+      voidCount,
+      transactions:    txCount,        // Alias
+      txCount,
+      avgTransaction,
+      totalCost,
+      grossProfit,
+      grossMarginPct:  grossMargin,    // Alias for ReportsHub
+      grossMargin,
+
+      // Nested summary (backward compat — some pages may use this)
       summary: {
         grossSales: r2(grossSales),
         netSales: r2(netSales),
@@ -234,8 +259,12 @@ export const getSummaryReport = async (req, res, next) => {
         totalPayouts: r2(expensePayouts + merchandisePayouts),
       },
 
-      // Breakdowns
-      departments,
+      // Breakdowns — ReportsHub uses `department` as the key field on each row
+      departments: departments.map(d => ({
+        ...d,
+        department: d.name, // alias for ReportsHub frontend
+        pctTotal: grossSales > 0 ? r2((d.sales / grossSales) * 100) : 0,
+      })),
       byCashier: Object.values(cashierMap).map(c => ({ ...c, sales: r2(c.sales) })),
       byStation: Object.values(stationMap).map(s => ({ ...s, sales: r2(s.sales) })),
       hourly: Array.from({ length: 24 }, (_, h) => ({

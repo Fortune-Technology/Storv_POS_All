@@ -15,12 +15,13 @@ import {
   bulkSetDepartment,
   bulkToggleActive,
   bulkUpdateCatalogProducts,
+  deleteAllCatalogProducts,
 } from '../services/api';
 import { toast } from 'react-toastify';
 import {
   Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight,
   Package, Loader, RefreshCw, Copy, CheckSquare, Square,
-  XCircle, Tag, ToggleLeft, DollarSign, Layers,
+  XCircle, Tag, ToggleLeft, DollarSign, Layers, AlertTriangle,
 } from 'lucide-react';
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { SetupGuide } from '../components/SetupGuide';
@@ -82,6 +83,12 @@ export default function ProductCatalog() {
   const [bulkActive,  setBulkActive]  = useState(true);
   const [bulkSaving,  setBulkSaving]  = useState(false);
 
+  // Delete All state
+  const [showDeleteAll,    setShowDeleteAll]    = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deleteAllPermanent, setDeleteAllPermanent] = useState(false);
+  const [deleteAllSaving,  setDeleteAllSaving]  = useState(false);
+
   const debounceRef = useRef(null);
 
   const toggleSelect = (id) => setSelectedIds(prev => {
@@ -132,6 +139,27 @@ export default function ProductCatalog() {
       loadProducts(q, page, filters);
     } catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
     finally { setBulkSaving(false); }
+  };
+
+  const handleDeleteAll = async () => {
+    if (deleteAllConfirm !== 'DELETE ALL') {
+      toast.error('Type DELETE ALL exactly to confirm');
+      return;
+    }
+    setDeleteAllSaving(true);
+    try {
+      const res = await deleteAllCatalogProducts('DELETE ALL', deleteAllPermanent);
+      toast.success(`${res.deleted} product(s) ${deleteAllPermanent ? 'permanently deleted' : 'soft-deleted'}`);
+      setShowDeleteAll(false);
+      setDeleteAllConfirm('');
+      setDeleteAllPermanent(false);
+      clearSelection();
+      loadProducts(q, page, filters);
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Delete all failed');
+    } finally {
+      setDeleteAllSaving(false);
+    }
   };
 
   const handleBulkPrice = async () => {
@@ -214,6 +242,16 @@ export default function ProductCatalog() {
             <button onClick={() => { loadProducts(q, page, filters); loadSupport(); }} className="pc-refresh-btn">
               <RefreshCw size={14} />
             </button>
+            {pagination.total > 0 && (
+              <button
+                onClick={() => setShowDeleteAll(true)}
+                className="p-btn p-btn-ghost"
+                style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
+                title="Delete all products in this organization"
+              >
+                <Trash2 size={14} /> Delete All
+              </button>
+            )}
             <button onClick={() => navigate('/portal/catalog/new')} className="pc-add-btn">
               <Plus size={14} /> Add Product
             </button>
@@ -503,6 +541,142 @@ export default function ProductCatalog() {
             </button>
           </div>
         )}
+
+      {/* ── Delete All Modal ── */}
+      {showDeleteAll && (
+        <div
+          onClick={() => !deleteAllSaving && setShowDeleteAll(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '2px solid rgba(239,68,68,0.4)',
+              borderRadius: 12,
+              padding: '1.5rem',
+              maxWidth: 520,
+              width: '100%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1rem' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%',
+                background: 'rgba(239,68,68,0.12)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <AlertTriangle size={24} color="#ef4444" />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#ef4444' }}>
+                  Delete ALL Products
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {pagination.total} product{pagination.total !== 1 ? 's' : ''} will be affected
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '0.75rem 1rem',
+              background: 'rgba(239,68,68,0.06)',
+              borderRadius: 8,
+              fontSize: '0.82rem',
+              color: 'var(--text-primary)',
+              lineHeight: 1.5,
+              marginBottom: '1rem',
+            }}>
+              This will delete <strong>every product</strong> in your organization across all stores.
+              {deleteAllPermanent ? (
+                <> This action <strong style={{ color: '#ef4444' }}>CANNOT be undone</strong>. All product records, inventory levels, and UPCs will be permanently erased.</>
+              ) : (
+                <> Products will be marked as inactive and hidden, but can be recovered by re-importing.</>
+              )}
+            </div>
+
+            {/* Permanent delete toggle */}
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '0.5rem 0.75rem',
+              background: 'var(--bg-tertiary)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              marginBottom: '1rem',
+              fontSize: '0.82rem',
+            }}>
+              <input
+                type="checkbox"
+                checked={deleteAllPermanent}
+                onChange={(e) => setDeleteAllPermanent(e.target.checked)}
+                disabled={deleteAllSaving}
+              />
+              <span>
+                <strong>Permanently delete</strong> (cannot be undone — blocked if any products are referenced by POs)
+              </span>
+            </label>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>
+                Type <span style={{ color: '#ef4444', fontFamily: 'monospace' }}>DELETE ALL</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={deleteAllConfirm}
+                onChange={(e) => setDeleteAllConfirm(e.target.value)}
+                placeholder="DELETE ALL"
+                disabled={deleteAllSaving}
+                autoFocus
+                style={{
+                  width: '100%', padding: '0.6rem 0.85rem',
+                  background: 'var(--bg-tertiary)',
+                  border: `1px solid ${deleteAllConfirm === 'DELETE ALL' ? '#ef4444' : 'var(--border-color)'}`,
+                  borderRadius: 6,
+                  color: 'var(--text-primary)',
+                  fontSize: '0.9rem',
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.05em',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="p-btn p-btn-ghost"
+                onClick={() => { setShowDeleteAll(false); setDeleteAllConfirm(''); setDeleteAllPermanent(false); }}
+                disabled={deleteAllSaving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAll}
+                disabled={deleteAllSaving || deleteAllConfirm !== 'DELETE ALL'}
+                style={{
+                  padding: '0.6rem 1.25rem',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: deleteAllConfirm === 'DELETE ALL' && !deleteAllSaving ? '#ef4444' : 'rgba(239,68,68,0.3)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  cursor: deleteAllConfirm === 'DELETE ALL' && !deleteAllSaving ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {deleteAllSaving ? <Loader size={13} className="p-spin" /> : <Trash2 size={13} />}
+                {deleteAllSaving ? 'Deleting...' : `Delete All ${pagination.total} Products`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -977,6 +977,73 @@ export const bulkDeleteMasterProducts = async (req, res) => {
   }
 };
 
+// ── Delete ALL products in org (nuke option) ──────────────────────────────────
+// Requires confirmation string "DELETE ALL" to prevent accidents.
+// Supports soft (default) or permanent delete.
+export const deleteAllProducts = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { confirmation, permanent = false } = req.body;
+
+    if (confirmation !== 'DELETE ALL') {
+      return res.status(400).json({
+        success: false,
+        error: 'Confirmation required — send { confirmation: "DELETE ALL" }',
+      });
+    }
+
+    // Count first
+    const beforeCount = await prisma.masterProduct.count({
+      where: { orgId, ...(permanent ? {} : { deleted: false }) },
+    });
+
+    if (beforeCount === 0) {
+      return res.json({ success: true, deleted: 0, type: permanent ? 'permanent' : 'soft', message: 'No products to delete' });
+    }
+
+    if (permanent) {
+      // Hard delete — remove all related records first to avoid FK constraint violations
+      const ids = await prisma.masterProduct.findMany({
+        where: { orgId },
+        select: { id: true },
+      });
+      const idList = ids.map(p => p.id);
+
+      await prisma.storeProduct.deleteMany({ where: { masterProductId: { in: idList } } });
+      await prisma.productUpc.deleteMany({ where: { masterProductId: { in: idList } } });
+      await prisma.productPackSize.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
+      await prisma.inventoryAdjustment.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
+      await prisma.labelQueue.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
+
+      // Prevent deletion if products are referenced by transactions/POs (would break history)
+      // Note: transactions use lineItems JSON, not FK, so they're safe.
+      // Purchase orders have FK — check for any referenced products
+      const poItemCount = await prisma.purchaseOrderItem.count({
+        where: { masterProductId: { in: idList } },
+      });
+      if (poItemCount > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot permanently delete — ${poItemCount} products are referenced by purchase orders. Use soft delete instead.`,
+        });
+      }
+
+      const result = await prisma.masterProduct.deleteMany({ where: { orgId } });
+      res.json({ success: true, deleted: result.count, type: 'permanent' });
+    } else {
+      // Soft delete — mark all as deleted + inactive
+      const result = await prisma.masterProduct.updateMany({
+        where: { orgId, deleted: false },
+        data: { deleted: true, active: false },
+      });
+      res.json({ success: true, deleted: result.count, type: 'soft' });
+    }
+  } catch (err) {
+    console.error('[deleteAllProducts]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // ── Bulk set department ───────────────────────────────────────────────────────
 export const bulkSetDepartment = async (req, res) => {
   try {

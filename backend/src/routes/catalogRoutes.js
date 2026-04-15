@@ -48,6 +48,7 @@ import {
   bulkDeleteMasterProducts,
   bulkSetDepartment,
   bulkToggleActive,
+  deleteAllProducts,
   // Product UPCs
   getProductUpcs,
   addProductUpc,
@@ -133,6 +134,7 @@ router.get('/products/search', authorize('superadmin', 'admin', 'owner', 'manage
 router.get('/products/bulk', authorize('superadmin', 'admin', 'owner', 'manager'), getMasterProducts);
 router.post('/products/bulk-update',     authorize('superadmin', 'admin', 'owner', 'manager'), bulkUpdateMasterProducts);
 router.post('/products/bulk-delete',     authorize('superadmin', 'admin', 'owner'),           bulkDeleteMasterProducts);
+router.post('/products/delete-all',      authorize('superadmin', 'admin', 'owner'),           deleteAllProducts);
 router.post('/products/bulk-department', authorize('superadmin', 'admin', 'owner', 'manager'), bulkSetDepartment);
 router.post('/products/bulk-active',     authorize('superadmin', 'admin', 'owner', 'manager'), bulkToggleActive);
 

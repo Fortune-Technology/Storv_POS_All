@@ -8,6 +8,52 @@ import prisma from '../config/postgres.js';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+// ─── Helper: build an empty sales bucket with all expected fields ───────────
+function emptyBucket(date, extra = {}) {
+  return {
+    Date: date,
+    TotalGrossSales:        0,
+    TotalNetSales:          0,
+    TotalTransactionsCount: 0,
+    TotalDiscounts:         0,
+    TotalRefunds:           0,
+    TotalTaxes:             0,
+    TotalDeposits:          0,
+    TotalEBT:               0,
+    TotalTotalCollected:    0,
+    ...extra,
+  };
+}
+
+// ─── Helper: compute aggregation totals across buckets ─────────────────────
+function computeAggregation(rows) {
+  const agg = {
+    TotalGrossSales:        0,
+    TotalNetSales:          0,
+    TotalTransactionsCount: 0,
+    TotalDiscounts:         0,
+    TotalRefunds:           0,
+    TotalTaxes:             0,
+    TotalDeposits:          0,
+    TotalEBT:               0,
+    TotalTotalCollected:    0,
+  };
+  for (const r of rows) {
+    agg.TotalGrossSales        += Number(r.TotalGrossSales)        || 0;
+    agg.TotalNetSales          += Number(r.TotalNetSales)          || 0;
+    agg.TotalTransactionsCount += Number(r.TotalTransactionsCount) || 0;
+    agg.TotalDiscounts         += Number(r.TotalDiscounts)         || 0;
+    agg.TotalRefunds           += Number(r.TotalRefunds)           || 0;
+    agg.TotalTaxes             += Number(r.TotalTaxes)             || 0;
+    agg.TotalDeposits          += Number(r.TotalDeposits)          || 0;
+    agg.TotalEBT               += Number(r.TotalEBT)               || 0;
+    agg.TotalTotalCollected    += Number(r.TotalTotalCollected)    || 0;
+  }
+  // Round all values
+  for (const k of Object.keys(agg)) agg[k] = r2(agg[k]);
+  return agg;
+}
+
 // ─── Helper: build base WHERE clause ────────────────────────────────────────
 function buildWhere(user, storeId, from, to) {
   const where = { status: 'complete' };
@@ -47,14 +93,28 @@ export async function getDailySales(user, storeId, from, to) {
   const days = {};
   for (const tx of txns) {
     const ds = toDateStr(new Date(tx.createdAt));
-    if (!days[ds]) days[ds] = { Date: ds, TotalNetSales: 0, TotalGrossSales: 0, TransactionCount: 0, TotalTax: 0, TotalDeposits: 0, TotalEBT: 0, TotalDiscounts: 0, TotalRefunds: 0 };
+    if (!days[ds]) days[ds] = emptyBucket(ds);
     const d = days[ds];
-    d.TotalNetSales   += r2(tx.grandTotal);
-    d.TotalGrossSales += r2(tx.subtotal);
-    d.TransactionCount += 1;
-    d.TotalTax        += r2(tx.taxTotal);
-    d.TotalDeposits   += r2(tx.depositTotal);
-    d.TotalEBT        += r2(tx.ebtTotal);
+    const sub   = Number(tx.subtotal)     || 0;
+    const tax   = Number(tx.taxTotal)     || 0;
+    const grand = Number(tx.grandTotal)   || 0;
+    const dep   = Number(tx.depositTotal) || 0;
+    const ebt   = Number(tx.ebtTotal)     || 0;
+
+    d.TotalNetSales          += sub;           // pre-tax, post-discount line totals
+    d.TotalGrossSales        += sub;           // gross of sales (alias for now)
+    d.TotalTaxes             += tax;
+    d.TotalDeposits          += dep;
+    d.TotalEBT               += ebt;
+    d.TotalTotalCollected    += grand;         // what customer paid
+    d.TotalTransactionsCount += 1;
+
+    // Compute discounts from lineItems (if present)
+    const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    for (const li of items) {
+      d.TotalDiscounts += Number(li.discountAmount) || 0;
+      if (li.isRefund) d.TotalRefunds += Math.abs(Number(li.lineTotal) || 0);
+    }
   }
 
   // Fill missing dates with zeros
@@ -64,14 +124,25 @@ export async function getDailySales(user, storeId, from, to) {
     const end = new Date(`${to}T00:00:00`);
     while (cur <= end) {
       const ds = toDateStr(cur);
-      result.push(days[ds] || { Date: ds, TotalNetSales: 0, TotalGrossSales: 0, TransactionCount: 0, TotalTax: 0, TotalDeposits: 0, TotalEBT: 0, TotalDiscounts: 0, TotalRefunds: 0 });
+      result.push(days[ds] || emptyBucket(ds));
       cur.setDate(cur.getDate() + 1);
     }
   } else {
     result.push(...Object.values(days));
   }
 
-  return { value: result };
+  // Round all values
+  for (const row of result) {
+    for (const k of Object.keys(row)) {
+      if (typeof row[k] === 'number') row[k] = r2(row[k]);
+    }
+  }
+
+  return {
+    value: result,
+    '@odata.aggregation': computeAggregation(result),
+    '@odata.count': result.length,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -84,17 +155,31 @@ export async function getWeeklySales(user, storeId, from, to) {
   const weeks = {};
   for (const d of daily) {
     const ws = getWeekStart(new Date(d.Date + 'T00:00:00'));
-    if (!weeks[ws]) weeks[ws] = { Date: ws, TotalNetSales: 0, TotalGrossSales: 0, TransactionCount: 0, TotalTax: 0, TotalDeposits: 0, TotalEBT: 0, TotalDiscounts: 0, TotalRefunds: 0 };
+    if (!weeks[ws]) weeks[ws] = emptyBucket(ws);
     const w = weeks[ws];
-    w.TotalNetSales   += d.TotalNetSales;
-    w.TotalGrossSales += d.TotalGrossSales;
-    w.TransactionCount += d.TransactionCount;
-    w.TotalTax        += d.TotalTax;
-    w.TotalDeposits   += d.TotalDeposits;
-    w.TotalEBT        += d.TotalEBT;
+    w.TotalNetSales          += d.TotalNetSales;
+    w.TotalGrossSales        += d.TotalGrossSales;
+    w.TotalTransactionsCount += d.TotalTransactionsCount;
+    w.TotalTaxes             += d.TotalTaxes;
+    w.TotalDiscounts         += d.TotalDiscounts;
+    w.TotalRefunds           += d.TotalRefunds;
+    w.TotalDeposits          += d.TotalDeposits;
+    w.TotalEBT               += d.TotalEBT;
+    w.TotalTotalCollected    += d.TotalTotalCollected;
   }
 
-  return { value: Object.values(weeks).sort((a, b) => a.Date.localeCompare(b.Date)) };
+  const result = Object.values(weeks).sort((a, b) => a.Date.localeCompare(b.Date));
+  for (const row of result) {
+    for (const k of Object.keys(row)) {
+      if (typeof row[k] === 'number') row[k] = r2(row[k]);
+    }
+  }
+
+  return {
+    value: result,
+    '@odata.aggregation': computeAggregation(result),
+    '@odata.count': result.length,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -107,17 +192,31 @@ export async function getMonthlySales(user, storeId, from, to) {
   const months = {};
   for (const d of daily) {
     const m = d.Date.slice(0, 7); // YYYY-MM
-    if (!months[m]) months[m] = { Date: m + '-01', Month: m, TotalNetSales: 0, TotalGrossSales: 0, TransactionCount: 0, TotalTax: 0, TotalDeposits: 0, TotalEBT: 0, TotalDiscounts: 0, TotalRefunds: 0 };
+    if (!months[m]) months[m] = { ...emptyBucket(m + '-01'), Month: m };
     const mo = months[m];
-    mo.TotalNetSales   += d.TotalNetSales;
-    mo.TotalGrossSales += d.TotalGrossSales;
-    mo.TransactionCount += d.TransactionCount;
-    mo.TotalTax        += d.TotalTax;
-    mo.TotalDeposits   += d.TotalDeposits;
-    mo.TotalEBT        += d.TotalEBT;
+    mo.TotalNetSales          += d.TotalNetSales;
+    mo.TotalGrossSales        += d.TotalGrossSales;
+    mo.TotalTransactionsCount += d.TotalTransactionsCount;
+    mo.TotalTaxes             += d.TotalTaxes;
+    mo.TotalDiscounts         += d.TotalDiscounts;
+    mo.TotalRefunds           += d.TotalRefunds;
+    mo.TotalDeposits          += d.TotalDeposits;
+    mo.TotalEBT               += d.TotalEBT;
+    mo.TotalTotalCollected    += d.TotalTotalCollected;
   }
 
-  return { value: Object.values(months).sort((a, b) => a.Date.localeCompare(b.Date)) };
+  const result = Object.values(months).sort((a, b) => a.Date.localeCompare(b.Date));
+  for (const row of result) {
+    for (const k of Object.keys(row)) {
+      if (typeof row[k] === 'number') row[k] = r2(row[k]);
+    }
+  }
+
+  return {
+    value: result,
+    '@odata.aggregation': computeAggregation(result),
+    '@odata.count': result.length,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -138,8 +237,8 @@ export async function getMonthlySalesComparison(user, storeId) {
   let current = { net: 0, txns: 0 }, previous = { net: 0, txns: 0 };
   for (const d of daily) {
     const m = d.Date.slice(0, 7);
-    if (m === thisMonth) { current.net += d.TotalNetSales; current.txns += d.TransactionCount; }
-    if (m === lastMonth) { previous.net += d.TotalNetSales; previous.txns += d.TransactionCount; }
+    if (m === thisMonth) { current.net += d.TotalNetSales; current.txns += d.TotalTransactionsCount; }
+    if (m === lastMonth) { previous.net += d.TotalNetSales; previous.txns += d.TotalTransactionsCount; }
   }
 
   return { current, previous, change: previous.net ? r2(((current.net - previous.net) / previous.net) * 100) : 0 };
@@ -160,19 +259,48 @@ export async function getDepartmentSales(user, storeId, from, to) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
-      const dept = li.departmentName || li.taxClass || 'Other';
-      const deptId = li.departmentId || dept;
-      if (!depts[deptId]) depts[deptId] = { Department: dept, DepartmentId: deptId, TotalNetSales: 0, TotalGrossSales: 0, ItemsSold: 0, TransactionCount: 0 };
+      const deptName = li.departmentName || li.taxClass || 'Other';
+      const deptId = li.departmentId || deptName;
+      if (!depts[deptId]) {
+        depts[deptId] = {
+          // All the field name variants the frontend might use
+          Name:           deptName,
+          Department:     deptName,
+          DepartmentId:   deptId,
+          TotalSales:     0,
+          TotalNetSales:  0,
+          TotalGrossSales: 0,
+          TotalItems:     0,
+          ItemsSold:      0,
+          TotalTransactionsCount: 0,
+          TransactionCount: 0,
+        };
+      }
       const d = depts[deptId];
-      d.TotalNetSales   += r2(li.lineTotal || 0);
-      d.TotalGrossSales += r2((li.unitPrice || 0) * (li.qty || 1));
-      d.ItemsSold       += Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal) || 0;
+      const grossLine = Number(li.unitPrice || 0) * Number(li.qty || 1);
+      const qty       = Number(li.qty) || 1;
+
+      d.TotalSales     += lineTotal;
+      d.TotalNetSales  += lineTotal;
+      d.TotalGrossSales += grossLine;
+      d.TotalItems     += qty;
+      d.ItemsSold      += qty;
+      d.TotalTransactionsCount += 1;
       d.TransactionCount += 1;
     }
   }
 
-  const result = Object.values(depts).sort((a, b) => b.TotalNetSales - a.TotalNetSales);
-  return { value: result };
+  const result = Object.values(depts)
+    .map(d => {
+      for (const k of Object.keys(d)) {
+        if (typeof d[k] === 'number') d[k] = r2(d[k]);
+      }
+      return d;
+    })
+    .sort((a, b) => b.TotalNetSales - a.TotalNetSales);
+
+  return { value: result, '@odata.count': result.length };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -186,15 +314,21 @@ export async function getDepartmentComparison(user, storeId, from, to, from2, to
   ]);
 
   const prevMap = {};
-  for (const d of (previous.value || [])) prevMap[d.Department] = d;
+  for (const d of (previous.value || [])) prevMap[d.Name || d.Department] = d;
 
   const comparison = (current.value || []).map(c => {
-    const p = prevMap[c.Department] || { TotalNetSales: 0 };
+    const p = prevMap[c.Name || c.Department] || { TotalNetSales: 0, TotalSales: 0 };
     const change = p.TotalNetSales ? r2(((c.TotalNetSales - p.TotalNetSales) / p.TotalNetSales) * 100) : null;
-    return { ...c, PreviousSales: p.TotalNetSales, Change: change };
+    return {
+      ...c,
+      PreviousSales: p.TotalNetSales,
+      TotalNetSales2: p.TotalNetSales,
+      TotalSales2:    p.TotalSales,
+      Change: change,
+    };
   });
 
-  return { value: comparison };
+  return { value: comparison, '@odata.count': comparison.length };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -222,7 +356,7 @@ export async function getTopProducts(user, storeId, date) {
   }
 
   const result = Object.values(products).sort((a, b) => b.NetSales - a.NetSales).slice(0, 20);
-  return { value: result };
+  return { value: result, '@odata.count': result.length };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -264,7 +398,7 @@ export async function getProductsGrouped(user, storeId, from, to, orderBy = 'Net
   const total = all.length;
   const page = all.slice(skip, skip + pageSize);
 
-  return { value: page, total };
+  return { value: page, total, '@odata.count': total };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
