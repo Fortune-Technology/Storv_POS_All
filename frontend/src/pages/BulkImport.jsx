@@ -37,6 +37,58 @@ const DUPLICATE_STRATEGIES = [
   { id: 'error',     label: 'Flag errors', desc: 'Treat duplicates as errors' },
 ];
 
+// Plain-English descriptions shown next to each field in the mapping UI
+// (like the IT Retail "Attribute Guide" column). Each entry is { desc, example }.
+const FIELD_DESCRIPTIONS = {
+  // Identifiers
+  upc:                { desc: 'Barcode scanned at the register — one per product',                    example: '0081100110012' },
+  plu:                { desc: 'Produce/scale lookup number (4–5 digits)',                              example: '4011, 94011' },
+  sku:                { desc: 'Your internal stock-keeping number',                                   example: 'BEV-001' },
+  itemCode:           { desc: 'Distributor / vendor item number for reordering',                      example: '84483, 111398' },
+  // Product display
+  name:               { desc: 'Full product name shown to cashier and customer',                      example: '19 CRIME AMERIKAZ RED 750 ML' },
+  brand:              { desc: 'Manufacturer or brand',                                                 example: '19 Crimes, Coca-Cola' },
+  description:        { desc: 'Longer description (not shown on receipt)',                            example: 'Dry red wine, California' },
+  size:               { desc: 'Physical size label',                                                   example: '750, 12, 16' },
+  sizeUnit:           { desc: 'Unit of measurement for Size',                                          example: 'ML, OZ, LB' },
+  // Pack
+  unitPack:           { desc: 'Individual items in ONE sell unit (1 = single, 6 = 6-pack)',           example: '1, 6, 12' },
+  packInCase:         { desc: 'How many sell units come in one vendor case',                          example: '12 (bottles/case)' },
+  pack:               { desc: 'TOTAL individual units per case (auto = unitPack × packInCase)',       example: '12, 24, 144' },
+  casePacks:          { desc: 'Legacy alias for "Packs per Case"',                                    example: '12' },
+  sellUnitSize:       { desc: 'Legacy alias for "Units per Pack"',                                     example: '1, 6' },
+  // Classification
+  departmentId:       { desc: 'Department name or numeric ID. Auto-create adds missing depts',        example: 'Wine, Beer, 7' },
+  vendorId:           { desc: 'Vendor / distributor name. Auto-create adds missing vendors',          example: 'MARTIGNETTI, 12' },
+  taxClass:           { desc: 'Tax class — accepts % rate or named class',                             example: '6.25%, grocery, alcohol' },
+  // Pricing
+  defaultCostPrice:   { desc: 'Your cost for ONE individual unit',                                     example: '8.67, 0.65' },
+  defaultRetailPrice: { desc: 'Price customer pays for ONE sell unit',                                 example: '11.99, 12.99' },
+  defaultCasePrice:   { desc: 'What YOU pay the vendor for one full case',                             example: '104, 143.88' },
+  // Compliance
+  ageRequired:        { desc: 'Age-verification minimum (18 or 21)',                                   example: '21' },
+  ebtEligible:        { desc: 'Eligible for EBT / SNAP food stamps',                                   example: 'true, Y' },
+  discountEligible:   { desc: 'Can participate in order-level discounts',                              example: 'true' },
+  taxable:            { desc: 'Whether sales tax applies',                                             example: 'true' },
+  active:             { desc: 'Product is active / sellable',                                          example: 'true' },
+  // Inventory
+  reorderPoint:       { desc: 'Minimum on-hand quantity before reorder',                               example: '5, 12' },
+  reorderQty:         { desc: 'Suggested reorder quantity',                                            example: '24, 48' },
+  quantityOnHand:     { desc: 'Current stock count on hand',                                           example: '24, 0, 11' },
+  // Deposits
+  depositPerUnit:     { desc: 'Bottle deposit per individual unit',                                    example: '0.05, 0.10' },
+  caseDeposit:        { desc: 'Bottle deposit for one full case',                                      example: '0.60, 2.40' },
+  // Linked
+  linkedUpc:          { desc: 'Case or secondary UPC that points to this product',                    example: '50081100110010' },
+  // Other
+  color:              { desc: 'Dept / product color (hex)',                                            example: '#f59e0b' },
+  code:               { desc: 'Short uppercase code (max 8 chars)',                                    example: 'WINE, BR' },
+  email:              { desc: 'Contact email',                                                          example: 'rep@vendor.com' },
+  phone:              { desc: 'Contact phone',                                                          example: '+1-555-555-0100' },
+  promoType:          { desc: 'Promotion type',                                                         example: 'sale, bogo, volume' },
+  discountValue:      { desc: 'Discount amount or percent',                                             example: '10, 2.00' },
+};
+
 const FIELD_LABELS = {
   upc: 'UPC / Barcode', plu: 'PLU', sku: 'SKU', itemCode: 'Item Code',
   name: 'Product Name', brand: 'Brand', description: 'Description (long)',
@@ -381,7 +433,8 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
     Object.keys(m).forEach(f => { if (m[f] === csvHeader) delete m[f]; });
     if (schemaField && m[schemaField]) delete m[schemaField];
     if (schemaField) m[schemaField] = csvHeader;
-    onChange(m);
+    // Pass the header the user touched so the parent can PIN it
+    onChange(m, csvHeader);
   };
 
   return (
@@ -407,7 +460,7 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
         <table className="bi-map-table">
           <thead>
             <tr>
-              {['YOUR COLUMN', 'MAPS TO FIELD', 'STATUS'].map(h => (
+              {['YOUR COLUMN', 'MAPS TO FIELD', 'STATUS', 'ATTRIBUTE GUIDE'].map(h => (
                 <th key={h}>{h}</th>
               ))}
             </tr>
@@ -417,6 +470,7 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
               const mapped  = reverseMap[header];
               const isReq   = mapped && required.includes(mapped);
               const wasAuto = autoDetected?.[header];
+              const guide   = mapped ? FIELD_DESCRIPTIONS[mapped] : null;
               return (
                 <tr key={header}>
                   <td>
@@ -438,10 +492,20 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
                     {mapped
                       ? wasAuto
                         ? <span className="bi-badge bi-badge--green"><Check size={9} strokeWidth={3} /> auto</span>
-                        : <span className="bi-badge bi-badge--blue"><Check size={9} strokeWidth={3} /> mapped</span>
+                        : <span className="bi-badge bi-badge--blue"><Check size={9} strokeWidth={3} /> pinned</span>
                       : <span className="bi-map-unmapped">not mapped</span>
                     }
                     {isReq && <span className="bi-req-tag">REQ</span>}
+                  </td>
+                  <td className="bi-map-guide">
+                    {guide ? (
+                      <>
+                        <div className="bi-map-guide-desc">{guide.desc}</div>
+                        <div className="bi-map-guide-example">e.g. {guide.example}</div>
+                      </>
+                    ) : (
+                      <span className="bi-map-guide-empty">—</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -721,6 +785,10 @@ export default function BulkImport() {
   const [preview,           setPreview]           = useState(null);
   const [mapping,           setMapping]           = useState({});
   const [autoDetected,      setAutoDetected]      = useState({});
+  // Headers the user has manually touched — these are PINNED and will never
+  // be overwritten by auto-detect on subsequent preview re-runs. This fixes
+  // the "auto-mapping overrides my manual choice" bug.
+  const [pinnedHeaders,     setPinnedHeaders]     = useState(new Set());
   const [allHeaders,        setAllHeaders]        = useState([]);
   const [loading,           setLoading]           = useState(false);
   const [committing,        setCommitting]        = useState(false);
@@ -773,7 +841,7 @@ export default function BulkImport() {
     URL.revokeObjectURL(url);
   };
 
-  const runPreview = async (f, type, strategy, currentMapping) => {
+  const runPreview = async (f, type, strategy, currentMapping, currentPinned) => {
     setLoading(true);
     try {
       const fd = new FormData();
@@ -783,10 +851,32 @@ export default function BulkImport() {
       if (currentMapping && Object.keys(currentMapping).length) fd.append('mapping', JSON.stringify(currentMapping));
       const data = await previewImport(fd);
       setPreview(data);
-      // If user provided a manual mapping, preserve their choices over auto-detected
-      const applied = currentMapping && Object.keys(currentMapping).length
-        ? { ...(data.appliedMapping || data.detectedMapping || {}), ...currentMapping }
-        : (data.appliedMapping || data.detectedMapping || {});
+
+      // ── Merge rules ──────────────────────────────────────────────────
+      // Start from what the server applied (which already has manual wins).
+      // Then for any field the user has PINNED, force its value to whatever
+      // the user chose — auto-detect can NEVER override a pinned field.
+      const serverApplied = data.appliedMapping || data.detectedMapping || {};
+      const pinnedSet = currentPinned || pinnedHeaders;
+      const applied = { ...serverApplied };
+
+      if (currentMapping) {
+        for (const [field, header] of Object.entries(currentMapping)) {
+          if (pinnedSet.has(header) || pinnedSet.has(field)) {
+            // User pinned this — force their value (empty string = skip)
+            if (header === '' || header == null) {
+              delete applied[field];
+            } else {
+              // Remove any other field that claims the same header (no duplicates)
+              for (const k of Object.keys(applied)) {
+                if (applied[k] === header && k !== field) delete applied[k];
+              }
+              applied[field] = header;
+            }
+          }
+        }
+      }
+
       setMapping(applied);
       const headers = [...new Set([...Object.values(applied), ...(data.unmappedHeaders || [])])];
       setAllHeaders(headers);
@@ -802,13 +892,21 @@ export default function BulkImport() {
 
   const handleFile = (f) => {
     setFile(f); setPreview(null); setMapping({}); setAllHeaders([]); setAutoDetected({});
-    runPreview(f, importType, duplicateStrategy, null);
+    setPinnedHeaders(new Set()); // fresh file = nothing pinned yet
+    runPreview(f, importType, duplicateStrategy, null, new Set());
   };
 
-  const handleMappingChange = (newMapping) => {
+  const handleMappingChange = (newMapping, changedHeader) => {
     setMapping(newMapping);
+    // Whenever the user touches a header, pin it so future auto-detects
+    // never override it. Also pin the target field.
+    const nextPinned = new Set(pinnedHeaders);
+    if (changedHeader) nextPinned.add(changedHeader);
+    // Pin all fields currently in the mapping (they're all user-influenced now)
+    for (const field of Object.keys(newMapping)) nextPinned.add(field);
+    setPinnedHeaders(nextPinned);
     if (!file) return;
-    runPreview(file, importType, duplicateStrategy, newMapping);
+    runPreview(file, importType, duplicateStrategy, newMapping, nextPinned);
   };
 
   const handleCommit = async () => {

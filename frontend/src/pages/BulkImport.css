@@ -693,6 +693,28 @@
 .bi-map-status { white-space: nowrap; }
 .bi-map-unmapped { font-size: 0.72rem; color: var(--bi-text-placeholder); }
 
+/* ── Attribute guide column (plain-English description of each field) ─── */
+.bi-map-table td:last-child { max-width: 280px; }
+.bi-map-guide {
+  font-size: 0.72rem;
+  color: var(--bi-text-secondary, #475569);
+  line-height: 1.35;
+  padding-right: 12px;
+}
+.bi-map-guide-desc {
+  color: var(--bi-text-primary, #0f172a);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.bi-map-guide-example {
+  font-size: 0.68rem;
+  color: var(--bi-text-muted, #94a3b8);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.bi-map-guide-empty {
+  color: var(--bi-text-placeholder, #cbd5e1);
+}
+
 /* ── Preview rows ───────────────────────────────────────── */
 .bi-preview-section { border-top: 1px solid var(--bi-border); overflow-x: auto; }
 

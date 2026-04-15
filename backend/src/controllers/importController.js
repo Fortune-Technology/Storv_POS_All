@@ -49,6 +49,40 @@ const getUserId = (req) => req.user?.id || req.user?._id;
 
 const VALID_TYPES = ['products','departments','vendors','promotions','deposits','invoice_costs'];
 
+/**
+ * Merge the auto-detected column mapping with any manual mapping sent by the
+ * client. Manual wins absolutely: if the client sent `{ pack: '' }` it means
+ * "explicitly skip this field — do NOT fall back to auto-detect". A single raw
+ * header can only be claimed by ONE schema field.
+ */
+function mergeMapping(detectedMapping, manualMappingRaw) {
+  const manualMapping = {};
+  const skippedFields = new Set();
+  for (const [field, header] of Object.entries(manualMappingRaw || {})) {
+    if (header == null || header === '') {
+      skippedFields.add(field);
+    } else {
+      manualMapping[field] = header;
+    }
+  }
+  const mapping = { ...detectedMapping, ...manualMapping };
+  for (const f of skippedFields) delete mapping[f];
+  // Prevent a raw header from being claimed twice (manual-first priority)
+  const seenHeaders = new Set();
+  const manualFields = new Set(Object.keys(manualMapping));
+  // Walk manual fields first so they win
+  const ordered = [...manualFields, ...Object.keys(mapping).filter(k => !manualFields.has(k))];
+  const final = {};
+  for (const field of ordered) {
+    const h = mapping[field];
+    if (h == null || h === '') continue;
+    if (seenHeaders.has(h)) continue;
+    seenHeaders.add(h);
+    final[field] = h;
+  }
+  return final;
+}
+
 // ─── POST /api/catalog/import/preview ────────────────────────────────────────
 /**
  * Parse + detect + validate, NO database writes.
@@ -81,11 +115,10 @@ export const previewImport = [
         return res.status(400).json({ error: 'File is empty or contains only headers' });
       }
 
-      // 2 — Detect columns
+      // 2 — Detect columns + merge manual overrides (manual wins absolutely)
       const detectedMapping = detectColumns(headers);
-      // Apply any manual overrides from request
-      const manualMapping = req.body.mapping ? JSON.parse(req.body.mapping) : {};
-      const mapping = { ...detectedMapping, ...manualMapping };
+      const manualMappingRaw = req.body.mapping ? JSON.parse(req.body.mapping) : {};
+      const mapping = mergeMapping(detectedMapping, manualMappingRaw);
 
       // 3 — Build context (dept/vendor lookups)
       const ctx = await buildContext(orgId);
@@ -158,23 +191,27 @@ export const commitImport = [
 
       // If still no storeId and this is a product import, fall back to the first
       // active store in the org so quantityOnHand is written somewhere meaningful.
+      // NOTE: Store model uses `isActive`, not `active`.
       if (!storeId && type === 'products') {
         const firstStore = await prisma.store.findFirst({
-          where: { orgId, active: true },
+          where: { orgId, isActive: true },
           select: { id: true },
           orderBy: { createdAt: 'asc' },
         });
-        if (firstStore) storeId = firstStore.id;
+        if (firstStore) {
+          storeId = firstStore.id;
+          console.log(`[importController] No storeId in request → falling back to active store ${storeId}`);
+        }
       }
 
       // 1 — Parse
       const { headers, rows } = parseFile(req.file.buffer, req.file.mimetype, req.file.originalname);
       if (rows.length === 0) return res.status(400).json({ error: 'File is empty' });
 
-      // 2 — Detect + merge manual mapping
+      // 2 — Detect + merge manual mapping (manual wins absolutely)
       const detectedMapping = detectColumns(headers);
-      const manualMapping   = req.body.mapping ? JSON.parse(req.body.mapping) : {};
-      const mapping         = { ...detectedMapping, ...manualMapping };
+      const manualMappingRaw = req.body.mapping ? JSON.parse(req.body.mapping) : {};
+      const mapping = mergeMapping(detectedMapping, manualMappingRaw);
 
       // 3 — Build context
       const ctx = await buildContext(orgId);
