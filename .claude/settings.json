@@ -5,20 +5,16 @@
       "Read",
       "Glob",
       "Grep",
-
       "Bash(npm run *)",
       "Bash(npm install*)",
       "Bash(npm ci*)",
-
       "Bash(npx prisma db push*)",
       "Bash(npx prisma generate*)",
       "Bash(npx prisma studio*)",
       "Bash(npx prisma db seed*)",
       "Bash(npx prisma migrate status*)",
-
       "Bash(node *)",
       "Bash(nodemon *)",
-
       "Bash(git status)",
       "Bash(git status *)",
       "Bash(git diff*)",
@@ -30,7 +26,6 @@
       "Bash(git stash*)",
       "Bash(git fetch*)",
       "Bash(git pull*)",
-
       "Bash(ls*)",
       "Bash(dir*)",
       "Bash(mkdir *)",
@@ -40,7 +35,6 @@
       "Bash(type *)",
       "Bash(jq *)",
       "Bash(curl *)",
-
       "Bash(cd *)",
       "Bash(pwd)",
       "Bash(which *)",
@@ -55,6 +49,32 @@
       "Bash(git clean -f*)",
       "Bash(DROP TABLE*)",
       "Bash(npx prisma migrate reset*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "code-review-graph update --skip-flows",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "code-review-graph status",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
