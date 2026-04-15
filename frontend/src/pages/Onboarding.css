@@ -6,9 +6,10 @@
   align-items: center;
   justify-content: center;
   background: radial-gradient(circle at top right, var(--accent-primary)10, transparent),
-              radial-gradient(circle at bottom left, var(--error)10, transparent);
+    radial-gradient(circle at bottom left, var(--error)10, transparent);
   padding: 2rem 1rem;
 }
+
 .ob-card {
   width: 100%;
   max-width: 480px;
@@ -16,10 +17,12 @@
   background: #ffffff;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
 }
+
 .ob-card-header {
   text-align: center;
   margin-bottom: 1.5rem;
 }
+
 .ob-logo-row {
   display: flex;
   justify-content: center;
@@ -33,19 +36,23 @@
   justify-content: center;
   margin-bottom: 2rem;
 }
+
 .ob-dot {
   height: 8px;
   border-radius: 4px;
   transition: all 0.3s ease;
 }
+
 .ob-dot--active {
   width: 24px;
   background: var(--accent-primary);
 }
+
 .ob-dot--done {
   width: 8px;
   background: var(--brand-40);
 }
+
 .ob-dot--pending {
   width: 8px;
   background: var(--border-color);
@@ -58,6 +65,7 @@
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
+
 .ob-step-icon {
   width: 40px;
   height: 40px;
@@ -66,22 +74,27 @@
   align-items: center;
   justify-content: center;
 }
+
 .ob-step-icon--brand {
   background: var(--brand-12);
 }
+
 .ob-step-icon--blue {
   background: rgba(59, 130, 246, 0.12);
 }
+
 .ob-step-title {
   margin: 0;
   font-size: 1.25rem;
   color: var(--text-primary);
 }
+
 .ob-step-label {
   margin: 0;
   font-size: 0.825rem;
   color: var(--text-muted);
 }
+
 .ob-step-desc {
   color: var(--text-secondary);
   font-size: 0.875rem;
@@ -93,6 +106,7 @@
   display: block;
   margin-bottom: 0.35rem;
 }
+
 .ob-field-hint {
   color: var(--text-muted);
   font-weight: 400;
@@ -104,6 +118,7 @@
 .ob-input-wrap {
   position: relative;
 }
+
 .ob-input-prefix {
   position: absolute;
   left: 1rem;
@@ -113,25 +128,32 @@
   font-size: 0.8rem;
   pointer-events: none;
 }
+
+
 .ob-input-prefix-pad {
-  padding-left: 2.75rem;
+  padding-left: 2.75rem !important;
 }
+
 .ob-input-icon-pad {
-  padding-left: 2.5rem;
+  padding-left: 2rem !important;
 }
+
 .ob-input--error {
   border-color: var(--error);
 }
+
 .ob-slug-preview {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin: 0.4rem 0 0;
 }
+
 .ob-field-error {
   color: var(--error);
   font-size: 0.75rem;
   margin: 0.25rem 0 0;
 }
+
 .ob-input-icon {
   position: absolute;
   left: 0.875rem;
@@ -139,9 +161,11 @@
   transform: translateY(-50%);
   color: var(--text-muted);
 }
+
 .ob-cursor-pointer {
   cursor: pointer;
 }
+
 .ob-icon-valign {
   vertical-align: middle;
 }
@@ -152,17 +176,21 @@
   padding: 0.875rem;
   margin-top: 0.5rem;
 }
+
 .ob-btn-icon {
   margin-left: 0.4rem;
 }
+
 .ob-btn-icon--left {
   margin-right: 0.4rem;
 }
+
 .ob-btn-row {
   display: flex;
   gap: 0.75rem;
   margin-top: 0.5rem;
 }
+
 .ob-btn-back {
   flex: 1;
   padding: 0.875rem;
@@ -170,6 +198,7 @@
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
 }
+
 .ob-btn-next {
   flex: 2;
   padding: 0.875rem;
@@ -179,6 +208,7 @@
 .ob-done {
   text-align: center;
 }
+
 .ob-done-icon {
   width: 72px;
   height: 72px;
@@ -189,19 +219,23 @@
   justify-content: center;
   margin: 0 auto 1.5rem;
 }
+
 .ob-done-title {
   font-size: 1.5rem;
   color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
+
 .ob-done-msg {
   color: var(--text-secondary);
   margin-bottom: 2rem;
   font-size: 0.9rem;
 }
+
 .ob-done-highlight {
   color: var(--text-primary);
 }
+
 .ob-next-steps {
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
@@ -209,6 +243,7 @@
   margin-bottom: 2rem;
   text-align: left;
 }
+
 .ob-next-step-row {
   display: flex;
   justify-content: space-between;
@@ -216,10 +251,12 @@
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border-color);
 }
+
 .ob-next-step-label {
   font-size: 0.875rem;
   color: var(--text-secondary);
 }
+
 .ob-next-step-btn {
   background: none;
   border: none;
@@ -228,6 +265,7 @@
   font-size: 0.8rem;
   font-weight: 600;
 }
+
 .ob-finish-btn {
   width: 100%;
   padding: 0.875rem;
@@ -240,13 +278,16 @@
     max-width: 95%;
   }
 }
+
 @media (max-width: 480px) {
   .ob-card {
     padding: 1.5rem 1rem;
   }
+
   .ob-step-title {
     font-size: 1.1rem;
   }
+
   .ob-done-title {
     font-size: 1.25rem;
   }

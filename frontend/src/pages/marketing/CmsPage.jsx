@@ -4,6 +4,7 @@ import MarketingNavbar from '../../components/marketing/MarketingNavbar';
 import MarketingFooter from '../../components/marketing/MarketingFooter';
 import { FileX } from 'lucide-react';
 import axios from 'axios';
+import DOMPurify from 'dompurify';
 import './CmsPage.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -72,7 +73,13 @@ const CmsPage = () => {
             {page.title && <h1 className="cms-page-title">{page.title}</h1>}
             <div
               className="cms-content"
-              dangerouslySetInnerHTML={{ __html: page.content }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(page.content || '', {
+                  USE_PROFILES: { html: true },
+                  FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+                  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style'],
+                }),
+              }}
             />
           </div>
         )}

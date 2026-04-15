@@ -25,7 +25,11 @@
       "Bash(find \"D:\\\\The Fortune Tech Projects\\\\Fortune_POS_Platform/admin-app/src/pages\" -name \"*.jsx\" -type f -exec wc -l {} +)",
       "Bash(grep -rn \"function fmt\\\\$\\\\|const fmt\\\\$\\\\|function fmtDate\\\\|const fmtDate\\\\|function todayStr\\\\|const todayStr\\\\|function fmtMoney\\\\|const fmtMoney\\\\|function fmtTime\\\\|const fmtTime\" pages/*.jsx)",
       "Bash(grep -rn \"function fmt\\\\b\\\\|const fmt\\\\b\\\\|function fmt\\\\$\\\\|const fmt\\\\$\" pages/*.jsx)",
-      "Bash(mkdir -p prisma/migrations/0_init)"
+      "Bash(mkdir -p prisma/migrations/0_init)",
+      "Bash(xargs grep:*)",
+      "Bash(xargs ls:*)",
+      "Bash(grep -c \"@media\" '/d/The Fortune Tech Projects/Fortune_POS_Platform/storefront/styles/'*)",
+      "Bash(grep -l \"editorType\" \"D:/The Fortune Tech Projects/Fortune_POS_Platform/ecom-backend/prisma/migrations/0_init/\"*.sql)"
     ]
   }
 }

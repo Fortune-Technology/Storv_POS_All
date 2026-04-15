@@ -16,6 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
+import PriceInput from '../components/PriceInput';
 import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
@@ -152,97 +153,88 @@ function DeptManager({ departments, onClose, onRefresh }) {
   };
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.55)' }} onClick={onClose} />
-      <div style={{ position:'relative', width:'100%', maxWidth:660, maxHeight:'80vh', background:'var(--bg-secondary)',
-        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.4)' }}>
-        <div style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--border-color)',
-          display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+    <div className="pf-mm-root">
+      <div className="pf-mm-overlay" onClick={onClose} />
+      <div className="pf-mm-card">
+        <div className="pf-mm-header">
+          <div className="pf-mm-title-row">
             <Building2 size={15} color="var(--accent-primary)" />
-            <span style={{ fontWeight:700, fontSize:'0.9rem' }}>Manage Departments</span>
+            <span className="pf-mm-title">Manage Departments</span>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}><X size={16} /></button>
+          <button onClick={onClose} className="pf-mm-close"><X size={16} /></button>
         </div>
-        <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-          <div style={{ width:240, borderRight:'1px solid var(--border-color)', overflowY:'auto', padding:'0.75rem' }}>
-            <button onClick={() => startEdit({ name:'', active:true })}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:6, padding:'0.45rem 0.75rem',
-                borderRadius:6, border:'1px dashed var(--border-color)', background:'none',
-                color:'var(--accent-primary)', cursor:'pointer', fontSize:'0.78rem', fontWeight:600, marginBottom:6 }}>
+        <div className="pf-mm-body">
+          <div className="pf-mm-list">
+            <button onClick={() => startEdit({ name:'', active:true })} className="pf-mm-add-btn">
               <Plus size={12} /> Add Department
             </button>
             {list.map(d => (
               <div key={d.id} onClick={() => startEdit(d)}
-                style={{ display:'flex', alignItems:'center', gap:7, padding:'0.4rem 0.7rem',
-                  borderRadius:6, cursor:'pointer', background: editing===d.id ? 'var(--bg-tertiary)':'transparent', marginBottom:1 }}>
-                <div style={{ width:9, height:9, borderRadius:'50%', background:d.color||'#6366f1', flexShrink:0 }} />
-                <span style={{ flex:1, fontSize:'0.8rem', fontWeight:500 }}>{d.name}</span>
-                <button onClick={e=>{e.stopPropagation();del(d.id);}}
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', opacity:0, transition:'opacity .1s' }}
-                  onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
-                  <Trash2 size={11} /></button>
+                className={`pf-mm-list-item${editing === d.id ? ' pf-mm-list-item--active' : ''}`}>
+                <div className="pf-mm-list-dot" style={{ background: d.color || '#6366f1' }} />
+                <span className="pf-mm-list-label">{d.name}</span>
+                <button onClick={e => { e.stopPropagation(); del(d.id); }} className="pf-mm-list-del">
+                  <Trash2 size={11} />
+                </button>
               </div>
             ))}
           </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'1.25rem' }}>
+          <div className="pf-mm-edit">
             {editing ? (
               <>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem' }}>
-                  <div style={{ gridColumn:'span 2' }}>
+                <div className="pf-mm-grid">
+                  <div className="pf-mm-field--full">
                     <label className="pf-label">Name *</label>
-                    <input className="form-input" style={{ width:'100%' }} value={form.name}
-                      onChange={e=>setForm(f=>({...f,name:e.target.value}))} />
+                    <input className="form-input pf-mm-input" value={form.name}
+                      onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                   </div>
-                  <div>
+                  <div className="pf-mm-field">
                     <label className="pf-label">Code</label>
-                    <input className="form-input" style={{ width:'100%' }} value={form.code}
-                      onChange={e=>setForm(f=>({...f,code:e.target.value.toUpperCase()}))} maxLength={8} />
+                    <input className="form-input pf-mm-input" value={form.code}
+                      onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={8} />
                   </div>
-                  <div>
+                  <div className="pf-mm-field">
                     <label className="pf-label">Tax Class</label>
-                    <select className="form-input" style={{ width:'100%' }} value={form.taxClass}
-                      onChange={e=>setForm(f=>({...f,taxClass:e.target.value}))}>
-                      {TAX_CLASSES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    <select className="form-input pf-mm-input" value={form.taxClass}
+                      onChange={e => setForm(f => ({ ...f, taxClass: e.target.value }))}>
+                      {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                   </div>
-                  <div>
+                  <div className="pf-mm-field">
                     <label className="pf-label">Age Required</label>
-                    <select className="form-input" style={{ width:'100%' }} value={form.ageRequired}
-                      onChange={e=>setForm(f=>({...f,ageRequired:e.target.value}))}>
+                    <select className="form-input pf-mm-input" value={form.ageRequired}
+                      onChange={e => setForm(f => ({ ...f, ageRequired: e.target.value }))}>
                       <option value="">None</option><option value="18">18+</option><option value="21">21+</option>
                     </select>
                   </div>
                 </div>
-                <div style={{ marginTop:'0.75rem' }}>
+                <div className="pf-mm-section">
                   <label className="pf-label">Color</label>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                  <div className="pf-mm-color-row">
                     {DEPT_COLORS.map(c => (
-                      <button key={c} type="button" onClick={()=>setForm(f=>({...f,color:c}))}
-                        style={{ width:22, height:22, borderRadius:5, background:c, border: form.color===c?'2px solid white':'2px solid transparent',
-                          outline:form.color===c?`2px solid ${c}`:'none', cursor:'pointer' }} />
+                      <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
+                        className={`pf-mm-color-swatch${form.color === c ? ' pf-mm-color-swatch--active' : ''}`}
+                        style={{ background: c, color: c }} />
                     ))}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:'1.25rem', marginTop:'0.875rem' }}>
-                  {[['EBT','ebtEligible'],['Bottle Deposit','bottleDeposit'],['Active','active']].map(([label,key])=>(
-                    <div key={key}>
+                <div className="pf-mm-flags">
+                  {[['EBT', 'ebtEligible'], ['Bottle Deposit', 'bottleDeposit'], ['Active', 'active']].map(([label, key]) => (
+                    <div key={key} className="pf-mm-flag">
                       <div className="pf-label">{label}</div>
-                      <Tog value={!!form[key]} onChange={v=>setForm(f=>({...f,[key]:v}))} />
+                      <Tog value={!!form[key]} onChange={v => setForm(f => ({ ...f, [key]: v }))} />
                     </div>
                   ))}
                 </div>
-                <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
+                <div className="pf-mm-actions">
                   <button onClick={save} disabled={saving} className="pf-btn-primary pf-btn-sm">
-                    {saving ? 'Saving…' : editing==='new' ? 'Add' : 'Save'}
+                    {saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Save'}
                   </button>
-                  <button onClick={()=>setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
+                  <button onClick={() => setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
                 </div>
               </>
             ) : (
-              <p style={{ color:'var(--text-muted)', fontSize:'0.82rem', marginTop:'2rem', textAlign:'center' }}>
-                Select a department to edit
-              </p>
+              <p className="pf-mm-empty">Select a department to edit</p>
             )}
           </div>
         </div>
@@ -309,98 +301,92 @@ function VendorManager({ vendors, onClose, onRefresh }) {
   };
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.55)' }} onClick={onClose} />
-      <div style={{ position:'relative', width:'100%', maxWidth:640, maxHeight:'80vh', background:'var(--bg-secondary)',
-        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.4)' }}>
-        <div style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--border-color)',
-          display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+    <div className="pf-mm-root">
+      <div className="pf-mm-overlay" onClick={onClose} />
+      <div className="pf-mm-card pf-mm-card--narrow">
+        <div className="pf-mm-header">
+          <div className="pf-mm-title-row">
             <Truck size={15} color="var(--accent-primary)" />
-            <span style={{ fontWeight:700, fontSize:'0.9rem' }}>Manage Vendors</span>
+            <span className="pf-mm-title">Manage Vendors</span>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}><X size={16} /></button>
+          <button onClick={onClose} className="pf-mm-close"><X size={16} /></button>
         </div>
-        <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-          <div style={{ width:200, borderRight:'1px solid var(--border-color)', overflowY:'auto', padding:'0.75rem' }}>
-            <button onClick={() => startEdit({ name:'', active:true })}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:6, padding:'0.45rem 0.75rem',
-                borderRadius:6, border:'1px dashed var(--border-color)', background:'none',
-                color:'var(--accent-primary)', cursor:'pointer', fontSize:'0.78rem', fontWeight:600, marginBottom:6 }}>
+        <div className="pf-mm-body">
+          <div className="pf-mm-list pf-mm-list--narrow">
+            <button onClick={() => startEdit({ name:'', active:true })} className="pf-mm-add-btn">
               <Plus size={12} /> Add Vendor
             </button>
             {list.map(v => (
               <div key={v.id} onClick={() => startEdit(v)}
-                style={{ display:'flex', alignItems:'center', gap:7, padding:'0.4rem 0.7rem',
-                  borderRadius:6, cursor:'pointer', background: editing===v.id?'var(--bg-tertiary)':'transparent', marginBottom:1 }}>
+                className={`pf-mm-list-item${editing === v.id ? ' pf-mm-list-item--active' : ''}`}>
                 <Truck size={11} color="var(--text-muted)" />
-                <span style={{ flex:1, fontSize:'0.78rem', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{v.name}</span>
-                <button onClick={e=>{e.stopPropagation();del(v.id);}}
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', opacity:0 }}
-                  onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
-                  <Trash2 size={11} /></button>
+                <span className="pf-mm-list-label">{v.name}</span>
+                <button onClick={e => { e.stopPropagation(); del(v.id); }} className="pf-mm-list-del">
+                  <Trash2 size={11} />
+                </button>
               </div>
             ))}
           </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'1.25rem' }}>
+          <div className="pf-mm-edit">
             {editing ? (
               <>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem' }}>
-                  {[['Vendor Name *','name','span 2'],['Short Code','code',''],['Contact','contactName','']].map(([label,key,col])=>(
-                    <div key={key} style={{ gridColumn: col||'span 1' }}>
+                <div className="pf-mm-grid">
+                  {[['Vendor Name *', 'name', true], ['Short Code', 'code', false], ['Contact', 'contactName', false]].map(([label, key, full]) => (
+                    <div key={key} className={full ? 'pf-mm-field--full' : 'pf-mm-field'}>
                       <label className="pf-label">{label}</label>
-                      <input className="form-input" style={{ width:'100%' }} value={form[key]??''}
-                        onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} />
+                      <input className="form-input pf-mm-input" value={form[key] ?? ''}
+                        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
                     </div>
                   ))}
-                  <div style={{ gridColumn:'span 1' }}>
+                  <div className="pf-mm-field">
                     <label className="pf-label">Email</label>
-                    <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.email ? 'var(--error)' : undefined }}
-                      value={form.email??''}
-                      onChange={e=>setForm(f=>({...f,email:e.target.value}))}
-                      onBlur={()=>{
+                    <input className={`form-input pf-mm-input${vendorErrors.email ? ' pf-mm-input--error' : ''}`}
+                      value={form.email ?? ''}
+                      onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                      onBlur={() => {
                         if (form.email && !validateEmail(form.email)) {
-                          setVendorErrors(prev=>({...prev, email:'Please enter a valid email address'}));
+                          setVendorErrors(prev => ({ ...prev, email: 'Please enter a valid email address' }));
                         } else {
-                          setVendorErrors(prev=>({...prev, email:''}));
+                          setVendorErrors(prev => ({ ...prev, email: '' }));
                         }
                       }} />
-                    {vendorErrors.email && <p style={{ color:'var(--error)', fontSize:'0.7rem', margin:'0.2rem 0 0' }}>{vendorErrors.email}</p>}
+                    {vendorErrors.email && <p className="pf-mm-field-error">{vendorErrors.email}</p>}
                   </div>
-                  <div style={{ gridColumn:'span 1' }}>
+                  <div className="pf-mm-field">
                     <label className="pf-label">Phone</label>
-                    <input className="form-input" style={{ width:'100%', borderColor: vendorErrors.phone ? 'var(--error)' : undefined }}
-                      value={form.phone??''}
-                      onChange={e=>setForm(f=>({...f,phone:e.target.value}))}
-                      onBlur={()=>{
+                    <input className={`form-input pf-mm-input${vendorErrors.phone ? ' pf-mm-input--error' : ''}`}
+                      value={form.phone ?? ''}
+                      onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                      onBlur={() => {
                         if (form.phone && !validatePhone(form.phone)) {
-                          setVendorErrors(prev=>({...prev, phone:'Please enter a valid phone number (e.g. +1 555 000 0000)'}));
+                          setVendorErrors(prev => ({ ...prev, phone: 'Please enter a valid phone number (e.g. +1 555 000 0000)' }));
                         } else {
-                          setVendorErrors(prev=>({...prev, phone:''}));
+                          setVendorErrors(prev => ({ ...prev, phone: '' }));
                         }
                       }} />
-                    {vendorErrors.phone && <p style={{ color:'var(--error)', fontSize:'0.7rem', margin:'0.2rem 0 0' }}>{vendorErrors.phone}</p>}
+                    {vendorErrors.phone && <p className="pf-mm-field-error">{vendorErrors.phone}</p>}
                   </div>
-                  {[['Terms','terms','Net 30'],['Account #','accountNo','']].map(([label,key,col])=>(
-                    <div key={key} style={{ gridColumn: col||'span 1' }}>
+                  {[['Terms', 'terms'], ['Account #', 'accountNo']].map(([label, key]) => (
+                    <div key={key} className="pf-mm-field">
                       <label className="pf-label">{label}</label>
-                      <input className="form-input" style={{ width:'100%' }} value={form[key]??''}
-                        onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} />
+                      <input className="form-input pf-mm-input" value={form[key] ?? ''}
+                        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop:'0.875rem' }}>
-                  <div className="pf-label">Active</div><Tog value={form.active} onChange={v=>setForm(f=>({...f,active:v}))} />
+                <div className="pf-mm-section">
+                  <div className="pf-label">Active</div>
+                  <Tog value={form.active} onChange={v => setForm(f => ({ ...f, active: v }))} />
                 </div>
-                <div style={{ display:'flex', gap:8, marginTop:'1rem' }}>
+                <div className="pf-mm-actions">
                   <button onClick={save} disabled={saving} className="pf-btn-primary pf-btn-sm">
-                    {saving?'Saving…':editing==='new'?'Add':'Save'}
+                    {saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Save'}
                   </button>
-                  <button onClick={()=>setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
+                  <button onClick={() => setEditing(null)} className="pf-btn-secondary pf-btn-sm">Cancel</button>
                 </div>
               </>
             ) : (
-              <p style={{ color:'var(--text-muted)', fontSize:'0.82rem', marginTop:'2rem', textAlign:'center' }}>Select a vendor</p>
+              <p className="pf-mm-empty">Select a vendor</p>
             )}
           </div>
         </div>
@@ -416,14 +402,11 @@ function VendorManager({ vendors, onClose, onRefresh }) {
 function Tog({ value, onChange }) {
   return (
     <button type="button" onClick={() => onChange(!value)}
-      style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', padding:0,
-        color: value ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-      <div style={{ width:34, height:19, borderRadius:10, position:'relative',
-        background: value ? 'var(--accent-primary)' : 'var(--border-color)', transition:'background .15s', flexShrink:0 }}>
-        <div style={{ position:'absolute', top:2, left:value?16:2, width:15, height:15, borderRadius:'50%',
-          background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,.2)' }} />
+      className={`pf-tog${value ? ' pf-tog--on' : ''}`}>
+      <div className="pf-tog-track">
+        <div className="pf-tog-thumb" />
       </div>
-      <span style={{ fontSize:'0.8rem', fontWeight:500 }}>{value ? 'Yes' : 'No'}</span>
+      <span className="pf-tog-label">{value ? 'Yes' : 'No'}</span>
     </button>
   );
 }
@@ -726,7 +709,24 @@ export default function ProductForm() {
   };
 
   const [form, setForm] = useState(blank);
-  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // Dirty-state tracking: flip on first user edit, clear on save/load.
+  const [dirty, setDirty] = useState(false);
+  const setF = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }));
+    setDirty(true);
+  };
+
+  // Warn user before leaving with unsaved changes (browser close, refresh, tab close).
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // Required for Chrome to show the prompt
+      return '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
 
   // ── Load support data ────────────────────────────────────────────────────────
   const loadSupport = useCallback(async () => {
@@ -844,6 +844,9 @@ export default function ProductForm() {
             active:    pr.active ?? true,
           })));
         }
+        // Loaded cleanly from server — reset dirty flag so the unsaved-changes
+        // guard doesn't fire on the initial render pass.
+        setDirty(false);
       } catch { toast.error('Failed to load product'); }
       finally  { setLoading(false); }
     })();
@@ -1056,6 +1059,28 @@ export default function ProductForm() {
     if (!form.departmentId) { toast.error('Department is required');   return; }
     if (upcWarning)         { toast.error(upcWarning);                 return; }
 
+    // Pack-size validation: when pack pricing is enabled, every row must
+    // have a positive unit count and a non-zero price. Silently coercing to
+    // 1 (as the old code did) produced phantom pack sizes on save.
+    if (packEnabled && packRows.length > 0) {
+      for (let i = 0; i < packRows.length; i++) {
+        const r = packRows[i];
+        const units = parseInt(r.unitPack, 10);
+        const price = parseFloat(r.packPrice);
+        if (!Number.isFinite(units) || units < 1) {
+          toast.error(`Pack size #${i + 1}: "Unit-Pack" must be at least 1`);
+          return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+          toast.error(`Pack size #${i + 1}: price must be greater than $0.00`);
+          return;
+        }
+      }
+      // Exactly one default row, if any row is marked default.
+      const defaults = packRows.filter(r => r.isDefault).length;
+      if (defaults > 1) { toast.error('Only one pack size can be marked as default'); return; }
+    }
+
     let derivedRetailPrice = form.defaultRetailPrice || null;
     if (packEnabled && packRows.length > 0) {
       const defaultRow = packRows.find(r => r.isDefault) || packRows[0];
@@ -1155,10 +1180,20 @@ export default function ProductForm() {
         ));
       }
 
+      setDirty(false); // clear unsaved-changes flag BEFORE navigation
       navigate('/portal/catalog');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     } finally { setSaving(false); }
+  };
+
+  // Guarded cancel — ask before discarding unsaved edits.
+  const handleCancel = () => {
+    if (dirty) {
+      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      if (!ok) return;
+    }
+    navigate('/portal/catalog');
   };
 
   // ── Loading state ────────────────────────────────────────────────────────────
@@ -1178,7 +1213,7 @@ export default function ProductForm() {
 
           {/* ── Top Bar ── */}
           <div className="pf-topbar-inner">
-            <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-topbar-back">
+            <button type="button" onClick={handleCancel} className="pf-topbar-back">
               <ChevronLeft size={16} /> Catalog
             </button>
             <h1 className="pf-topbar-title">
@@ -1190,7 +1225,7 @@ export default function ProductForm() {
                   <Copy size={14} /> {duplicating ? 'Loading…' : 'Duplicate'}
                 </button>
               )}
-              <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-btn-secondary">Cancel</button>
+              <button type="button" onClick={handleCancel} className="pf-btn-secondary">Cancel</button>
               <button type="submit" disabled={saving} className="pf-btn-primary">
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>
@@ -1334,10 +1369,9 @@ export default function ProductForm() {
                     <label className="pf-label">Retail Price</label>
                     <div className="pf-dollar-wrap">
                       <span className="pf-dollar-sign">$</span>
-                      <input className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
-                        type="number" step="0.01" min="0"
+                      <PriceInput className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
                         value={form.defaultRetailPrice} placeholder="0.00"
-                        onChange={e => setF('defaultRetailPrice', e.target.value)}
+                        onChange={(v) => setF('defaultRetailPrice', v)}
                         onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
@@ -1347,10 +1381,9 @@ export default function ProductForm() {
                     <label className="pf-label pf-label-sm">Case Cost</label>
                     <div className="pf-dollar-wrap">
                       <span className="pf-dollar-sign">$</span>
-                      <input className="form-input pf-dollar-input pf-compact-input"
-                        type="number" step="0.01" min="0"
+                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
                         value={form.defaultCasePrice} placeholder="0.00"
-                        onChange={e => setF('defaultCasePrice', e.target.value)}
+                        onChange={(v) => setF('defaultCasePrice', v)}
                         onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
@@ -1481,10 +1514,10 @@ export default function ProductForm() {
                             onChange={e => updatePackRow(idx, 'label', e.target.value)} />
                           <div className="pf-dollar-wrap">
                             <span className="pf-dollar-sign">$</span>
-                            <input className="form-input pf-pack-input pf-dollar-input" type="number" step="0.01" min="0"
+                            <PriceInput className="form-input pf-pack-input pf-dollar-input"
                               placeholder="0.00"
                               value={row.packPrice}
-                              onChange={e => updatePackRow(idx, 'packPrice', e.target.value)} />
+                              onChange={(v) => updatePackRow(idx, 'packPrice', v)} />
                           </div>
                           <input className="form-input pf-pack-input" type="number" min="1"
                             placeholder="1"
@@ -1633,11 +1666,11 @@ export default function ProductForm() {
                           </label>
                           <div className={dealForm.type !== 'percent_off' ? 'pf-dollar-wrap' : undefined} style={{ position: dealForm.type === 'percent_off' ? 'relative' : undefined }}>
                             {dealForm.type !== 'percent_off' && <span className="pf-dollar-sign">$</span>}
-                            <input className={`form-input${dealForm.type !== 'percent_off' ? ' pf-dollar-input' : ''}`}
+                            <PriceInput className={`form-input${dealForm.type !== 'percent_off' ? ' pf-dollar-input' : ''}`}
                               style={{ width:'100%' }}
-                              type="number" step="0.01" min="0"
+                              maxValue={dealForm.type === 'percent_off' ? 100 : undefined}
                               value={dealForm.value}
-                              onChange={e => setDealForm(f => ({ ...f, value: e.target.value }))}
+                              onChange={(v) => setDealForm(f => ({ ...f, value: v }))}
                               placeholder="0.00" />
                             {dealForm.type === 'percent_off' && (
                               <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
@@ -1743,11 +1776,11 @@ export default function ProductForm() {
                 <div className="pf-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                   <div>
                     <label className="pf-label">E-Commerce Price</label>
-                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomPrice} onChange={e => setF('ecomPrice', e.target.value)} placeholder="0.00" />
+                    <PriceInput className="form-input pf-full" value={form.ecomPrice} onChange={(v) => setF('ecomPrice', v)} placeholder="0.00" />
                   </div>
                   <div>
                     <label className="pf-label">Sale Price</label>
-                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomSalePrice} onChange={e => setF('ecomSalePrice', e.target.value)} placeholder="0.00" />
+                    <PriceInput className="form-input pf-full" value={form.ecomSalePrice} onChange={(v) => setF('ecomSalePrice', v)} placeholder="0.00" />
                   </div>
                   <div>
                     <label className="pf-label">External ID</label>
@@ -1935,10 +1968,9 @@ export default function ProductForm() {
                   <label className="pf-label">Case Cost (invoice)</label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
-                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
-                      type="number" step="0.01" min="0"
+                    <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
                       value={form.defaultCasePrice} placeholder="0.00"
-                      onChange={e => setF('defaultCasePrice', e.target.value)}
+                      onChange={(v) => setF('defaultCasePrice', v)}
                       onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                   </div>
                 </div>
@@ -1957,10 +1989,9 @@ export default function ProductForm() {
                   <label className="pf-label">Case Deposit Total</label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
-                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
-                      type="number" step="0.01" min="0"
+                    <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
                       value={caseDeposit}
-                      onChange={e => setCaseDeposit(e.target.value)}
+                      onChange={(v) => setCaseDeposit(v)}
                       onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))}
                       placeholder="e.g. 1.20" />
                   </div>

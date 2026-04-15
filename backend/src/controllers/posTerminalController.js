@@ -909,21 +909,26 @@ export const getEndOfDayReport = async (req, res) => {
 // Clock in or out identified by PIN (no JWT needed — uses station token)
 export const clockEvent = async (req, res) => {
   try {
-    const { pin, type, storeId, stationId } = req.body;
+    const { pin, type } = req.body;
 
     if (!['in', 'out'].includes(type)) return res.status(400).json({ error: 'type must be "in" or "out"' });
-    if (!pin || pin.length < 4) return res.status(400).json({ error: 'PIN required' });
+    if (!pin || typeof pin !== 'string' || pin.length < 4 || pin.length > 8) {
+      return res.status(400).json({ error: 'PIN required (4-8 digits)' });
+    }
+    if (!/^\d+$/.test(pin)) return res.status(400).json({ error: 'PIN must be numeric' });
 
     // Identify user by PIN (same logic as pinLogin)
     const stationToken = req.headers['x-station-token'];
-    if (!stationToken) return res.status(401).json({ error: 'Station token required' });
+    if (!stationToken || typeof stationToken !== 'string' || stationToken.length < 16) {
+      return res.status(401).json({ error: 'Station token required' });
+    }
 
     const station = await prisma.station.findUnique({ where: { token: stationToken } });
     if (!station) return res.status(401).json({ error: 'Invalid station token' });
 
     const bcrypt = await import('bcryptjs');
     const users  = await prisma.user.findMany({
-      where: { orgId: station.orgId, posPin: { not: null } },
+      where: { orgId: station.orgId, posPin: { not: null }, status: 'active' },
       select: { id: true, name: true, posPin: true },
     });
 
@@ -933,7 +938,11 @@ export const clockEvent = async (req, res) => {
     }
     if (!matchedUser) return res.status(401).json({ error: 'Invalid PIN' });
 
-    const effectiveStoreId = storeId || station.storeId;
+    // ── Trust only station-side identifiers ────────────────────────────────
+    // Never trust client-supplied storeId / stationId. Always force the IDs
+    // that are bound to the authenticated station token.
+    const effectiveStoreId = station.storeId;
+    const effectiveStationId = station.id;
 
     // ── Duplicate state guard ────────────────────────────────────────────────
     // Find the last clock event for this employee at this store
@@ -966,7 +975,7 @@ export const clockEvent = async (req, res) => {
         orgId:     station.orgId,
         storeId:   effectiveStoreId,
         userId:    matchedUser.id,
-        stationId: stationId || station.id,
+        stationId: effectiveStationId,
         type,
       },
     });

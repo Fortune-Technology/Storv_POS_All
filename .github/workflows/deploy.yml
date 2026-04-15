@@ -154,6 +154,9 @@ jobs:
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           cd /var/www/Storv_POS_All/storefront
           rm -f package-lock.json
+          # Wipe stale .next — prevents chunk-hash mismatches between a prior
+          # build's artifacts and the new build (caused blank-page 404s locally).
+          rm -rf .next
           npm install
           npm run build
           pm2 restart storv-storefront || pm2 start npm --name storv-storefront -- start

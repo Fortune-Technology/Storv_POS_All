@@ -826,7 +826,9 @@ export default function BulkImport() {
       finishProgress();
       setTimeout(() => {
         setResult(data);
-        getImportHistory({ limit: 10 }).then(d => setHistory(d?.jobs || [])).catch(() => {});
+        getImportHistory({ limit: 10 })
+          .then(d => setHistory(d?.jobs || []))
+          .catch((err) => console.warn('[BulkImport] history refresh failed:', err));
       }, 400);
     } catch (err) {
       finishProgress();

@@ -15,6 +15,21 @@
  */
 
 import prisma from '../config/postgres.js';
+import { parsePrice } from '../utils/validators.js';
+
+// ── Safe price coercer ─────────────────────────────────────────────────────
+// Wrap parsePrice so controllers can one-line the transform.
+// Returns parsed value or null. Throws a 400-formatted Error on invalid input
+// (caught by the controller try/catch — do not swallow silently).
+function toPrice(value, field) {
+  const r = parsePrice(value, { min: 0, max: 9999999, allowNull: true });
+  if (!r.ok) {
+    const e = new Error(`${field}: ${r.error}`);
+    e.status = 400;
+    throw e;
+  }
+  return r.value;
+}
 import { normalizeUPC, upcVariants } from '../utils/upc.js';
 import { queueLabelForPriceChange, queueLabelForNewProduct, queueLabelForSale } from '../services/labelQueueService.js';
 
@@ -752,8 +767,8 @@ export const createMasterProduct = async (req, res) => {
         unitsPerPack:       unitsPerPack ? parseInt(unitsPerPack) : null,
         unitPack:           unitPack     ? parseInt(unitPack)     : null,
         packInCase:         packInCase   ? parseInt(packInCase)   : null,
-        depositPerUnit:     depositPerUnit != null ? parseFloat(depositPerUnit) : null,
-        caseDeposit:        req.body.caseDeposit   != null ? parseFloat(req.body.caseDeposit) : null,
+        depositPerUnit:     toPrice(depositPerUnit, 'depositPerUnit'),
+        caseDeposit:        toPrice(req.body.caseDeposit, 'caseDeposit'),
         weight:             weight ? parseFloat(weight) : null,
         departmentId:       departmentId ? parseInt(departmentId) : null,
         vendorId:           vendorId     ? parseInt(vendorId)     : null,
@@ -761,9 +776,9 @@ export const createMasterProduct = async (req, res) => {
         containerType:      containerType || null,
         containerVolumeOz:  containerVolumeOz ? parseFloat(containerVolumeOz) : null,
         taxClass:           (taxClass ?? deptDefaults.taxClass) || null,
-        defaultCostPrice:   defaultCostPrice   != null ? parseFloat(defaultCostPrice)   : null,
-        defaultRetailPrice: defaultRetailPrice != null ? parseFloat(defaultRetailPrice) : null,
-        defaultCasePrice:   defaultCasePrice   != null ? parseFloat(defaultCasePrice)   : null,
+        defaultCostPrice:   toPrice(defaultCostPrice,   'defaultCostPrice'),
+        defaultRetailPrice: toPrice(defaultRetailPrice, 'defaultRetailPrice'),
+        defaultCasePrice:   toPrice(defaultCasePrice,   'defaultCasePrice'),
         byWeight:           Boolean(byWeight),
         byUnit:             byUnit !== false,
         ebtEligible:        ebtEligible != null ? Boolean(ebtEligible) : Boolean(deptDefaults.ebtEligible),
@@ -801,6 +816,9 @@ export const createMasterProduct = async (req, res) => {
 
     res.status(201).json({ success: true, data: product });
   } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
     if (err.code === 'P2002') {
       return res.status(409).json({ success: false, error: 'A product with this UPC already exists' });
     }
@@ -872,9 +890,9 @@ export const updateMasterProduct = async (req, res) => {
     if (body.containerType !== undefined) updates.containerType = body.containerType || null;
     if (body.containerVolumeOz !== undefined) updates.containerVolumeOz = body.containerVolumeOz ? parseFloat(body.containerVolumeOz) : null;
     if (body.taxClass      !== undefined) updates.taxClass      = body.taxClass || null;
-    if (body.defaultCostPrice   !== undefined) updates.defaultCostPrice   = body.defaultCostPrice   != null ? parseFloat(body.defaultCostPrice)   : null;
-    if (body.defaultRetailPrice !== undefined) updates.defaultRetailPrice = body.defaultRetailPrice != null ? parseFloat(body.defaultRetailPrice) : null;
-    if (body.defaultCasePrice   !== undefined) updates.defaultCasePrice   = body.defaultCasePrice   != null ? parseFloat(body.defaultCasePrice)   : null;
+    if (body.defaultCostPrice   !== undefined) updates.defaultCostPrice   = toPrice(body.defaultCostPrice,   'defaultCostPrice');
+    if (body.defaultRetailPrice !== undefined) updates.defaultRetailPrice = toPrice(body.defaultRetailPrice, 'defaultRetailPrice');
+    if (body.defaultCasePrice   !== undefined) updates.defaultCasePrice   = toPrice(body.defaultCasePrice,   'defaultCasePrice');
     if (body.ebtEligible   !== undefined) updates.ebtEligible   = Boolean(body.ebtEligible);
     if (body.ageRequired   !== undefined) updates.ageRequired   = body.ageRequired ? parseInt(body.ageRequired) : null;
     if (body.taxable       !== undefined) updates.taxable       = Boolean(body.taxable);
@@ -889,8 +907,8 @@ export const updateMasterProduct = async (req, res) => {
     if (body.ecomTags      !== undefined) updates.ecomTags      = Array.isArray(body.ecomTags) ? body.ecomTags : [];
     if (body.unitPack      !== undefined) updates.unitPack      = body.unitPack   ? parseInt(body.unitPack)         : null;
     if (body.packInCase    !== undefined) updates.packInCase    = body.packInCase ? parseInt(body.packInCase)       : null;
-    if (body.depositPerUnit!== undefined) updates.depositPerUnit= body.depositPerUnit != null ? parseFloat(body.depositPerUnit) : null;
-    if (body.caseDeposit   !== undefined) updates.caseDeposit   = body.caseDeposit   != null ? parseFloat(body.caseDeposit)   : null;
+    if (body.depositPerUnit!== undefined) updates.depositPerUnit= toPrice(body.depositPerUnit, 'depositPerUnit');
+    if (body.caseDeposit   !== undefined) updates.caseDeposit   = toPrice(body.caseDeposit,    'caseDeposit');
     if (body.itemCode      !== undefined) updates.itemCode       = body.itemCode || null;
 
     // Fetch old price before update (for label queue)
@@ -924,6 +942,7 @@ export const updateMasterProduct = async (req, res) => {
     });
     res.json({ success: true, data: product });
   } catch (err) {
+    if (err.status === 400) return res.status(400).json({ success: false, error: err.message });
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Product not found' });
     if (err.code === 'P2002') return res.status(409).json({ success: false, error: 'UPC already in use by another product' });
     res.status(500).json({ success: false, error: err.message });
@@ -1332,6 +1351,16 @@ export const adjustStoreStock = async (req, res) => {
  */
 export const ecomStockCheck = async (req, res) => {
   try {
+    // ── Service-to-service authentication ────────────────────────────────
+    // This endpoint is unauthenticated for the ecom-backend → POS-backend
+    // internal stock check. Require a shared secret to prevent public abuse
+    // (inventory enumeration, competitor reconnaissance).
+    const provided = req.get('x-internal-api-key') || req.get('X-Internal-Api-Key');
+    const expected = process.env.INTERNAL_API_KEY;
+    if (!expected || provided !== expected) {
+      return res.status(401).json({ available: false, error: 'Unauthorized' });
+    }
+
     const { storeId, items } = req.body;
 
     if (!storeId || !Array.isArray(items)) {

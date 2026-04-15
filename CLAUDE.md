@@ -2726,7 +2726,7 @@ node backend/prisma/seedTransactions.js
 
 ---
 
-*Last updated: April 2026 — Session 17: CSS Refactoring, Unified Customer Auth, Marketing Pages, Storefront Improvements*
+*Last updated: April 2026 — Session 18: QA & Security Audit + Critical Fixes*
 
 ---
 
@@ -2797,6 +2797,189 @@ POS `Customer` table is now the single source of truth for both in-store and onl
 
 - **CI/CD workflow** — fixed Nginx file lock issue using `mv` + `nginx -s reload` + `sudo rm` pattern instead of direct overwrite
 - **Git merge conflicts** — resolved conflicts in `backend/src/server.js` from concurrent feature branches
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 18)
+
+### QA & Security Audit — Critical & High-Priority Fixes
+
+A comprehensive QA audit covering UI, validation, workflow, and security across all 4 apps (backend, frontend portal, admin-app, cashier-app, storefront). This session implemented the top-priority fixes. See the backlog for remaining items.
+
+#### Critical Fixes (7 issues)
+
+**C-1. Unauthenticated inventory leak** — `POST /api/catalog/ecom-stock-check` was mounted before `router.use(protect)` with no tenant scoping. Anyone could query real-time store inventory.
+- **Fix:** Added `X-Internal-Api-Key` header check in [`catalogController.js`](backend/src/controllers/catalogController.js) `ecomStockCheck`. Ecom-backend [`stockCheckService.js`](ecom-backend/src/services/stockCheckService.js) now sends the header on every call.
+- **Requires:** `INTERNAL_API_KEY` in both `backend/.env` and `ecom-backend/.env` (must match).
+
+**C-2. Stored XSS in CMS & Career detail pages** — `dangerouslySetInnerHTML` rendered unsanitized HTML from the database.
+- **Fix:** Added `DOMPurify.sanitize()` in [`CmsPage.jsx`](frontend/src/pages/marketing/CmsPage.jsx) and [`CareerDetail.jsx`](frontend/src/pages/marketing/CareerDetail.jsx) with `FORBID_TAGS` (script/style/iframe/object/embed/form) and `FORBID_ATTR` (onerror/onload/onclick/etc). `dompurify` was already in node_modules.
+
+**C-4. Customer enumeration via `check-points`** — `POST /customers/check-points` had no role guard, allowing any authenticated user to enumerate customers by phone.
+- **Fix:** [`customerRoutes.js`](backend/src/routes/customerRoutes.js) now requires `authorize('superadmin','admin','owner','manager','cashier','store')`.
+
+**C-5. Broken forgot-password flow** — Backend had `POST /auth/reset-password` but frontend had no matching page, leaving users stuck after clicking the email link.
+- **Fix:** New [`ResetPassword.jsx`](frontend/src/pages/ResetPassword.jsx) + [`ResetPassword.css`](frontend/src/pages/ResetPassword.css) page with show/hide toggle, live strength meter, real-time rule checklist, confirm-match. Route added in [`App.jsx`](frontend/src/App.jsx) at `/reset-password`. New `resetPassword({token,password})` export in [`api.js`](frontend/src/services/api.js).
+
+**C-6. 30-day JWT → 2 hours** — [`authController.js`](backend/src/controllers/authController.js) now reads `JWT_ACCESS_TTL` env var (default `2h`). Mitigates XSS+localStorage attack window from 30 days to 2 hours. Added to `.env.example`.
+
+#### High Fixes (2 issues)
+
+**H-1 + H-6. Server-side password & email validation** — Previously zero enforcement; any password accepted, any email string accepted.
+- **Fix:** New [`backend/src/utils/validators.js`](backend/src/utils/validators.js) with:
+  - `validateEmail()` — length + regex
+  - `validatePassword()` — 8-128 chars, requires upper/lower/digit/special
+  - `validatePhone()` — 7-15 digits, E.164-ish
+  - `parsePrice()` — rejects NaN/Infinity/negative/scientific notation, rounds to 4 decimals for Prisma `Decimal(10,4)`
+  - `runValidators()` — helper
+- Applied in `signup`, `login`, `forgotPassword`, `resetPassword` in [`authController.js`](backend/src/controllers/authController.js). Email is now lowercased/trimmed before DB lookup.
+- `forgotPassword` silently returns generic success on garbage email (anti-enumeration; no DB hit).
+
+**H-2. Rate limiting on auth endpoints** — Previously zero rate limiting; brute-force wide open.
+- **Fix:** New [`backend/src/middleware/rateLimit.js`](backend/src/middleware/rateLimit.js) — in-memory fixed-window limiter, no new deps. Exports: `loginLimiter` (5/15min), `forgotPasswordLimiter` (3/hr), `signupLimiter` (10/hr), `resetPasswordLimiter` (20/15min). Applied to all 5 public auth routes in [`authRoutes.js`](backend/src/routes/authRoutes.js). Sets `X-RateLimit-*` + `Retry-After` headers, returns 429 on exceed.
+- **Note for multi-instance:** replace with `express-rate-limit` + Redis store for production horizontal scaling.
+
+**H-9. Password logs removed from seed scripts** — [`seed.js`](backend/prisma/seed.js) and [`seedAdmin.js`](backend/prisma/seedAdmin.js) no longer print passwords to stdout. Passwords are written to `prisma/.seed-credentials` with `mode: 0o600`. Added to [`backend/.gitignore`](backend/.gitignore).
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/src/utils/validators.js` | NEW — shared validators |
+| `backend/src/middleware/rateLimit.js` | NEW — in-memory rate limiter |
+| `backend/src/controllers/authController.js` | JWT TTL 2h, validators applied, email normalization |
+| `backend/src/routes/authRoutes.js` | Rate limiters on all routes |
+| `backend/src/routes/customerRoutes.js` | `authorize()` added to `/check-points` |
+| `backend/src/controllers/catalogController.js` | `ecomStockCheck` requires `X-Internal-Api-Key` |
+| `backend/prisma/seed.js`, `seedAdmin.js` | Password output → gitignored file |
+| `backend/.gitignore` | Added `.seed-credentials` |
+| `backend/.env.example` | Added `JWT_ACCESS_TTL`, clarified `INTERNAL_API_KEY` |
+| `ecom-backend/src/services/stockCheckService.js` | Sends `X-Internal-Api-Key` |
+| `frontend/src/pages/marketing/CmsPage.jsx` | DOMPurify sanitization |
+| `frontend/src/pages/marketing/CareerDetail.jsx` | DOMPurify sanitization |
+| `frontend/src/pages/ResetPassword.jsx` | NEW — reset password page |
+| `frontend/src/pages/ResetPassword.css` | NEW — `rp-` prefix |
+| `frontend/src/App.jsx` | `/reset-password` route |
+| `frontend/src/services/api.js` | `resetPassword()` export |
+
+#### Session 18b Fixes (continuation — same session)
+
+**Critical — C-3, C-7 resolved**
+
+- **C-3. RBAC on vendor return + order routes** — [`vendorReturnRoutes.js`](backend/src/routes/vendorReturnRoutes.js) and [`orderRoutes.js`](backend/src/routes/orderRoutes.js) rewritten with `readRoles` / `writeRoles` / `ownerRoles` tiers. Financial sign-off operations (approve/reject PO, delete PO, record vendor credit, delete vendor return) are owner+; routine write ops are manager+; reads are manager+.
+
+- **C-7. Clock-event hardening** — [`posTerminalController.js`](backend/src/controllers/posTerminalController.js) `clockEvent`:
+  - Strict PIN validation (4-8 digits, numeric only)
+  - Station token length sanity check
+  - Only `active` users can clock in
+  - **`storeId` / `stationId` from client body are now ignored** — always use the IDs bound to the authenticated station token (prevents cross-store clock event injection)
+  - New [`pinLimiter`](backend/src/middleware/rateLimit.js) (15 attempts / 5 min) applied to both `/clock` and `/pin-login` in [`posTerminalRoutes.js`](backend/src/routes/posTerminalRoutes.js)
+
+**High — H-3, H-4, H-5, H-8, H-10, H-11 resolved**
+
+- **H-3. Price input hardening** — New [`PriceInput` component](frontend/src/components/PriceInput.jsx) replaces `type="number" step="0.01"` on ProductForm's main price fields (retail, case cost, e-com, deposit, deal value, pack rows). Blocks scientific notation, negatives, >4 decimals, and wheel-scroll corruption. Server-side `parsePrice` (H-5) backs it up.
+
+- **H-4. Cashier numpads cent-based** — [`VendorPayoutModal`](cashier-app/src/components/modals/VendorPayoutModal.jsx), [`CashDrawerModal`](cashier-app/src/components/modals/CashDrawerModal.jsx), and [`LotteryModal`](cashier-app/src/components/modals/LotteryModal.jsx) numpads rewritten to match `TenderModal` cent-entry. They now import `digitsToDisplay`/`digitsToNumber` from `NumPadInline` and maintain digit-string state. Typing `587` → `$5.87`, backspace removes one digit right-to-left. The legacy `.` key is a no-op in these modals.
+
+- **H-5. `parsePrice()` applied in catalogController** — New `toPrice(value, field)` helper in [`catalogController.js`](backend/src/controllers/catalogController.js) wraps `parsePrice` from `utils/validators.js`. Applied to `defaultCostPrice`, `defaultRetailPrice`, `defaultCasePrice`, `depositPerUnit`, `caseDeposit` in both `createMasterProduct` and `updateMasterProduct`. Invalid input now returns `400` with `{ error: "fieldName: Invalid price format" }` instead of silently storing `NaN`/`Infinity`.
+
+- **H-8. Session-expiry dead-end fix** — [`frontend/src/services/api.js`](frontend/src/services/api.js) now has a global **response interceptor** that catches `401` on any API call (except the auth flow itself), clears `user`/`token` from `localStorage`, and redirects to `/login?session=expired&returnTo=...`. This fixes the real root cause of pages "redirecting to login" — stale JWT after the 30d→2h reduction. (`/portal/stations` itself doesn't exist in App.jsx — it was a stale reference; the issue was expired-token dead-ends.)
+
+- **H-10. Silent catches in cashier-app** — The high-value silent failures in [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) replaced:
+  - Receipt print failure now shows a scan-error toast ("Receipt print failed — check printer connection")
+  - `loadActiveShift` failure shows a toast and still allows OpenShiftModal to appear
+  - Branding load, chat poll, held tx count, lottery box load, drawer open — all now `console.warn` with context instead of swallowing silently
+  - [`BulkImport.jsx`](frontend/src/pages/BulkImport.jsx) history refresh — same treatment
+
+- **H-11. Storefront signup awaiting-approval** — [`storefront/pages/account/signup.js`](storefront/pages/account/signup.js):
+  - New `pendingApproval` screen shown when `signup()` returns `status: 'pending'`
+  - Client-side password policy now matches backend regex (8+ chars, upper/lower/digit/special)
+  - User is NOT auto-redirected to `/account` on pending status — shown friendly "awaiting approval" page with Continue Shopping button
+
+**Medium — M-1, M-8 resolved**
+
+- **M-1. Admin Login password eye toggle** — Already implemented in prior session (confirmed: `showPw` state, `Eye`/`EyeOff` icons, `.al-pw-eye` CSS class in [`admin-app/src/pages/Login.css`](admin-app/src/pages/Login.css)). Marked complete.
+
+- **M-8. Random admin temp password** — [`adminController.js`](backend/src/controllers/adminController.js) `createUser`:
+  - New `generateTempPassword()` helper uses `crypto.randomInt` to build a 16-char password guaranteed to satisfy the policy (1 upper, 1 lower, 1 digit, 1 special, then filled from a curated charset excluding lookalikes like `0/O` and `l/1`)
+  - Returned **once** in the response as `{ tempPassword, notice }` so the admin can deliver out-of-band
+  - Email is now normalized (`.trim().toLowerCase()`) to prevent duplicate-email edge cases
+  - Hardcoded `Temp@1234` removed
+
+#### Session 18c Fixes (continuation — Round 3)
+
+**High — H-3 completion + H-7 resolved**
+
+- **H-3 (completed across remaining pages)** — `PriceInput` now applied to:
+  - [`Promotions.jsx`](frontend/src/pages/Promotions.jsx) — `cfg.discountValue`, `tier.discountValue` (with `maxValue={100}` for percent mode), `cfg.bundlePrice`
+  - [`Lottery.jsx`](frontend/src/pages/Lottery.jsx) — all `ticketPrice` inputs (ticket catalog, receive order, activate, games form), `commissionRate` (bounded 0-100)
+  - [`VendorPayouts.jsx`](frontend/src/pages/VendorPayouts.jsx) — `form.amount`
+  - [`DepositRules.jsx`](frontend/src/pages/DepositRules.jsx) — `depositAmount`, `minVolumeOz`, `maxVolumeOz` (latter two with `maxDecimals={1}`)
+  - [`Customers.jsx`](frontend/src/pages/Customers.jsx) — `discount` (max 100), `balance`, `balanceLimit`
+
+- **H-7. Phone (+ email) validation on customer endpoints** — [`customerController.js`](backend/src/controllers/customerController.js) `createCustomer` and `updateCustomer`:
+  - New `normalizePhone()` helper strips spaces/dashes/parens/dots, enforces `+?[0-9]{7,15}`, stores canonical form
+  - Email validated via `validateEmail()` + lowercased on write
+  - `discount`/`balance`/`balanceLimit` now parsed via `parsePrice()` with explicit bounds — rejects NaN/Infinity/scientific/out-of-range values with a `400` error
+  - Optional fields still accepted as empty/null; only validated when supplied
+
+**Medium — M-2, M-3, M-4, M-9 resolved**
+
+- **M-2. ProductForm unsaved-changes warning** — [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx):
+  - `dirty` state flag flips on first `setF()` edit
+  - `beforeunload` listener prompts before browser close/refresh when dirty
+  - `dirty` is cleared on successful load and before navigation on successful save
+  - New `handleCancel()` asks `window.confirm('Discard unsaved changes?')` before navigating away via Cancel / Back button; both back buttons now call it
+
+- **M-3. Duplicate UPC error display** — Already surfaces backend 409 via `handleAddUpc`'s `err.response?.data?.error` toast. Confirmed working. Backend `createMasterProduct` also now returns `400` instead of `500` when price validation fails (via `H-5` toPrice helper), so the error toast is meaningful.
+
+- **M-4. Pack-size validation** — `handleSave()` now iterates `packRows` before submitting:
+  - Each row must have `unitPack >= 1` (previously silently coerced to `1`)
+  - Each row must have `packPrice > 0`
+  - At most one row may be marked `isDefault`
+  - Toasts identify the specific offending row index and field
+
+- **M-9. Modal overlay CSS vars** — [`frontend/src/index.css`](frontend/src/index.css) adds:
+  - `--modal-overlay: rgba(0, 0, 0, 0.55)`
+  - `--modal-overlay-strong: rgba(0, 0, 0, 0.7)`
+  - `--modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.4)`
+  - ProductForm's DeptManager + VendorManager modals migrated to use `var(--modal-overlay)` and `var(--modal-shadow)` instead of hardcoded rgba
+
+#### Session 18d Fixes (continuation — Round 4, final cleanup)
+
+**Low-priority cleanup complete**
+
+- **L-1. ProductForm inline styles → external CSS** — [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx) DeptManager, VendorManager, and Tog helper rewritten to use external CSS classes. Roughly 120 inline `style={{}}` props replaced with `pf-mm-*` and `pf-tog*` classes appended to [`ProductForm.css`](frontend/src/pages/ProductForm.css). The new stylesheet is organised into: modal shell (`pf-mm-root`, `pf-mm-overlay`, `pf-mm-card`), header (`pf-mm-header`), two-column body (`pf-mm-body`, `pf-mm-list`, `pf-mm-edit`), form grid (`pf-mm-grid`, `pf-mm-field`, `pf-mm-input`), color swatches, flags row, actions bar, and a toggle button (`pf-tog`). Responsive `@media (max-width: 768px)` collapses the two-column body to a stacked layout. Modal backdrops and shadows use the new `--modal-overlay` + `--modal-shadow` CSS vars from M-9.
+
+- **L-2. Storefront responsive breakpoints** — Appended ~125 lines of responsive CSS to [`storefront/styles/globals.css`](storefront/styles/globals.css):
+  - `1024px` — 3-col product grid, single-col checkout, tablet container padding
+  - `768px` — header nav wraps to 2 rows, 2-col product grid, PDP stacks, cart item reflows, checkout form rows single-column, auth card full-width, account tabs 2-up, footer 2-col
+  - `480px` — tightened padding, 44px touch-target minimum on all CTAs, footer single-col, typography scaled for small phones
+
+- **L-3. Double scroll risk in main-content** — [`frontend/src/index.css`](frontend/src/index.css) `.main-content` now uses the robust `flex: 1 1 0; min-height: 0` pattern instead of `height: 100vh`. In a flex container with `overflow: hidden`, the `height: 100vh` child can produce double scrollbars on browsers that interpret layout differently during reflow. The flex pattern is the canonical solution for an independent-scrolling panel inside a height-capped flex parent. Nested modal panels in ProductForm's DeptManager/VendorManager already had proper `overflow: hidden` on the outer card — verified, no fix needed.
+
+- **L-4. `$` prefix on VendorPayouts amount** — [`VendorPayouts.jsx`](frontend/src/pages/VendorPayouts.jsx) amount input wrapped in `vp-dollar-wrap` + `vp-dollar-sign` + `vp-dollar-input` classes (new styles appended to [`VendorPayouts.css`](frontend/src/pages/VendorPayouts.css)). Also finalized the PriceInput migration that was dropped in round 3. Customers balance/discount fields already show `($)`/`(%)` in their label text, so no wrapper needed.
+
+- **M-5. ProductForm save guards** — Confirmed already covered by M-4 (pack-size validation) and the existing department/name/UPC-warning checks in `handleSave()`. Marking complete — no further work needed.
+
+**Deliberately deferred (not fixed — require architectural changes)**
+
+- **M-6. JWT → httpOnly cookie migration** — Requires:
+  - Backend: dual-mode auth middleware that accepts both Bearer header (legacy cashier-app Electron) and httpOnly cookie (portal + admin)
+  - Frontend: remove all `localStorage.setItem('user', ...)` and `localStorage.getItem('user')` calls across portal + admin + storefront
+  - Server-side CSRF token issuance (double-submit cookie pattern) since cookie-based auth is vulnerable to CSRF
+  - CORS `credentials: 'include'` wiring across all API clients
+  - Cashier-app Electron main-process cookie store integration
+  - Impersonation flow, password reset email links, and the new 401 interceptor all need rework
+  Estimated effort: 1-2 sprints. The C-6 (2h TTL) + H-8 (401 interceptor) combination already mitigates the biggest risk (long-lived tokens in `localStorage`). This is a defence-in-depth improvement to schedule as a standalone project rather than rush into a late QA round.
+
+- **M-7. CVV → Stripe Elements iFrame** — Requires Stripe merchant account setup, API keys, SDK integration, and a rewrite of the checkout payment UI to embed Stripe's hosted iFrame. Currently the storefront checkout does not process card data (the deployed flow uses store pickup / cash on delivery — no card fields are shown). The CVV field flagged in the audit is in the equipment shop checkout (`ShopCheckout.jsx`), which is separate from the ecom storefront. Deferred pending Stripe onboarding decision.
+
+- **M-8 extension. Forced password-change flow** — Admin-created users receive a random temp password in the `createUser` response (round 2 fix). A separate sprint can add a `mustChangePassword` boolean to the User model, check it in the auth middleware, and force a redirect to `/change-password` on next login. Not a security regression — the temp password already satisfies the same policy as a user-chosen password.
+
+---
+
+*Last updated: April 2026 — Session 18: QA & Security Audit + Critical Fixes*
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

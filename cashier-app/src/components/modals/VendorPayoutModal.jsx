@@ -10,19 +10,24 @@ import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { usePOSConfig, DEFAULT_POS_CONFIG } from '../../hooks/usePOSConfig.js';
 import { getVendors }      from '../../api/pos.js';
+import { digitsToDisplay, digitsToNumber } from '../pos/NumPadInline.jsx';
 import './VendorPayoutModal.css';
 
-// ── Numpad helper ──────────────────────────────────────────────────────────
+// ── Cent-based numpad helper ───────────────────────────────────────────────
+// Matches TenderModal / NumPadInline behavior: digits push in from the right.
+// "587" -> displays "$5.87". Backspace removes rightmost digit. Max 7 digits
+// ($99,999.99) to match POS transaction cap.
+const MAX_DIGITS = 7;
 function buildAmount(current, key) {
-  if (key === 'C') return '';
+  if (key === 'C')  return '';
   if (key === '⌫') return current.slice(0, -1);
-  if (key === '.') {
-    if (current.includes('.')) return current;
-    return (current || '0') + '.';
+  if (current.length >= MAX_DIGITS) return current;
+  if (current === '' && key === '0') return ''; // ignore leading zero
+  // "00" shortcut
+  if (key === '00') {
+    if (current.length >= MAX_DIGITS - 1) return current;
+    return current + '00';
   }
-  const parts = current.split('.');
-  if (parts[1] !== undefined && parts[1].length >= 2) return current;
-  if (current === '0' && key !== '.') return key;
   return current + key;
 }
 
@@ -66,10 +71,13 @@ export default function VendorPayoutModal({ onClose, onComplete }) {
   }, []);
 
   const handleKey = useCallback((key) => {
+    // The legacy '.' key is a no-op in cent-entry mode (digits imply cents).
+    if (key === '.') return;
     setAmountStr(prev => buildAmount(prev, key));
   }, []);
 
-  const amount = parseFloat(amountStr) || 0;
+  const amount = digitsToNumber(amountStr, 2);
+  const amountDisplay = digitsToDisplay(amountStr, 2);
   const selectedVendor = vendors.find(v => String(v.id) === String(vendorId));
   const displayVendorName = selectedVendor?.name || recipient || '';
 
@@ -239,7 +247,7 @@ export default function VendorPayoutModal({ onClose, onComplete }) {
               <div className="vpm-right-col">
                 <div className="vpm-amount-display">
                   <span className="vpm-amount-value">
-                    {amountStr ? `$${amountStr}` : <span className="vpm-amount-placeholder">$0.00</span>}
+                    {amountStr ? `$${amountDisplay}` : <span className="vpm-amount-placeholder">$0.00</span>}
                   </span>
                   <span className="vpm-amount-hint">Tap digits to enter amount</span>
                 </div>

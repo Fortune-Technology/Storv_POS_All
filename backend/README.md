@@ -13,8 +13,9 @@ The backend REST API for the Storeveu POS platform (portal + cashier terminal). 
 | **PostgreSQL 16** | Primary relational database (Catalog, Transactions, Identity) |
 | **Azure Document Intelligence** | Core OCR for Invoices |
 | **OpenAI GPT-4o-mini** | OCR enrichment and fuzzy matching |
-| **jsonwebtoken** | JWT authentication (30-day tokens) |
+| **jsonwebtoken** | JWT authentication (2-hour access tokens, configurable via `JWT_ACCESS_TTL`) |
 | **bcryptjs** | Password and PIN hashing |
+| **DOMPurify** (frontend) | XSS sanitization of CMS/Career HTML content |
 | **Multer** | File upload handling |
 | **Open-Meteo API** | Weather data syncing |
 | **FareCalculationService**| Delivery pricing source-of-truth |
@@ -54,11 +55,38 @@ backend/
 
 ---
 
-## 🔐 Authentication
+## 🔐 Authentication & Security
 
-- **Registration:** `POST /api/auth/signup` creates a new Organization and User.
-- **Login:** `POST /api/auth/login` returns a 30-day JWT.
-- **PIN Login:** `POST /api/pos-terminal/pin-login` allows rapid switching at the terminal using a 4–6 digit PIN.
+- **Registration:** `POST /api/auth/signup` creates a new Organization and User. Server-enforced password policy (8+ chars, upper/lower/digit/special) via `utils/validators.js`.
+- **Login:** `POST /api/auth/login` returns a **2-hour access token** (default; configurable via `JWT_ACCESS_TTL`).
+- **PIN Login:** `POST /api/pos-terminal/pin-login` allows rapid switching at the terminal using a 4–6 digit PIN. Rate-limited to 15 attempts per 5 minutes per IP (`pinLimiter`).
+- **Password reset:** `POST /api/auth/forgot-password` → email link → `/reset-password?token=...` → `POST /api/auth/reset-password`. Frontend page with live strength meter at [`frontend/src/pages/ResetPassword.jsx`](../frontend/src/pages/ResetPassword.jsx).
+
+### Rate Limiting
+In-memory fixed-window limiter in `src/middleware/rateLimit.js`:
+| Limiter | Window | Max | Applied To |
+|---|---|---|---|
+| `loginLimiter` | 15 min | 5 | `/auth/login`, `/auth/phone-lookup` |
+| `signupLimiter` | 60 min | 10 | `/auth/signup` |
+| `forgotPasswordLimiter` | 60 min | 3 | `/auth/forgot-password` |
+| `resetPasswordLimiter` | 15 min | 20 | `/auth/reset-password` |
+| `pinLimiter` | 5 min | 15 | `/pos-terminal/clock`, `/pos-terminal/pin-login` |
+
+### Internal Service-to-Service Auth
+`POST /api/catalog/ecom-stock-check` is unauthenticated by design (called by ecom-backend during online checkout) but requires an `X-Internal-Api-Key` header matching the `INTERNAL_API_KEY` env var. Generate with:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+Must match the same value in `ecom-backend/.env`.
+
+### Input Validators
+All shared validators live in `src/utils/validators.js`:
+- `validateEmail(email)` — regex + length check
+- `validatePassword(password)` — 8-128 chars, upper/lower/digit/special
+- `validatePhone(phone)` — 7-15 digits, E.164-ish
+- `parsePrice(value, {min, max})` — rejects NaN/Infinity/scientific notation, rounds to 4 decimals for Prisma `Decimal(10,4)`
+
+Applied throughout `authController`, `customerController`, `catalogController`, `adminController`.
 
 ---
 
@@ -68,7 +96,8 @@ backend/
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | POST | `/signup` | Public | Create org + admin user |
-| POST | `/login` | Public | Get 30-day JWT |
+| POST | `/login` | Public (rate-limited 5/15min) | Get access token (2h default) |
+| POST | `/reset-password` | Public (rate-limited 20/15min) | Reset password with email token |
 | POST | `/forgot-password` | Public | Password reset |
 | POST | `/set-cashier-pin` | JWT | Set/update cashier PIN |
 

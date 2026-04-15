@@ -9,31 +9,89 @@ import {
   Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, DollarSign, ShoppingCart, TrendingUp, Globe,
 } from 'lucide-react';
 import EcomDomain from './EcomDomain';
+import { useStore } from '../contexts/StoreContext';
 import './EcomSetup.css';
 
 const ECOM_API = '/api/ecom';
 const ECOM_UPLOADS = import.meta.env.VITE_ECOM_URL || 'http://localhost:5005';
 
+/**
+ * Resolve the active store ID at call time. The canonical source is the React
+ * StoreContext, but these helpers live outside the component tree, so we fall
+ * back to localStorage (which StoreProvider mirrors). Returns null when truly
+ * no store is selected, so callers can short-circuit with a friendly error
+ * instead of firing a request with an empty X-Store-Id header.
+ */
+function resolveStoreId() {
+  const ls = localStorage.getItem('activeStoreId');
+  if (ls && ls !== 'null' && ls !== 'undefined' && ls !== '') return ls;
+  return null;
+}
+
+function resolveUser() {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
 function getHeaders(json = true) {
-  const u = JSON.parse(localStorage.getItem('user') || '{}');
-  const storeId = localStorage.getItem('activeStoreId') || '';
-  const h = { Authorization: `Bearer ${u.token}`, 'X-Store-Id': storeId, 'X-Org-Id': u.orgId || u.tenantId || '' };
+  const u = resolveUser();
+  const storeId = resolveStoreId();
+  const h = {
+    Authorization: `Bearer ${u.token || ''}`,
+    'X-Store-Id': storeId || '',
+    'X-Org-Id': u.orgId || u.tenantId || '',
+  };
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
 
+// Distinct error subclass so the UI can surface a friendly toast + prompt
+// the user to pick a store from the sidebar switcher.
+class NoActiveStoreError extends Error {
+  constructor() {
+    super('Please select a store from the store switcher in the sidebar before continuing.');
+    this.code = 'NO_ACTIVE_STORE';
+  }
+}
+
+/**
+ * Requests that mutate data or look up store-scoped resources require a
+ * storeId. GET /manage/ecom-store is the ONE exception — it is used by the
+ * page loader before a store is selected, and the backend tolerates a missing
+ * storeId on that read path.
+ */
+function needsStoreId(method, path) {
+  if (method === 'GET' && path === '/manage/ecom-store') return false;
+  return true;
+}
+
 async function api(method, path, body) {
-  const r = await fetch(`${ECOM_API}${path}`, { method, headers: getHeaders(), body: body ? JSON.stringify(body) : undefined });
-  const data = await r.json();
+  if (needsStoreId(method, path) && !resolveStoreId()) {
+    throw new NoActiveStoreError();
+  }
+  const r = await fetch(`${ECOM_API}${path}`, {
+    method,
+    headers: getHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
 
 async function uploadImage(file) {
+  if (!resolveStoreId()) throw new NoActiveStoreError();
   const fd = new FormData();
   fd.append('image', file);
-  const r = await fetch(`${ECOM_API}/manage/upload`, { method: 'POST', headers: getHeaders(false), body: fd });
-  const data = await r.json();
+  const r = await fetch(`${ECOM_API}/manage/upload`, {
+    method: 'POST',
+    headers: getHeaders(false),
+    body: fd,
+  });
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || 'Upload failed');
   return data.url;
 }
@@ -447,6 +505,11 @@ function PageEditorView({ page, onBack, onSave }) {
 
 /* ── Main Component ───────────────────────────────────────────────── */
 export default function EcomSetup() {
+  // Active store from StoreContext — re-renders this component when the user
+  // switches stores from the sidebar, which re-triggers `load()` and prevents
+  // sending a stale X-Store-Id header.
+  const { activeStoreId, stores, loading: storesLoading } = useStore();
+
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -476,15 +539,32 @@ export default function EcomSetup() {
           socialLinks: { instagram: '', facebook: '', twitter: '', ...d.data.socialLinks },
           fulfillmentConfig: { pickupEnabled: true, deliveryEnabled: false, pickupHours: '', deliveryFee: 0, minOrderAmount: 0, ...d.data.fulfillmentConfig },
         });
+      } else {
+        setStore(null);
       }
-      try { const p = await api('GET', '/manage/pages'); setPages(p.data || []); } catch {}
-    } catch {}
+      try {
+        if (activeStoreId) {
+          const p = await api('GET', '/manage/pages');
+          setPages(p.data || []);
+        }
+      } catch {}
+    } catch (e) {
+      if (e.code === 'NO_ACTIVE_STORE') {
+        // Expected when user hasn't picked a store yet — the empty-state UI
+        // below handles this case, no toast needed.
+      }
+    }
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  // Re-load whenever the active store switches (also runs on mount).
+  useEffect(() => { load(); }, [activeStoreId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEnable = async () => {
+    if (!activeStoreId) {
+      toast.error('Please select a store from the sidebar store switcher first.');
+      return;
+    }
     if (!enableName.trim()) { toast.error('Enter a store name'); return; }
     try {
       const d = await api('POST', '/manage/ecom-store/enable', { storeName: enableName });

@@ -24,7 +24,7 @@ function getTransporter() {
 async function sendMail(to, subject, html) {
   const transporter = getTransporter();
   if (!transporter) {
-    console.warn('[Email] SMTP not configured — skipping:', subject);
+    console.warn('[Email] SMTP not configured skipping:', subject);
     return false;
   }
   try {
@@ -76,7 +76,7 @@ export async function sendForgotPassword(to, name, resetUrl) {
     <p class="muted">This link expires in 30 minutes. If you didn't request this, you can safely ignore this email.</p>
     <p class="muted" style="word-break:break-all;">Or copy this link: ${resetUrl}</p>
   `);
-  return sendMail(to, 'Reset Your Password — Storeveu', html);
+  return sendMail(to, 'Reset Your Password Storeveu', html);
 }
 
 export async function sendContactConfirmation(to, name) {
@@ -85,7 +85,7 @@ export async function sendContactConfirmation(to, name) {
     <p>Thank you for reaching out! We've received your message and our team will get back to you within 1–2 business days.</p>
     <p>If your matter is urgent, feel free to reply directly to this email.</p>
   `);
-  return sendMail(to, 'We received your message — Storeveu', html);
+  return sendMail(to, 'We received your message Storeveu', html);
 }
 
 export async function sendContactNotifyAdmin(name, email, subject, body) {
@@ -116,7 +116,7 @@ export async function sendUserApproved(to, name) {
   const loginUrl = (process.env.FRONTEND_URL || 'http://localhost:5173') + '/login';
   const html = wrap('Account Approved!', `
     <h2>Welcome aboard, ${name || 'there'}!</h2>
-    <p>Great news — your Storeveu account has been approved. You can now log in and start managing your store.</p>
+    <p>Great news your Storeveu account has been approved. You can now log in and start managing your store.</p>
     <p style="text-align:center"><a class="btn" href="${loginUrl}">Log In to Storeveu</a></p>
   `);
   return sendMail(to, 'Your Storeveu account is approved!', html);
@@ -144,5 +144,5 @@ export async function sendPasswordChanged(to, name) {
     <h2>Hi ${name || 'there'},</h2>
     <p>Your password was successfully changed. If you didn't make this change, please contact support immediately.</p>
   `);
-  return sendMail(to, 'Your password was changed — Storeveu', html);
+  return sendMail(to, 'Your password was changed Storeveu', html);
 }

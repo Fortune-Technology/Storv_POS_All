@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import PriceInput from '../components/PriceInput';
 import {
   Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw,
   Package, BarChart2, Search, MapPin, AlertCircle,
@@ -158,7 +159,7 @@ function GameModal({ game, onSave, onClose }) {
           </div>
           <div className="lt-field">
             <label className="lt-field-label">Ticket Price ($)</label>
-            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+            <PriceInput className="lt-input" value={form.ticketPrice} onChange={(v) => set('ticketPrice', v)} placeholder="2.00" />
           </div>
           <div className="lt-field">
             <label className="lt-field-label">Tickets / Box</label>
@@ -327,7 +328,7 @@ function CatalogTicketModal({ ticket, onSave, onClose }) {
           </div>
           <div className="lt-field">
             <label className="lt-field-label">Ticket Price ($)</label>
-            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+            <PriceInput className="lt-input" value={form.ticketPrice} onChange={(v) => set('ticketPrice', v)} placeholder="2.00" />
           </div>
         </div>
         <div className="lt-field-row">
@@ -448,7 +449,7 @@ function ReviewRequestModal({ request, onDone, onClose }) {
             <div className="lt-field-row">
               <div className="lt-field">
                 <label className="lt-field-label">Price ($)</label>
-                <input className="lt-input" type="number" step="0.01" value={catalogForm.ticketPrice} onChange={e => setCF('ticketPrice', e.target.value)} />
+                <PriceInput className="lt-input" value={catalogForm.ticketPrice} onChange={(v) => setCF('ticketPrice', v)} />
               </div>
               <div className="lt-field">
                 <label className="lt-field-label">Tickets/Book</label>
@@ -516,7 +517,7 @@ function SubmitRequestModal({ storeState, onSave, onClose }) {
           </div>
           <div className="lt-field">
             <label className="lt-field-label">Price ($)</label>
-            <input className="lt-input" type="number" step="0.01" value={form.ticketPrice} onChange={e => set('ticketPrice', e.target.value)} placeholder="2.00" />
+            <PriceInput className="lt-input" value={form.ticketPrice} onChange={(v) => set('ticketPrice', v)} placeholder="2.00" />
           </div>
         </div>
         <div className="lt-field-row">
@@ -1509,8 +1510,8 @@ export default function Lottery() {
               </div>
               <div className="lt-field">
                 <label className="lt-field-label">Commission Rate (%)</label>
-                <input type="number" step="0.01" min="0" max="100" className="lt-input" value={settingsForm.commissionRate}
-                  onChange={e => setSettingsForm(f => ({ ...f, commissionRate: e.target.value }))}
+                <PriceInput maxValue={100} className="lt-input" value={settingsForm.commissionRate}
+                  onChange={(v) => setSettingsForm(f => ({ ...f, commissionRate: v }))}
                   placeholder="e.g. 5.4" style={{ maxWidth: 200 }} />
                 <span className="lt-field-hint">Enter as percentage e.g. 5.4 for 5.4%</span>
               </div>
