@@ -12,9 +12,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { getTransactions, getStoreEmployees } from '../services/api';
+import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import {
   Receipt, Search, ChevronLeft, ChevronRight, RefreshCw, X,
   AlertCircle, Filter, ChevronDown, ChevronUp, Printer,
+  Download, FileText,
 } from 'lucide-react';
 import './Transactions.css';
 
@@ -598,6 +600,52 @@ export default function Transactions({ embedded }) {
             <button className="txn-btn" onClick={load} disabled={loading}>
               <RefreshCw size={13} className={loading ? 'txn-spin' : ''} />
               {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <button className="txn-btn" onClick={() => {
+              const rows = filtered.map(t => ({
+                'Txn #':       t.txNumber || t.id,
+                'Date':        new Date(t.createdAt).toLocaleString(),
+                'Cashier':     t.cashierName || t.cashierId || '',
+                'Station':     t.stationName || t.stationId || '',
+                'Status':      t.status,
+                'Items':       (t.lineItems || []).length,
+                'Subtotal':    Number(t.subtotal || 0).toFixed(2),
+                'Tax':         Number(t.taxTotal || 0).toFixed(2),
+                'Deposit':     Number(t.depositTotal || 0).toFixed(2),
+                'Total':       Number(t.grandTotal || 0).toFixed(2),
+                'Tender':      Array.isArray(t.tenderLines) ? t.tenderLines.map(tl => tl.method).join(',') : '',
+              }));
+              downloadCSV(rows, `transactions_${dateFrom}_${dateTo}`);
+            }} disabled={loading || filtered.length === 0} title="Export CSV">
+              <Download size={13} /> CSV
+            </button>
+            <button className="txn-btn" onClick={() => {
+              const rows = filtered.map(t => ({
+                'Txn #':   t.txNumber || t.id,
+                'Date':    new Date(t.createdAt).toLocaleDateString(),
+                'Cashier': t.cashierName || '',
+                'Status':  t.status,
+                'Total':   '$' + Number(t.grandTotal || 0).toFixed(2),
+              }));
+              downloadPDF({
+                title: 'Transactions Report',
+                subtitle: `${dateFrom} → ${dateTo}`,
+                summary: [
+                  { label: 'Total Transactions', value: String(filtered.length) },
+                  { label: 'Total Sales', value: '$' + filtered.reduce((s, t) => s + Number(t.grandTotal || 0), 0).toFixed(2) },
+                ],
+                columns: [
+                  { key: 'Txn #', label: 'Txn #' },
+                  { key: 'Date', label: 'Date' },
+                  { key: 'Cashier', label: 'Cashier' },
+                  { key: 'Status', label: 'Status' },
+                  { key: 'Total', label: 'Total' },
+                ],
+                data: rows,
+                filename: `transactions_${dateFrom}_${dateTo}.pdf`,
+              });
+            }} disabled={loading || filtered.length === 0} title="Export PDF">
+              <FileText size={13} /> PDF
             </button>
           </div>
         </div>

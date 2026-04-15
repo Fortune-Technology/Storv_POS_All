@@ -290,6 +290,19 @@ export const deleteCatalogProduct   = (id)     => api.delete(`/catalog/products/
 export const bulkUpdateCatalogProducts = (updates) => api.post('/catalog/products/bulk-update', { updates }).then(r => r.data);
 export const bulkDeleteCatalogProducts = (ids, permanent = false) => api.post('/catalog/products/bulk-delete', { ids, permanent }).then(r => r.data);
 export const deleteAllCatalogProducts  = (confirmation, permanent = false) => api.post('/catalog/products/delete-all', { confirmation, permanent }).then(r => r.data);
+export const duplicateCatalogProduct   = (id) => api.post(`/catalog/products/${id}/duplicate`).then(r => r.data);
+
+// ── Catalog — Product Groups ──────────────────────────────────────────────
+export const listProductGroups    = (params) => api.get('/catalog/groups', { params }).then(r => r.data);
+export const getProductGroup      = (id)     => api.get(`/catalog/groups/${id}`).then(r => r.data);
+export const createProductGroup   = (data)   => api.post('/catalog/groups', data).then(r => r.data);
+export const updateProductGroup   = (id, d)  => api.put(`/catalog/groups/${id}`, d).then(r => r.data);
+export const deleteProductGroup   = (id)     => api.delete(`/catalog/groups/${id}`).then(r => r.data);
+export const applyGroupTemplate   = (id)     => api.post(`/catalog/groups/${id}/apply`).then(r => r.data);
+export const addProductsToGroup   = (id, productIds, applyTemplate = true) =>
+  api.post(`/catalog/groups/${id}/add-products`, { productIds, applyTemplate }).then(r => r.data);
+export const removeProductsFromGroup = (id, productIds) =>
+  api.post(`/catalog/groups/${id}/remove-products`, { productIds }).then(r => r.data);
 export const bulkSetDepartment         = (ids, departmentId)      => api.post('/catalog/products/bulk-department', { ids, departmentId }).then(r => r.data);
 export const bulkToggleActive          = (ids, active)            => api.post('/catalog/products/bulk-active', { ids, active }).then(r => r.data);
 
@@ -335,6 +348,7 @@ export const getLotteryBoxes          = (params) => api.get('/lottery/boxes', { 
 export const receiveLotteryBoxOrder   = (data)   => api.post('/lottery/boxes/receive', data).then(lotteryUnwrap);
 export const activateLotteryBox       = (id, d)  => api.put(`/lottery/boxes/${id}/activate`, d).then(lotteryUnwrap);
 export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id}`, d).then(lotteryUnwrap);
+export const adjustLotteryBoxTickets  = (id, d)  => api.post(`/lottery/boxes/${id}/adjust`, d).then(lotteryUnwrap);
 
 export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
 

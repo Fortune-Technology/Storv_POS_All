@@ -67,6 +67,7 @@ const menuGroups = [
     label: 'Catalog',
     items: [
       { name: 'Products', icon: <Package size={13} />, path: '/portal/catalog' },
+      { name: 'Product Groups', icon: <Users size={13} />, path: '/portal/product-groups' },
       { name: 'Departments', icon: <Layers size={13} />, path: '/portal/departments' },
       { name: 'Promotions', icon: <Tag size={13} />, path: '/portal/promotions' },
       { name: 'Bulk Import', icon: <Upload size={13} />, path: '/portal/import' },

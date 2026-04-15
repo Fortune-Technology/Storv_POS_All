@@ -20,6 +20,7 @@ import {
   activateBox,
   updateBox,
   deleteBox,
+  adjustBoxTickets,
   // Transactions
   getLotteryTransactions,
   createLotteryTransaction,
@@ -65,6 +66,7 @@ router.delete('/games/:id',authorize('superadmin', 'admin', 'owner'), deleteLott
 router.get('/boxes',             authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getLotteryBoxes);
 router.post('/boxes/receive',    authorize('superadmin', 'admin', 'owner', 'manager'), receiveBoxOrder);
 router.put('/boxes/:id/activate',authorize('superadmin', 'admin', 'owner', 'manager'), activateBox);
+router.post('/boxes/:id/adjust', authorize('superadmin', 'admin', 'owner', 'manager'), adjustBoxTickets);
 router.put('/boxes/:id',         authorize('superadmin', 'admin', 'owner', 'manager'), updateBox);
 router.delete('/boxes/:id',      authorize('superadmin', 'admin', 'owner', 'manager'), deleteBox);
 

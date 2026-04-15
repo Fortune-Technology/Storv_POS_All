@@ -72,6 +72,7 @@ model Department {
   updatedAt       DateTime  @updatedAt
 
   products        MasterProduct[]
+  productGroups   ProductGroup[]
 
   @@unique([orgId, code])
   @@index([orgId, active])
@@ -138,6 +139,7 @@ model DepositRule {
   updatedAt       DateTime  @updatedAt
 
   products        MasterProduct[]
+  productGroups   ProductGroup[]
 
   @@index([orgId, state])
   @@map("deposit_rules")
@@ -189,6 +191,7 @@ model Vendor {
   products        MasterProduct[]
   purchaseOrders  PurchaseOrder[]
   vendorReturns   VendorReturn[]
+  productGroups   ProductGroup[]
 
   @@unique([orgId, name])
   @@index([orgId, active])
@@ -268,6 +271,8 @@ model MasterProduct {
   department          Department?   @relation(fields: [departmentId], references: [id])
   vendorId            Int?
   vendor              Vendor?       @relation(fields: [vendorId], references: [id])
+  productGroupId      Int?
+  productGroup        ProductGroup? @relation(fields: [productGroupId], references: [id])
 
   // Tax
   taxClass            String?       // "grocery", "alcohol", "tobacco", "hot_food", "none"
@@ -354,8 +359,70 @@ model MasterProduct {
   @@index([orgId, deleted, active])
   @@index([orgId, departmentId])
   @@index([orgId, vendorId])
+  @@index([orgId, productGroupId])
   @@index([orgId, name])
   @@map("master_products")
+}
+
+// ─────────────────────────────────────────────────
+// PRODUCT GROUP  — template / price group
+// Products in the same group share classification and pricing.
+// Bulk price / sale price changes cascade to all members.
+// ─────────────────────────────────────────────────
+model ProductGroup {
+  id                  Int       @id @default(autoincrement())
+  orgId               String
+  name                String    // "750ml Red Wine", "12oz Can Beer"
+  description         String?
+  color               String?   // UI chip color
+
+  // Classification template
+  departmentId        Int?
+  department          Department?   @relation(fields: [departmentId], references: [id])
+  vendorId            Int?
+  vendor              Vendor?       @relation(fields: [vendorId], references: [id])
+  taxClass            String?
+  ageRequired         Int?
+  ebtEligible         Boolean?
+  discountEligible    Boolean?
+  taxable             Boolean?
+  depositRuleId       Int?
+  depositRule         DepositRule?  @relation(fields: [depositRuleId], references: [id])
+  containerType       String?
+  containerVolumeOz   Decimal?      @db.Decimal(10, 2)
+
+  // Size / Pack template
+  size                String?
+  sizeUnit            String?
+  pack                Int?
+  casePacks           Int?
+  sellUnitSize        Int?
+
+  // Pricing template
+  defaultCostPrice    Decimal?      @db.Decimal(10, 4)
+  defaultRetailPrice  Decimal?      @db.Decimal(10, 4)
+  defaultCasePrice    Decimal?      @db.Decimal(10, 4)
+
+  // Sale pricing (applies to all members when active)
+  salePrice           Decimal?      @db.Decimal(10, 4)
+  saleStart           DateTime?
+  saleEnd             DateTime?
+
+  // When true, changes to the group cascade to all member products.
+  // When false, the group is a one-time template (manual apply).
+  autoSync            Boolean       @default(true)
+
+  active              Boolean       @default(true)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  products            MasterProduct[]
+  organization        Organization  @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, name])
+  @@index([orgId, active])
+  @@index([orgId, departmentId])
+  @@map("product_groups")
 }
 
 // ─────────────────────────────────────────────────
@@ -594,6 +661,7 @@ model Organization {
   subscription    OrgSubscription?
   purchaseOrders  PurchaseOrder[]
   vendorReturns   VendorReturn[]
+  productGroups   ProductGroup[]
 
   @@map("organizations")
 }

@@ -11,7 +11,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useStationStore } from '../stores/useStationStore.js';
-import { buildReceiptString, printReceiptNetwork, kickCashDrawer } from '../services/printerService.js';
+import { buildReceiptString, printReceiptNetwork, kickCashDrawer, buildShelfLabelZPL, printLabelQZ } from '../services/printerService.js';
 import { connectQZ, isQZConnected, printRaw } from '../services/qzService.js';
 import { useScale } from './useScale.js';
 import * as posApi from '../api/pos.js';
@@ -134,6 +134,44 @@ export function useHardware({ onBarcode } = {}) {
     return [];
   }, []);
 
+  // ── Print shelf label ────────────────────────────────────────────────────
+  // Takes a product-like object and prints a shelf label via the configured label printer.
+  const printShelfLabel = useCallback(async (product) => {
+    const lp = hw?.labelPrinter;
+    if (!lp || lp.type === 'none') {
+      throw new Error('No label printer configured');
+    }
+
+    const zpl = buildShelfLabelZPL({
+      productName: product.name || product.description || '',
+      price:       product.defaultRetailPrice != null ? Number(product.defaultRetailPrice).toFixed(2) : (product.price != null ? Number(product.price).toFixed(2) : '0.00'),
+      upc:         product.upc || '',
+      size:        [product.size, product.sizeUnit].filter(Boolean).join(' '),
+    });
+
+    try {
+      // Path 1: Electron direct (network printer)
+      if (isElectron() && lp.type === 'zebra_network' && lp.ip) {
+        await window.electronAPI.printNetwork(lp.ip, lp.port || 9100, zpl);
+        return { success: true };
+      }
+      // Path 2: QZ Tray (USB Zebra)
+      if (lp.type === 'zebra_usb' && lp.name) {
+        await printLabelQZ(lp.name, zpl);
+        return { success: true };
+      }
+      // Path 3: Electron USB (fallback)
+      if (isElectron() && lp.name) {
+        await window.electronAPI.printUSB(lp.name, zpl);
+        return { success: true };
+      }
+      throw new Error('Label printer configuration is incomplete');
+    } catch (err) {
+      console.warn('[printShelfLabel]', err.message);
+      throw err;
+    }
+  }, [hw]);
+
   // ── CardPointe terminal payment ───────────────────────────────────────────
   //
   // Full flow:
@@ -225,7 +263,7 @@ export function useHardware({ onBarcode } = {}) {
   return {
     hw,
     printing, payStatus, payResult,
-    printReceipt, openDrawer,
+    printReceipt, openDrawer, printShelfLabel,
     listSystemPrinters,
     processCardPayment, cancelPayment,
     hasPAX, hasReceiptPrinter, hasCashDrawer, hasScale, hasLabelPrinter,

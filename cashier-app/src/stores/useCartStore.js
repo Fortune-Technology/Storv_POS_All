@@ -135,6 +135,37 @@ export const useCartStore = create((set, get) => ({
     set({ items: promoItems, promoResults });
   },
 
+  // ── Open Item (manual entry — no catalog product) ────────────────────────
+  // Used for misc items that don't have a barcode, like "Coffee" or custom amounts.
+  addOpenItem: ({ name, price, taxClass = 'standard', taxable = true, departmentId = null }) => {
+    const { items, promotions } = get();
+    const newItem = calcLine({
+      lineId:           nanoid(8),
+      productId:        null,
+      upc:              null,
+      name:             name || 'Open Item',
+      brand:            null,
+      qty:              1,
+      unitPrice:        Number(price) || 0,
+      taxable:          !!taxable,
+      taxClass:         taxClass || 'standard',
+      ebtEligible:      false,
+      ageRequired:      null,
+      depositAmount:    null,
+      depositRuleId:    null,
+      departmentId:     departmentId ? parseInt(departmentId) : null,
+      discountEligible: true,
+      priceOverridden:  false,
+      discountType:     null,
+      discountValue:    null,
+      promoAdjustment:  null,
+      isOpenItem:       true,
+    });
+    const nextItems = [...items, newItem];
+    const { items: promoItems, promoResults } = withPromos(nextItems, promotions);
+    set({ items: promoItems, promoResults });
+  },
+
   addLotteryItem: ({ lotteryType, amount, gameId, gameName, notes }) => {
     // lotteryType: 'sale' | 'payout'
     // Sale = positive amount (customer pays), Payout = negative (we pay customer)

@@ -55,6 +55,7 @@ import PaymentSettings from './pages/PaymentSettings.jsx';
 // Catalog Pages
 import ProductCatalog from './pages/ProductCatalog';
 import ProductForm    from './pages/ProductForm';
+import ProductGroups  from './pages/ProductGroups';
 import Departments    from './pages/Departments';
 import Vendors        from './pages/Vendors';
 import VendorDetail   from './pages/VendorDetail';
@@ -238,6 +239,7 @@ function App() {
           <Route path="/portal/catalog"          element={<ProductCatalog />} />
           <Route path="/portal/catalog/new"      element={<ProductForm />} />
           <Route path="/portal/catalog/edit/:id" element={<ProductForm />} />
+          <Route path="/portal/product-groups"   element={<ProductGroups />} />
           <Route path="/portal/departments"      element={<Departments />} />
           <Route path="/portal/vendors"          element={<Vendors />} />
           <Route path="/portal/vendors/:id"      element={<VendorDetail />} />

@@ -522,6 +522,26 @@ export default function HardwareSettingsModal({ onClose }) {
                     <input className="hsm-field" value={hw.labelPrinter.name || ''} onChange={e => updHW('labelPrinter', { name: e.target.value })} placeholder="Label printer name" />
                   </div>
                 )}
+                {hw.labelPrinter.type !== 'none' && (
+                  <>
+                    <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.85rem' }}>
+                        <input type="checkbox"
+                          checked={!!hw.labelPrinter.autoPrintOnNew}
+                          onChange={e => updHW('labelPrinter', { autoPrintOnNew: e.target.checked })} />
+                        Auto-print label when a new product is created from POS
+                      </label>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.85rem' }}>
+                        <input type="checkbox"
+                          checked={!!hw.labelPrinter.autoPrintOnPriceChange}
+                          onChange={e => updHW('labelPrinter', { autoPrintOnPriceChange: e.target.checked })} />
+                        Auto-print label when product price is changed from POS
+                      </label>
+                    </div>
+                  </>
+                )}
               </div>
             </HWSection>
 

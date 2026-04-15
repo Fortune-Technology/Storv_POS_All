@@ -75,7 +75,7 @@ jobs:
           rm -f package-lock.json
           npm install
           npx prisma generate
-          npx prisma db push --accept-data-loss
+          npx prisma migrate deploy
           pm2 restart storv-ecom-backend || pm2 start src/server.js --name storv-ecom-backend
           pm2 save
 

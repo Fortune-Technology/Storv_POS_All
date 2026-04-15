@@ -7,7 +7,7 @@ import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
   ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
-  ClipboardList, Settings, Monitor, MessageSquare,
+  ClipboardList, Settings, Monitor, MessageSquare, Edit3,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -33,7 +33,7 @@ const Divider = () => <div className="ab-divider" />;
 
 // ── ActionBar ──────────────────────────────────────────────────────────────
 export default function ActionBar({
-  onPriceCheck, onHold, onReprint, onNoSale, onHistory, onBottleReturn,
+  onPriceCheck, onHold, onReprint, onNoSale, onHistory, onBottleReturn, onOpenItem,
   onDiscount, onRefund, onVoidTx, onEndOfDay,
   onOpenCustomer,
   onLottery,
@@ -187,6 +187,12 @@ export default function ActionBar({
         <>
           <Divider />
           <ACT icon={Tag} label="Price Check" onClick={onPriceCheck} />
+        </>
+      )}
+      {onOpenItem && (
+        <>
+          <Divider />
+          <ACT icon={Edit3} label="Manual Item" onClick={onOpenItem} color="#f59e0b" />
         </>
       )}
     </div>

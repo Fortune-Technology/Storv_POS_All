@@ -45,6 +45,7 @@ import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 import AddProductModal from '../components/modals/AddProductModal.jsx';
 import ProductEditModal from '../components/modals/ProductEditModal.jsx';
+import OpenItemModal from '../components/modals/OpenItemModal.jsx';
 import TasksPanel      from '../components/modals/TasksPanel.jsx';
 import ChatPanel       from '../components/modals/ChatPanel.jsx';
 import HardwareSettingsModal from '../components/modals/HardwareSettingsModal.jsx';
@@ -100,7 +101,7 @@ export default function POSScreen() {
   const cashier        = useAuthStore(s => s.cashier);
 
   // ── Hardware (receipt printer, cash drawer) ──────────────────────────────
-  const { printReceipt, openDrawer, hasReceiptPrinter, hasCashDrawer, scale, hasScale } = useHardware();
+  const { printReceipt, openDrawer, printShelfLabel, hasReceiptPrinter, hasCashDrawer, hasLabelPrinter, scale, hasScale } = useHardware();
 
   // ── Shift / Cash Drawer ─────────────────────────────────────────────────
   const station = useStationStore(s => s.station);
@@ -447,6 +448,7 @@ export default function POSScreen() {
   // ── Scan error toast ──────────────────────────────────────────────────────
   const [scanError, setScanError]           = useState(null);  // { upc, ts }
   const [addProductUpc, setAddProductUpc]   = useState(null);  // UPC string when manager creates product
+  const [showOpenItem, setShowOpenItem]     = useState(false); // Manual item entry modal
   const scanErrorTimer = useRef(null);
 
   // ── Scale weight warning (by-weight product scanned without stable weight) ──
@@ -1469,6 +1471,7 @@ export default function POSScreen() {
       <ActionBar
         enabledShortcuts={posConfig.shortcuts}
         onPriceCheck={() => setShowPriceCheck(true)}
+        onOpenItem={() => setShowOpenItem(true)}
         onHold={() => setShowHold(true)}
         onHistory={() => setShowHistory(true)}
         onReprint={() => lastCompletedTx ? setReprintTx(lastCompletedTx) : setShowHistory(true)}
@@ -1526,7 +1529,12 @@ export default function POSScreen() {
       )}
 
       {editProduct && (
-        <ProductEditModal item={editProduct} onClose={() => setEditProduct(null)} />
+        <ProductEditModal
+          item={editProduct}
+          hasLabelPrinter={hasLabelPrinter}
+          onPrintLabel={hasLabelPrinter ? printShelfLabel : null}
+          onClose={() => setEditProduct(null)}
+        />
       )}
 
       {showTasks && <TasksPanel onClose={() => setShowTasks(false)} />}
@@ -1757,10 +1765,15 @@ export default function POSScreen() {
         />
       )}
 
+      {/* ── Open Item / Manual Entry Modal ── */}
+      {showOpenItem && <OpenItemModal onClose={() => setShowOpenItem(false)} />}
+
       {/* ── Add Product Modal (manager only, triggered from scan-not-found) ── */}
       {addProductUpc && (
         <AddProductModal
           scannedUpc={addProductUpc}
+          hasLabelPrinter={hasLabelPrinter}
+          onPrintLabel={hasLabelPrinter ? printShelfLabel : null}
           onCreated={(product) => {
             setAddProductUpc(null);
             // Add newly created product to cart immediately

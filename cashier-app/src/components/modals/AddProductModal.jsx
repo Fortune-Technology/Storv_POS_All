@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   X, Package, DollarSign, Tag, ChevronRight,
-  ChevronLeft, Save, AlertCircle, Check,
+  ChevronLeft, Save, AlertCircle, Check, Printer,
 } from 'lucide-react';
 import { createProduct, getDepartmentsForPOS } from '../../api/pos.js';
 import { upsertProducts } from '../../db/dexie.js';
@@ -48,7 +48,7 @@ function Tog({ value, onChange }) {
   );
 }
 
-export default function AddProductModal({ scannedUpc, onCreated, onClose }) {
+export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLabelPrinter, onPrintLabel }) {
   const orgId  = useStationStore(s => s.station?.orgId);
   const storeId = useStationStore(s => s.station?.storeId);
 
@@ -58,6 +58,12 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose }) {
   const [errors,      setErrors]      = useState({});
   const [saving,      setSaving]      = useState(false);
   const [savedMsg,    setSavedMsg]    = useState('');
+  const [autoPrint,   setAutoPrint]   = useState(() => {
+    try {
+      const hw = JSON.parse(localStorage.getItem('storv_hardware_config') || '{}');
+      return !!hw?.labelPrinter?.autoPrintOnNew;
+    } catch { return false; }
+  });
 
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
 
@@ -111,6 +117,22 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose }) {
         updatedAt: created.updatedAt || new Date().toISOString(),
       }]);
       setSavedMsg(`"${created.name}" added to catalog`);
+
+      // Auto-print label if enabled
+      if (autoPrint && onPrintLabel) {
+        try {
+          await onPrintLabel({
+            name: created.name,
+            upc: created.upc,
+            defaultRetailPrice: parseFloat(form.defaultRetailPrice),
+            size: form.size,
+            sizeUnit: form.sizeUnit,
+          });
+        } catch (err) {
+          console.warn('[AddProduct] Label print failed:', err.message);
+        }
+      }
+
       setTimeout(() => { onCreated({ ...created, retailPrice: parseFloat(form.defaultRetailPrice) }); }, 800);
     } catch (err) {
       setErrors({ submit: err.response?.data?.error || 'Failed to save product' });
@@ -278,6 +300,23 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose }) {
             <div className="apm-success-msg">
               <Check size={14} /> {savedMsg} — adding to cart...
             </div>
+          )}
+
+          {/* Auto-print label toggle */}
+          {hasLabelPrinter && onPrintLabel && (
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 12px', marginTop: 12,
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.2)',
+              borderRadius: 6, cursor: 'pointer',
+              fontSize: '0.85rem',
+            }}>
+              <input type="checkbox" checked={autoPrint}
+                onChange={e => setAutoPrint(e.target.checked)} />
+              <Printer size={14} />
+              Auto-print shelf label when saved
+            </label>
           )}
         </div>
 

@@ -1,0 +1,240 @@
+/* OpenItemModal — prefix: oim- */
+
+.oim-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.oim-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-xl);
+  width: 100%;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+}
+
+/* Header */
+.oim-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.oim-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.oim-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+}
+
+.oim-close:hover { color: var(--text-primary); }
+
+/* Body */
+.oim-body {
+  padding: 1rem 1.25rem;
+}
+
+.oim-field {
+  margin-bottom: 0.85rem;
+}
+
+.oim-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 5px;
+}
+
+.oim-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.oim-input:focus { border-color: var(--green); }
+
+/* Amount display */
+.oim-amount-display {
+  text-align: center;
+  padding: 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  margin: 1rem 0;
+}
+
+.oim-amount-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.oim-amount-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--green);
+}
+
+.oim-dollar {
+  font-size: 1.6rem;
+  opacity: 0.6;
+  margin-right: 3px;
+}
+
+/* Quick amounts */
+.oim-quick-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 0.85rem;
+}
+
+.oim-quick-btn {
+  padding: 0.5rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.oim-quick-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.oim-clear-btn {
+  color: var(--red);
+  background: var(--red-dim);
+  border-color: var(--red-dim);
+}
+
+/* Numpad */
+.oim-numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 0.85rem;
+}
+
+.oim-num-btn {
+  padding: 0.85rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.oim-num-btn:hover { background: var(--bg-hover); }
+.oim-num-btn:active { transform: scale(0.97); }
+
+/* Tax row */
+.oim-tax-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.oim-tax-row .oim-field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.oim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--r-md);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Footer */
+.oim-footer {
+  display: flex;
+  gap: 8px;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.oim-btn {
+  flex: 1;
+  padding: 0.85rem;
+  border-radius: var(--r-md);
+  border: none;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.oim-btn-cancel {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+
+.oim-btn-cancel:hover { background: var(--bg-hover); }
+
+.oim-btn-add {
+  background: var(--green);
+  color: #0f1117;
+}
+
+.oim-btn-add:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.oim-btn-add:disabled {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}

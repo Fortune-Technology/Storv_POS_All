@@ -6,20 +6,41 @@
 import React, { useState } from 'react';
 import {
   X, Package, Tag, DollarSign, Barcode, Save, Loader,
-  ShoppingCart, Percent, Leaf,
+  ShoppingCart, Percent, Leaf, Printer,
 } from 'lucide-react';
 import { fmt$ } from '../../utils/formatters.js';
 import { useCartStore } from '../../stores/useCartStore.js';
+import { toast } from 'react-toastify';
 import api from '../../api/client.js';
 import './ProductEditModal.css';
 
-export default function ProductEditModal({ item, onClose }) {
+export default function ProductEditModal({ item, onClose, hasLabelPrinter, onPrintLabel }) {
   const overridePrice = useCartStore(s => s.overridePrice);
 
   const [editName, setEditName] = useState(item.name || '');
   const [editPrice, setEditPrice] = useState(String(item.unitPrice || ''));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const handlePrintLabel = async () => {
+    if (!onPrintLabel) return;
+    setPrinting(true);
+    try {
+      await onPrintLabel({
+        name: editName || item.name,
+        upc: item.upc,
+        defaultRetailPrice: parseFloat(editPrice) || item.unitPrice,
+        size: item.size,
+        sizeUnit: item.sizeUnit,
+      });
+      toast.success('Label sent to printer');
+    } catch (err) {
+      toast.error('Print failed: ' + (err.message || 'unknown error'));
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   const hasNameChange = editName.trim() !== (item.name || '');
   const hasPriceChange = editPrice !== String(item.unitPrice || '');
@@ -148,6 +169,18 @@ export default function ProductEditModal({ item, onClose }) {
         {/* Footer */}
         <div className="pem-footer">
           <button className="pem-cancel-btn" onClick={onClose}>Cancel</button>
+          {hasLabelPrinter && onPrintLabel && (
+            <button
+              className="pem-cancel-btn"
+              onClick={handlePrintLabel}
+              disabled={printing}
+              title="Print shelf label"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              {printing ? <Loader size={13} className="pem-spin" /> : <Printer size={13} />}
+              {printing ? 'Printing…' : 'Print Label'}
+            </button>
+          )}
           <button
             className={`pem-save-btn ${saved ? 'pem-save-btn--saved' : ''}`}
             disabled={!hasChanges || saving}

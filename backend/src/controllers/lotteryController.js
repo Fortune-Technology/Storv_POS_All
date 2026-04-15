@@ -233,6 +233,77 @@ export const deleteBox = async (req, res) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════
+// TICKET ADJUSTMENT (+/-)
+// Used to correct box counts — e.g. damaged tickets, returned, miscounts.
+// Creates an adjustment transaction record for audit trail.
+// ══════════════════════════════════════════════════════════════════════════
+
+export const adjustBoxTickets = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { id }  = req.params;
+    const { delta, reason, notes } = req.body;
+
+    if (delta === undefined || delta === null || Number(delta) === 0) {
+      return res.status(400).json({ success: false, error: 'delta is required and must be non-zero' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, error: 'reason is required' });
+    }
+
+    const box = await prisma.lotteryBox.findFirst({
+      where: { id, orgId, storeId },
+      include: { game: { select: { id: true, name: true, ticketPrice: true } } },
+    });
+    if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+
+    const deltaInt = parseInt(delta);
+    const newTicketsSold = Math.max(0, (box.ticketsSold || 0) + deltaInt);
+
+    // Don't allow going above total tickets
+    if (box.totalTickets && newTicketsSold > box.totalTickets) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot exceed total tickets (${box.totalTickets}). Box already has ${box.ticketsSold} sold.`,
+      });
+    }
+
+    // Update box
+    const updatedBox = await prisma.lotteryBox.update({
+      where: { id },
+      data: {
+        ticketsSold: newTicketsSold,
+        currentTicket: box.currentTicket != null
+          ? Math.max(box.startTicket || 0, (box.currentTicket || 0) + deltaInt)
+          : undefined,
+      },
+    });
+
+    // Create adjustment transaction record
+    const ticketPrice = Number(box.game?.ticketPrice || 0);
+    const amount = deltaInt * ticketPrice;
+
+    await prisma.lotteryTransaction.create({
+      data: {
+        orgId, storeId,
+        boxId: box.id,
+        gameId: box.gameId,
+        type: 'adjustment',
+        amount: Math.abs(amount),
+        ticketCount: Math.abs(deltaInt),
+        notes: `${deltaInt > 0 ? '+' : ''}${deltaInt} tickets — ${reason}${notes ? ': ' + notes : ''}`,
+        userId: req.user?.id || null,
+      },
+    }).catch(() => {});
+
+    res.json({ success: true, data: updatedBox });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
 // TRANSACTIONS
 // ══════════════════════════════════════════════════════════════════════════
 

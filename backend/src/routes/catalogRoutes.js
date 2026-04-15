@@ -49,6 +49,7 @@ import {
   bulkSetDepartment,
   bulkToggleActive,
   deleteAllProducts,
+  duplicateMasterProduct,
   // Product UPCs
   getProductUpcs,
   addProductUpc,
@@ -72,6 +73,16 @@ import {
   deletePromotion,
   evaluatePromotions,
 } from '../controllers/catalogController.js';
+import {
+  listProductGroups,
+  getProductGroup,
+  createProductGroup,
+  updateProductGroup,
+  deleteProductGroup,
+  applyGroupTemplate,
+  addProductsToGroup,
+  removeProductsFromGroup,
+} from '../controllers/productGroupController.js';
 import {
   previewImport,
   commitImport,
@@ -130,6 +141,16 @@ router.put('/rebates/:id', authorize('superadmin', 'admin', 'owner'), updateReba
 
 // ─── Master Products ─────────────────────────────────────
 // Search first (must be before /:id)
+// ─── Product Groups (template groups for shared classification/pricing) ─────
+router.get('/groups',                 authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), listProductGroups);
+router.get('/groups/:id',             authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getProductGroup);
+router.post('/groups',                authorize('superadmin', 'admin', 'owner', 'manager'), createProductGroup);
+router.put('/groups/:id',             authorize('superadmin', 'admin', 'owner', 'manager'), updateProductGroup);
+router.delete('/groups/:id',          authorize('superadmin', 'admin', 'owner'),           deleteProductGroup);
+router.post('/groups/:id/apply',      authorize('superadmin', 'admin', 'owner', 'manager'), applyGroupTemplate);
+router.post('/groups/:id/add-products',    authorize('superadmin', 'admin', 'owner', 'manager'), addProductsToGroup);
+router.post('/groups/:id/remove-products', authorize('superadmin', 'admin', 'owner', 'manager'), removeProductsFromGroup);
+
 router.get('/products/search', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), searchMasterProducts);
 router.get('/products/bulk', authorize('superadmin', 'admin', 'owner', 'manager'), getMasterProducts);
 router.post('/products/bulk-update',     authorize('superadmin', 'admin', 'owner', 'manager'), bulkUpdateMasterProducts);
@@ -141,6 +162,7 @@ router.post('/products/bulk-active',     authorize('superadmin', 'admin', 'owner
 router.get('/products', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getMasterProducts);
 router.post('/products', authorize('superadmin', 'admin', 'owner', 'manager'), createMasterProduct);
 router.get('/products/:id', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getMasterProduct);
+router.post('/products/:id/duplicate', authorize('superadmin', 'admin', 'owner', 'manager'), duplicateMasterProduct);
 router.put('/products/:id', authorize('superadmin', 'admin', 'owner', 'manager'), updateMasterProduct);
 router.delete('/products/:id', authorize('superadmin', 'admin', 'owner'), deleteMasterProduct);
 

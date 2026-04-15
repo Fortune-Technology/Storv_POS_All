@@ -25,6 +25,7 @@ import {
   getProductUpcs, addProductUpc, deleteProductUpc,
   getProductPackSizes, bulkReplaceProductPackSizes,
   getPOSConfig, getProduct52WeekStats,
+  duplicateCatalogProduct, listProductGroups,
 } from '../services/api';
 import './ProductForm.css';
 import { toast } from 'react-toastify';
@@ -32,6 +33,7 @@ import {
   ChevronLeft, Save, Package, Building2, Truck, X, Plus,
   Trash2, Settings, DollarSign, Info, Check, Tag, Percent,
   Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle, Barcode, Layers,
+  Copy, Users as UsersIcon,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -665,8 +667,10 @@ export default function ProductForm() {
   const [loading,     setLoading]     = useState(isEdit);
   const [departments, setDepartments] = useState([]);
   const [vendors,     setVendors]     = useState([]);
+  const [groups,      setGroups]      = useState([]);
   const [showDeptMgr, setShowDeptMgr] = useState(false);
   const [showVendMgr, setShowVendMgr] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   // ── Pack Configuration ───────────────────────────────────────────────────────
   const [packEnabled, setPackEnabled] = useState(false);
@@ -701,6 +705,7 @@ export default function ProductForm() {
   // ── Core form ────────────────────────────────────────────────────────────────
   const blank = {
     name: '', brand: '', upc: '', description: '',
+    productGroupId: '',
     departmentId: '', vendorId: '', itemCode: '',
     taxClass: 'grocery', taxable: true,
     defaultCasePrice: '', defaultCostPrice: '', defaultRetailPrice: '',
@@ -726,11 +731,14 @@ export default function ProductForm() {
   // ── Load support data ────────────────────────────────────────────────────────
   const loadSupport = useCallback(async () => {
     try {
-      const [d, v] = await Promise.all([
-        getCatalogDepartments(), getCatalogVendors(),
+      const [d, v, g] = await Promise.all([
+        getCatalogDepartments(),
+        getCatalogVendors(),
+        listProductGroups({ active: 'true' }).catch(() => ({ data: [] })),
       ]);
       setDepartments((d?.data || d) ?? []);
       setVendors((v?.data || v) ?? []);
+      setGroups((g?.data || g) ?? []);
     } catch { /* non-fatal */ }
   }, []);
 
@@ -753,6 +761,7 @@ export default function ProductForm() {
           brand:              p.brand             ?? '',
           upc:                p.upc               ?? '',
           description:        p.description       ?? '',
+          productGroupId:     p.productGroupId != null ? String(p.productGroupId) : '',
           departmentId:       p.departmentId      ?? '',
           vendorId:           p.vendorId          ?? '',
           itemCode:           p.itemCode          ?? '',
@@ -851,6 +860,43 @@ export default function ProductForm() {
       .catch(() => setStats52w(null));
   }, [isEdit, form.upc]);
 
+  // ── Load duplicate template (when creating a new product from a copy) ───────
+  useEffect(() => {
+    if (isEdit) return;
+    const raw = sessionStorage.getItem('pf_duplicate_template');
+    if (!raw) return;
+    try {
+      const t = JSON.parse(raw);
+      sessionStorage.removeItem('pf_duplicate_template');
+      setForm(f => ({
+        ...f,
+        name:               t.name || '',
+        brand:              t.brand || '',
+        upc:                '',  // always empty for duplicates
+        description:        t.description || '',
+        productGroupId:     t.productGroupId != null ? String(t.productGroupId) : '',
+        departmentId:       t.departmentId != null ? String(t.departmentId) : '',
+        vendorId:           t.vendorId != null ? String(t.vendorId) : '',
+        itemCode:           t.itemCode || '',
+        taxClass:           t.taxClass || f.taxClass,
+        taxable:            t.taxable ?? true,
+        defaultCasePrice:   t.defaultCasePrice != null ? String(t.defaultCasePrice) : '',
+        defaultCostPrice:   t.defaultCostPrice != null ? String(t.defaultCostPrice) : '',
+        defaultRetailPrice: t.defaultRetailPrice != null ? String(t.defaultRetailPrice) : '',
+        ebtEligible:        t.ebtEligible ?? false,
+        ageRequired:        t.ageRequired != null ? String(t.ageRequired) : '',
+        discountEligible:   t.discountEligible ?? true,
+        byWeight:           t.byWeight ?? false,
+        byUnit:             t.byUnit ?? true,
+        size:               t.size || '',
+        sizeUnit:           t.sizeUnit || f.sizeUnit,
+        active:             t.active ?? true,
+      }));
+      if (t.caseDeposit != null) setCaseDeposit(String(t.caseDeposit));
+      toast.info('Pre-filled from duplicated product — enter a new UPC');
+    } catch {}
+  }, [isEdit]);
+
   // ── Load per-store Qty on Hand ───────────────────────────────────────────────
   // Use storeCount + loading as stable deps to avoid array reference churn
   useEffect(() => {
@@ -897,6 +943,51 @@ export default function ProductForm() {
       if (dept.taxClass)    setF('taxClass',    dept.taxClass);
       if (dept.ebtEligible) setF('ebtEligible', true);
       if (dept.ageRequired) setF('ageRequired', String(dept.ageRequired));
+    }
+  };
+
+  // ── Product Group auto-fill ──────────────────────────────────────────────────
+  // Selecting a group cascades template fields to the form. User can still override.
+  const handleGroupChange = (groupId) => {
+    setF('productGroupId', groupId);
+    if (!groupId) return;
+    const group = groups.find(g => String(g.id) === String(groupId));
+    if (!group) return;
+
+    // Cascade all non-null template fields
+    setForm(f => ({
+      ...f,
+      departmentId:       group.departmentId != null ? String(group.departmentId) : f.departmentId,
+      vendorId:           group.vendorId != null ? String(group.vendorId) : f.vendorId,
+      taxClass:           group.taxClass ?? f.taxClass,
+      ageRequired:        group.ageRequired != null ? String(group.ageRequired) : f.ageRequired,
+      ebtEligible:        group.ebtEligible ?? f.ebtEligible,
+      discountEligible:   group.discountEligible ?? f.discountEligible,
+      taxable:            group.taxable ?? f.taxable,
+      size:               group.size ?? f.size,
+      sizeUnit:           group.sizeUnit ?? f.sizeUnit,
+      defaultCostPrice:   group.defaultCostPrice != null ? String(group.defaultCostPrice) : f.defaultCostPrice,
+      defaultRetailPrice: group.defaultRetailPrice != null ? String(group.defaultRetailPrice) : f.defaultRetailPrice,
+      defaultCasePrice:   group.defaultCasePrice != null ? String(group.defaultCasePrice) : f.defaultCasePrice,
+    }));
+    toast.info(`Applied template from "${group.name}"`);
+  };
+
+  // ── Duplicate product ────────────────────────────────────────────────────────
+  const handleDuplicate = async () => {
+    if (!isEdit || !id) return;
+    setDuplicating(true);
+    try {
+      const res = await duplicateCatalogProduct(id);
+      const template = res?.data || res;
+      // Store the template in sessionStorage so the new form can pick it up
+      sessionStorage.setItem('pf_duplicate_template', JSON.stringify(template));
+      toast.success('Ready to create duplicate — UPC is empty');
+      navigate('/portal/catalog/new');
+    } catch (e) {
+      toast.error('Duplicate failed: ' + (e.response?.data?.error || e.message));
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -978,6 +1069,7 @@ export default function ProductForm() {
         brand:              form.brand            || null,
         upc:                form.upc              || null,
         description:        form.description      || null,
+        productGroupId:     form.productGroupId   ? parseInt(form.productGroupId) : null,
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
         itemCode:           form.itemCode         || null,
@@ -1093,6 +1185,11 @@ export default function ProductForm() {
               {isEdit ? `Edit Product — ${form.name || '…'}` : 'Add New Product'}
             </h1>
             <div className="pf-topbar-actions">
+              {isEdit && (
+                <button type="button" onClick={handleDuplicate} disabled={duplicating || saving} className="pf-btn-secondary" title="Create a copy of this product">
+                  <Copy size={14} /> {duplicating ? 'Loading…' : 'Duplicate'}
+                </button>
+              )}
               <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-btn-secondary">Cancel</button>
               <button type="submit" disabled={saving} className="pf-btn-primary">
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
@@ -1174,8 +1271,31 @@ export default function ProductForm() {
                     </div>
                   </div>
 
-                  {/* Right: Department + Tax Class */}
+                  {/* Right: Group + Department + Tax Class */}
                   <div>
+                    {/* Product Group picker — applies template */}
+                    <div className="pf-row">
+                      <div className="pf-label-row">
+                        <label className="pf-label">
+                          <UsersIcon size={10} style={{ verticalAlign: 'middle', marginRight: 3 }} />
+                          Product Group
+                        </label>
+                        <button type="button" onClick={() => navigate('/portal/product-groups')} className="pf-manage-link">
+                          <Settings size={10} /> Manage
+                        </button>
+                      </div>
+                      <select className="form-input pf-full"
+                        value={form.productGroupId} onChange={e => handleGroupChange(e.target.value)}>
+                        <option value="">— No group —</option>
+                        {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      </select>
+                      {form.productGroupId && (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                          Template applied. Changing group fields cascades to all members.
+                        </div>
+                      )}
+                    </div>
+
                     <div className="pf-row">
                       <div className="pf-label-row">
                         <label className="pf-label">Department *</label>

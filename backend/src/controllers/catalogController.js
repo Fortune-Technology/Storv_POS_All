@@ -711,6 +711,26 @@ export const createMasterProduct = async (req, res) => {
 
     if (!name) return res.status(400).json({ success: false, error: 'name is required' });
 
+    // ── Department-level default cascading ────────────────────────────────
+    // If a department is selected and classification/compliance fields are
+    // not provided, inherit defaults from the department model.
+    let deptDefaults = {};
+    if (departmentId) {
+      const dept = await prisma.department.findFirst({
+        where: { id: parseInt(departmentId), orgId },
+        select: {
+          taxClass: true, ageRequired: true, ebtEligible: true, bottleDeposit: true,
+        },
+      });
+      if (dept) {
+        deptDefaults = {
+          taxClass:    taxClass    == null ? dept.taxClass    : taxClass,
+          ageRequired: ageRequired == null ? dept.ageRequired : ageRequired,
+          ebtEligible: ebtEligible == null ? dept.ebtEligible : ebtEligible,
+        };
+      }
+    }
+
     const product = await prisma.masterProduct.create({
       data: {
         orgId,
@@ -740,14 +760,14 @@ export const createMasterProduct = async (req, res) => {
         depositRuleId:      depositRuleId? parseInt(depositRuleId): null,
         containerType:      containerType || null,
         containerVolumeOz:  containerVolumeOz ? parseFloat(containerVolumeOz) : null,
-        taxClass:           taxClass || null,
+        taxClass:           (taxClass ?? deptDefaults.taxClass) || null,
         defaultCostPrice:   defaultCostPrice   != null ? parseFloat(defaultCostPrice)   : null,
         defaultRetailPrice: defaultRetailPrice != null ? parseFloat(defaultRetailPrice) : null,
         defaultCasePrice:   defaultCasePrice   != null ? parseFloat(defaultCasePrice)   : null,
         byWeight:           Boolean(byWeight),
         byUnit:             byUnit !== false,
-        ebtEligible:        Boolean(ebtEligible),
-        ageRequired:        ageRequired ? parseInt(ageRequired) : null,
+        ebtEligible:        ebtEligible != null ? Boolean(ebtEligible) : Boolean(deptDefaults.ebtEligible),
+        ageRequired:        (ageRequired ?? deptDefaults.ageRequired) ? parseInt(ageRequired ?? deptDefaults.ageRequired) : null,
         taxable:            taxable !== false,
         discountEligible:   discountEligible !== false,
         foodstamp:          Boolean(foodstamp),
@@ -784,6 +804,40 @@ export const createMasterProduct = async (req, res) => {
     if (err.code === 'P2002') {
       return res.status(409).json({ success: false, error: 'A product with this UPC already exists' });
     }
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── Duplicate Product ────────────────────────────────────────────────────────
+// Returns the source product data with UPC stripped — frontend uses this
+// to pre-fill a new product form. The actual save happens via createMasterProduct.
+export const duplicateMasterProduct = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const id = parseInt(req.params.id);
+
+    const source = await prisma.masterProduct.findFirst({
+      where: { id, orgId },
+      include: {
+        department:  { select: { id: true, name: true, code: true } },
+        vendor:      { select: { id: true, name: true } },
+        depositRule: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!source) return res.status(404).json({ success: false, error: 'Product not found' });
+
+    // Strip fields that should not be copied
+    const {
+      id: _id, createdAt: _c, updatedAt: _u, upc: _upc, sku: _sku, plu: _plu,
+      deleted: _d, orgId: _o, ...template
+    } = source;
+
+    // Suggest a new name with " (Copy)" appended
+    template.name = `${source.name} (Copy)`;
+
+    res.json({ success: true, data: template });
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
