@@ -1332,6 +1332,16 @@ export const adjustStoreStock = async (req, res) => {
  */
 export const ecomStockCheck = async (req, res) => {
   try {
+    // ── Service-to-service authentication ────────────────────────────────
+    // This endpoint is unauthenticated for the ecom-backend → POS-backend
+    // internal stock check. Require a shared secret to prevent public abuse
+    // (inventory enumeration, competitor reconnaissance).
+    const provided = req.get('x-internal-api-key') || req.get('X-Internal-Api-Key');
+    const expected = process.env.INTERNAL_API_KEY;
+    if (!expected || provided !== expected) {
+      return res.status(401).json({ available: false, error: 'Unauthorized' });
+    }
+
     const { storeId, items } = req.body;
 
     if (!storeId || !Array.isArray(items)) {

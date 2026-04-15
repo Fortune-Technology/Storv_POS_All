@@ -4,6 +4,8 @@ uploads/
 *.log
 coverage/
 .DS_Store
+prisma/.seed-credentials
+.seed-credentials
 # package-lock.json must be committed so CI can run `npm ci`
 # Do NOT add package-lock.json here
 

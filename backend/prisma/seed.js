@@ -436,8 +436,22 @@ async function main() {
   }
 
   if (userCount > 0) {
-    console.log(`  ✓ ${userCount} users created (password: ${defaultPassword})`);
+    console.log(`  ✓ ${userCount} users created`);
+    console.log(`    (See prisma/.seed-credentials for default passwords — gitignored)`);
     SEED_USERS.forEach(u => console.log(`      ${u.role.padEnd(12)} → ${u.email}`));
+    // Write passwords to a gitignored file instead of logging to console.
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const out = path.resolve(process.cwd(), 'prisma', '.seed-credentials');
+      const lines = [
+        `# Seed credentials — DO NOT COMMIT`,
+        `# Generated ${new Date().toISOString()}`,
+        `default_password=${defaultPassword}`,
+        ...SEED_USERS.map(u => `${u.email}=${defaultPassword}`),
+      ];
+      fs.writeFileSync(out, lines.join('\n'), { mode: 0o600 });
+    } catch { /* best-effort */ }
   } else {
     console.log(`  ✓ All seed users already exist`);
   }

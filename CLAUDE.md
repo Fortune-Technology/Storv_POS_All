@@ -2726,7 +2726,7 @@ node backend/prisma/seedTransactions.js
 
 ---
 
-*Last updated: April 2026 — Session 17: CSS Refactoring, Unified Customer Auth, Marketing Pages, Storefront Improvements*
+*Last updated: April 2026 — Session 18: QA & Security Audit + Critical Fixes*
 
 ---
 
@@ -2797,3 +2797,88 @@ POS `Customer` table is now the single source of truth for both in-store and onl
 
 - **CI/CD workflow** — fixed Nginx file lock issue using `mv` + `nginx -s reload` + `sudo rm` pattern instead of direct overwrite
 - **Git merge conflicts** — resolved conflicts in `backend/src/server.js` from concurrent feature branches
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 18)
+
+### QA & Security Audit — Critical & High-Priority Fixes
+
+A comprehensive QA audit covering UI, validation, workflow, and security across all 4 apps (backend, frontend portal, admin-app, cashier-app, storefront). This session implemented the top-priority fixes. See the backlog for remaining items.
+
+#### Critical Fixes (7 issues)
+
+**C-1. Unauthenticated inventory leak** — `POST /api/catalog/ecom-stock-check` was mounted before `router.use(protect)` with no tenant scoping. Anyone could query real-time store inventory.
+- **Fix:** Added `X-Internal-Api-Key` header check in [`catalogController.js`](backend/src/controllers/catalogController.js) `ecomStockCheck`. Ecom-backend [`stockCheckService.js`](ecom-backend/src/services/stockCheckService.js) now sends the header on every call.
+- **Requires:** `INTERNAL_API_KEY` in both `backend/.env` and `ecom-backend/.env` (must match).
+
+**C-2. Stored XSS in CMS & Career detail pages** — `dangerouslySetInnerHTML` rendered unsanitized HTML from the database.
+- **Fix:** Added `DOMPurify.sanitize()` in [`CmsPage.jsx`](frontend/src/pages/marketing/CmsPage.jsx) and [`CareerDetail.jsx`](frontend/src/pages/marketing/CareerDetail.jsx) with `FORBID_TAGS` (script/style/iframe/object/embed/form) and `FORBID_ATTR` (onerror/onload/onclick/etc). `dompurify` was already in node_modules.
+
+**C-4. Customer enumeration via `check-points`** — `POST /customers/check-points` had no role guard, allowing any authenticated user to enumerate customers by phone.
+- **Fix:** [`customerRoutes.js`](backend/src/routes/customerRoutes.js) now requires `authorize('superadmin','admin','owner','manager','cashier','store')`.
+
+**C-5. Broken forgot-password flow** — Backend had `POST /auth/reset-password` but frontend had no matching page, leaving users stuck after clicking the email link.
+- **Fix:** New [`ResetPassword.jsx`](frontend/src/pages/ResetPassword.jsx) + [`ResetPassword.css`](frontend/src/pages/ResetPassword.css) page with show/hide toggle, live strength meter, real-time rule checklist, confirm-match. Route added in [`App.jsx`](frontend/src/App.jsx) at `/reset-password`. New `resetPassword({token,password})` export in [`api.js`](frontend/src/services/api.js).
+
+**C-6. 30-day JWT → 2 hours** — [`authController.js`](backend/src/controllers/authController.js) now reads `JWT_ACCESS_TTL` env var (default `2h`). Mitigates XSS+localStorage attack window from 30 days to 2 hours. Added to `.env.example`.
+
+#### High Fixes (2 issues)
+
+**H-1 + H-6. Server-side password & email validation** — Previously zero enforcement; any password accepted, any email string accepted.
+- **Fix:** New [`backend/src/utils/validators.js`](backend/src/utils/validators.js) with:
+  - `validateEmail()` — length + regex
+  - `validatePassword()` — 8-128 chars, requires upper/lower/digit/special
+  - `validatePhone()` — 7-15 digits, E.164-ish
+  - `parsePrice()` — rejects NaN/Infinity/negative/scientific notation, rounds to 4 decimals for Prisma `Decimal(10,4)`
+  - `runValidators()` — helper
+- Applied in `signup`, `login`, `forgotPassword`, `resetPassword` in [`authController.js`](backend/src/controllers/authController.js). Email is now lowercased/trimmed before DB lookup.
+- `forgotPassword` silently returns generic success on garbage email (anti-enumeration; no DB hit).
+
+**H-2. Rate limiting on auth endpoints** — Previously zero rate limiting; brute-force wide open.
+- **Fix:** New [`backend/src/middleware/rateLimit.js`](backend/src/middleware/rateLimit.js) — in-memory fixed-window limiter, no new deps. Exports: `loginLimiter` (5/15min), `forgotPasswordLimiter` (3/hr), `signupLimiter` (10/hr), `resetPasswordLimiter` (20/15min). Applied to all 5 public auth routes in [`authRoutes.js`](backend/src/routes/authRoutes.js). Sets `X-RateLimit-*` + `Retry-After` headers, returns 429 on exceed.
+- **Note for multi-instance:** replace with `express-rate-limit` + Redis store for production horizontal scaling.
+
+**H-9. Password logs removed from seed scripts** — [`seed.js`](backend/prisma/seed.js) and [`seedAdmin.js`](backend/prisma/seedAdmin.js) no longer print passwords to stdout. Passwords are written to `prisma/.seed-credentials` with `mode: 0o600`. Added to [`backend/.gitignore`](backend/.gitignore).
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/src/utils/validators.js` | NEW — shared validators |
+| `backend/src/middleware/rateLimit.js` | NEW — in-memory rate limiter |
+| `backend/src/controllers/authController.js` | JWT TTL 2h, validators applied, email normalization |
+| `backend/src/routes/authRoutes.js` | Rate limiters on all routes |
+| `backend/src/routes/customerRoutes.js` | `authorize()` added to `/check-points` |
+| `backend/src/controllers/catalogController.js` | `ecomStockCheck` requires `X-Internal-Api-Key` |
+| `backend/prisma/seed.js`, `seedAdmin.js` | Password output → gitignored file |
+| `backend/.gitignore` | Added `.seed-credentials` |
+| `backend/.env.example` | Added `JWT_ACCESS_TTL`, clarified `INTERNAL_API_KEY` |
+| `ecom-backend/src/services/stockCheckService.js` | Sends `X-Internal-Api-Key` |
+| `frontend/src/pages/marketing/CmsPage.jsx` | DOMPurify sanitization |
+| `frontend/src/pages/marketing/CareerDetail.jsx` | DOMPurify sanitization |
+| `frontend/src/pages/ResetPassword.jsx` | NEW — reset password page |
+| `frontend/src/pages/ResetPassword.css` | NEW — `rp-` prefix |
+| `frontend/src/App.jsx` | `/reset-password` route |
+| `frontend/src/services/api.js` | `resetPassword()` export |
+
+#### Still Open (Next Session Backlog)
+
+**Critical remaining:**
+- [ ] C-3. RBAC: Add `authorize()` to all write routes in `vendorReturnRoutes.js` and `orderRoutes.js`
+- [ ] C-7. Clock-event endpoint: server-side station token validation + replay protection
+
+**High remaining:**
+- [ ] H-3. Replace `type="number"` price inputs with `type="text" inputMode="decimal"` + regex block — ProductForm, Promotions, Lottery, VendorPayouts, DepositRules, Customers
+- [ ] H-4. Rewrite VendorPayoutModal, CashDrawerModal, LotteryModal numpads to cent-based (use `digitsToNumber`/`numberToDigits` like TenderModal)
+- [ ] H-5. Apply `parsePrice()` helper throughout `catalogController.js` and `posController.js`
+- [ ] H-7. libphonenumber-js validation in Customer create/update
+- [ ] H-8. Debug `/portal/stations` and `/portal/pos-reports?tab=transactions` redirect-to-login
+- [ ] H-10. Replace silent `.catch(() => {})` with toast errors in `POSScreen.jsx` + `BulkImport.jsx`
+- [ ] H-11. Storefront signup — show "awaiting approval" state
+
+**Medium:** Admin Login password-eye toggle, ProductForm unsaved-changes warning, UPC duplicate error display, pack-size unitCount validation, CVV iFrame migration, admin temp password forced-change flow.
+
+---
+
+*Last updated: April 2026 — Session 18: QA & Security Audit + Critical Fixes*

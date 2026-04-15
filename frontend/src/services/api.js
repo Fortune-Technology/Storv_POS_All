@@ -55,6 +55,10 @@ export const login = (credentials) => api.post('/auth/login', credentials);
 // Forgot Password
 export const forgotPassword = (email) => api.post('/auth/forgot-password', { email });
 
+// Reset Password (token from email link)
+export const resetPassword = ({ token, password }) =>
+  api.post('/auth/reset-password', { token, password }).then((r) => r.data);
+
 // Phone Lookup
 export const phoneLookup = (phone) => api.post('/auth/phone-lookup', { phone });
 
