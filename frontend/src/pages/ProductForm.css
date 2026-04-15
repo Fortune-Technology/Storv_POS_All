@@ -1098,6 +1098,15 @@
   padding-right: 4px !important;
 }
 
+/* When pf-compact-input is combined with pf-dollar-input (Case Cost uses
+   BOTH classes), restore the left-padding so the absolute-positioned "$"
+   prefix doesn't overlap the value. Without this rule, a value like "41.00"
+   renders as "4$1.00" or "1$00" because the $ sign is at left:10px and the
+   text starts at 6px — the $ literally sits on top of the first char. */
+.pf-dollar-input.pf-compact-input {
+  padding-left: 20px !important;
+}
+
 .pf-center-input {
   text-align: center;
 }
