@@ -75,6 +75,20 @@ jobs:
           rm -f package-lock.json
           npm install
           npx prisma generate
+
+          # ── Safe baseline for existing production DB ─────────────────────
+          # The ecom DB already has tables (pre-migrations era). On the first
+          # deploy after introducing prisma migrations, we mark 0_init as
+          # already-applied so migrate deploy doesn't try to recreate tables.
+          # This is idempotent: once resolved, subsequent runs are no-ops.
+          BASELINE_APPLIED=$(npx prisma migrate status 2>&1 | grep -c "0_init" || true)
+          if [ "$BASELINE_APPLIED" = "0" ]; then
+            echo "→ Baselining existing database with 0_init (no schema changes)"
+            npx prisma migrate resolve --applied 0_init || echo "  (already applied)"
+          else
+            echo "→ Baseline 0_init already recorded, skipping resolve"
+          fi
+
           npx prisma migrate deploy
           pm2 restart storv-ecom-backend || pm2 start src/server.js --name storv-ecom-backend
           pm2 save
