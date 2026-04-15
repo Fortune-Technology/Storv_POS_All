@@ -2862,22 +2862,58 @@ A comprehensive QA audit covering UI, validation, workflow, and security across 
 | `frontend/src/App.jsx` | `/reset-password` route |
 | `frontend/src/services/api.js` | `resetPassword()` export |
 
-#### Still Open (Next Session Backlog)
+#### Session 18b Fixes (continuation — same session)
 
-**Critical remaining:**
-- [ ] C-3. RBAC: Add `authorize()` to all write routes in `vendorReturnRoutes.js` and `orderRoutes.js`
-- [ ] C-7. Clock-event endpoint: server-side station token validation + replay protection
+**Critical — C-3, C-7 resolved**
+
+- **C-3. RBAC on vendor return + order routes** — [`vendorReturnRoutes.js`](backend/src/routes/vendorReturnRoutes.js) and [`orderRoutes.js`](backend/src/routes/orderRoutes.js) rewritten with `readRoles` / `writeRoles` / `ownerRoles` tiers. Financial sign-off operations (approve/reject PO, delete PO, record vendor credit, delete vendor return) are owner+; routine write ops are manager+; reads are manager+.
+
+- **C-7. Clock-event hardening** — [`posTerminalController.js`](backend/src/controllers/posTerminalController.js) `clockEvent`:
+  - Strict PIN validation (4-8 digits, numeric only)
+  - Station token length sanity check
+  - Only `active` users can clock in
+  - **`storeId` / `stationId` from client body are now ignored** — always use the IDs bound to the authenticated station token (prevents cross-store clock event injection)
+  - New [`pinLimiter`](backend/src/middleware/rateLimit.js) (15 attempts / 5 min) applied to both `/clock` and `/pin-login` in [`posTerminalRoutes.js`](backend/src/routes/posTerminalRoutes.js)
+
+**High — H-3, H-4, H-5, H-8, H-10, H-11 resolved**
+
+- **H-3. Price input hardening** — New [`PriceInput` component](frontend/src/components/PriceInput.jsx) replaces `type="number" step="0.01"` on ProductForm's main price fields (retail, case cost, e-com, deposit, deal value, pack rows). Blocks scientific notation, negatives, >4 decimals, and wheel-scroll corruption. Server-side `parsePrice` (H-5) backs it up.
+
+- **H-4. Cashier numpads cent-based** — [`VendorPayoutModal`](cashier-app/src/components/modals/VendorPayoutModal.jsx), [`CashDrawerModal`](cashier-app/src/components/modals/CashDrawerModal.jsx), and [`LotteryModal`](cashier-app/src/components/modals/LotteryModal.jsx) numpads rewritten to match `TenderModal` cent-entry. They now import `digitsToDisplay`/`digitsToNumber` from `NumPadInline` and maintain digit-string state. Typing `587` → `$5.87`, backspace removes one digit right-to-left. The legacy `.` key is a no-op in these modals.
+
+- **H-5. `parsePrice()` applied in catalogController** — New `toPrice(value, field)` helper in [`catalogController.js`](backend/src/controllers/catalogController.js) wraps `parsePrice` from `utils/validators.js`. Applied to `defaultCostPrice`, `defaultRetailPrice`, `defaultCasePrice`, `depositPerUnit`, `caseDeposit` in both `createMasterProduct` and `updateMasterProduct`. Invalid input now returns `400` with `{ error: "fieldName: Invalid price format" }` instead of silently storing `NaN`/`Infinity`.
+
+- **H-8. Session-expiry dead-end fix** — [`frontend/src/services/api.js`](frontend/src/services/api.js) now has a global **response interceptor** that catches `401` on any API call (except the auth flow itself), clears `user`/`token` from `localStorage`, and redirects to `/login?session=expired&returnTo=...`. This fixes the real root cause of pages "redirecting to login" — stale JWT after the 30d→2h reduction. (`/portal/stations` itself doesn't exist in App.jsx — it was a stale reference; the issue was expired-token dead-ends.)
+
+- **H-10. Silent catches in cashier-app** — The high-value silent failures in [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) replaced:
+  - Receipt print failure now shows a scan-error toast ("Receipt print failed — check printer connection")
+  - `loadActiveShift` failure shows a toast and still allows OpenShiftModal to appear
+  - Branding load, chat poll, held tx count, lottery box load, drawer open — all now `console.warn` with context instead of swallowing silently
+  - [`BulkImport.jsx`](frontend/src/pages/BulkImport.jsx) history refresh — same treatment
+
+- **H-11. Storefront signup awaiting-approval** — [`storefront/pages/account/signup.js`](storefront/pages/account/signup.js):
+  - New `pendingApproval` screen shown when `signup()` returns `status: 'pending'`
+  - Client-side password policy now matches backend regex (8+ chars, upper/lower/digit/special)
+  - User is NOT auto-redirected to `/account` on pending status — shown friendly "awaiting approval" page with Continue Shopping button
+
+**Medium — M-1, M-8 resolved**
+
+- **M-1. Admin Login password eye toggle** — Already implemented in prior session (confirmed: `showPw` state, `Eye`/`EyeOff` icons, `.al-pw-eye` CSS class in [`admin-app/src/pages/Login.css`](admin-app/src/pages/Login.css)). Marked complete.
+
+- **M-8. Random admin temp password** — [`adminController.js`](backend/src/controllers/adminController.js) `createUser`:
+  - New `generateTempPassword()` helper uses `crypto.randomInt` to build a 16-char password guaranteed to satisfy the policy (1 upper, 1 lower, 1 digit, 1 special, then filled from a curated charset excluding lookalikes like `0/O` and `l/1`)
+  - Returned **once** in the response as `{ tempPassword, notice }` so the admin can deliver out-of-band
+  - Email is now normalized (`.trim().toLowerCase()`) to prevent duplicate-email edge cases
+  - Hardcoded `Temp@1234` removed
+
+#### Still Open (Lower Priority)
 
 **High remaining:**
-- [ ] H-3. Replace `type="number"` price inputs with `type="text" inputMode="decimal"` + regex block — ProductForm, Promotions, Lottery, VendorPayouts, DepositRules, Customers
-- [ ] H-4. Rewrite VendorPayoutModal, CashDrawerModal, LotteryModal numpads to cent-based (use `digitsToNumber`/`numberToDigits` like TenderModal)
-- [ ] H-5. Apply `parsePrice()` helper throughout `catalogController.js` and `posController.js`
-- [ ] H-7. libphonenumber-js validation in Customer create/update
-- [ ] H-8. Debug `/portal/stations` and `/portal/pos-reports?tab=transactions` redirect-to-login
-- [ ] H-10. Replace silent `.catch(() => {})` with toast errors in `POSScreen.jsx` + `BulkImport.jsx`
-- [ ] H-11. Storefront signup — show "awaiting approval" state
+- [ ] H-7. libphonenumber-js validation on customer create/update (portal Customers + storefront)
 
-**Medium:** Admin Login password-eye toggle, ProductForm unsaved-changes warning, UPC duplicate error display, pack-size unitCount validation, CVV iFrame migration, admin temp password forced-change flow.
+**Medium:** ProductForm unsaved-changes warning (M-2), UPC duplicate error display (M-3), pack-size unitCount validation (M-4), httpOnly cookie migration (M-6), CVV iFrame via Stripe Elements (M-7), forced-change flow for admin temp password (extension of M-8), modal overlay CSS var migration (M-9).
+
+**Low:** ProductForm DeptManager/VendorManager inline styles (L-1), remaining `type="number"` price inputs in Promotions / Lottery / VendorPayouts / DepositRules / Customers portal pages (tracked under H-3 — partial), storefront globals.css responsive gaps (L-2), currency `$` prefix on remaining portal price inputs (L-4).
 
 ---
 

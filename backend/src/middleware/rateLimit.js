@@ -72,3 +72,11 @@ export const resetPasswordLimiter = createLimiter({
   max: 20,
   message: 'Too many password reset attempts. Please try again later.',
 });
+
+// 15 PIN attempts / 5 min — cashier PIN-based endpoints (clock, pin-login).
+// Tolerates legitimate rapid shift turnover while blocking PIN brute force.
+export const pinLimiter = createLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 15,
+  message: 'Too many PIN attempts. Please wait a few minutes.',
+});

@@ -16,6 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
+import PriceInput from '../components/PriceInput';
 import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
@@ -1334,10 +1335,9 @@ export default function ProductForm() {
                     <label className="pf-label">Retail Price</label>
                     <div className="pf-dollar-wrap">
                       <span className="pf-dollar-sign">$</span>
-                      <input className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
-                        type="number" step="0.01" min="0"
+                      <PriceInput className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
                         value={form.defaultRetailPrice} placeholder="0.00"
-                        onChange={e => setF('defaultRetailPrice', e.target.value)}
+                        onChange={(v) => setF('defaultRetailPrice', v)}
                         onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
@@ -1347,10 +1347,9 @@ export default function ProductForm() {
                     <label className="pf-label pf-label-sm">Case Cost</label>
                     <div className="pf-dollar-wrap">
                       <span className="pf-dollar-sign">$</span>
-                      <input className="form-input pf-dollar-input pf-compact-input"
-                        type="number" step="0.01" min="0"
+                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
                         value={form.defaultCasePrice} placeholder="0.00"
-                        onChange={e => setF('defaultCasePrice', e.target.value)}
+                        onChange={(v) => setF('defaultCasePrice', v)}
                         onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                     </div>
                   </div>
@@ -1481,10 +1480,10 @@ export default function ProductForm() {
                             onChange={e => updatePackRow(idx, 'label', e.target.value)} />
                           <div className="pf-dollar-wrap">
                             <span className="pf-dollar-sign">$</span>
-                            <input className="form-input pf-pack-input pf-dollar-input" type="number" step="0.01" min="0"
+                            <PriceInput className="form-input pf-pack-input pf-dollar-input"
                               placeholder="0.00"
                               value={row.packPrice}
-                              onChange={e => updatePackRow(idx, 'packPrice', e.target.value)} />
+                              onChange={(v) => updatePackRow(idx, 'packPrice', v)} />
                           </div>
                           <input className="form-input pf-pack-input" type="number" min="1"
                             placeholder="1"
@@ -1633,11 +1632,11 @@ export default function ProductForm() {
                           </label>
                           <div className={dealForm.type !== 'percent_off' ? 'pf-dollar-wrap' : undefined} style={{ position: dealForm.type === 'percent_off' ? 'relative' : undefined }}>
                             {dealForm.type !== 'percent_off' && <span className="pf-dollar-sign">$</span>}
-                            <input className={`form-input${dealForm.type !== 'percent_off' ? ' pf-dollar-input' : ''}`}
+                            <PriceInput className={`form-input${dealForm.type !== 'percent_off' ? ' pf-dollar-input' : ''}`}
                               style={{ width:'100%' }}
-                              type="number" step="0.01" min="0"
+                              maxValue={dealForm.type === 'percent_off' ? 100 : undefined}
                               value={dealForm.value}
-                              onChange={e => setDealForm(f => ({ ...f, value: e.target.value }))}
+                              onChange={(v) => setDealForm(f => ({ ...f, value: v }))}
                               placeholder="0.00" />
                             {dealForm.type === 'percent_off' && (
                               <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
@@ -1743,11 +1742,11 @@ export default function ProductForm() {
                 <div className="pf-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
                   <div>
                     <label className="pf-label">E-Commerce Price</label>
-                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomPrice} onChange={e => setF('ecomPrice', e.target.value)} placeholder="0.00" />
+                    <PriceInput className="form-input pf-full" value={form.ecomPrice} onChange={(v) => setF('ecomPrice', v)} placeholder="0.00" />
                   </div>
                   <div>
                     <label className="pf-label">Sale Price</label>
-                    <input className="form-input pf-full" type="number" step="0.01" value={form.ecomSalePrice} onChange={e => setF('ecomSalePrice', e.target.value)} placeholder="0.00" />
+                    <PriceInput className="form-input pf-full" value={form.ecomSalePrice} onChange={(v) => setF('ecomSalePrice', v)} placeholder="0.00" />
                   </div>
                   <div>
                     <label className="pf-label">External ID</label>
@@ -1935,10 +1934,9 @@ export default function ProductForm() {
                   <label className="pf-label">Case Cost (invoice)</label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
-                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
-                      type="number" step="0.01" min="0"
+                    <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
                       value={form.defaultCasePrice} placeholder="0.00"
-                      onChange={e => setF('defaultCasePrice', e.target.value)}
+                      onChange={(v) => setF('defaultCasePrice', v)}
                       onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                   </div>
                 </div>
@@ -1957,10 +1955,9 @@ export default function ProductForm() {
                   <label className="pf-label">Case Deposit Total</label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
-                    <input className="form-input pf-dollar-input" style={{ width:'100%' }}
-                      type="number" step="0.01" min="0"
+                    <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
                       value={caseDeposit}
-                      onChange={e => setCaseDeposit(e.target.value)}
+                      onChange={(v) => setCaseDeposit(v)}
                       onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))}
                       placeholder="e.g. 1.20" />
                   </div>

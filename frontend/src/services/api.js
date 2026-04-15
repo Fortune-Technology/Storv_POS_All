@@ -8,10 +8,12 @@ const api = axios.create({
 // Add a request interceptor to include the Bearer token + active store header
 api.interceptors.request.use(
   (config) => {
-    const user = JSON.parse(localStorage.getItem('user'));
-    if (user && user.token) {
-      config.headers.Authorization = `Bearer ${user.token}`;
-    }
+    try {
+      const user = JSON.parse(localStorage.getItem('user'));
+      if (user && user.token) {
+        config.headers.Authorization = `Bearer ${user.token}`;
+      }
+    } catch { /* malformed user blob — ignore */ }
     // Attach active store so the backend scopes data correctly
     const activeStoreId = localStorage.getItem('activeStoreId');
     if (activeStoreId) {
@@ -20,6 +22,43 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// ── Global 401 handler ────────────────────────────────────────────────────
+// When the backend rejects our JWT (expired or revoked), clear the session
+// and bounce the user to /login. Without this, pages hang on stale tokens
+// and users see blank screens or mid-navigation redirects.
+//
+// Skip the handler for the login / reset flows themselves — those 401s are
+// expected "wrong password" responses and the page handles its own error.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const url    = error?.config?.url || '';
+    const isAuthFlow = /\/auth\/(login|signup|forgot-password|reset-password)/.test(url);
+
+    if (status === 401 && !isAuthFlow) {
+      // Session is no longer valid — wipe and redirect once.
+      try {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      } catch {}
+      // Avoid redirect loops: only navigate when not already on a public page.
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        const isPublic = path === '/' || path.startsWith('/login') || path.startsWith('/signup') ||
+          path.startsWith('/forgot-password') || path.startsWith('/reset-password') ||
+          path.startsWith('/features') || path.startsWith('/pricing') || path.startsWith('/contact') ||
+          path.startsWith('/about') || path.startsWith('/careers');
+        if (!isPublic) {
+          const returnTo = encodeURIComponent(path + window.location.search);
+          window.location.replace(`/login?session=expired&returnTo=${returnTo}`);
+        }
+      }
+    }
     return Promise.reject(error);
   }
 );

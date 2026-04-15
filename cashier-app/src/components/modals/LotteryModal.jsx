@@ -9,9 +9,11 @@
 import React, { useState } from 'react';
 import { X, Ticket } from 'lucide-react';
 import { useCartStore } from '../../stores/useCartStore.js';
+import { digitsToDisplay, digitsToNumber } from '../pos/NumPadInline.jsx';
 import './LotteryModal.css';
 
-const NUMPAD   = ['7','8','9','4','5','6','1','2','3','.','0','⌫'];
+const NUMPAD   = ['7','8','9','4','5','6','1','2','3','C','0','⌫'];
+const MAX_DIGITS = 7;
 const SALE_PRESETS   = [1, 2, 3, 5, 10, 20];
 const PAYOUT_PRESETS = [5, 10, 20, 50, 100, 200];
 
@@ -20,59 +22,61 @@ export default function LotteryModal({ open, games = [], onClose }) {
 
   const [tab,          setTab]          = useState('sale');    // 'sale' | 'payout'
   const [selectedGame, setSelectedGame] = useState(null);
-  const [display,      setDisplay]      = useState('0');
+  // Cent-based digit buffer (matches TenderModal / VendorPayoutModal).
+  // "587" -> "$5.87". Empty string == $0.00.
+  const [display,      setDisplay]      = useState('');
   const [note,         setNote]         = useState('');
   const [added,        setAdded]        = useState([]);        // shared session list
   const [qty,          setQty]          = useState(1);
 
   if (!open) return null;
 
-  // ── Numpad handler (shared) ─────────────────────────────────────────────────
+  // ── Numpad handler (cent-based) ────────────────────────────────────────────
   const handleKey = (key) => {
     setDisplay(prev => {
-      if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
-      if (key === '.') return prev.includes('.') ? prev : prev + '.';
-      if (prev === '0') return key;
-      if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+      if (key === 'C')  return '';
+      if (key === '⌫') return prev.slice(0, -1);
+      if (key === '.') return prev;                // legacy no-op
+      if (prev.length >= MAX_DIGITS) return prev;
+      if (prev === '' && key === '0') return '';   // ignore leading zero
       return prev + key;
     });
   };
 
   const switchTab = (t) => {
     setTab(t);
-    setDisplay('0');
+    setDisplay('');
     setNote('');
     setQty(1);
   };
 
+  const amount = digitsToNumber(display, 2);
   const saleAmount = selectedGame
     ? Number(selectedGame.ticketPrice) * qty
-    : (parseFloat(display) || 0);
-
-  const amount = parseFloat(display) || 0;
+    : amount;
 
   // ── Add handlers ────────────────────────────────────────────────────────────
   const handleAddSale = () => {
-    const amt = selectedGame ? Number(selectedGame.ticketPrice) * qty : (parseFloat(display) || 0);
+    const amt = selectedGame ? Number(selectedGame.ticketPrice) * qty : amount;
     if (amt <= 0) return;
     const gameName = selectedGame?.name || 'Lottery';
     addLotteryItem({ lotteryType: 'sale', amount: amt, gameId: selectedGame?.id || null, gameName, qty: selectedGame ? qty : 1 });
     setAdded(a => [...a, { type: 'sale', label: `Sale: ${gameName}${selectedGame ? ` x${qty}` : ''}`, amount: amt }]);
     setQty(1);
-    setDisplay('0');
+    setDisplay('');
   };
 
   const handleAddPayout = () => {
     if (amount <= 0) return;
     addLotteryItem({ lotteryType: 'payout', amount, notes: note.trim() || undefined });
     setAdded(a => [...a, { type: 'payout', label: `Payout${note.trim() ? ' — ' + note.trim() : ''}`, amount }]);
-    setDisplay('0');
+    setDisplay('');
     setNote('');
   };
 
   const handleDone = () => {
     setAdded([]);
-    setDisplay('0');
+    setDisplay('');
     setNote('');
     setSelectedGame(null);
     setQty(1);
@@ -180,7 +184,7 @@ export default function LotteryModal({ open, games = [], onClose }) {
                   {isSale ? 'Lottery Sale Amount' : 'Payout Amount'}
                 </div>
                 <span className={`lm-display-value${isSale ? ' lm-display-value--sale' : ' lm-display-value--payout'}`}>
-                  ${display}
+                  ${digitsToDisplay(display, 2)}
                 </span>
               </div>
 
@@ -236,7 +240,7 @@ export default function LotteryModal({ open, games = [], onClose }) {
                 {tab === 'sale' && selectedGame
                   ? `Add ${qty} x ${selectedGame.name} — $${saleAmount.toFixed(2)}`
                   : tab === 'sale'
-                    ? `Add Lottery Sale — $${(parseFloat(display) || 0).toFixed(2)}`
+                    ? `Add Lottery Sale — $${amount.toFixed(2)}`
                     : `Add Payout — $${amount.toFixed(2)}`
                 }
               </button>
