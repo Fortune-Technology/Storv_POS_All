@@ -14,6 +14,7 @@ import {
   Clock, Star, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import PriceInput from '../components/PriceInput';
 
 import './Promotions.css';
 import {
@@ -827,7 +828,7 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label={cfg.discountType === 'percent' ? 'Discount %' : cfg.discountType === 'amount' ? 'Discount $' : 'Fixed Sale Price $'}>
-          <input type="number" min="0" step="0.01" value={cfg.discountValue} onChange={e => setC('discountValue', e.target.value)} placeholder="0" style={inputStyle} />
+          <PriceInput maxValue={cfg.discountType === 'percent' ? 100 : undefined} value={cfg.discountValue} onChange={(v) => setC('discountValue', v)} placeholder="0" style={inputStyle} />
         </Field>
         <Field label="Minimum Qty to Qualify">
           <input type="number" min="1" step="1" value={cfg.minQty} onChange={e => setC('minQty', parseInt(e.target.value) || 1)} style={inputStyle} />
@@ -897,8 +898,8 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
               </select>
             </Field>
             <Field label="Discount Value">
-              <input type="number" min="0" step="0.01" value={tier.discountValue}
-                onChange={e => setC('tiers', cfg.tiers.map((t, j) => j === i ? { ...t, discountValue: e.target.value } : t))}
+              <PriceInput maxValue={tier.discountType === 'percent' ? 100 : undefined} value={tier.discountValue}
+                onChange={(v) => setC('tiers', cfg.tiers.map((t, j) => j === i ? { ...t, discountValue: v } : t))}
                 style={inputStyle} />
             </Field>
           </div>
@@ -920,8 +921,8 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
             onChange={e => setC('groupSize', parseInt(e.target.value) || 2)} style={inputStyle} />
         </Field>
         <Field label="Bundle Price ($)">
-          <input type="number" min="0" step="0.01" value={cfg.bundlePrice}
-            onChange={e => setC('bundlePrice', e.target.value)} placeholder="0.00" style={inputStyle} />
+          <PriceInput value={cfg.bundlePrice}
+            onChange={(v) => setC('bundlePrice', v)} placeholder="0.00" style={inputStyle} />
         </Field>
       </div>
       {cfg.bundlePrice > 0 && (
@@ -991,8 +992,8 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
           </select>
         </Field>
         <Field label="Combo Discount Value">
-          <input type="number" min="0" step="0.01" value={cfg.discountValue}
-            onChange={e => setC('discountValue', e.target.value)} style={inputStyle} />
+          <PriceInput maxValue={cfg.discountType === 'percent' ? 100 : undefined} value={cfg.discountValue}
+            onChange={(v) => setC('discountValue', v)} style={inputStyle} />
         </Field>
       </div>
     </div>

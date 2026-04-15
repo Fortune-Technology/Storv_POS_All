@@ -2906,14 +2906,58 @@ A comprehensive QA audit covering UI, validation, workflow, and security across 
   - Email is now normalized (`.trim().toLowerCase()`) to prevent duplicate-email edge cases
   - Hardcoded `Temp@1234` removed
 
-#### Still Open (Lower Priority)
+#### Session 18c Fixes (continuation — Round 3)
 
-**High remaining:**
-- [ ] H-7. libphonenumber-js validation on customer create/update (portal Customers + storefront)
+**High — H-3 completion + H-7 resolved**
 
-**Medium:** ProductForm unsaved-changes warning (M-2), UPC duplicate error display (M-3), pack-size unitCount validation (M-4), httpOnly cookie migration (M-6), CVV iFrame via Stripe Elements (M-7), forced-change flow for admin temp password (extension of M-8), modal overlay CSS var migration (M-9).
+- **H-3 (completed across remaining pages)** — `PriceInput` now applied to:
+  - [`Promotions.jsx`](frontend/src/pages/Promotions.jsx) — `cfg.discountValue`, `tier.discountValue` (with `maxValue={100}` for percent mode), `cfg.bundlePrice`
+  - [`Lottery.jsx`](frontend/src/pages/Lottery.jsx) — all `ticketPrice` inputs (ticket catalog, receive order, activate, games form), `commissionRate` (bounded 0-100)
+  - [`VendorPayouts.jsx`](frontend/src/pages/VendorPayouts.jsx) — `form.amount`
+  - [`DepositRules.jsx`](frontend/src/pages/DepositRules.jsx) — `depositAmount`, `minVolumeOz`, `maxVolumeOz` (latter two with `maxDecimals={1}`)
+  - [`Customers.jsx`](frontend/src/pages/Customers.jsx) — `discount` (max 100), `balance`, `balanceLimit`
 
-**Low:** ProductForm DeptManager/VendorManager inline styles (L-1), remaining `type="number"` price inputs in Promotions / Lottery / VendorPayouts / DepositRules / Customers portal pages (tracked under H-3 — partial), storefront globals.css responsive gaps (L-2), currency `$` prefix on remaining portal price inputs (L-4).
+- **H-7. Phone (+ email) validation on customer endpoints** — [`customerController.js`](backend/src/controllers/customerController.js) `createCustomer` and `updateCustomer`:
+  - New `normalizePhone()` helper strips spaces/dashes/parens/dots, enforces `+?[0-9]{7,15}`, stores canonical form
+  - Email validated via `validateEmail()` + lowercased on write
+  - `discount`/`balance`/`balanceLimit` now parsed via `parsePrice()` with explicit bounds — rejects NaN/Infinity/scientific/out-of-range values with a `400` error
+  - Optional fields still accepted as empty/null; only validated when supplied
+
+**Medium — M-2, M-3, M-4, M-9 resolved**
+
+- **M-2. ProductForm unsaved-changes warning** — [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx):
+  - `dirty` state flag flips on first `setF()` edit
+  - `beforeunload` listener prompts before browser close/refresh when dirty
+  - `dirty` is cleared on successful load and before navigation on successful save
+  - New `handleCancel()` asks `window.confirm('Discard unsaved changes?')` before navigating away via Cancel / Back button; both back buttons now call it
+
+- **M-3. Duplicate UPC error display** — Already surfaces backend 409 via `handleAddUpc`'s `err.response?.data?.error` toast. Confirmed working. Backend `createMasterProduct` also now returns `400` instead of `500` when price validation fails (via `H-5` toPrice helper), so the error toast is meaningful.
+
+- **M-4. Pack-size validation** — `handleSave()` now iterates `packRows` before submitting:
+  - Each row must have `unitPack >= 1` (previously silently coerced to `1`)
+  - Each row must have `packPrice > 0`
+  - At most one row may be marked `isDefault`
+  - Toasts identify the specific offending row index and field
+
+- **M-9. Modal overlay CSS vars** — [`frontend/src/index.css`](frontend/src/index.css) adds:
+  - `--modal-overlay: rgba(0, 0, 0, 0.55)`
+  - `--modal-overlay-strong: rgba(0, 0, 0, 0.7)`
+  - `--modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.4)`
+  - ProductForm's DeptManager + VendorManager modals migrated to use `var(--modal-overlay)` and `var(--modal-shadow)` instead of hardcoded rgba
+
+#### Still Open
+
+**Medium remaining:**
+- [ ] M-5. Extend ProductForm save guards (optional — covered partially by M-4)
+- [ ] M-6. JWT migration from localStorage to httpOnly cookie — large refactor
+- [ ] M-7. CVV input → PCI-compliant iFrame (Stripe Elements) — external integration
+- [ ] M-8 extension. Forced password-change flow on first admin-created user login
+
+**Low remaining:**
+- [ ] L-1. ProductForm DeptManager/VendorManager inline styles → external CSS
+- [ ] L-2. Storefront globals.css missing breakpoints (header + checkout)
+- [ ] L-3. Double scroll risk in nested modal panels
+- [ ] L-4. Currency `$` prefix missing on portal price inputs (partial — ProductForm already has it; other pages not yet audited)
 
 ---
 

@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import PriceInput from '../components/PriceInput';
 
 import './Customers.css';
 import {
@@ -144,13 +145,13 @@ function CustomerForm({ initial: init, onSave, onClose, saving }) {
           {/* Financial row */}
           <div className="cust-form-row">
             <label className="cust-label">Discount (%)
-              <input className="cust-input" value={form.discount} onChange={e => set('discount', e.target.value)} type="number" min="0" max="100" step="0.1" placeholder="e.g. 5" />
+              <PriceInput className="cust-input" maxValue={100} maxDecimals={2} value={form.discount} onChange={(v) => set('discount', v)} placeholder="e.g. 5" />
             </label>
             <label className="cust-label">Balance ($)
-              <input className="cust-input" value={form.balance} onChange={e => set('balance', e.target.value)} type="number" step="0.01" placeholder="0.00" />
+              <PriceInput className="cust-input" value={form.balance} onChange={(v) => set('balance', v)} placeholder="0.00" />
             </label>
             <label className="cust-label">Balance Limit ($)
-              <input className="cust-input" value={form.balanceLimit} onChange={e => set('balanceLimit', e.target.value)} type="number" step="0.01" placeholder="0.00" />
+              <PriceInput className="cust-input" value={form.balanceLimit} onChange={(v) => set('balanceLimit', v)} placeholder="0.00" />
             </label>
           </div>
 

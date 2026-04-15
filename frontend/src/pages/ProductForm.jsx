@@ -154,9 +154,9 @@ function DeptManager({ departments, onClose, onRefresh }) {
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.55)' }} onClick={onClose} />
+      <div style={{ position:'absolute', inset:0, background:'var(--modal-overlay)' }} onClick={onClose} />
       <div style={{ position:'relative', width:'100%', maxWidth:660, maxHeight:'80vh', background:'var(--bg-secondary)',
-        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.4)' }}>
+        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'var(--modal-shadow)' }}>
         <div style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--border-color)',
           display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -311,9 +311,9 @@ function VendorManager({ vendors, onClose, onRefresh }) {
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.55)' }} onClick={onClose} />
+      <div style={{ position:'absolute', inset:0, background:'var(--modal-overlay)' }} onClick={onClose} />
       <div style={{ position:'relative', width:'100%', maxWidth:640, maxHeight:'80vh', background:'var(--bg-secondary)',
-        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.4)' }}>
+        borderRadius:12, display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'var(--modal-shadow)' }}>
         <div style={{ padding:'1rem 1.5rem', borderBottom:'1px solid var(--border-color)',
           display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -727,7 +727,24 @@ export default function ProductForm() {
   };
 
   const [form, setForm] = useState(blank);
-  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // Dirty-state tracking: flip on first user edit, clear on save/load.
+  const [dirty, setDirty] = useState(false);
+  const setF = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }));
+    setDirty(true);
+  };
+
+  // Warn user before leaving with unsaved changes (browser close, refresh, tab close).
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // Required for Chrome to show the prompt
+      return '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
 
   // ── Load support data ────────────────────────────────────────────────────────
   const loadSupport = useCallback(async () => {
@@ -845,6 +862,9 @@ export default function ProductForm() {
             active:    pr.active ?? true,
           })));
         }
+        // Loaded cleanly from server — reset dirty flag so the unsaved-changes
+        // guard doesn't fire on the initial render pass.
+        setDirty(false);
       } catch { toast.error('Failed to load product'); }
       finally  { setLoading(false); }
     })();
@@ -1057,6 +1077,28 @@ export default function ProductForm() {
     if (!form.departmentId) { toast.error('Department is required');   return; }
     if (upcWarning)         { toast.error(upcWarning);                 return; }
 
+    // Pack-size validation: when pack pricing is enabled, every row must
+    // have a positive unit count and a non-zero price. Silently coercing to
+    // 1 (as the old code did) produced phantom pack sizes on save.
+    if (packEnabled && packRows.length > 0) {
+      for (let i = 0; i < packRows.length; i++) {
+        const r = packRows[i];
+        const units = parseInt(r.unitPack, 10);
+        const price = parseFloat(r.packPrice);
+        if (!Number.isFinite(units) || units < 1) {
+          toast.error(`Pack size #${i + 1}: "Unit-Pack" must be at least 1`);
+          return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+          toast.error(`Pack size #${i + 1}: price must be greater than $0.00`);
+          return;
+        }
+      }
+      // Exactly one default row, if any row is marked default.
+      const defaults = packRows.filter(r => r.isDefault).length;
+      if (defaults > 1) { toast.error('Only one pack size can be marked as default'); return; }
+    }
+
     let derivedRetailPrice = form.defaultRetailPrice || null;
     if (packEnabled && packRows.length > 0) {
       const defaultRow = packRows.find(r => r.isDefault) || packRows[0];
@@ -1156,10 +1198,20 @@ export default function ProductForm() {
         ));
       }
 
+      setDirty(false); // clear unsaved-changes flag BEFORE navigation
       navigate('/portal/catalog');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Save failed');
     } finally { setSaving(false); }
+  };
+
+  // Guarded cancel — ask before discarding unsaved edits.
+  const handleCancel = () => {
+    if (dirty) {
+      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      if (!ok) return;
+    }
+    navigate('/portal/catalog');
   };
 
   // ── Loading state ────────────────────────────────────────────────────────────
@@ -1179,7 +1231,7 @@ export default function ProductForm() {
 
           {/* ── Top Bar ── */}
           <div className="pf-topbar-inner">
-            <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-topbar-back">
+            <button type="button" onClick={handleCancel} className="pf-topbar-back">
               <ChevronLeft size={16} /> Catalog
             </button>
             <h1 className="pf-topbar-title">
@@ -1191,7 +1243,7 @@ export default function ProductForm() {
                   <Copy size={14} /> {duplicating ? 'Loading…' : 'Duplicate'}
                 </button>
               )}
-              <button type="button" onClick={() => navigate('/portal/catalog')} className="pf-btn-secondary">Cancel</button>
+              <button type="button" onClick={handleCancel} className="pf-btn-secondary">Cancel</button>
               <button type="submit" disabled={saving} className="pf-btn-primary">
                 <Save size={14} /> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Product'}
               </button>

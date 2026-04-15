@@ -6,6 +6,7 @@
  *   name, description, depositAmount, containerTypes, minVolumeOz, maxVolumeOz, state, active
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import PriceInput from '../components/PriceInput';
 import {
   getCatalogDepositRules,
   createCatalogDepositRule,
@@ -144,8 +145,8 @@ function RuleForm({ initial, onSave, onCancel, saving }) {
           <label style={labelStyle}>DEPOSIT AMOUNT (per container) *</label>
           <div style={{ position: 'relative' }}>
             <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted, #6b7280)', fontWeight: 700 }}>$</span>
-            <input style={{ ...inp, paddingLeft: 24 }} type="number" step="0.01" min="0.01"
-              value={form.depositAmount} onChange={e => set('depositAmount', e.target.value)}
+            <PriceInput style={{ ...inp, paddingLeft: 24 }}
+              value={form.depositAmount} onChange={(v) => set('depositAmount', v)}
               placeholder="0.05" />
           </div>
         </div>
@@ -166,16 +167,16 @@ function RuleForm({ initial, onSave, onCancel, saving }) {
         {/* Min volume */}
         <div>
           <label style={labelStyle}>MIN VOLUME (oz, optional)</label>
-          <input style={inp} type="number" step="0.1" min="0"
-            value={form.minVolumeOz} onChange={e => set('minVolumeOz', e.target.value)}
+          <PriceInput style={inp} maxDecimals={1}
+            value={form.minVolumeOz} onChange={(v) => set('minVolumeOz', v)}
             placeholder="e.g. 0" />
         </div>
 
         {/* Max volume */}
         <div>
           <label style={labelStyle}>MAX VOLUME (oz, optional)</label>
-          <input style={inp} type="number" step="0.1" min="0"
-            value={form.maxVolumeOz} onChange={e => set('maxVolumeOz', e.target.value)}
+          <PriceInput style={inp} maxDecimals={1}
+            value={form.maxVolumeOz} onChange={(v) => set('maxVolumeOz', v)}
             placeholder="e.g. 128" />
         </div>
 

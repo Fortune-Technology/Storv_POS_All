@@ -15,6 +15,19 @@
 
 import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
+import { validateEmail, validatePhone, parsePrice } from '../utils/validators.js';
+
+/**
+ * Normalize a phone number to an E.164-ish canonical form for storage.
+ * Strips spaces, dashes, parens, dots. Keeps leading '+'.
+ * Returns null for empty/invalid input.
+ */
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const cleaned = String(raw).replace(/[\s\-().]/g, '');
+  if (!/^\+?[0-9]{7,15}$/.test(cleaned)) return null;
+  return cleaned;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +114,27 @@ export const createCustomer = async (req, res, next) => {
       instoreChargeEnabled, birthDate, expirationDate,
     } = req.body;
 
+    // ── Validation ─────────────────────────────────────────────────────────
+    // Email/phone are optional but when supplied must be well-formed.
+    if (email) {
+      const emailErr = validateEmail(email);
+      if (emailErr) return res.status(400).json({ error: emailErr });
+    }
+    let normalizedPhone = null;
+    if (phone) {
+      const phoneErr = validatePhone(phone);
+      if (phoneErr) return res.status(400).json({ error: phoneErr });
+      normalizedPhone = normalizePhone(phone);
+      if (!normalizedPhone) return res.status(400).json({ error: 'Invalid phone format' });
+    }
+    // Parse monetary fields defensively — reject NaN/Infinity/scientific notation.
+    const discountP = parsePrice(discount, { min: 0, max: 100 });
+    if (!discountP.ok) return res.status(400).json({ error: `discount: ${discountP.error}` });
+    const balanceP = parsePrice(balance, { min: -999999, max: 999999 });
+    if (!balanceP.ok) return res.status(400).json({ error: `balance: ${balanceP.error}` });
+    const balanceLimitP = parsePrice(balanceLimit, { min: 0, max: 999999 });
+    if (!balanceLimitP.ok) return res.status(400).json({ error: `balanceLimit: ${balanceLimitP.error}` });
+
     const displayName = buildName({ name, firstName, lastName });
 
     // Hash password if provided (enables storefront login)
@@ -116,14 +150,14 @@ export const createCustomer = async (req, res, next) => {
         name:                displayName,
         firstName:           firstName        || null,
         lastName:            lastName         || null,
-        email:               email            || null,
-        phone:               phone            || null,
+        email:               email ? email.trim().toLowerCase() : null,
+        phone:               normalizedPhone,
         cardNo:              cardNo           || null,
         passwordHash,
         loyaltyPoints:       int(loyaltyPoints, 0),
-        discount:            dec(discount),
-        balance:             dec(balance),
-        balanceLimit:        dec(balanceLimit),
+        discount:            discountP.value,
+        balance:             balanceP.value,
+        balanceLimit:        balanceLimitP.value,
         instoreChargeEnabled:
           instoreChargeEnabled === true || instoreChargeEnabled === 'true',
         birthDate:           birthDate       ? new Date(birthDate)       : null,
@@ -168,13 +202,43 @@ export const updateCustomer = async (req, res, next) => {
       if (lastName  !== undefined) data.lastName  = lastName  || null;
     }
 
-    if (email               !== undefined) data.email               = email    || null;
-    if (phone               !== undefined) data.phone               = phone    || null;
+    if (email               !== undefined) {
+      if (email) {
+        const emailErr = validateEmail(email);
+        if (emailErr) return res.status(400).json({ error: emailErr });
+        data.email = email.trim().toLowerCase();
+      } else {
+        data.email = null;
+      }
+    }
+    if (phone               !== undefined) {
+      if (phone) {
+        const phoneErr = validatePhone(phone);
+        if (phoneErr) return res.status(400).json({ error: phoneErr });
+        const normalized = normalizePhone(phone);
+        if (!normalized) return res.status(400).json({ error: 'Invalid phone format' });
+        data.phone = normalized;
+      } else {
+        data.phone = null;
+      }
+    }
     if (cardNo              !== undefined) data.cardNo              = cardNo   || null;
     if (loyaltyPoints       !== undefined) data.loyaltyPoints       = int(loyaltyPoints, existing.loyaltyPoints);
-    if (discount            !== undefined) data.discount            = dec(discount);
-    if (balance             !== undefined) data.balance             = dec(balance);
-    if (balanceLimit        !== undefined) data.balanceLimit        = dec(balanceLimit);
+    if (discount            !== undefined) {
+      const p = parsePrice(discount, { min: 0, max: 100 });
+      if (!p.ok) return res.status(400).json({ error: `discount: ${p.error}` });
+      data.discount = p.value;
+    }
+    if (balance             !== undefined) {
+      const p = parsePrice(balance, { min: -999999, max: 999999 });
+      if (!p.ok) return res.status(400).json({ error: `balance: ${p.error}` });
+      data.balance = p.value;
+    }
+    if (balanceLimit        !== undefined) {
+      const p = parsePrice(balanceLimit, { min: 0, max: 999999 });
+      if (!p.ok) return res.status(400).json({ error: `balanceLimit: ${p.error}` });
+      data.balanceLimit = p.value;
+    }
     if (instoreChargeEnabled !== undefined)
       data.instoreChargeEnabled =
         instoreChargeEnabled === true || instoreChargeEnabled === 'true';
