@@ -6,11 +6,10 @@
 import React, { useState } from 'react';
 import {
   X, Package, Tag, DollarSign, Barcode, Save, Loader,
-  ShoppingCart, Percent, Leaf, Printer,
+  ShoppingCart, Percent, Leaf, Printer, Check, AlertCircle,
 } from 'lucide-react';
 import { fmt$ } from '../../utils/formatters.js';
 import { useCartStore } from '../../stores/useCartStore.js';
-import { toast } from 'react-toastify';
 import api from '../../api/client.js';
 import './ProductEditModal.css';
 
@@ -22,10 +21,12 @@ export default function ProductEditModal({ item, onClose, hasLabelPrinter, onPri
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [printMsg, setPrintMsg] = useState(null); // { type: 'ok'|'err', text }
 
   const handlePrintLabel = async () => {
     if (!onPrintLabel) return;
     setPrinting(true);
+    setPrintMsg(null);
     try {
       await onPrintLabel({
         name: editName || item.name,
@@ -34,9 +35,11 @@ export default function ProductEditModal({ item, onClose, hasLabelPrinter, onPri
         size: item.size,
         sizeUnit: item.sizeUnit,
       });
-      toast.success('Label sent to printer');
+      setPrintMsg({ type: 'ok', text: 'Label sent to printer' });
+      setTimeout(() => setPrintMsg(null), 2500);
     } catch (err) {
-      toast.error('Print failed: ' + (err.message || 'unknown error'));
+      setPrintMsg({ type: 'err', text: 'Print failed: ' + (err.message || 'unknown error') });
+      setTimeout(() => setPrintMsg(null), 4000);
     } finally {
       setPrinting(false);
     }
@@ -165,6 +168,25 @@ export default function ProductEditModal({ item, onClose, hasLabelPrinter, onPri
             )}
           </div>
         </div>
+
+        {/* Print status toast (inline) */}
+        {printMsg && (
+          <div style={{
+            margin: '0 1rem 0.5rem',
+            padding: '0.5rem 0.75rem',
+            borderRadius: 6,
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: printMsg.type === 'ok' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+            color: printMsg.type === 'ok' ? '#10b981' : '#ef4444',
+          }}>
+            {printMsg.type === 'ok' ? <Check size={13} /> : <AlertCircle size={13} />}
+            {printMsg.text}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="pem-footer">
