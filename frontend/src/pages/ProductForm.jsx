@@ -836,6 +836,8 @@ export default function ProductForm() {
         //   2. The default ProductPackSize entry (legacy, only present if
         //      the user created pack rows manually)
         // This ensures imported products show their pack config correctly.
+        // eslint-disable-next-line no-console
+        console.log('[ProductForm] loaded pack fields → unitPack:', p.unitPack, '| packInCase:', p.packInCase, '| defaultCasePrice:', p.defaultCasePrice);
         if (p.unitPack != null) {
           setDefaultUnitPack(String(p.unitPack));
         }
@@ -941,6 +943,8 @@ export default function ProductForm() {
           } catch {}
         })
       );
+      // eslint-disable-next-line no-console
+      console.log('[ProductForm] loaded storeQty:', JSON.stringify(qtyMap), '| stores checked:', stores.length);
       setStoreQty(qtyMap);
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
