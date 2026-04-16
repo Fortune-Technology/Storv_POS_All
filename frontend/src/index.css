@@ -95,6 +95,20 @@
     radial-gradient(circle at top right, var(--brand-08), transparent 40%),
     radial-gradient(circle at bottom left, var(--brand-sec-08), transparent 40%);
 
+  /* ── MARKETING TYPOGRAPHY SCALE ──────────────────────── */
+  --mkt-heading-xl: clamp(2.5rem, 5vw, 4.25rem);
+  --mkt-heading-lg: clamp(2rem, 4vw, 3rem);
+  --mkt-heading-md: clamp(1.5rem, 3vw, 2.25rem);
+  --mkt-body-lg:    clamp(1.05rem, 1.3vw, 1.2rem);
+
+  /* ── MARKETING SECTION SPACING ───────────────────────── */
+  --mkt-section-pad:    clamp(60px, 8vw, 110px);
+  --mkt-section-pad-sm: clamp(40px, 6vw, 72px);
+
+  /* ── SCREENSHOT PRESENTATION ─────────────────────────── */
+  --screenshot-shadow: 0 25px 80px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --screenshot-border: 1px solid rgba(0, 0, 0, 0.06);
+
   /* ── BORDER RADIUS ────────────────────────────────────── */
   --radius-xs:   4px;
   --radius-sm:   8px;
