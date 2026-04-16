@@ -19,6 +19,7 @@ import {
   validateRows,
   importRows,
   generateTemplate,
+  IMPORT_SERVICE_VERSION,
 } from '../services/importService.js';
 
 // ─── Multer: in-memory, CSV/XLSX only, 10 MB max ─────────────────────────────
@@ -131,6 +132,7 @@ export const previewImport = [
 
       return res.json({
         ok: true,
+        importerVersion: IMPORT_SERVICE_VERSION,
         fileName:        req.file.originalname,
         fileSize:        req.file.size,
         type,

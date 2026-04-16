@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
@@ -27,6 +27,7 @@ import {
   getProductPackSizes, bulkReplaceProductPackSizes,
   getPOSConfig, getProduct52WeekStats,
   duplicateCatalogProduct, listProductGroups,
+  getCatalogTaxRules,
 } from '../services/api';
 import './ProductForm.css';
 import { toast } from 'react-toastify';
@@ -651,6 +652,9 @@ export default function ProductForm() {
   const [departments, setDepartments] = useState([]);
   const [vendors,     setVendors]     = useState([]);
   const [groups,      setGroups]      = useState([]);
+  // Store-specific tax rules — populated from the merchant's TaxRule table.
+  // Falls back to the hardcoded TAX_CLASSES enum if no rules exist yet.
+  const [taxRules,    setTaxRules]    = useState([]);
   const [showDeptMgr, setShowDeptMgr] = useState(false);
   const [showVendMgr, setShowVendMgr] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
@@ -731,11 +735,14 @@ export default function ProductForm() {
   // ── Load support data ────────────────────────────────────────────────────────
   const loadSupport = useCallback(async () => {
     try {
-      const [d, v, g] = await Promise.all([
+      const [d, v, g, tr] = await Promise.all([
         getCatalogDepartments(),
         getCatalogVendors(),
         listProductGroups({ active: 'true' }).catch(() => ({ data: [] })),
+        getCatalogTaxRules().catch(() => ({ data: [] })),
       ]);
+      const taxList = Array.isArray(tr) ? tr : (tr?.data ?? tr?.taxRules ?? []);
+      setTaxRules(taxList);
       setDepartments((d?.data || d) ?? []);
       setVendors((v?.data || v) ?? []);
       setGroups((g?.data || g) ?? []);
@@ -823,11 +830,26 @@ export default function ProductForm() {
           })));
         }
 
-        // Populate base pricing unit/pack from the default pack size if it exists
+        // Populate base pricing unit/pack. Preference order:
+        //   1. MasterProduct.unitPack / packInCase (the v2 simplified fields,
+        //      used by bulk import and the API cost update pipeline)
+        //   2. The default ProductPackSize entry (legacy, only present if
+        //      the user created pack rows manually)
+        // This ensures imported products show their pack config correctly.
+        if (p.unitPack != null) {
+          setDefaultUnitPack(String(p.unitPack));
+        }
+        if (p.packInCase != null) {
+          setDefaultPacksPerCase(String(p.packInCase));
+        }
         const defaultSize = sizes.find(s => s.isDefault) || sizes[0];
         if (defaultSize) {
-          if (defaultSize.unitCount) setDefaultUnitPack(String(defaultSize.unitCount));
-          if (defaultSize.packsPerCase) setDefaultPacksPerCase(String(defaultSize.packsPerCase));
+          if (p.unitPack == null && defaultSize.unitCount) {
+            setDefaultUnitPack(String(defaultSize.unitCount));
+          }
+          if (p.packInCase == null && defaultSize.packsPerCase) {
+            setDefaultPacksPerCase(String(defaultSize.packsPerCase));
+          }
         }
 
         const promoData = promoRes?.data || [];
@@ -1103,6 +1125,9 @@ export default function ProductForm() {
         defaultCasePrice:   form.defaultCasePrice || null,
         defaultCostPrice:   unitCostVal != null ? unitCostVal : (form.defaultCostPrice || null),
         defaultRetailPrice: derivedRetailPrice    || null,
+        // Persist the simplified pack config (v2) so imports + the form stay in sync
+        unitPack:           defaultUnitPack       ? parseInt(defaultUnitPack) : null,
+        packInCase:         defaultPacksPerCase   ? parseInt(defaultPacksPerCase) : null,
         caseDeposit:        caseDeposit ? parseFloat(caseDeposit) : null,
         reorderQty:         reorderQty ? parseInt(reorderQty) : null,
         ebtEligible:        form.ebtEligible,
@@ -1346,11 +1371,39 @@ export default function ProductForm() {
                     </div>
 
                     <div>
-                      <label className="pf-label">Tax Class</label>
+                      <label className="pf-label">
+                        Tax Class
+                        <Link to="/portal/tax-rules" className="pf-manage-link" style={{ marginLeft: 8 }}>
+                          <Settings size={10} /> Manage
+                        </Link>
+                      </label>
                       <select className="form-input pf-full"
                         value={form.taxClass} onChange={e => setF('taxClass', e.target.value)}>
-                        {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label} — {t.note}</option>)}
+                        {taxRules.length > 0 ? (
+                          <>
+                            {/* Unique `appliesTo` values from the store's real tax rules.
+                                Each option shows the rule name + its percentage. */}
+                            {Array.from(new Map(taxRules.map(r => [r.appliesTo, r])).values()).map(r => {
+                              const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
+                              return (
+                                <option key={r.id} value={r.appliesTo}>
+                                  {r.name} {pct && `— ${pct}`}
+                                </option>
+                              );
+                            })}
+                            <option value="non_taxable">Non-Taxable — 0%</option>
+                          </>
+                        ) : (
+                          TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label} — {t.note}</option>)
+                        )}
                       </select>
+                      {taxRules.length === 0 && (
+                        <div className="pf-hint" style={{ marginTop: 4 }}>
+                          <Info size={10} /> No tax rules configured —{' '}
+                          <Link to="/portal/tax-rules" style={{ color: 'var(--brand-primary)' }}>set them up</Link>
+                          {' '}to see your custom tax slabs here.
+                        </div>
+                      )}
                     </div>
                   </div>
 

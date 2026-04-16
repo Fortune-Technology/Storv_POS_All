@@ -90,12 +90,20 @@ const FIELD_DESCRIPTIONS = {
 };
 
 const FIELD_LABELS = {
-  upc: 'UPC / Barcode', plu: 'PLU', sku: 'SKU', itemCode: 'Item Code',
+  upc: 'UPC / Barcode', plu: 'PLU', sku: 'SKU', itemCode: 'Distributor Item #',
   name: 'Product Name', brand: 'Brand', description: 'Description (long)',
-  size: 'Size', sizeUnit: 'Size Unit', pack: 'Pack Size',
-  casePacks: 'Case Packs', sellUnitSize: 'Sell Unit Size',
+  size: 'Size (750, 12)', sizeUnit: 'Size Unit (ml, oz)',
+  // Pack fields — names users actually recognize on supplier CSVs
+  pack: 'Total Units per Case (auto-calc)',
+  unitPack: 'Pack Size — units per sell pack (1=single, 6=6pk)',
+  packInCase: 'Case Packs — sell packs per vendor case',
+  casePacks: '(legacy) Case Packs',
+  sellUnitSize: '(legacy) Sell Unit Size',
   departmentId: 'Department', vendorId: 'Vendor',
-  defaultCostPrice: 'Cost Price', defaultRetailPrice: 'Retail Price', defaultCasePrice: 'Case Price',
+  // Pricing — unambiguous: cost = what you pay, price = what customer pays
+  defaultCostPrice:   'Unit Cost — what YOU pay per item',
+  defaultRetailPrice: 'Retail Price — what customer pays per item',
+  defaultCasePrice:   'Case Cost — what YOU pay per full case',
   taxClass: 'Tax Class', ageRequired: 'Age Required', ebtEligible: 'EBT Eligible',
   discountEligible: 'Discount Eligible', taxable: 'Taxable', active: 'Active',
   reorderPoint: 'Reorder Point', reorderQty: 'Reorder Qty',
@@ -159,6 +167,9 @@ const TYPE_FIELDS = {
     'depositPerUnit','caseDeposit',
     // Stock & Links
     'quantityOnHand','linkedUpc','productCode',
+    // v2 simplified pack config (preferred)
+    'unitPack','packInCase',
+    // Legacy pack fields (kept for backward compatibility on older CSVs)
     'casePacks','sellUnitSize',
   ],
   departments:   ['id','name','code','description','taxClass','ebtEligible','ageRequired','bottleDeposit','sortOrder','color','showInPOS','active'],
@@ -850,6 +861,12 @@ export default function BulkImport() {
       fd.append('unknownVendorStrategy', unknownVendorStrategy);
       if (currentMapping && Object.keys(currentMapping).length) fd.append('mapping', JSON.stringify(currentMapping));
       const data = await previewImport(fd);
+      // Log the backend version + applied mapping so we can diagnose
+      // stale-nodemon issues at a glance in the browser console.
+      // eslint-disable-next-line no-console
+      console.log('[BulkImport] backend version:', data.importerVersion || '(unknown)');
+      // eslint-disable-next-line no-console
+      console.log('[BulkImport] applied mapping:', data.appliedMapping);
       setPreview(data);
 
       // ── Merge rules ──────────────────────────────────────────────────

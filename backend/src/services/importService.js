@@ -17,6 +17,11 @@
 import XLSX from 'xlsx';
 import prisma from '../config/postgres.js';
 
+// Marker so you can tell from logs which version of the mapping code is loaded.
+// Bump IMPORT_SERVICE_VERSION whenever you change ALIASES or detectColumns.
+export const IMPORT_SERVICE_VERSION = '2026-04-16-v3-packInCase-priority';
+console.log('[importService] loaded version:', IMPORT_SERVICE_VERSION);
+
 // ─── Column alias maps ───────────────────────────────────────────────────────
 // Keys = Prisma field names.  Values = all known column header variants
 // (lowercased, stripped of spaces/underscores/hyphens).
@@ -293,7 +298,7 @@ export function detectColumns(headers) {
  * Pre-load lookup data from DB to resolve dept/vendor references during validation.
  */
 export async function buildContext(orgId) {
-  const [departments, vendors, depositRules] = await Promise.all([
+  const [departments, vendors, depositRules, taxRules] = await Promise.all([
     prisma.department.findMany({
       where: { orgId, active: true },
       select: { id: true, name: true, code: true },
@@ -306,7 +311,28 @@ export async function buildContext(orgId) {
       where: { orgId, active: true },
       select: { id: true, name: true },
     }),
+    prisma.taxRule.findMany({
+      where: { orgId, active: true },
+      select: { id: true, name: true, rate: true, appliesTo: true },
+    }),
   ]);
+
+  // Build a lookup map for tax rules by rounded rate so imports can match
+  // a "6.25%" column value directly against the store's real TaxRule table.
+  // Key = 4-decimal string ("0.0625") for stable equality across Prisma's Decimal.
+  const taxByRate = new Map();
+  const taxByClassName = new Map();
+  for (const r of taxRules) {
+    const rateNum = Number(r.rate);
+    if (!isNaN(rateNum)) {
+      const key = rateNum.toFixed(4);
+      if (!taxByRate.has(key)) taxByRate.set(key, r);
+    }
+    if (r.appliesTo) {
+      const key = String(r.appliesTo).toLowerCase().trim();
+      if (!taxByClassName.has(key)) taxByClassName.set(key, r);
+    }
+  }
 
   return {
     deptById:     new Map(departments.map(d => [d.id, d])),
@@ -317,7 +343,41 @@ export async function buildContext(orgId) {
     vendorByCode: new Map(vendors.filter(v => v.code).map(v => [v.code.toLowerCase(), v])),
     depositById:  new Map(depositRules.map(r => [r.id, r])),
     depositByName:new Map(depositRules.map(r => [r.name.toLowerCase(), r])),
+    taxRules,      // full list for warnings/debugging
+    taxByRate,
+    taxByClassName,
   };
+}
+
+// Resolve a taxClass string from a CSV cell against the store's real TaxRule
+// table. Input can be:
+//   "6.25%"       → lookup by rate 0.0625 → returns rule.appliesTo
+//   "alcohol"     → lookup by class name → returns rule.appliesTo ("alcohol")
+//   "Maine Food"  → lookup by rule name → returns rule.appliesTo
+//   invalid/missing → returns null so caller can fall back to enum defaults
+function resolveTaxClassFromRules(value, ctx) {
+  if (!value || !ctx?.taxByRate) return { resolved: null, rule: null };
+  const str = String(value).toLowerCase().trim();
+
+  // Try percentage/decimal rate match first
+  const num = parseFloat(str.replace(/[%$,\s]/g, ''));
+  if (!isNaN(num)) {
+    // If value looks like a percent (e.g. "6.25"), divide by 100
+    const rate = str.includes('%') || num > 1 ? num / 100 : num;
+    const key = rate.toFixed(4);
+    const hit = ctx.taxByRate.get(key);
+    if (hit) return { resolved: hit.appliesTo, rule: hit };
+  }
+
+  // Try class name match
+  const byClass = ctx.taxByClassName?.get(str);
+  if (byClass) return { resolved: byClass.appliesTo, rule: byClass };
+
+  // Try rule name match (case-insensitive)
+  const byName = ctx.taxRules?.find(r => r.name?.toLowerCase() === str);
+  if (byName) return { resolved: byName.appliesTo, rule: byName };
+
+  return { resolved: null, rule: null };
 }
 
 // ─── Department/Vendor resolvers ──────────────────────────────────────────────
@@ -434,21 +494,41 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
   if (deptRes.warn)   warnings.push({ field: 'departmentId', message: deptRes.warn });
   if (vendorRes.warn) warnings.push({ field: 'vendorId',     message: vendorRes.warn });
 
-  // Tax class — accept enum names, OR infer from percentage rates / department
+  // Tax class — priority order:
+  //   1. Try to match against the store's REAL TaxRule table (by rate, class
+  //      name, or rule name) — this is what the merchant configured in
+  //      Portal → Tax Rules. Matching by rate lets a CSV with "6.25%" find
+  //      the right tax rule automatically.
+  //   2. Fall back to the hardcoded VALID_TAX_CLASSES enum if no tax rules
+  //      exist yet for this org (first-time setup).
+  //   3. Last resort: "standard" with a warning.
   let taxClass = get('taxClass');
   if (taxClass) {
+    const raw = taxClass;
     const tcLower = taxClass.toLowerCase().trim();
-    if (VALID_TAX_CLASSES.includes(tcLower)) {
+
+    // STEP 1: match against store TaxRules
+    const ruleHit = resolveTaxClassFromRules(raw, ctx);
+    if (ruleHit.resolved) {
+      taxClass = ruleHit.resolved;
+    } else if (VALID_TAX_CLASSES.includes(tcLower)) {
+      // STEP 2a: known enum class
       taxClass = tcLower;
     } else {
-      // Try to parse as a percentage rate and infer class
+      // STEP 2b: try to parse as a percentage rate and infer class
       const pct = parseFloat(tcLower.replace(/[%$,\s]/g, ''));
       if (!isNaN(pct)) {
-        // Map rate to class: 0% = non_taxable, any positive rate = standard
-        if (pct === 0) taxClass = 'non_taxable';
-        else taxClass = 'standard';
+        if (pct === 0) {
+          taxClass = 'non_taxable';
+        } else {
+          taxClass = 'standard';
+          warnings.push({
+            field: 'taxClass',
+            message: `Tax "${raw}" — no matching rule at that rate, treated as "standard". Create a Tax Rule with this rate to link it.`,
+          });
+        }
       } else {
-        // Try common text variants
+        // STEP 2c: common text variants
         const TAX_TEXT_MAP = {
           'none': 'none', 'no': 'non_taxable', 'notaxable': 'non_taxable', 'nontaxable': 'non_taxable',
           'yes': 'standard', 'taxable': 'standard', 'general': 'standard', 'default': 'standard',
@@ -461,8 +541,8 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
         if (mapped) {
           taxClass = mapped;
         } else {
-          taxClass = 'standard'; // default to standard if we can't parse
-          warnings.push({ field: 'taxClass', message: `Tax "${get('taxClass')}" treated as "standard"` });
+          taxClass = 'standard';
+          warnings.push({ field: 'taxClass', message: `Tax "${raw}" treated as "standard"` });
         }
       }
     }
