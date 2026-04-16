@@ -271,9 +271,9 @@ function TerminalsTab() {
 
       {/* Filters + Add */}
       <div className="aps-filter-bar">
-        <div className="admin-search-wrapper aps-search-flex">
+        <div className="admin-search aps-search-flex">
           <Search size={14} className="admin-search-icon" />
-          <input className="admin-search" placeholder="Search by name, HSN, or org..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          <input placeholder="Search by name, HSN, or org..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
         <select className="admin-select" value={statusFilter} onChange={e => { setStatus(e.target.value); setPage(1); }}>
           <option value="">All Statuses</option>
@@ -500,8 +500,8 @@ function HistoryTab() {
         <select className="admin-select" value={filters.status} onChange={e => { setFilters(f => ({...f, status:e.target.value})); setPage(1); }}>
           <option value="">All Statuses</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="voided">Voided</option><option value="refunded">Refunded</option>
         </select>
-        <input type="date" className="admin-input aps-history-date" value={filters.dateFrom} onChange={e => { setFilters(f => ({...f, dateFrom:e.target.value})); setPage(1); }} />
-        <input type="date" className="admin-input aps-history-date" value={filters.dateTo} onChange={e => { setFilters(f => ({...f, dateTo:e.target.value})); setPage(1); }} />
+        <input type="date" className="aps-history-date" value={filters.dateFrom} onChange={e => { setFilters(f => ({...f, dateFrom:e.target.value})); setPage(1); }} />
+        <input type="date" className="aps-history-date" value={filters.dateTo} onChange={e => { setFilters(f => ({...f, dateTo:e.target.value})); setPage(1); }} />
         <button className="admin-btn admin-btn-secondary" onClick={fetchHistory}><RefreshCw size={14} /></button>
         <span className="aps-history-count">{total.toLocaleString()} records</span>
       </div>

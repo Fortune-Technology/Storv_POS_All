@@ -275,7 +275,7 @@ const AdminUsers = () => {
                     <td>{statusBadge(u.status)}</td>
                     <td className="muted">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>
-                      <div className="actions">
+                      <div className="admin-row-actions">
                         {/* Status actions */}
                         {u.status === 'pending' && (
                           <>

@@ -174,7 +174,7 @@ const AdminChat = () => {
   return (
     <div className="ach-page">
       <div className="ach-header">
-        <div className="ach-header-icon"><MessageSquare size={22} /></div>
+        <div className="admin-header-icon"><MessageSquare size={22} /></div>
         <div>
           <h1 className="ach-title">Chat</h1>
           <p className="ach-subtitle">Cross-org messaging</p>

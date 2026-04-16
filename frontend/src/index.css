@@ -377,7 +377,6 @@ table {
 }
 
 th {
-  background: var(--bg-tertiary);
   padding: 1rem;
   font-weight: 500;
   color: var(--text-secondary);

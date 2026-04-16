@@ -82,7 +82,7 @@ const AdminCmsPages = () => {
             {pages.map(p => (
               <div key={p.id} className="admin-card">
                 <div>
-                  <div className="admin-header-icon">
+                  <div className="admin-card-header-row">
                     <span className="admin-card-title">{p.title}</span>
                     <span className="mono acms-slug">/{p.slug}</span>
                     {p.published ? (
