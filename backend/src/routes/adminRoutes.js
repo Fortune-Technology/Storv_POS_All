@@ -83,6 +83,8 @@ import {
   adminUpdateEquipmentOrder,
 } from '../controllers/adminController.js';
 
+import { downloadBackup } from '../controllers/backupController.js';
+
 const router = Router();
 
 // All admin routes require auth + superadmin role
@@ -192,5 +194,8 @@ router.put('/billing/equipment/products/:id',     adminUpdateEquipmentProduct);
 // ── Admin Billing — Equipment Orders ───────────────────────────────────────
 router.get('/billing/equipment/orders',           adminListEquipmentOrders);
 router.put('/billing/equipment/orders/:id',       adminUpdateEquipmentOrder);
+
+// ── Database Backup ───────────────────────────────────────────────────────
+router.get('/backup/:target',                    downloadBackup);
 
 export default router;

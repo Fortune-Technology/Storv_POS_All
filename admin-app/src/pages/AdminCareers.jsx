@@ -71,7 +71,7 @@ const AdminCareers = () => {
             {careers.map(c => (
               <div key={c.id} className="admin-card">
                 <div>
-                  <div className="admin-header-icon acr-header-wrap">
+                  <div className="admin-card-header-row">
                     <span className="admin-card-title">{c.title}</span>
                     {c.department && <span className="admin-badge sm staff">{c.department}</span>}
                     {c.type && <span className="admin-badge sm manager">{c.type}</span>}

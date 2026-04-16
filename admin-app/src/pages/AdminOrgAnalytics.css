@@ -1,5 +1,10 @@
 /* AdminOrgAnalytics.css — prefix: aoa- */
 
+.aoa-sort-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .aoa-sort-icon-dim {
   opacity: 0.3;
 }

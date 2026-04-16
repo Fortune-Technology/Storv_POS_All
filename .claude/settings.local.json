@@ -33,11 +33,10 @@
       "WebFetch(domain:app.theneo.io)",
       "Bash(taskkill /F /IM node.exe)",
       "Bash(powershell -Command \"Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2\")",
-      "Bash(npx esbuild:*)",
-      "Bash(grep -l \"toast\" src/**/*.js src/**/*.jsx)",
-      "Bash(head -20 echo \"---\" grep -l \"superadmin\" prisma/seed*.js)",
-      "Bash(netstat -ano)",
-      "Bash(powershell -c 'Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { \\(Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue\\).OwningProcess -contains $_.Id } | Stop-Process -Force')"
+      "mcp__Claude_Preview__preview_start",
+      "Read(//c/Program Files/PostgreSQL//**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(reg query:*)"
     ]
   }
 }

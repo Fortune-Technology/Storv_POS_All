@@ -56,7 +56,7 @@ const AdminOrgAnalytics = () => {
 
   const SortHeader = ({ field, children }) => (
     <th className="sortable" onClick={() => handleSort(field)}>
-      <span className="admin-header-icon">
+      <span className="aoa-sort-label">
         {children}
         <ArrowUpDown size={12} className={sortField === field ? 'aoa-sort-icon-active' : 'aoa-sort-icon-dim'} />
       </span>

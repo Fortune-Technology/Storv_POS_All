@@ -326,10 +326,11 @@ const AdminOrganizations = () => {
               <tbody>
                 {orgs.map((o) => (
                   <tr key={o.id}>
-                    <td className="primary">
-                      <div className="admin-header-icon">
-                        <Building2 size={14} /> {o.name}
-                      </div>
+                    <td>
+                      <span className="admin-name-cell">
+                        <span className="admin-name-icon"><Building2 size={14} /></span>
+                        {o.name}
+                      </span>
                     </td>
                     <td className="mono">{o.slug}</td>
                     <td>{planBadge(o.plan)}</td>

@@ -1,7 +1,7 @@
 /** Marketing Section Styles */
 
 .mkt-section {
-  padding: 5rem 1rem;
+  padding: var(--mkt-section-pad) 1.5rem;
   position: relative;
   overflow: hidden;
 }
@@ -12,35 +12,40 @@
   width: 100%;
 }
 
+.mkt-container-full {
+  width: 100%;
+}
+
 .mkt-section-header {
   text-align: center;
   margin-bottom: 4rem;
-  max-width: 800px;
+  max-width: 720px;
   margin-left: auto;
   margin-right: auto;
 }
 
 .mkt-section-title {
-  font-size: 2.5rem;
+  font-size: var(--mkt-heading-lg);
   margin-bottom: 1rem;
   color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
 }
 
 .mkt-section-subtitle {
-  font-size: 1.15rem;
+  font-size: var(--mkt-body-lg);
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 /* Background variants */
-.mkt-section-light  { background-color: var(--bg-primary); }
-.mkt-section-white  { background-color: var(--bg-secondary); }
+.mkt-section-light   { background-color: var(--bg-primary); }
+.mkt-section-white   { background-color: var(--bg-secondary); }
 
 .mkt-section-dark {
   background-color: var(--bg-dark);
   color: var(--text-inverse);
 }
-
 .mkt-section-dark .mkt-section-title    { color: var(--text-inverse); }
 .mkt-section-dark .mkt-section-subtitle { color: var(--text-inverse-muted); }
 
@@ -48,13 +53,16 @@
   background: var(--accent-gradient);
   color: var(--text-inverse);
 }
-
 .mkt-section-accent .mkt-section-title,
 .mkt-section-accent .mkt-section-subtitle {
   color: var(--text-inverse);
 }
 
+.mkt-section-gradient {
+  background: linear-gradient(180deg, var(--brand-05) 0%, transparent 60%);
+}
+
 @media (max-width: 768px) {
-  .mkt-section       { padding: 3.5rem 1rem; }
-  .mkt-section-title { font-size: 2rem; }
+  .mkt-section { padding: var(--mkt-section-pad-sm) 1.25rem; }
+  .mkt-section-header { margin-bottom: 2.5rem; }
 }

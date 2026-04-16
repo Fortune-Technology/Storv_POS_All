@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, Trash2, Loader, Settings } from 'lucide-react';
+import { Plus, Save, Trash2, Loader, Settings, Database, Download, FileText, FileArchive } from 'lucide-react';
 import { toast } from 'react-toastify';
 
-import { getAdminSystemConfig, updateAdminSystemConfig } from '../services/api';
+import { getAdminSystemConfig, updateAdminSystemConfig, downloadDatabaseBackup } from '../services/api';
 import '../styles/admin.css';
 import './AdminSystemConfig.css';
 
@@ -36,6 +36,45 @@ const AdminSystemConfig = () => {
     setNewKey(''); setNewValue(''); setNewDesc('');
   };
 
+  /* ── Backup logic ──────────────────────────────────────── */
+  const [backupLoading, setBackupLoading] = useState({});
+
+  const fmtDate = () => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+  };
+
+  const handleBackup = async (target, format) => {
+    const key = `${target}_${format}`;
+    setBackupLoading((s) => ({ ...s, [key]: true }));
+    try {
+      const res = await downloadDatabaseBackup(target, format);
+
+      const dbName = target === 'main' ? 'main-backup' : 'ecom-backup';
+      const ext = format === 'dump' ? 'dump' : 'sql';
+      const filename = `${dbName}-${fmtDate()}.${ext}`;
+
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`${target === 'main' ? 'Main' : 'E-commerce'} ${ext.toUpperCase()} backup downloaded`);
+    } catch (err) {
+      const msg = err.response?.data?.error
+        || err.response?.data?.detail
+        || 'Backup failed — is pg_dump installed?';
+      toast.error(msg);
+    } finally {
+      setBackupLoading((s) => ({ ...s, [key]: false }));
+    }
+  };
+
   return (
     <>
         <div className="admin-header">
@@ -48,7 +87,54 @@ const AdminSystemConfig = () => {
           </div>
         </div>
 
-        {/* Add new config */}
+        {/* ── Database Backup ───────────────────────────────── */}
+        <div className="asc-backup-section">
+          <div className="asc-backup-header">
+            <Database size={18} />
+            <div>
+              <h3 className="asc-backup-title">Database Backup</h3>
+              <p className="asc-backup-desc">Download a full SQL dump of the selected database</p>
+            </div>
+          </div>
+
+          <div className="asc-backup-cards">
+            {[
+              { key: 'main', label: 'Main Database', tag: 'POS \u00b7 Users \u00b7 Transactions' },
+              { key: 'ecom', label: 'E-Commerce Database', tag: 'Storefront \u00b7 Orders \u00b7 Customers' },
+            ].map((db) => (
+              <div key={db.key} className="asc-backup-card">
+                <div className="asc-backup-card-top">
+                  <span className="asc-backup-card-label">{db.label}</span>
+                  <span className="asc-backup-card-tag">{db.tag}</span>
+                </div>
+                <div className="asc-backup-btns">
+                  <button
+                    className="asc-fmt-btn"
+                    onClick={() => handleBackup(db.key, 'sql')}
+                    disabled={!!backupLoading[`${db.key}_sql`]}
+                  >
+                    {backupLoading[`${db.key}_sql`]
+                      ? <><Loader size={13} className="asc-spin" /> .sql</>
+                      : <><FileText size={13} /> .sql</>}
+                    <span className="asc-fmt-hint">pgAdmin Query / psql</span>
+                  </button>
+                  <button
+                    className="asc-fmt-btn"
+                    onClick={() => handleBackup(db.key, 'dump')}
+                    disabled={!!backupLoading[`${db.key}_dump`]}
+                  >
+                    {backupLoading[`${db.key}_dump`]
+                      ? <><Loader size={13} className="asc-spin" /> .dump</>
+                      : <><FileArchive size={13} /> .dump</>}
+                    <span className="asc-fmt-hint">pgAdmin Restore / pg_restore</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Add new config ────────────────────────────────── */}
         <div className="admin-add-form">
           <div className="admin-add-form-title">Add New Setting</div>
           <div className="admin-add-form-grid">
