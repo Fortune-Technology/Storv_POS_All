@@ -304,16 +304,37 @@ try {
 
 function registerDrawerIPC(ipcMain) {
 
-  // ESC/POS drawer kick command bytes
-  const DRAWER_KICK = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+  // ── Printer-type-aware drawer kick commands ─────────────────────────────
+  // Different printer brands use different ESC/POS sequences to trigger the
+  // cash drawer solenoid. Sending the wrong command = drawer doesn't open.
+  //
+  // printerType values (matched to station.hardwareConfig.printerType):
+  //   "epson"   — Epson TM series, most generic ESC/POS clones
+  //   "star"    — Star Micronics TSP/mC series
+  //   undefined — defaults to Epson (backward compatible)
+  const DRAWER_COMMANDS = {
+    // Epson ESC/POS: ESC p 0 25 250  (pin 2, pulse 25ms on / 250ms off)
+    epson: Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]),
+
+    // Star: BEL (0x07) is Star's native drawer kick.
+    // Some Star models also respond to ESC BEL (0x1B 0x07).
+    // We send both back-to-back for maximum compatibility.
+    star: Buffer.from([0x07, 0x1B, 0x07]),
+  };
+
+  function getKickCommand(printerType) {
+    const type = (printerType || 'epson').toLowerCase().trim();
+    return DRAWER_COMMANDS[type] || DRAWER_COMMANDS.epson;
+  }
 
   // ── Open drawer via network printer ─────────────────────────────────────
-  ipcMain.handle('drawer:open-network', async (_, { ip, port = 9100 }) => {
+  ipcMain.handle('drawer:open-network', async (_, { ip, port = 9100, printerType }) => {
+    const kickBytes = getKickCommand(printerType);
     return new Promise((resolve, reject) => {
       const socket = new net.Socket();
       socket.setTimeout(5000);
       socket.connect(port, ip, () => {
-        socket.write(DRAWER_KICK, () => {
+        socket.write(kickBytes, () => {
           socket.destroy();
           resolve({ success: true });
         });
@@ -324,13 +345,14 @@ function registerDrawerIPC(ipcMain) {
   });
 
   // ── Open drawer via USB printer (Windows) ───────────────────────────────
-  ipcMain.handle('drawer:open-usb', async (_, { printerName }) => {
+  ipcMain.handle('drawer:open-usb', async (_, { printerName, printerType }) => {
     return new Promise((resolve, reject) => {
       const stamp  = Date.now();
       const tmpBin = path.join(os.tmpdir(), `sv_drawer_${stamp}.bin`);
       const tmpPs  = path.join(os.tmpdir(), `sv_drawer_${stamp}.ps1`);
 
-      fs.writeFileSync(tmpBin, DRAWER_KICK);
+      const kickBytes = getKickCommand(printerType);
+      fs.writeFileSync(tmpBin, kickBytes);
 
       const psSafeName = printerName.replace(/'/g, "''");
       const psSafeBin  = tmpBin.replace(/\\/g, '\\\\');

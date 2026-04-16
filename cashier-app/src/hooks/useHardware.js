@@ -108,13 +108,17 @@ export function useHardware({ onBarcode } = {}) {
     try {
       // ── Electron ──────────────────────────────────────────────────────────
       if (isElectron()) {
+        // printerType ('epson' | 'star') determines the drawer kick command.
+        // Configured in Station Setup → Hardware → Printer Type.
+        const pType = hw.receiptPrinter?.printerType || 'epson';
         if (hw.receiptPrinter?.type === 'network') {
           await window.electronAPI.openDrawerNetwork(
             hw.receiptPrinter.ip,
             hw.receiptPrinter.port || 9100,
+            pType,
           );
         } else if (hw.receiptPrinter?.name) {
-          await window.electronAPI.openDrawerUSB(hw.receiptPrinter.name);
+          await window.electronAPI.openDrawerUSB(hw.receiptPrinter.name, pType);
         }
         return;
       }

@@ -27,13 +27,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('printer:print-label-network', { ip, port, zpl }),
 
   // ── Cash Drawer ───────────────────────────────────────────────────────────
-  /** Open drawer connected to a network receipt printer */
-  openDrawerNetwork: (ip, port) =>
-    ipcRenderer.invoke('drawer:open-network', { ip, port }),
+  /**
+   * Open drawer connected to a network receipt printer.
+   * @param {string} ip          — printer IP address
+   * @param {number} [port=9100] — printer port
+   * @param {string} [printerType='epson'] — 'epson' | 'star'
+   */
+  openDrawerNetwork: (ip, port, printerType) =>
+    ipcRenderer.invoke('drawer:open-network', { ip, port, printerType }),
 
-  /** Open drawer connected to a USB receipt printer */
-  openDrawerUSB: (printerName) =>
-    ipcRenderer.invoke('drawer:open-usb', { printerName }),
+  /**
+   * Open drawer connected to a USB receipt printer.
+   * @param {string} printerName — Windows printer share name
+   * @param {string} [printerType='epson'] — 'epson' | 'star'
+   */
+  openDrawerUSB: (printerName, printerType) =>
+    ipcRenderer.invoke('drawer:open-usb', { printerName, printerType }),
 
   // ── App Control ───────────────────────────────────────────────────────────
   getVersion:       () => ipcRenderer.invoke('app:get-version'),

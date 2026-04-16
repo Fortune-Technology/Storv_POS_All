@@ -516,10 +516,11 @@ export default function StationSetupScreen() {
     try {
       // ── Electron ─────────────────────────────────────────────────────────
       if (window.electronAPI?.isElectron) {
+        const pType = p.printerType || 'epson';
         if (p.type === 'network' && p.ip) {
-          await window.electronAPI.openDrawerNetwork(p.ip, p.port || 9100);
+          await window.electronAPI.openDrawerNetwork(p.ip, p.port || 9100, pType);
         } else if (p.name) {
-          await window.electronAPI.openDrawerUSB(p.name);
+          await window.electronAPI.openDrawerUSB(p.name, pType);
         }
       }
       // ── QZ Tray ───────────────────────────────────────────────────────────

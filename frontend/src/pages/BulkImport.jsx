@@ -39,54 +39,136 @@ const DUPLICATE_STRATEGIES = [
 
 // Plain-English descriptions shown next to each field in the mapping UI
 // (like the IT Retail "Attribute Guide" column). Each entry is { desc, example }.
+// ── FIELD DESCRIPTIONS ──────────────────────────────────────────────────────
+// Plain-English guide shown next to each field in the mapping UI.
+// Every field that appears in TYPE_FIELDS MUST have an entry here.
 const FIELD_DESCRIPTIONS = {
-  // Identifiers
+  // ── Identifiers ──
   upc:                { desc: 'Barcode scanned at the register — one per product',                    example: '0081100110012' },
   plu:                { desc: 'Produce/scale lookup number (4–5 digits)',                              example: '4011, 94011' },
   sku:                { desc: 'Your internal stock-keeping number',                                   example: 'BEV-001' },
   itemCode:           { desc: 'Distributor / vendor item number for reordering',                      example: '84483, 111398' },
-  // Product display
+  productCode:        { desc: 'Manufacturer product code',                                             example: 'MFR-12345' },
+
+  // ── Product display ──
   name:               { desc: 'Full product name shown to cashier and customer',                      example: '19 CRIME AMERIKAZ RED 750 ML' },
-  brand:              { desc: 'Manufacturer or brand',                                                 example: '19 Crimes, Coca-Cola' },
-  description:        { desc: 'Longer description (not shown on receipt)',                            example: 'Dry red wine, California' },
-  size:               { desc: 'Physical size label',                                                   example: '750, 12, 16' },
-  sizeUnit:           { desc: 'Unit of measurement for Size',                                          example: 'ML, OZ, LB' },
-  // Pack
-  unitPack:           { desc: 'Individual items in ONE sell unit (1 = single, 6 = 6-pack)',           example: '1, 6, 12' },
-  packInCase:         { desc: 'How many sell units come in one vendor case',                          example: '12 (bottles/case)' },
-  pack:               { desc: 'TOTAL individual units per case (auto = unitPack × packInCase)',       example: '12, 24, 144' },
-  casePacks:          { desc: 'Legacy alias for "Packs per Case"',                                    example: '12' },
-  sellUnitSize:       { desc: 'Legacy alias for "Units per Pack"',                                     example: '1, 6' },
-  // Classification
-  departmentId:       { desc: 'Department name or numeric ID. Auto-create adds missing depts',        example: 'Wine, Beer, 7' },
-  vendorId:           { desc: 'Vendor / distributor name. Auto-create adds missing vendors',          example: 'MARTIGNETTI, 12' },
-  taxClass:           { desc: 'Tax class — accepts % rate or named class',                             example: '6.25%, grocery, alcohol' },
-  // Pricing
-  defaultCostPrice:   { desc: 'Your cost for ONE individual unit',                                     example: '8.67, 0.65' },
-  defaultRetailPrice: { desc: 'Price customer pays for ONE sell unit',                                 example: '11.99, 12.99' },
-  defaultCasePrice:   { desc: 'What YOU pay the vendor for one full case',                             example: '104, 143.88' },
-  // Compliance
-  ageRequired:        { desc: 'Age-verification minimum (18 or 21)',                                   example: '21' },
-  ebtEligible:        { desc: 'Eligible for EBT / SNAP food stamps',                                   example: 'true, Y' },
-  discountEligible:   { desc: 'Can participate in order-level discounts',                              example: 'true' },
-  taxable:            { desc: 'Whether sales tax applies',                                             example: 'true' },
-  active:             { desc: 'Product is active / sellable',                                          example: 'true' },
-  // Inventory
-  reorderPoint:       { desc: 'Minimum on-hand quantity before reorder',                               example: '5, 12' },
-  reorderQty:         { desc: 'Suggested reorder quantity',                                            example: '24, 48' },
-  quantityOnHand:     { desc: 'Current stock count on hand',                                           example: '24, 0, 11' },
-  // Deposits
-  depositPerUnit:     { desc: 'Bottle deposit per individual unit',                                    example: '0.05, 0.10' },
-  caseDeposit:        { desc: 'Bottle deposit for one full case',                                      example: '0.60, 2.40' },
-  // Linked
-  linkedUpc:          { desc: 'Case or secondary UPC that points to this product',                    example: '50081100110010' },
-  // Other
-  color:              { desc: 'Dept / product color (hex)',                                            example: '#f59e0b' },
-  code:               { desc: 'Short uppercase code (max 8 chars)',                                    example: 'WINE, BR' },
-  email:              { desc: 'Contact email',                                                          example: 'rep@vendor.com' },
-  phone:              { desc: 'Contact phone',                                                          example: '+1-555-555-0100' },
-  promoType:          { desc: 'Promotion type',                                                         example: 'sale, bogo, volume' },
-  discountValue:      { desc: 'Discount amount or percent',                                             example: '10, 2.00' },
+  brand:              { desc: 'Manufacturer or brand name',                                            example: '19 Crimes, Coca-Cola' },
+  description:        { desc: 'Longer product description (not printed on receipt)',                   example: 'Dry red wine, California region' },
+  size:               { desc: 'Physical size number (without unit)',                                   example: '750, 12, 16' },
+  sizeUnit:           { desc: 'Unit of measurement for the Size value',                                example: 'ML, OZ, LB, L' },
+
+  // ── Pack configuration ──
+  unitPack:           { desc: 'Individual items in ONE sell unit (1 = single bottle, 6 = 6-pack)',    example: '1, 6, 12' },
+  packInCase:         { desc: 'How many sell packs come in one vendor case',                          example: '12 (bottles/case), 4 (6-packs/case)' },
+  pack:               { desc: 'TOTAL individual items per case (auto-calculated: unitPack × packInCase)', example: '12, 24, 144' },
+  casePacks:          { desc: '(Legacy) Same as "Case Packs" — use Pack Size and Case Packs instead', example: '12' },
+  sellUnitSize:       { desc: '(Legacy) Same as "Pack Size" — use Pack Size instead',                  example: '1, 6' },
+
+  // ── Classification ──
+  departmentId:       { desc: 'Department name or numeric ID. Enable "Auto-create" to add missing',   example: 'Wine, Beer, Liquor, 7' },
+  vendorId:           { desc: 'Vendor / distributor name or ID. Enable "Auto-create" to add missing', example: 'MARTIGNETTI, ABACUS, 12' },
+  taxClass:           { desc: 'Tax class — matches your store Tax Rules by rate or name',              example: '6.25%, grocery, alcohol, standard' },
+
+  // ── Pricing ──
+  defaultCostPrice:   { desc: 'Your cost per ONE individual unit (not per case)',                      example: '8.67, 0.65' },
+  defaultRetailPrice: { desc: 'Price the customer pays per ONE sell unit',                             example: '11.99, 12.99' },
+  defaultCasePrice:   { desc: 'What YOU pay the vendor for one full case',                             example: '104.00, 143.88' },
+  regMultiple:        { desc: 'Regular pricing multiple (e.g. 2 for $5 = buy 2 at $5)',                example: '1, 2, 3' },
+
+  // ── Compliance flags ──
+  ageRequired:        { desc: 'Age-verification required at register (18 or 21)',                      example: '21, 18' },
+  ebtEligible:        { desc: 'Eligible for EBT / SNAP food stamp purchase',                           example: 'true, yes, Y, 1' },
+  discountEligible:   { desc: 'Can receive order-level percentage discount',                           example: 'true' },
+  taxable:            { desc: 'Whether sales tax applies to this product',                             example: 'true, yes' },
+  active:             { desc: 'Product is active and available for sale',                              example: 'true' },
+
+  // ── Inventory ──
+  reorderPoint:       { desc: 'Minimum stock level before triggering a reorder',                       example: '5, 12, 24' },
+  reorderQty:         { desc: 'Suggested quantity to reorder when below reorder point',                example: '24, 48' },
+  quantityOnHand:     { desc: 'Current stock count on hand at your active store',                      example: '24, 0, 11' },
+
+  // ── Deposits ──
+  depositPerUnit:     { desc: 'Bottle / container deposit per individual unit (dollar amount)',        example: '0.05, 0.10, 0.15' },
+  caseDeposit:        { desc: 'Total bottle deposit for one full case',                                example: '0.60, 1.20, 2.40' },
+
+  // ── Linked UPC ──
+  linkedUpc:          { desc: 'Case barcode or secondary UPC that links to this product',              example: '50081100110010' },
+
+  // ── Grocery / Scale ──
+  wicEligible:        { desc: 'Eligible for WIC (Women, Infants, Children) program',                   example: 'true, Y' },
+  tareWeight:         { desc: 'Container weight to subtract for scale items (lbs)',                     example: '0.02, 0.5' },
+  scaleByCount:       { desc: 'Sell by count instead of weight on the scale',                          example: 'true, false' },
+  scalePluType:       { desc: 'PLU type for scale label printing',                                     example: 'random, fixed' },
+  ingredients:        { desc: 'Ingredient list (for scale labels)',                                    example: 'Water, Sugar, Citric Acid' },
+  nutritionFacts:     { desc: 'Nutrition facts text (for scale labels)',                                example: 'Calories 120, Fat 0g' },
+  certCode:           { desc: 'Certification code (organic, kosher, etc.)',                             example: 'USDA-ORG, KOS' },
+  sectionId:          { desc: 'Section or subcategory numeric ID',                                     example: '5, 12' },
+  sectionName:        { desc: 'Section or subcategory name',                                           example: 'Deli, Bakery' },
+  expirationDate:     { desc: 'Product expiration or best-by date',                                    example: '2026-12-31, 12/31/2026' },
+  labelFormatId:      { desc: 'Label format ID for shelf-edge / scale label printing',                 example: '1, 3' },
+  byWeight:           { desc: 'Product is sold by weight on a scale',                                  example: 'true, false' },
+  foodstamp:          { desc: 'Eligible for food stamp / SNAP purchase (same as EBT Eligible)',        example: 'true, Y' },
+
+  // ── E-commerce ──
+  hideFromEcom:       { desc: 'Hide this product from the online storefront',                          example: 'true, false' },
+  ecomExternalId:     { desc: 'External e-commerce platform product ID (Shopify, etc.)',               example: 'shopify_123456' },
+  ecomPackWeight:     { desc: 'Shipping weight for e-commerce orders (lbs)',                           example: '2.5, 0.8' },
+  ecomPrice:          { desc: 'Online price (if different from in-store retail)',                       example: '12.99' },
+  ecomSalePrice:      { desc: 'Online sale price',                                                     example: '9.99' },
+  ecomOnSale:         { desc: 'Whether the product is currently on sale online',                       example: 'true, false' },
+  ecomDescription:    { desc: 'Product description for the online storefront',                         example: 'Premium red wine blend' },
+  ecomSummary:        { desc: 'Short summary for product cards on the storefront',                     example: 'Bold, fruity red blend' },
+
+  // ── Promotions / Sale pricing ──
+  specialPrice:       { desc: 'Promotional sale retail price',                                         example: '9.99, 7.99' },
+  specialCost:        { desc: 'Promotional cost price during sale period',                             example: '6.50' },
+  priceMethod:        { desc: 'Pricing method (regular, group, mix-match)',                            example: 'regular, group' },
+  groupPrice:         { desc: 'Group/mix-match total price (e.g. "3 for $10")',                        example: '10.00' },
+  groupQty:           { desc: 'Quantity for group pricing',                                            example: '3, 2' },
+  saleMultiple:       { desc: 'Sale pricing multiple',                                                 example: '2, 3' },
+  startDate:          { desc: 'Promotion or sale start date',                                          example: '2026-01-01, 01/15/2026' },
+  endDate:            { desc: 'Promotion or sale end date',                                            example: '2026-12-31, 03/31/2026' },
+
+  // ── TPR (Temporary Price Reduction) ──
+  tprRetail:          { desc: 'Temporary reduced retail price',                                        example: '8.99' },
+  tprCost:            { desc: 'Temporary reduced cost',                                                example: '5.50' },
+  tprMultiple:        { desc: 'TPR pricing multiple',                                                  example: '1, 2' },
+  tprStartDate:       { desc: 'TPR start date',                                                        example: '2026-04-01' },
+  tprEndDate:         { desc: 'TPR end date',                                                           example: '2026-04-30' },
+
+  // ── Future Pricing ──
+  futureRetail:       { desc: 'Scheduled future retail price',                                         example: '13.99' },
+  futureCost:         { desc: 'Scheduled future cost price',                                           example: '9.50' },
+  futureActiveDate:   { desc: 'Date the future price takes effect',                                    example: '2026-06-01' },
+  futureMultiple:     { desc: 'Future pricing multiple',                                               example: '1' },
+
+  // ── Dept/Vendor/Promo specific ──
+  id:                 { desc: 'Existing record ID (for update mode only)',                             example: '1, 42' },
+  code:               { desc: 'Short code or abbreviation (max 8 chars)',                              example: 'WINE, LIQ' },
+  color:              { desc: 'Display color (hex code)',                                              example: '#f59e0b, #22c55e' },
+  sortOrder:          { desc: 'Display order (lower = first)',                                         example: '1, 5, 10' },
+  showInPOS:          { desc: 'Show this department on the POS terminal',                              example: 'true' },
+  bottleDeposit:      { desc: 'Department has bottle deposit products (yes/no flag)',                   example: 'true, false' },
+  contactName:        { desc: 'Vendor contact person name',                                            example: 'John Smith' },
+  email:              { desc: 'Vendor contact email',                                                   example: 'rep@vendor.com' },
+  phone:              { desc: 'Vendor contact phone number',                                            example: '+1-555-555-0100' },
+  website:            { desc: 'Vendor website URL',                                                     example: 'https://vendor.com' },
+  terms:              { desc: 'Payment terms with vendor',                                              example: 'Net 30, COD' },
+  accountNo:          { desc: 'Your account number with this vendor',                                  example: 'ACC-12345' },
+  promoType:          { desc: 'Promotion type',                                                         example: 'sale, bogo, volume, mix_match' },
+  discountType:       { desc: 'How the discount is applied',                                            example: 'percent, amount, fixed' },
+  discountValue:      { desc: 'Discount amount or percentage',                                          example: '10, 2.00, 15' },
+  minQty:             { desc: 'Minimum quantity for promotion to apply',                                example: '2, 3' },
+  buyQty:             { desc: 'BOGO: quantity customer must buy',                                       example: '2, 1' },
+  getQty:             { desc: 'BOGO: quantity customer gets free/discounted',                           example: '1' },
+  productIds:         { desc: 'Product UPCs for this promotion (pipe-separated)',                       example: '012345|067890' },
+  badgeLabel:         { desc: 'Badge text shown on POS for this promo',                                 example: 'SALE, 2 FOR $5' },
+  depositAmount:      { desc: 'Deposit rule dollar amount',                                             example: '0.05, 0.10' },
+  minVolumeOz:        { desc: 'Minimum container volume for this deposit rule (oz)',                    example: '0, 8' },
+  maxVolumeOz:        { desc: 'Maximum container volume for this deposit rule (oz)',                    example: '24, 64' },
+  containerTypes:     { desc: 'Container types this rule applies to',                                   example: 'bottle, can, box' },
+  state:              { desc: 'State/province for this deposit rule',                                   example: 'ME, NY, ON' },
+  receivedQty:        { desc: 'Quantity received in this invoice (cases or units)',                     example: '6, 12' },
 };
 
 const FIELD_LABELS = {

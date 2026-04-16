@@ -75,7 +75,11 @@ const ALIASES = {
   color:              ['color','colour','hexcolor','deptcolor'],
   sortOrder:          ['sortorder','sort','order','sequence','displayorder'],
   showInPOS:          ['showinpos','posvisible','visible','showonpos'],
-  bottleDeposit:      ['bottledeposit','deposit','crv','depositrequired'],
+  // FIXED: removed 'bottledeposit' and 'deposit' from here — those aliases
+  // were colliding with depositPerUnit and depositAmount (dollar amounts).
+  // A CSV column "Bottle Deposit" with "$0.05" was being parsed as boolean true
+  // instead of a dollar value. Now the boolean dept flag uses unique aliases only.
+  bottleDeposit:      ['deptdeposit','depositrequired','crv','crvapplicable','hasdeposit'],
   description:        ['longdesc','longdescription','notes','comments','productdescription','fulldescription'],
 
   // Vendor-specific
@@ -94,11 +98,17 @@ const ALIASES = {
   buyQty:             ['buyqty','buyquantity','buy','buyx'],
   getQty:             ['getqty','getquantity','get','gety'],
   badgeLabel:         ['badge','badgelabel','badgetext','promotionlabel','poslabel'],
-  startDate:          ['startdate','start','validfrom','effectivedate','promostart'],
-  endDate:            ['enddate','end','validto','expirydate','expiredate','promoend'],
+  // FIXED: startDate/endDate were defined TWICE (here + line 140). JavaScript
+  // silently uses the last definition. Merged into one combined list each.
+  startDate:          ['startdate','start','validfrom','effectivedate','promostart','salestartdate','sale_start_date'],
+  endDate:            ['enddate','end','validto','expirydate','expiredate','promoend','saleenddate','sale_end_date'],
 
   // Deposit-specific
-  depositAmount:      ['depositamount','deposit','crvamount','depositvalue','bottledeposit'],
+  // FIXED: 'bottledeposit' moved here from the dept-specific section so a CSV
+  // column "Bottle Deposit" with dollar values maps to the decimal amount, not the boolean.
+  // 'bottledeposit' deliberately NOT here — it's claimed by depositPerUnit (product imports).
+  // depositAmount is only used by the 'deposits' import type for deposit RULES.
+  depositAmount:      ['depositamount','crvamount','depositvalue','ruledeposit'],
   minVolumeOz:        ['minvolumeoz','minvolume','minimumvolume','minoz'],
   maxVolumeOz:        ['maxvolumeoz','maxvolume','maximumvolume','maxoz'],
   containerTypes:     ['containertypes','containertype','containers','bottletype'],
@@ -137,8 +147,8 @@ const ALIASES = {
   specialPrice:       ['specialprice','special_price','saleprice','promoprice','saleretail','sale_retail'],
   specialCost:        ['specialcost','promotioncost','promocost','salecost','sale_cost'],
   saleMultiple:       ['salemultiple','sale_multiple','salemult'],
-  startDate:          ['startdate','start','validfrom','effectivedate','promostart','salestartdate','sale_start_date'],
-  endDate:            ['enddate','end','validto','expirydate','expiredate','promoend','saleenddate','sale_end_date'],
+  // startDate/endDate — NOT duplicated here. Already defined above (line ~97-98)
+  // with all sale + promo aliases combined into one entry each.
 
   // ── TPR (Temporary Price Reduction) — second promotion slot ──
   tprMultiple:        ['tprmultiple','tpr_multiple','tprmult'],

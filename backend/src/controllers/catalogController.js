@@ -745,13 +745,15 @@ export const createMasterProduct = async (req, res) => {
         size:               size || null,
         sizeUnit:           sizeUnit || null,
         pack:               pack         ? parseInt(pack)         : null,
-        casePacks:          casePacks    ? parseInt(casePacks)    : null,
-        sellUnitSize:       sellUnitSize ? parseInt(sellUnitSize) : null,
+        // FIXED: use `!= null` instead of truthiness check so value 0 is preserved.
+        // Previously `packInCase ? parseInt(packInCase) : null` turned 0 into null.
+        casePacks:          casePacks    != null ? parseInt(casePacks)    : null,
+        sellUnitSize:       sellUnitSize != null ? parseInt(sellUnitSize) : null,
         sellUnit:           sellUnit     || null,
-        innerPack:          innerPack    ? parseInt(innerPack)    : null,
-        unitsPerPack:       unitsPerPack ? parseInt(unitsPerPack) : null,
-        unitPack:           unitPack     ? parseInt(unitPack)     : null,
-        packInCase:         packInCase   ? parseInt(packInCase)   : null,
+        innerPack:          innerPack    != null ? parseInt(innerPack)    : null,
+        unitsPerPack:       unitsPerPack != null ? parseInt(unitsPerPack) : null,
+        unitPack:           unitPack     != null ? parseInt(unitPack)     : null,
+        packInCase:         packInCase   != null ? parseInt(packInCase)   : null,
         depositPerUnit:     depositPerUnit != null ? parseFloat(depositPerUnit) : null,
         caseDeposit:        req.body.caseDeposit   != null ? parseFloat(req.body.caseDeposit) : null,
         weight:             weight ? parseFloat(weight) : null,
@@ -887,8 +889,8 @@ export const updateMasterProduct = async (req, res) => {
     if (body.active        !== undefined) updates.active        = Boolean(body.active);
     if (body.hideFromEcom  !== undefined) updates.hideFromEcom  = Boolean(body.hideFromEcom);
     if (body.ecomTags      !== undefined) updates.ecomTags      = Array.isArray(body.ecomTags) ? body.ecomTags : [];
-    if (body.unitPack      !== undefined) updates.unitPack      = body.unitPack   ? parseInt(body.unitPack)         : null;
-    if (body.packInCase    !== undefined) updates.packInCase    = body.packInCase ? parseInt(body.packInCase)       : null;
+    if (body.unitPack      !== undefined) updates.unitPack      = body.unitPack   != null ? parseInt(body.unitPack)   : null;
+    if (body.packInCase    !== undefined) updates.packInCase    = body.packInCase != null ? parseInt(body.packInCase) : null;
     if (body.depositPerUnit!== undefined) updates.depositPerUnit= body.depositPerUnit != null ? parseFloat(body.depositPerUnit) : null;
     if (body.caseDeposit   !== undefined) updates.caseDeposit   = body.caseDeposit   != null ? parseFloat(body.caseDeposit)   : null;
     if (body.itemCode      !== undefined) updates.itemCode       = body.itemCode || null;
