@@ -32,7 +32,11 @@
       "Bash(grep -l \"editorType\" \"D:/The Fortune Tech Projects/Fortune_POS_Platform/ecom-backend/prisma/migrations/0_init/\"*.sql)",
       "WebFetch(domain:app.theneo.io)",
       "Bash(taskkill /F /IM node.exe)",
-      "Bash(powershell -Command \"Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2\")"
+      "Bash(powershell -Command \"Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2\")",
+      "mcp__Claude_Preview__preview_start",
+      "Read(//c/Program Files/PostgreSQL//**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(reg query:*)"
     ]
   }
 }

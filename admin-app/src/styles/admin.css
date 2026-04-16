@@ -48,6 +48,39 @@
   flex-shrink: 0;
 }
 
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Inline name cell with icon ────────────────────────── */
+.admin-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.admin-name-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(61, 86, 181, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+/* ── Row action buttons ────────────────────────────────── */
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 /* ── Stat Cards ──────────────────────────────────────────── */
 .admin-stats-grid {
   display: grid;
@@ -196,7 +229,7 @@
 
 .admin-tab {
   padding: 0.4rem 1rem;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   cursor: pointer;
   font-size: 0.8rem;
@@ -348,6 +381,7 @@
 
 .admin-card:hover { border-color: var(--brand-secondary); box-shadow: var(--shadow-sm); }
 .admin-card.clickable { cursor: pointer; }
+.admin-card-header-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .admin-card-title { font-weight: 600; color: var(--text-primary); font-size: 0.9rem; }
 .admin-card-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
 .admin-card-actions { display: flex; gap: 0.35rem; }
@@ -482,7 +516,8 @@
 .admin-resume-link { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.75rem; color: var(--accent-primary); font-size: 0.85rem; text-decoration: none; font-weight: 500; }
 .admin-resume-link:hover { text-decoration: underline; }
 
-.admin-select { width: 100%; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.85rem; outline: none; margin-bottom: 1rem; }
+.admin-select { width: 100%; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.85rem; outline: none; }
+.admin-modal-field .admin-select { margin-bottom: 1rem; }
 .admin-select:focus { border-color: var(--accent-primary); }
 .admin-textarea { width: 100%; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.85rem; outline: none; resize: vertical; font-family: inherit; margin-bottom: 1rem; }
 .admin-textarea:focus { border-color: var(--accent-primary); }

@@ -1,21 +1,22 @@
 import React from 'react';
 import './MarketingSection.css';
 
-const MarketingSection = ({ 
-  children, 
-  id, 
-  title, 
-  subtitle, 
-  bgVariant = 'light', // light, dark, alternate, accent
+const MarketingSection = ({
+  children,
+  id,
+  title,
+  subtitle,
+  bgVariant = 'light',
   className = '',
-  containerClass = ''
+  containerClass = '',
+  fullWidth = false,
 }) => {
   return (
-    <section 
-      id={id} 
+    <section
+      id={id}
       className={`mkt-section mkt-section-${bgVariant} ${className}`}
     >
-      <div className={`mkt-container ${containerClass}`}>
+      <div className={`${fullWidth ? 'mkt-container-full' : 'mkt-container'} ${containerClass}`}>
         {(title || subtitle) && (
           <div className="mkt-section-header">
             {title && <h2 className="mkt-section-title">{title}</h2>}

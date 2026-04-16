@@ -114,4 +114,8 @@ export const adminUpdateEquipmentProduct = (id, data) => api.put(`/admin/billing
 export const adminListEquipmentOrders    = (params)   => api.get('/admin/billing/equipment/orders', { params }).then(r => r.data);
 export const adminUpdateEquipmentOrder   = (id, data) => api.put(`/admin/billing/equipment/orders/${id}`, data).then(r => r.data);
 
+// ── Database Backup ──────────────────────────────────────────────────────────
+export const downloadDatabaseBackup = (target, format = 'sql') =>
+  api.get(`/admin/backup/${target}`, { params: { format }, responseType: 'blob' });
+
 export default api;

@@ -160,10 +160,11 @@ const AdminStores = () => {
               <tbody>
                 {stores.map(s => (
                   <tr key={s.id}>
-                    <td className="primary">
-                      <div className="admin-header-icon">
-                        <Store size={14} /> {s.name}
-                      </div>
+                    <td>
+                      <span className="admin-name-cell">
+                        <span className="admin-name-icon"><Store size={14} /></span>
+                        {s.name}
+                      </span>
                     </td>
                     <td>{s.organization?.name || '-'}</td>
                     <td className="muted">{s.address || '-'}</td>
@@ -175,11 +176,11 @@ const AdminStores = () => {
                     </td>
                     <td className="muted">{new Date(s.createdAt).toLocaleDateString()}</td>
                     <td>
-                      <div className="actions">
-                        <button onClick={() => openEdit(s)} className="admin-btn-icon">
+                      <div className="admin-row-actions">
+                        <button onClick={() => openEdit(s)} className="admin-btn-icon" title="Edit">
                           <Edit3 size={13} />
                         </button>
-                        <button onClick={() => handleDelete(s)} className="admin-btn-icon danger">
+                        <button onClick={() => handleDelete(s)} className="admin-btn-icon danger" title="Deactivate">
                           <Trash2 size={13} />
                         </button>
                       </div>

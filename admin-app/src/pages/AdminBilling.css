@@ -29,7 +29,7 @@
   position: relative;
   transition: background 0.2s;
 }
-.ab-toggle--on  { background: #3b82f6; }
+.ab-toggle--on  { background: var(--accent-primary); }
 .ab-toggle--off { background: var(--border-color); }
 .ab-toggle-knob {
   position: absolute;
@@ -115,7 +115,7 @@
 .ab-tab--active {
   font-weight: 700;
   color: var(--text-primary);
-  border-bottom-color: #3b82f6;
+  border-bottom-color: var(--accent-primary);
 }
 
 /* ── Loading state ───────────────────────────────────────── */
@@ -214,7 +214,7 @@
   border-radius: 10px;
   background: rgba(59,130,246,.1);
   border: 1px solid rgba(59,130,246,.2);
-  color: #3b82f6;
+  color: var(--accent-primary);
 }
 .ab-plan-actions {
   display: flex;
@@ -257,7 +257,7 @@
   font-weight: 700;
   background: rgba(59,130,246,.1);
   border: 1px solid rgba(59,130,246,.25);
-  color: #3b82f6;
+  color: var(--accent-primary);
   cursor: pointer;
 }
 .ab-btn-writeoff {
@@ -384,7 +384,7 @@
   cursor: pointer;
   font-size: 0.85rem;
 }
-.ab-addon-check-label input { accent-color: #3b82f6; }
+.ab-addon-check-label input { accent-color: var(--accent-primary); }
 .ab-addon-check-price {
   color: var(--text-muted);
   font-size: 0.78rem;
@@ -444,7 +444,7 @@
   font-size: 0.82rem;
   margin-bottom: 4px;
 }
-.ab-manage-label input { accent-color: #3b82f6; }
+.ab-manage-label input { accent-color: var(--accent-primary); }
 .ab-manage-extra-price {
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -560,7 +560,7 @@
   cursor: pointer;
   font-size: 0.85rem;
 }
-.ab-product-check-label input { accent-color: #3b82f6; }
+.ab-product-check-label input { accent-color: var(--accent-primary); }
 .ab-product-name { font-weight: 600; }
 .ab-product-cat  { font-size: 0.78rem; text-transform: capitalize; }
 .ab-product-price { font-weight: 700; }

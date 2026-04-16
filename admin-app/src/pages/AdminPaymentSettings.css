@@ -36,7 +36,7 @@
   transition: background 0.2s;
   flex-shrink: 0;
 }
-.aps-toggle--on  { background: #3b82f6; }
+.aps-toggle--on  { background: var(--accent-primary); }
 .aps-toggle--off { background: var(--bg-card); }
 .aps-toggle-knob {
   position: absolute;
@@ -81,7 +81,7 @@
 .aps-tab--active {
   font-weight: 700;
   color: var(--text-primary);
-  border-bottom-color: #3b82f6;
+  border-bottom-color: var(--accent-primary);
 }
 
 /* ── Shared form label ───────────────────────────────────── */
@@ -214,6 +214,7 @@
 .aps-search-flex {
   flex: 1;
   min-width: 200px;
+  margin-bottom: 0;
 }
 .aps-add-form {
   background: var(--bg-card);
@@ -344,7 +345,19 @@
   align-items: center;
 }
 .aps-history-date {
-  width: auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.aps-history-date:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(61, 86, 181, 0.08);
 }
 .aps-history-count {
   font-size: 0.8rem;
