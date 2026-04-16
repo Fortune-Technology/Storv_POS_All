@@ -58,10 +58,18 @@ async function main() {
 
   console.log(`\n  Superadmin created successfully!`);
   console.log(`  Email:    ${email}`);
-  console.log(`  Password: ${password}`);
+  console.log(`  Password: (written to prisma/.seed-credentials — gitignored)`);
   console.log(`  ID:       ${user.id}`);
   console.log(`  Org:      ${defaultOrg.name} (${defaultOrg.id})\n`);
   console.log(`  *** Change the password after first login! ***\n`);
+
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const out = path.resolve(process.cwd(), 'prisma', '.seed-credentials');
+    const line = `# Superadmin seed (generated ${new Date().toISOString()})\n${email}=${password}\n`;
+    fs.appendFileSync(out, line, { mode: 0o600 });
+  } catch { /* best-effort */ }
 }
 
 main()

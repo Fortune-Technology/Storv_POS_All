@@ -9,16 +9,16 @@ import { getTenantUsers, inviteUser, updateUserRole, removeUser, getStores, setC
 import { toast } from 'react-toastify';
 
 /* ── Validation helpers ──────────────────────────────────────────────────── */
-const validateEmail    = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const validatePhone    = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone.replace(/\s/g, ''));
-const validatePassword = (pw)    => pw.length >= 8 && /\d/.test(pw);
-const validatePin      = (pin)   => !pin || /^\d{4,6}$/.test(pin);
+const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone.replace(/\s/g, ''));
+const validatePassword = (pw) => pw.length >= 8 && /\d/.test(pw);
+const validatePin = (pin) => !pin || /^\d{4,6}$/.test(pin);
 
 /* ── Role config ─────────────────────────────────────────────────────────── */
 const ROLES = [
-  { value: 'admin',   label: 'Admin',   color: '#f97316', bg: 'rgba(249,115,22,0.12)',  multiStore: true  },
-  { value: 'manager', label: 'Manager', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  multiStore: true  },
-  { value: 'cashier', label: 'Cashier', color: 'var(--accent-primary)', bg: 'var(--brand-12)',  multiStore: false },
+  { value: 'admin', label: 'Admin', color: '#f97316', bg: 'rgba(249,115,22,0.12)', multiStore: true },
+  { value: 'manager', label: 'Manager', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', multiStore: true },
+  { value: 'cashier', label: 'Cashier', color: 'var(--accent-primary)', bg: 'var(--brand-12)', multiStore: false },
 ];
 
 const FIXED_ROLES = ['owner', 'superadmin'];
@@ -134,18 +134,18 @@ function StoreAssignment({ role, storeIds, setStoreIds, stores }) {
 
 /* ── Invite Modal (2-step) ───────────────────────────────────────────────── */
 function InviteModal({ stores, onClose, onInvited }) {
-  const [step,            setStep]            = useState(1);
-  const [form,            setForm]            = useState({ firstName: '', lastName: '', email: '', phone: '', role: 'cashier' });
-  const [storeIds,        setStoreIds]        = useState([]);
-  const [password,        setPassword]        = useState('');
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '', role: 'cashier' });
+  const [storeIds, setStoreIds] = useState([]);
+  const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [pin,             setPin]             = useState('');
-  const [showPw,          setShowPw]          = useState(false);
-  const [showConfirmPw,   setShowConfirmPw]   = useState(false);
-  const [showPin,         setShowPin]         = useState(false);
-  const [loading,         setLoading]         = useState(false);
-  const [created,         setCreated]         = useState(null);
-  const [errors,          setErrors]          = useState({});
+  const [pin, setPin] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [created, setCreated] = useState(null);
+  const [errors, setErrors] = useState({});
 
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v }));
@@ -160,10 +160,10 @@ function InviteModal({ stores, onClose, onInvited }) {
   /* ── Step 1 validation ── */
   const validateStep1 = () => {
     const errs = {};
-    if (!form.firstName.trim())          errs.firstName = 'First name is required.';
-    if (!form.lastName.trim())           errs.lastName  = 'Last name is required.';
-    if (!form.email.trim())              errs.email     = 'Email is required.';
-    else if (!validateEmail(form.email)) errs.email     = 'Enter a valid email address.';
+    if (!form.firstName.trim()) errs.firstName = 'First name is required.';
+    if (!form.lastName.trim()) errs.lastName = 'Last name is required.';
+    if (!form.email.trim()) errs.email = 'Email is required.';
+    else if (!validateEmail(form.email)) errs.email = 'Enter a valid email address.';
     if (form.phone && !validatePhone(form.phone)) errs.phone = 'Enter a valid phone number (7–15 digits).';
     if (form.role === 'cashier' && storeIds.length !== 1) errs.storeIds = 'Cashiers must be assigned to exactly one store.';
     return errs;
@@ -182,13 +182,13 @@ function InviteModal({ stores, onClose, onInvited }) {
   /* ── Step 2 validation ── */
   const validateStep2 = () => {
     const errs = {};
-    if (!password)                       errs.password        = 'Password is required.';
-    else if (!validatePassword(password)) errs.password       = 'Password must be at least 8 characters and include a number.';
-    if (!confirmPassword)                 errs.confirmPassword = 'Please confirm the password.';
+    if (!password) errs.password = 'Password is required.';
+    else if (!validatePassword(password)) errs.password = 'Password must be at least 8 characters and include a number.';
+    if (!confirmPassword) errs.confirmPassword = 'Please confirm the password.';
     else if (password !== confirmPassword) errs.confirmPassword = 'Passwords do not match.';
     const pinRequired = ['cashier', 'manager', 'staff'].includes(form.role);
-    if (pinRequired && !pin)              errs.pin = 'PIN is required for this role.';
-    else if (pin && !validatePin(pin))    errs.pin = 'PIN must be 4–6 digits.';
+    if (pinRequired && !pin) errs.pin = 'PIN is required for this role.';
+    else if (pin && !validatePin(pin)) errs.pin = 'PIN must be 4–6 digits.';
     return errs;
   };
 
@@ -203,13 +203,13 @@ function InviteModal({ stores, onClose, onInvited }) {
     try {
       const result = await inviteUser({
         firstName: form.firstName.trim(),
-        lastName:  form.lastName.trim(),
-        email:     form.email.trim(),
-        phone:     form.phone.trim() || undefined,
-        role:      form.role,
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim() || undefined,
+        role: form.role,
         storeIds,
         password,
-        pin:       pin || undefined,
+        pin: pin || undefined,
       });
       setCreated(result);
       onInvited(result.user);
@@ -296,7 +296,7 @@ function InviteModal({ stores, onClose, onInvited }) {
             <button className="btn btn-primary" style={{ width: '100%' }} onClick={onClose}>Done</button>
           </div>
 
-        /* ── Step 1: Basic info ── */
+          /* ── Step 1: Basic info ── */
         ) : step === 1 ? (
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {/* First + Last name row */}
@@ -369,9 +369,9 @@ function InviteModal({ stores, onClose, onInvited }) {
                 ))}
               </div>
               <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                {form.role === 'cashier'  && 'Single store · limited POS access'}
-                {form.role === 'manager'  && 'Multiple stores · can manage products & staff'}
-                {form.role === 'admin'    && 'Multiple stores · full org access except billing'}
+                {form.role === 'cashier' && 'Single store · limited POS access'}
+                {form.role === 'manager' && 'Multiple stores · can manage products & staff'}
+                {form.role === 'admin' && 'Multiple stores · full org access except billing'}
               </div>
             </div>
 
@@ -396,7 +396,7 @@ function InviteModal({ stores, onClose, onInvited }) {
             </button>
           </div>
 
-        /* ── Step 2: Password & PIN ── */
+          /* ── Step 2: Password & PIN ── */
         ) : (
           <form onSubmit={handleSubmit} style={{ overflowY: 'auto', flex: 1 }}>
             {/* Password */}
@@ -498,18 +498,18 @@ function InviteModal({ stores, onClose, onInvited }) {
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function UserManagement({ embedded }) {
-  const [users,      setUsers]      = useState([]);
-  const [stores,     setStores]     = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
+  const [users, setUsers] = useState([]);
+  const [stores, setStores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [showInvite, setShowInvite] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [removingId, setRemovingId] = useState(null);
-  const [pinModal,   setPinModal]   = useState(null); // null | { userId, userName }
-  const [pinValue,   setPinValue]   = useState('');
+  const [pinModal, setPinModal] = useState(null); // null | { userId, userName }
+  const [pinValue, setPinValue] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
-  const [pinError,   setPinError]   = useState('');
-  const [showPinPw,  setShowPinPw]  = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [showPinPw, setShowPinPw] = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -609,190 +609,190 @@ export default function UserManagement({ embedded }) {
   const content = (
     <>
 
-        {/* Header */}
-        <div className="p-header">
-          <div className="p-header-left">
-            <div className="p-header-icon">
-              <Users size={22} />
+      {/* Header */}
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon">
+            <Users size={22} />
+          </div>
+          <div>
+            <h1 className="p-title">Users</h1>
+            <p className="p-subtitle">Manage team members and their store access</p>
+          </div>
+        </div>
+        <div className="p-header-actions">
+          <button className="filter-btn" onClick={load} disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            Refresh
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowInvite(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 1rem' }}>
+            <UserPlus size={15} />Invite user
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="analytics-error" style={{ marginBottom: '1.5rem' }}>
+          <AlertCircle size={16} /><span>{error}</span>
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div className="analytics-stats-row" style={{ marginBottom: '1.75rem' }}>
+        {[
+          { label: 'Total users', value: users.length, color: 'var(--accent-primary)', bg: 'var(--brand-12)' },
+          { label: 'Admins', value: users.filter(u => ['admin', 'owner'].includes(u.role)).length, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+          { label: 'Managers', value: users.filter(u => u.role === 'manager').length, color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+          { label: 'Cashiers', value: users.filter(u => u.role === 'cashier').length, color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+        ].map(k => (
+          <div key={k.label} className="analytics-stat-card">
+            <div className="analytics-stat-icon" style={{ background: k.bg, color: k.color }}>
+              <Shield size={20} />
             </div>
             <div>
-              <h1 className="p-title">Users</h1>
-              <p className="p-subtitle">Manage team members and their store access</p>
+              <span className="analytics-stat-label">{k.label}</span>
+              <span className="analytics-stat-value" style={{ color: k.color }}>{k.value}</span>
             </div>
           </div>
-          <div className="p-header-actions">
-            <button className="filter-btn" onClick={load} disabled={loading}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Refresh
-            </button>
-            <button className="btn btn-primary" onClick={() => setShowInvite(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 1rem' }}>
-              <UserPlus size={15} />Invite user
-            </button>
-          </div>
+        ))}
+      </div>
+
+      {/* User table */}
+      <div className="analytics-chart-card">
+        <div className="analytics-chart-title" style={{ marginBottom: '1.25rem' }}>
+          <Users size={16} style={{ color: 'var(--accent-primary)' }} />
+          Team members
+          <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+            {users.length} member{users.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
-        {error && (
-          <div className="analytics-error" style={{ marginBottom: '1.5rem' }}>
-            <AlertCircle size={16} /><span>{error}</span>
+        {loading && !users.length ? (
+          <div className="analytics-loading"><div className="analytics-loading-spinner" /><span>Loading…</span></div>
+        ) : users.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+            <Users size={36} style={{ opacity: 0.2, marginBottom: '0.75rem' }} />
+            <p>No team members yet. Invite your first user!</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  {['User', 'Role', 'Store access', 'Joined', 'Actions'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map(u => {
+                  const isSelf = u.id === currentUser.id;
+                  const isFixed = FIXED_ROLES.includes(u.role);
+                  const updating = updatingId === u.id;
+                  const removing = removingId === u.id;
+                  const uName = displayName(u);
+
+                  return (
+                    <tr key={u.id}
+                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+
+                      {/* User */}
+                      <td style={{ padding: '0.875rem 0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <Initials name={uName} />
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                              {uName}{isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>(you)</span>}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.email}</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Role */}
+                      <td style={{ padding: '0.875rem 0.75rem' }}>
+                        {isFixed || isSelf ? roleBadge(u.role) : (
+                          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <select
+                              value={u.role}
+                              onChange={e => handleRoleChange(u.id, e.target.value)}
+                              disabled={updating}
+                              style={{
+                                appearance: 'none', border: 'none', background: 'transparent',
+                                cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
+                                color: ROLES.find(r => r.value === u.role)?.color || 'var(--text-muted)',
+                                paddingRight: '1.1rem',
+                              }}
+                            >
+                              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                            </select>
+                            {updating
+                              ? <Loader size={12} className="animate-spin" />
+                              : <ChevronDown size={12} style={{ color: 'var(--text-muted)', position: 'absolute', right: 0, pointerEvents: 'none' }} />}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Store access */}
+                      <td style={{ padding: '0.875rem 0.75rem', fontSize: '0.8rem', maxWidth: 200 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
+                          {storeNames(u)}
+                        </div>
+                      </td>
+
+                      {/* Joined */}
+                      <td style={{ padding: '0.875rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '0.875rem 0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          {['cashier', 'staff', 'manager'].includes(u.role) && (
+                            <button
+                              onClick={() => { setPinModal({ userId: u.id, userName: uName }); setPinValue(''); setPinError(''); }}
+                              title="Set PIN"
+                              style={{
+                                background: 'var(--brand-10)', border: '1px solid var(--brand-30)',
+                                color: 'var(--accent-primary)', cursor: 'pointer',
+                                padding: '0.2rem 0.55rem', borderRadius: '6px',
+                                fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em',
+                                transition: 'background 0.15s',
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-20)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'var(--brand-10)'}
+                            >
+                              Set PIN
+                            </button>
+                          )}
+                          {!isFixed && !isSelf && (
+                            <button
+                              onClick={() => handleRemove(u.id, uName)}
+                              disabled={removing}
+                              title="Remove from organisation"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', borderRadius: '6px', transition: 'color 0.15s' }}
+                              onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                            >
+                              {removing ? <Loader size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-
-        {/* Stats row */}
-        <div className="analytics-stats-row" style={{ marginBottom: '1.75rem' }}>
-          {[
-            { label: 'Total users', value: users.length,                                              color: 'var(--accent-primary)', bg: 'var(--brand-12)' },
-            { label: 'Admins',      value: users.filter(u => ['admin','owner'].includes(u.role)).length, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-            { label: 'Managers',    value: users.filter(u => u.role === 'manager').length,            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)'  },
-            { label: 'Cashiers',    value: users.filter(u => u.role === 'cashier').length,            color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)'  },
-          ].map(k => (
-            <div key={k.label} className="analytics-stat-card">
-              <div className="analytics-stat-icon" style={{ background: k.bg, color: k.color }}>
-                <Shield size={20} />
-              </div>
-              <div>
-                <span className="analytics-stat-label">{k.label}</span>
-                <span className="analytics-stat-value" style={{ color: k.color }}>{k.value}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* User table */}
-        <div className="analytics-chart-card">
-          <div className="analytics-chart-title" style={{ marginBottom: '1.25rem' }}>
-            <Users size={16} style={{ color: 'var(--accent-primary)' }} />
-            Team members
-            <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-              {users.length} member{users.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          {loading && !users.length ? (
-            <div className="analytics-loading"><div className="analytics-loading-spinner" /><span>Loading…</span></div>
-          ) : users.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-              <Users size={36} style={{ opacity: 0.2, marginBottom: '0.75rem' }} />
-              <p>No team members yet. Invite your first user!</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    {['User', 'Role', 'Store access', 'Joined', 'Actions'].map(h => (
-                      <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map(u => {
-                    const isSelf   = u.id === currentUser.id;
-                    const isFixed  = FIXED_ROLES.includes(u.role);
-                    const updating = updatingId === u.id;
-                    const removing = removingId === u.id;
-                    const uName    = displayName(u);
-
-                    return (
-                      <tr key={u.id}
-                        style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}>
-
-                        {/* User */}
-                        <td style={{ padding: '0.875rem 0.75rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <Initials name={uName} />
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
-                                {uName}{isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>(you)</span>}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.email}</div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Role */}
-                        <td style={{ padding: '0.875rem 0.75rem' }}>
-                          {isFixed || isSelf ? roleBadge(u.role) : (
-                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                              <select
-                                value={u.role}
-                                onChange={e => handleRoleChange(u.id, e.target.value)}
-                                disabled={updating}
-                                style={{
-                                  appearance: 'none', border: 'none', background: 'transparent',
-                                  cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
-                                  color: ROLES.find(r => r.value === u.role)?.color || 'var(--text-muted)',
-                                  paddingRight: '1.1rem',
-                                }}
-                              >
-                                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                              </select>
-                              {updating
-                                ? <Loader size={12} className="animate-spin" />
-                                : <ChevronDown size={12} style={{ color: 'var(--text-muted)', position: 'absolute', right: 0, pointerEvents: 'none' }} />}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Store access */}
-                        <td style={{ padding: '0.875rem 0.75rem', fontSize: '0.8rem', maxWidth: 200 }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.15rem' }}>
-                            {storeNames(u)}
-                          </div>
-                        </td>
-
-                        {/* Joined */}
-                        <td style={{ padding: '0.875rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        </td>
-
-                        {/* Actions */}
-                        <td style={{ padding: '0.875rem 0.75rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            {['cashier', 'staff', 'manager'].includes(u.role) && (
-                              <button
-                                onClick={() => { setPinModal({ userId: u.id, userName: uName }); setPinValue(''); setPinError(''); }}
-                                title="Set PIN"
-                                style={{
-                                  background: 'var(--brand-10)', border: '1px solid var(--brand-30)',
-                                  color: 'var(--accent-primary)', cursor: 'pointer',
-                                  padding: '0.2rem 0.55rem', borderRadius: '6px',
-                                  fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em',
-                                  transition: 'background 0.15s',
-                                }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-20)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'var(--brand-10)'}
-                              >
-                                Set PIN
-                              </button>
-                            )}
-                            {!isFixed && !isSelf && (
-                              <button
-                                onClick={() => handleRemove(u.id, uName)}
-                                disabled={removing}
-                                title="Remove from organisation"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', borderRadius: '6px', transition: 'color 0.15s' }}
-                                onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
-                                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-                              >
-                                {removing ? <Loader size={15} className="animate-spin" /> : <Trash2 size={15} />}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      </div>
 
       {showInvite && (
         <InviteModal

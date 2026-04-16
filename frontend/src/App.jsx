@@ -15,6 +15,7 @@ import About from './pages/marketing/About';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import PhoneLookup from './pages/PhoneLookup';
 import Onboarding from './pages/Onboarding';
 
@@ -185,6 +186,7 @@ function App() {
         <Route path="/login"          element={<Login />} />
         <Route path="/signup"         element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/phone-lookup"   element={<PhoneLookup />} />
 
         {/* ── Admin Impersonation Landing ────────────────────────────── */}

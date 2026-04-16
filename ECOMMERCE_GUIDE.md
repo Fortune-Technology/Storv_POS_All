@@ -85,6 +85,8 @@ cp .env.example .env.local
 ```env
 DATABASE_URL="postgresql://user:pass@localhost:5432/storeveu_pos"
 JWT_SECRET=your_secret_here
+JWT_ACCESS_TTL=2h                                    # Session 18 / C-6
+INTERNAL_API_KEY=<random 64-hex-char string>         # Session 18 / C-1
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5005
 ECOM_BACKEND_URL=http://localhost:5005
 FRONTEND_URL=http://localhost:5173
@@ -96,13 +98,20 @@ ADMIN_URL=http://localhost:5175
 ```env
 DATABASE_URL="postgresql://user:pass@localhost:5432/storeveu_ecom"
 JWT_SECRET=<SAME as backend>
+INTERNAL_API_KEY=<SAME as backend>                   # Session 18 / C-1
 POS_BACKEND_URL=http://localhost:5000
 CORS_ORIGIN=http://localhost:5173,http://localhost:3000
 REVALIDATE_SECRET=any_random_string
 # SMTP settings for order emails (optional)
 ```
 
-**CRITICAL:** `JWT_SECRET` must be identical in both `backend/.env` and `ecom-backend/.env`.
+**CRITICAL — two env vars must match between backend/.env and ecom-backend/.env:**
+
+1. **`JWT_SECRET`** — customer JWTs are issued by the POS backend and verified by the ecom-backend, so both must use the same signing key.
+2. **`INTERNAL_API_KEY`** — added in Session 18 to fix C-1 (unauthenticated inventory leak). The ecom-backend sends this as `X-Internal-Api-Key` on every stock-check call. If it doesn't match, online checkout returns `401` at the stock-verification step. Generate with:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
 
 ### 4. Start Development
 

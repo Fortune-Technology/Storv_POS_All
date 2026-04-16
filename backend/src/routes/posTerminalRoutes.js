@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { protect, authorize } from '../middleware/auth.js';
 import { requireTenant } from '../middleware/scopeToTenant.js';
+import { pinLimiter } from '../middleware/rateLimit.js';
 import {
   getCatalogSnapshot,
   getDepositRules,
@@ -69,8 +70,8 @@ router.post('/transactions/:id/refund',      ...guard, createRefund);
 // Reports
 router.get('/reports/end-of-day',        ...guard, getEndOfDayReport);
 
-// Clock in / out (no JWT — uses station token + PIN)
-router.post('/clock',                    clockEvent);
+// Clock in / out (no JWT — uses station token + PIN, rate-limited to block brute force)
+router.post('/clock',                    pinLimiter, clockEvent);
 router.get('/clock/status',              ...guard, getClockStatus);
 
 router.get('/branding', ...guard, getPosBranding);
@@ -88,7 +89,7 @@ router.post('/print-label', ...guard, printNetworkLabel);
 // Station management
 router.post('/station-register', ...guard, registerStation);
 router.get('/station-verify',    verifyStation);
-router.post('/pin-login',        pinLogin);
+router.post('/pin-login',        pinLimiter, pinLogin);
 
 // Vendors list (for paid-out dropdown)
 router.get('/vendors',           ...guard, getVendors);

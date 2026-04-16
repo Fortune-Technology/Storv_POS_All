@@ -5,6 +5,7 @@ import MarketingFooter from '../../components/marketing/MarketingFooter';
 import { ArrowLeft, MapPin, Clock, Building2, Briefcase, Upload, CheckCircle2, Loader2, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import axios from 'axios';
+import DOMPurify from 'dompurify';
 import './CareerDetail.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -75,7 +76,16 @@ const CareerDetail = () => {
       <section className="cd-body">
         <div className="cd-layout">
           <div>
-            <div className="cd-content" dangerouslySetInnerHTML={{ __html: job.description }} />
+            <div
+              className="cd-content"
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(job.description || '', {
+                  USE_PROFILES: { html: true },
+                  FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+                  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'style'],
+                }),
+              }}
+            />
           </div>
           <div className="cd-apply-bar">
             <div className="cd-apply-card">

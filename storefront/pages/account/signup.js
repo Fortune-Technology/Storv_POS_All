@@ -25,22 +25,65 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState(false);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  // Mirror backend policy — 8+ chars, mixed case, digit, special.
+  const PASSWORD_RE =
+    /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-={}[\]:;"'<>,.?/\\|`~]).{8,128}$/;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (form.password !== form.confirm) { setError('Passwords do not match'); return; }
+    if (!PASSWORD_RE.test(form.password)) {
+      setError('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
-      await signup(form.name, form.email, form.phone, form.password);
+      const result = await signup(form.name, form.email, form.phone, form.password);
+      // Handle pending-approval state — don't redirect straight to account.
+      if (result?.status === 'pending' || result?.customer?.status === 'pending') {
+        setPendingApproval(true);
+        return;
+      }
       const redirect = router.query.redirect;
       router.push(redirect ? `${redirect}?store=${sq}` : `/account?store=${sq}`);
     } catch (err) {
       setError(err.response?.data?.error || 'Signup failed');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  if (pendingApproval) {
+    return (
+      <>
+        <Head><title>Account Pending Approval</title></Head>
+        <Header />
+        <CartDrawer />
+        <main className="sf-container">
+          <div className="auth-wrapper">
+            <div className="auth-card">
+              <h1 className="auth-title">Thanks for signing up!</h1>
+              <p className="auth-subtitle">
+                Your account has been created and is awaiting approval by the store.
+                You&rsquo;ll receive an email as soon as it&rsquo;s activated.
+              </p>
+              <p className="auth-subtitle" style={{ marginTop: '1rem' }}>
+                In the meantime, you can keep browsing the store.
+              </p>
+              <Link href={`/?store=${sq}`} className="auth-btn" style={{ display: 'inline-block', textAlign: 'center', textDecoration: 'none', marginTop: '1rem' }}>
+                Continue Shopping
+              </Link>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </>
+    );
+  }
 
   return (
     <>

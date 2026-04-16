@@ -159,6 +159,9 @@ jobs:
           rm -rf .next 2>/dev/null || rm -rf .next
           chown -R "$USER":"$USER" . 2>/dev/null || true
           rm -f package-lock.json
+          # Wipe stale .next — prevents chunk-hash mismatches between a prior
+          # build's artifacts and the new build (caused blank-page 404s locally).
+          rm -rf .next
           npm install
           npm run build
           pm2 restart storv-storefront || pm2 start npm --name storv-storefront -- start

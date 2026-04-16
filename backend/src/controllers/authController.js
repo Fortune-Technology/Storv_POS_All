@@ -3,10 +3,15 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import prisma from '../config/postgres.js';
 import { sendForgotPassword, sendNewSignupNotifyAdmin, sendPasswordChanged } from '../services/emailService.js';
+import { validateEmail, validatePassword, validatePhone, runValidators } from '../utils/validators.js';
 
 // ── Token generation ──────────────────────────────────────────────────────────
+// Short-lived access token. A 30-day token combined with XSS or leaked
+// localStorage results in long-lived account takeover. Keep access tokens
+// short and rely on frontend re-login / (future) refresh token rotation.
+const ACCESS_TOKEN_TTL = process.env.JWT_ACCESS_TTL || '2h';
 const generateToken = (id, extra = {}) =>
-  jwt.sign({ id, ...extra }, process.env.JWT_SECRET, { expiresIn: '30d' });
+  jwt.sign({ id, ...extra }, process.env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL });
 
 // ── @desc    Register user
 // ── @route   POST /api/auth/signup
@@ -15,7 +20,17 @@ export const signup = async (req, res, next) => {
   try {
     const { name, email, phone, password } = req.body;
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    const vErr = runValidators([
+      validateEmail(email),
+      validatePassword(password),
+      validatePhone(phone),
+    ]);
+    if (vErr) return res.status(400).json({ error: vErr });
+
+    const existing = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (existing) {
       return res.status(400).json({ error: 'User already exists' });
     }
@@ -34,9 +49,9 @@ export const signup = async (req, res, next) => {
 
     const user = await prisma.user.create({
       data: {
-        name,
-        email,
-        phone,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone ? phone.trim() : null,
         password: hashed,
         orgId:    defaultOrg.id,
         role:     'staff',
@@ -69,8 +84,11 @@ export const signup = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -115,7 +133,10 @@ export const forgotPassword = async (req, res, next) => {
     // Always return success to avoid email enumeration
     const successMsg = 'If that email is registered, a reset link has been sent.';
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Silently ignore obviously invalid emails (no DB lookup — same response).
+    if (validateEmail(email)) return res.json({ message: successMsg });
+
+    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (!user) return res.json({ message: successMsg });
 
     // Generate token
@@ -147,6 +168,9 @@ export const resetPassword = async (req, res, next) => {
   try {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ error: 'Token and new password are required' });
+
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
 
     const hashed = crypto.createHash('sha256').update(token).digest('hex');
 

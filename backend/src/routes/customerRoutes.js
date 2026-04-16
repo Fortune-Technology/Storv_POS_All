@@ -56,7 +56,11 @@ router.delete(
   deleteCustomer,
 );
 
-// ── Loyalty points phone-lookup (any authenticated user) ──────────────────────
-router.post('/check-points', checkPoints);
+// ── Loyalty points phone-lookup (cashier+ only — prevents customer enumeration) ──
+router.post(
+  '/check-points',
+  authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'),
+  checkPoints,
+);
 
 export default router;

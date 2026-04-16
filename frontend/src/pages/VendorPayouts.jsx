@@ -176,7 +176,10 @@ export default function VendorPayouts() {
                 )}
                 <div className="vp-form-field">
                   <label className="vp-form-label">Amount *</label>
-                  <input className="vp-form-input" type="number" step="0.01" min="0.01" value={form.amount} onChange={e => setF('amount', e.target.value)} placeholder="0.00" />
+                  <div className="vp-dollar-wrap">
+                    <span className="vp-dollar-sign">$</span>
+                    <PriceInput className="vp-form-input vp-dollar-input" value={form.amount} onChange={(v) => setF('amount', v)} placeholder="0.00" />
+                  </div>
                 </div>
                 <div className="vp-form-field">
                   <label className="vp-form-label">Payment Date *</label>

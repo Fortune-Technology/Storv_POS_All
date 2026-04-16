@@ -7,18 +7,21 @@
 import React, { useState, useCallback } from 'react';
 import { X, ArrowDownCircle, Check, Printer } from 'lucide-react';
 import { useShiftStore } from '../../stores/useShiftStore.js';
+import { digitsToDisplay, digitsToNumber } from '../pos/NumPadInline.jsx';
 import './CashDropModal.css';
 
+// Cent-based entry (same model as TenderModal): digits push in from the right.
+// "587" -> displays "$5.87".
+const MAX_DIGITS = 7;
 function buildAmount(current, key) {
-  if (key === 'C') return '';
+  if (key === 'C')  return '';
   if (key === '⌫') return current.slice(0, -1);
-  if (key === '.') {
-    if (current.includes('.')) return current;
-    return (current || '0') + '.';
+  if (current.length >= MAX_DIGITS) return current;
+  if (current === '' && key === '0') return '';
+  if (key === '00') {
+    if (current.length >= MAX_DIGITS - 1) return current;
+    return current + '00';
   }
-  const parts = current.split('.');
-  if (parts[1] !== undefined && parts[1].length >= 2) return current;
-  if (current === '0' && key !== '.') return key;
   return current + key;
 }
 
@@ -34,10 +37,12 @@ export default function CashDrawerModal({ onClose, onPrint }) {
   const [success,   setSuccess]   = useState(null); // { amount, note, time }
 
   const handleKey = useCallback((key) => {
+    if (key === '.') return; // no-op in cent-entry mode
     setAmountStr(prev => buildAmount(prev, key));
   }, []);
 
-  const amount = parseFloat(amountStr) || 0;
+  const amount = digitsToNumber(amountStr, 2);
+  const amountDisplay = digitsToDisplay(amountStr, 2);
 
   const handleSubmit = async () => {
     setError('');
@@ -155,7 +160,7 @@ export default function CashDrawerModal({ onClose, onPrint }) {
           <div className="cdm-right-col">
             <div className="cdm-amount-display">
               <span className="cdm-amount-value">
-                {amountStr ? `$${amountStr}` : <span className="cdm-amount-placeholder">$0.00</span>}
+                {amountStr ? `$${amountDisplay}` : <span className="cdm-amount-placeholder">$0.00</span>}
               </span>
               <span className="cdm-amount-hint">Tap digits to enter amount</span>
             </div>

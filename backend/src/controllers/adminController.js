@@ -7,6 +7,7 @@
 
 import prisma from '../config/postgres.js';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { sendUserApproved, sendUserRejected, sendUserSuspended } from '../services/emailService.js';
 
@@ -208,22 +209,63 @@ export const rejectUser = async (req, res, next) => {
   }
 };
 
+/**
+ * Generate a cryptographically random 16-char password that satisfies the
+ * policy in utils/validators.js (upper, lower, digit, special).
+ */
+function generateTempPassword() {
+  const upper   = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower   = 'abcdefghjkmnpqrstuvwxyz';
+  const digits  = '23456789';
+  const special = '!@#$%^&*-_+=';
+  const all = upper + lower + digits + special;
+  const pick = (set) => set[crypto.randomInt(0, set.length)];
+  // Guarantee one of each class, then fill to length 16
+  const chars = [pick(upper), pick(lower), pick(digits), pick(special)];
+  while (chars.length < 16) chars.push(pick(all));
+  // Fisher-Yates shuffle
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 /* POST /api/admin/users — create user */
 export const createUser = async (req, res, next) => {
   try {
     const { name, email, phone, role, orgId, status } = req.body;
     if (!name || !email || !orgId) return res.status(400).json({ error: 'Name, email, and organization are required' });
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (existing) return res.status(400).json({ error: 'A user with this email already exists' });
 
-    const tempPassword = await bcrypt.hash('Temp@1234', 12);
+    // Generate a fresh random password per user. Do NOT reuse a hardcoded
+    // "Temp@1234" (found in prior audits). The plaintext is returned ONCE in
+    // this response so the admin can hand it off securely; it is never logged.
+    const plainTemp = generateTempPassword();
+    const hashed = await bcrypt.hash(plainTemp, 12);
     const user = await prisma.user.create({
-      data: { name, email, phone: phone || null, password: tempPassword, role: role || 'staff', orgId, status: status || 'active' },
+      data: {
+        name:   name.trim(),
+        email:  email.trim().toLowerCase(),
+        phone:  phone || null,
+        password: hashed,
+        role:   role || 'staff',
+        orgId,
+        status: status || 'active',
+      },
       select: { id: true, name: true, email: true, role: true, status: true, orgId: true, createdAt: true },
     });
 
-    res.status(201).json({ success: true, data: user });
+    // Return the temp password exactly once. Admin must deliver it out-of-band.
+    // (A future enhancement is a `mustChangePassword` flag + forced-change flow.)
+    res.status(201).json({
+      success: true,
+      data: user,
+      tempPassword: plainTemp,
+      notice: 'Deliver this temporary password to the user securely. It will not be shown again.',
+    });
   } catch (error) {
     next(error);
   }

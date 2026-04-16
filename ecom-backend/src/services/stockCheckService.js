@@ -7,6 +7,7 @@
 import axios from 'axios';
 
 const POS_BACKEND_URL = process.env.POS_BACKEND_URL || 'http://localhost:5000';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 /**
  * Check stock availability with the POS backend.
@@ -22,7 +23,10 @@ export async function checkStockWithPOS(storeId, items) {
       { storeId, items },
       {
         timeout: 5000,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Api-Key': INTERNAL_API_KEY,
+        },
       }
     );
 

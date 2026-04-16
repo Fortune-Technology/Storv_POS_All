@@ -94,13 +94,18 @@
 
 ### 10. **Secure by Design**
 
-- ✅ JWT authentication with refresh tokens
-- ✅ Password hashing with bcrypt
-- ✅ Role-based access control
-- ✅ Input validation with Joi
-- ✅ Rate limiting implemented
-- ✅ SQL injection prevention (Prisma prepared statements)
-- ✅ XSS prevention in CSR rendering
+- ✅ **JWT authentication** — 2-hour access tokens (Session 18 / C-6), configurable via `JWT_ACCESS_TTL`
+- ✅ **Password hashing** with bcrypt (12 rounds for user passwords, 10 rounds for POS PINs)
+- ✅ **Server-enforced password policy** — 8+ chars, upper/lower/digit/special (Session 18 / H-1)
+- ✅ **Role-based access control** — 5 tiers (cashier < manager < owner < admin < superadmin); financial routes require owner+
+- ✅ **Input validation** — shared validators (`validateEmail`, `validatePassword`, `validatePhone`, `parsePrice`) in `backend/src/utils/validators.js`
+- ✅ **Rate limiting** — 5-tier in-memory limiter on all auth + PIN endpoints (Session 18 / H-2, C-7)
+- ✅ **SQL injection prevention** — Prisma parameterized queries throughout; zero raw SQL
+- ✅ **XSS prevention** — DOMPurify sanitization on all CMS + Career HTML rendering (Session 18 / C-2)
+- ✅ **Global 401 interceptor** — stale tokens auto-clear and redirect to `/login?session=expired` (Session 18 / H-8)
+- ✅ **Internal service auth** — `X-Internal-Api-Key` shared secret on `ecom-stock-check` endpoint (Session 18 / C-1)
+- ✅ **Tenant isolation** — every Prisma query scoped to `orgId` + optional `storeId` via `scopeToTenant` middleware
+- ✅ **Price parsing hardened** — `parsePrice()` rejects NaN/Infinity/scientific-notation/negatives (Session 18 / H-5)
 
 ### 11. **Scalability First**
 
@@ -135,16 +140,51 @@
 ✅ Component composition
 ```
 
-## 🔒 Security Implementation
+## 🔒 Security Implementation (Session 18 Hardening)
 
-- ✅ JWT with expiration
-- ✅ Bcrypt password hashing (10 rounds)
-- ✅ Rate limiting (100 requests/15 min)
-- ✅ CORS with origin whitelist
-- ✅ Helmet security headers
-- ✅ Input validation (Joi)
-- ✅ XSS prevention
-- ✅ CSRF protection ready
+### Authentication
+- ✅ JWT with **2-hour access token TTL** (`JWT_ACCESS_TTL` env var, default `2h`)
+- ✅ Bcrypt password hashing (12 rounds for users, 10 for PINs)
+- ✅ Random 16-char crypto-generated temp passwords for admin-created users (no hardcoded defaults)
+- ✅ Forgot/reset password flow end-to-end with token expiry + strength meter UI
+
+### Rate Limiting (`backend/src/middleware/rateLimit.js`)
+| Limiter | Window | Max | Applied To |
+|---|---|---|---|
+| `loginLimiter` | 15 min | 5 | `/auth/login`, `/auth/phone-lookup` |
+| `signupLimiter` | 60 min | 10 | `/auth/signup` |
+| `forgotPasswordLimiter` | 60 min | 3 | `/auth/forgot-password` |
+| `resetPasswordLimiter` | 15 min | 20 | `/auth/reset-password` |
+| `pinLimiter` | 5 min | 15 | `/pos-terminal/clock`, `/pos-terminal/pin-login` |
+
+### Input Validation (`backend/src/utils/validators.js`)
+- ✅ `validateEmail` — regex + length check, applied to all email fields
+- ✅ `validatePassword` — 8-128 chars, upper/lower/digit/special enforced
+- ✅ `validatePhone` — 7-15 digits, E.164-ish normalization
+- ✅ `parsePrice` — rejects NaN/Infinity/scientific/negatives, rounds to 4 decimals for Prisma `Decimal(10,4)`
+
+### RBAC Tiers
+- ✅ Read roles: manager+ (most read endpoints)
+- ✅ Write roles: manager+ (routine mutations)
+- ✅ Owner+ roles: financial sign-off (PO approve/reject, vendor credit, delete operations)
+- ✅ Tenant isolation enforced at middleware level (`scopeToTenant`)
+
+### Network Security
+- ✅ CORS with origin whitelist (comma-separated in `CORS_ORIGIN`)
+- ✅ Internal service-to-service auth via `X-Internal-Api-Key` shared secret
+- ✅ Tokens stored in `Authorization: Bearer` header (never URL params)
+- ✅ `localStorage` session with global 401 interceptor auto-cleanup
+
+### XSS & Content Safety
+- ✅ DOMPurify sanitization on all `dangerouslySetInnerHTML` (CMS pages, career descriptions)
+- ✅ `FORBID_TAGS`: script, style, iframe, object, embed, form
+- ✅ `FORBID_ATTR`: onerror, onload, onclick, onmouseover, onfocus, onblur, style
+- ✅ Email normalization to lowercase on write to prevent collation-based bypass
+
+### Pending (Deferred as Architectural Projects)
+- ⏳ **M-6** httpOnly cookie migration (1-2 sprint refactor affecting all 4 apps + CSRF tokens)
+- ⏳ **M-7** Stripe Elements iFrame for CVV capture (requires merchant onboarding)
+- ⏳ Redis-backed rate limiter for horizontal scaling (current in-memory limiter resets on backend restart)
 
 ## ⚡ Performance Optimizations
 
@@ -205,14 +245,16 @@
 ✅ **Easy Maintainability**: Clear structure, documentation, utilities  
 ✅ **Future-proof**: Extensible architecture, clean boundaries
 
-## 📊 Code Quality Metrics (Actual Audit — April 2026)
+## 📊 Code Quality Metrics (Actual Audit — April 2026, Session 18)
 
-- **Code Duplication**: Improved — shared `formatters.js` created, 30+ duplicate functions consolidated
-- **Inline Styles**: Frontend portal pages clean; cashier-app still has ~390 inline styles (known debt)
+- **Code Duplication**: Improved — shared `formatters.js`, shared `validators.js` (Session 18), `PriceInput` component (Session 18) — 30+ duplicate functions consolidated
+- **Inline Styles**: Portal pages clean. ProductForm DeptManager/VendorManager migrated to `pf-mm-*` classes (Session 18 / L-1). Cashier-app still has ~390 inline styles (tracked debt).
 - **CSS Utilization**: ~77% (some orphaned/unused classes in BulkImport.css, Departments.css)
-- **Error Handling**: Mixed — 88 `next(err)` vs 209 direct `res.status().json()` in backend
+- **Error Handling**: Mixed — 88 `next(err)` vs 209 direct `res.status().json()` in backend. All new Session 18 controllers use consistent 400/401/403/409/500 semantics.
 - **Debug Artifacts**: Zero console.log debug statements, zero TODO/FIXME/HACK comments
-- **Test Coverage**: 2 test files in `backend/tests/` — needs expansion
+- **Test Coverage**: 2 test files in `backend/tests/` — needs expansion (see Session 18 QA checklist in README)
+- **Security Audit (Session 18)**: 30/32 issues fixed (94% coverage). 100% of Critical + High + Low resolved; 2 Medium deferred as architectural projects.
+- **Build Health**: All 4 apps compile clean (portal, cashier, admin, storefront). 16 modified JSX files verified via esbuild.
 
 ## Continuous Improvement Areas
 

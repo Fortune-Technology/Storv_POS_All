@@ -181,14 +181,21 @@ export default function POSScreen() {
       authCode:       tx.authCode,
       cardType:       tx.cardType,
       lastFour:       tx.lastFour,
-    }).catch(() => {});
+    }).catch((err) => {
+      // Receipt printer failure — surface to cashier via scan-error toast
+      // so they know the receipt didn't print (common issue: offline USB / wrong IP).
+      console.warn('[POS] receipt print failed:', err);
+      setScanError({ upc: 'Receipt print failed — check printer connection', ts: Date.now() });
+      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+      scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+    });
   }, [hasReceiptPrinter, printReceipt, storeBranding, cashier]);
 
   // ── No Sale — open drawer + log event ─────────────────────────────────────
   const handleNoSale = useCallback(() => {
     // Open cash drawer
     if (hasCashDrawer) {
-      openDrawer().catch(() => {});
+      openDrawer().catch((err) => console.warn('[POS] drawer open failed:', err));
     }
     // Log to back-office (fire-and-forget, never blocks cashier)
     logPosEvent({
@@ -206,9 +213,19 @@ export default function POSScreen() {
   const [shiftChecked, setShiftChecked] = useState(false);
   useEffect(() => {
     if (!storeId) return;
-    loadActiveShift(storeId).then(() => setShiftChecked(true));
-    // Load branding for receipt header
-    getPosBranding(storeId).then(b => setStoreBranding(b || {})).catch(() => {});
+    loadActiveShift(storeId)
+      .then(() => setShiftChecked(true))
+      .catch((err) => {
+        console.error('[POS] loadActiveShift failed:', err);
+        setScanError({ upc: 'Could not load shift — check network connection', ts: Date.now() });
+        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+        scanErrorTimer.current = setTimeout(() => setScanError(null), 5000);
+        setShiftChecked(true); // allow the open-shift modal to appear anyway
+      });
+    // Load branding for receipt header (cosmetic — warn only)
+    getPosBranding(storeId)
+      .then(b => setStoreBranding(b || {}))
+      .catch((err) => console.warn('[POS] branding load failed:', err));
   }, [storeId]); // eslint-disable-line
 
   // Auto-open shift modal when: check is done AND no active shift
@@ -224,7 +241,7 @@ export default function POSScreen() {
       loadLotteryGames(storeId);
       getLotteryBoxes({ storeId, status: 'active' })
         .then(r => setLotteryActiveBoxes(r?.data || r || []))
-        .catch(() => {});
+        .catch((err) => console.warn('[POS] lottery box load failed:', err));
     }
   }, [shift?.id, storeId]); // eslint-disable-line
 
@@ -301,7 +318,9 @@ export default function POSScreen() {
   // Held transaction count — shown as badge on the Hold button
   const [heldCount, setHeldCount] = useState(0);
   const refreshHeldCount = useCallback(() => {
-    getHeldTransactions().then(list => setHeldCount(list.length)).catch(() => {});
+    getHeldTransactions()
+      .then(list => setHeldCount(list.length))
+      .catch((err) => console.warn('[POS] held tx load failed:', err));
   }, []);
   useEffect(() => { refreshHeldCount(); }, [refreshHeldCount]);
 
@@ -326,7 +345,7 @@ export default function POSScreen() {
         }
         chatUnreadRef.current = count;
         setChatUnread(count);
-      }).catch(() => {});
+      }).catch((err) => console.warn('[POS] chat poll failed:', err?.message));
     };
     poll();
     const iv = setInterval(poll, 15000);

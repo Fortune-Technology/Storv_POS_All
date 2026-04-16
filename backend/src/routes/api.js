@@ -58,9 +58,12 @@ router.get('/download/:transformId', async (req, res, next) => {
     }
 });
 
-// All other routes are protected
+// All other routes are protected — legacy CSV transformer + upload endpoints.
+// Allow all authenticated roles (owner/manager/cashier historically were excluded,
+// which blocked GET /api/vendors for anyone logged in as "owner"). Keep `protect`
+// so an anonymous request still 401s, but let any authenticated user in.
 router.use(protect);
-router.use(authorize('admin', 'store'));
+router.use(authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'));
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({

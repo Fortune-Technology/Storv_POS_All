@@ -49,7 +49,8 @@ A modern, cloud-first retail management system for independent convenience, groc
 | Icons | Lucide React |
 | Backend | Node.js, Express 4 |
 | Database | **PostgreSQL 16** via Prisma 5 ORM |
-| Auth | JWT (30-day tokens) + bcryptjs (passwords & POS PINs) |
+| Auth | JWT (2-hour access tokens, configurable via `JWT_ACCESS_TTL`) + bcryptjs (passwords & POS PINs) |
+| Auth Hardening | DOMPurify XSS sanitization, in-memory rate limiting, server-side password/email/phone validators, `parsePrice` hardening |
 | File Handling | Multer, pdf2pic, csv-parser, fast-csv, xlsx |
 | OCR | Azure Document Intelligence + OpenAI GPT-4o-mini |
 | Payment Terminals | PAX A920/A35/A80/S300 (via backend API proxy) |
@@ -301,17 +302,69 @@ npm run dev          # starts backend (5000) + frontend (5173) + cashier-app (51
 
 ### Backend (`backend/.env`)
 ```env
+# Core
+PORT=5000
 DATABASE_URL="postgresql://user:pass@localhost:5432/storv_pos"
-JWT_SECRET="your-secret-key"
-AZURE_API_KEY="..."
-AZURE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+CORS_ORIGIN="http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5005"
+
+# Auth (Session 18 hardening)
+JWT_SECRET="your-secret-key"           # must match ecom-backend JWT_SECRET
+JWT_ACCESS_TTL="2h"                    # access token expiry (default 2h)
+APP_SECRET="your-app-secret-key"       # CardPointe credential encryption
+
+# Internal service-to-service (C-1 fix — required)
+INTERNAL_API_KEY="your_internal_api_key"   # generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# External services
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
+AZURE_DOCUMENT_INTELLIGENCE_KEY="..."
 OPENAI_API_KEY="sk-..."
+
+# Frontend URLs (email reset links)
+FRONTEND_URL="http://localhost:5173"
+ADMIN_URL="http://localhost:5175"
+
+# Email / SMTP (password reset, ticket notifications)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT=587
+SMTP_USER="you@example.com"
+SMTP_PASS="your_app_password"
+SMTP_FROM="noreply@storeveu.com"
+
+# E-commerce sync
+ECOM_BACKEND_URL="http://localhost:5005"
+REDIS_URL="redis://127.0.0.1:6379"    # optional — enables BullMQ async sync
 ```
 
-### Frontend / Cashier App (`.env`)
+### Ecom Backend (`ecom-backend/.env`)
+```env
+PORT=5005
+DATABASE_URL="postgresql://user:pass@localhost:5432/storeveu_ecom"
+POS_BACKEND_URL="http://localhost:5000"
+JWT_SECRET="your-secret-key"               # must match backend/.env
+INTERNAL_API_KEY="your_internal_api_key"   # must match backend/.env
+STOREFRONT_URL="http://localhost:3000"
+REVALIDATE_SECRET="any_random_secret_string"
+REDIS_URL="redis://127.0.0.1:6379"        # optional
+```
+
+### Frontend / Cashier App (`frontend/.env`, `cashier-app/.env`, `admin-app/.env`)
 ```env
 VITE_API_URL="http://localhost:5000/api"
+VITE_ECOM_URL="http://localhost:5005"        # portal only (image previews)
+VITE_STOREFRONT_URL="http://localhost:3000"  # portal only ("View live store" links)
+VITE_PORTAL_URL="http://localhost:5173"      # admin-app only (impersonation)
 ```
+
+### Storefront (`storefront/.env.local`)
+```env
+ECOM_API_URL="http://localhost:5005/api"
+NEXT_PUBLIC_ECOM_API_URL="http://localhost:5005/api"
+NEXT_PUBLIC_ECOM_URL="http://localhost:5005"
+REVALIDATE_SECRET="any_random_secret_string"    # must match ecom-backend
+```
+
+> ⚠️ **`INTERNAL_API_KEY` is REQUIRED** in both `backend/.env` and `ecom-backend/.env` and **must match exactly**, otherwise the ecom-backend → POS stock-check call at online checkout returns `401 Unauthorized`. This was added in Session 18 to fix the C-1 unauthenticated inventory leak.
 
 ---
 
@@ -729,7 +782,7 @@ Panels: Today's sales, hourly trend, top products, recent transactions, weather 
 `utils/predictions.js` → `salesController.getPredictions`
 
 - **Holt-Winters Triple Exponential Smoothing** with day-of-week seasonality
-- Generates 30-day forward forecast
+- Generates 14-day forward forecast (walk-forward validated)
 - **Residual analysis**: Actual vs predicted → identifies anomaly days
 - Frontend renders forecast + confidence interval band
 
@@ -773,14 +826,38 @@ Panels: Today's sales, hourly trend, top products, recent transactions, weather 
 
 ### JWT Auth
 - Token in `Authorization: Bearer <token>` header
-- 30-day expiry
+- **2-hour access token TTL** (was 30d — reduced in Session 18 / C-6). Override with `JWT_ACCESS_TTL` env var.
 - Payload: `{ id, orgId, role, storeIds[] }`
 - Middleware: `protect` (validates token) + `authorize(...roles)` (role check)
+- **Global 401 interceptor** in `frontend/src/services/api.js` clears stale session and redirects to `/login?session=expired&returnTo=...`
 
-### Role Hierarchy
+### Password Policy (server-enforced)
+Validators live in [`backend/src/utils/validators.js`](backend/src/utils/validators.js):
+- **8–128 characters**
+- Must contain at least 1 uppercase, 1 lowercase, 1 digit, 1 special char
+- Applied to: `signup`, `resetPassword`, `createUser` (admin)
+- Random temp passwords generated via `crypto.randomInt` in `createUser` (16 chars, policy-compliant)
+
+### Rate Limiting
+In-memory fixed-window limiter in [`backend/src/middleware/rateLimit.js`](backend/src/middleware/rateLimit.js). Replace with `express-rate-limit` + Redis store for multi-instance production.
+
+| Limiter | Window | Max | Applied To |
+|---|---|---|---|
+| `loginLimiter` | 15 min | 5 | `POST /auth/login`, `POST /auth/phone-lookup` |
+| `signupLimiter` | 60 min | 10 | `POST /auth/signup` |
+| `forgotPasswordLimiter` | 60 min | 3 | `POST /auth/forgot-password` |
+| `resetPasswordLimiter` | 15 min | 20 | `POST /auth/reset-password` |
+| `pinLimiter` | 5 min | 15 | `POST /pos-terminal/clock`, `POST /pos-terminal/pin-login` |
+
+### RBAC Tiers
 ```
 cashier < manager < owner < admin < superadmin
 ```
+Route guards use `authorize(...roles)`. Financial sign-off routes (PO approve/reject, vendor credit, delete) require `owner+`. Routine writes require `manager+`. See [`backend/src/routes/orderRoutes.js`](backend/src/routes/orderRoutes.js) and [`backend/src/routes/vendorReturnRoutes.js`](backend/src/routes/vendorReturnRoutes.js) for tiered-role examples.
+
+### Internal Service-to-Service
+- `POST /api/catalog/ecom-stock-check` requires `X-Internal-Api-Key` header matching `INTERNAL_API_KEY` env var (same value in both `backend/.env` and `ecom-backend/.env`).
+- Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
 ### Cashier App PIN Auth
 - Cashier registers their 4–6 digit PIN
@@ -979,6 +1056,73 @@ npm run electron:build  # Production NSIS installer (Windows x64)
 ---
 
 ## 16. Changelog
+
+### April 2026 — QA & Security Audit (Session 18)
+
+Comprehensive security + functional audit across backend, portal, admin-app, cashier-app, and storefront. **30 of 32** issues fixed in 4 rounds. See CLAUDE.md "Session 18" entries for full details.
+
+#### 🔴 Critical Security (7/7 fixed)
+
+| ID | Issue | Fix |
+|---|---|---|
+| C-1 | Unauthenticated `ecom-stock-check` inventory leak | `X-Internal-Api-Key` shared-secret check; ecom-backend sends header on every call |
+| C-2 | Stored XSS in CMS + Career pages | `DOMPurify.sanitize()` with strict tag/attr allowlist |
+| C-3 | RBAC gaps on vendor-return + purchase-order routes | Read/write/owner role tiers applied |
+| C-4 | Customer enumeration via `/check-points` | Added `authorize()` role guard |
+| C-5 | Broken forgot-password flow (missing frontend page) | New `ResetPassword.jsx` page + route + strength meter |
+| C-6 | 30-day JWT TTL | Reduced to 2h via `JWT_ACCESS_TTL` env var |
+| C-7 | Weak clock-event station auth | Strict PIN format, station-bound storeId, `pinLimiter` rate limit |
+
+#### 🟠 High Priority (12/12 fixed)
+
+- **H-1** Server-side password policy (`validatePassword` — 8+ chars, upper/lower/digit/special)
+- **H-2** Rate limiting on all 5 auth endpoints + PIN endpoints
+- **H-3** New `PriceInput` component — replaces `type="number"` across ProductForm, Promotions, Lottery, VendorPayouts, DepositRules, Customers. Blocks scientific notation, negatives, locale issues, wheel-scroll corruption
+- **H-4** Cashier VendorPayoutModal, CashDrawerModal, LotteryModal numpads rewritten to cent-based entry (matches TenderModal)
+- **H-5** `parsePrice()` helper applied in catalogController — rejects NaN/Infinity with proper 400 errors
+- **H-6** Email regex validation + lowercase normalization server-side
+- **H-7** Phone validation with `normalizePhone()` → canonical E.164-ish form
+- **H-8** Global 401 interceptor in `api.js` — clears stale session + redirects with `returnTo`
+- **H-9** Seed scripts no longer log plaintext passwords (written to gitignored `.seed-credentials`)
+- **H-10** Silent `.catch(() => {})` replaced in POSScreen + BulkImport
+- **H-11** Storefront signup shows "Awaiting approval" state instead of premature account redirect
+
+#### 🟡 Medium (7/9 fixed)
+
+- **M-1** Admin Login password show/hide toggle
+- **M-2** ProductForm unsaved-changes warning (`beforeunload` + guarded Cancel)
+- **M-3** Duplicate UPC error display (backend 409 → toast)
+- **M-4** Pack-size validation (unitCount ≥ 1, price > 0, at most one default)
+- **M-5** Extended ProductForm save guards (covered by M-4)
+- **M-8** Random crypto-generated admin temp password (replaces hardcoded `Temp@1234`)
+- **M-9** Modal overlay CSS vars (`--modal-overlay`, `--modal-shadow`)
+
+Deferred: **M-6** (httpOnly cookie migration — 1–2 sprint refactor) and **M-7** (Stripe Elements iFrame — requires merchant onboarding). Both mitigated by other Session 18 fixes.
+
+#### 🟢 Low Priority (4/4 fixed)
+
+- **L-1** ProductForm DeptManager/VendorManager inline styles → `pf-mm-*` external CSS (120+ inline style props removed)
+- **L-2** Storefront responsive breakpoints at 1024/768/480 (125 lines added to `globals.css`)
+- **L-3** Main-content uses robust `flex: 1 1 0; min-height: 0` pattern (was `height: 100vh`)
+- **L-4** `$` prefix wrapper on VendorPayouts amount input
+
+#### New Files
+
+| File | Purpose |
+|---|---|
+| `backend/src/utils/validators.js` | Shared email/password/phone/price validators |
+| `backend/src/middleware/rateLimit.js` | In-memory rate limiter (5 tiers) |
+| `frontend/src/components/PriceInput.jsx` | Safe price input replacement for `type="number"` |
+| `frontend/src/pages/ResetPassword.jsx` + `.css` | Password reset flow with strength meter |
+
+#### Deployment Notes
+
+1. **Set `INTERNAL_API_KEY`** in both `backend/.env` and `ecom-backend/.env` (must match)
+2. **All existing sessions invalidate on deploy** due to JWT TTL change (30d → 2h) — users will need to re-login
+3. **Rate limiters are in-memory** — restarting the backend resets counters. For multi-instance production, swap to Redis-backed limiter
+4. **DOMPurify** is already a frontend dependency — no install step needed
+
+---
 
 ### April 2026 — Hardware Integration & Electron Build
 
