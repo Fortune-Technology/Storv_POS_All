@@ -3209,3 +3209,108 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 2. Use `detect_changes` for code review.
 3. Use `get_affected_flows` to understand impact.
 4. Use `query_graph` pattern="tests_for" to check coverage.
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 21)
+
+### Invoice Import — Vendor-Scoped Matching, Live Totals, Cases/Units Toggle
+
+Large rework of the Invoice Import feature covering all four cashier-raised concerns:
+
+#### 1. Live totals on add / edit — `InvoiceImport.jsx`
+- New helpers `recomputeInvoiceTotal(items)` and `recomputeLineTotal(item)` keep the invoice's `totalInvoiceAmount` and each line's `totalAmount` in sync with `caseCost × quantity`.
+- `handleItemChange` recalculates both on every `caseCost`/`quantity`/`packUnits` change.
+- `handleAddItem` and `handleDeleteItem` now update the invoice total as well.
+- Manual overrides are respected: if the user types directly into `totalAmount`, the line is flagged `_totalLocked` and stops auto-computing.
+- The top summary strip's "Total" now reflects the live sum instead of the stale OCR value.
+
+#### 2. Cases/Units toggle per line item
+- New per-line `receivedAs: 'cases' | 'units'` field (default: `'cases'`).
+- Segmented control inside the expanded line editor — clicking "Cases" / "Units" flips the unit mode.
+- Live preview strip below the qty row: *"On confirm, inventory will increase by +240 units (5 cases × 48/case)"*.
+- Top-bar chip above Confirm: *"+1,248 units · 23 products"* — aggregates the whole invoice.
+
+#### 3. Inventory adjustment uses cases × packUnits
+At confirm, the inventory update step (`adjustStoreStock` call) now computes:
+```
+receivedAs === 'cases' → adjustment = quantity × packUnits
+receivedAs === 'units' → adjustment = quantity
+```
+This fixes the long-standing bug where a 5-case × 24-pack delivery was only adding 5 units to QOH instead of 120.
+
+#### 4. Distributor `itemCode` → main mapping, vendor-scoped
+Full rewrite of the matching cascade in [`matchingService.js`](backend/src/services/matchingService.js):
+
+**New cascade (7 tiers):**
+| # | Tier | Key | Confidence |
+|---|------|-----|-----------|
+| 1 | UPC (+ variants) | UPC exact | high |
+| 2 | **Distributor ItemCode, vendor-scoped** ★ NEW PRIMARY | `vendorId::itemCode` | high |
+| 3 | VendorProductMap (learned) | vendor + code / fuzzy desc | high/medium |
+| 4 | PLU exact (produce) | `plu` | high |
+| 5 | Cross-store GlobalProductMatch | vendor + code | medium |
+| 6 | Cost-proximity + composite fuzzy | multiple signals | medium/low |
+| 7 | AI batch (gpt-4o-mini) | LLM | medium only |
+
+**Removed:** the old SKU tier that matched against our internal `MasterProduct.sku`. Vendor invoices never reference our internal SKU, so this tier caused false positives without ever helping.
+
+**Vendor scoping details:**
+- Index keyed as `${vendorId}::${itemCode}` — prevents Hershey's `2468231329` colliding with Jeremy's `27149` or Coca-Cola's `115583`.
+- When `invoice.vendorId` is known, fuzzy / cost / AI tiers also narrow to that vendor's products (cutting AI token cost).
+- When `invoice.vendorId` is null, org-wide `itemCode` lookup falls back at medium confidence (flagged for review, never high).
+
+**Vendor resolution on upload:**
+- Upload area gets a "Vendor (optional)" dropdown — preselected vendor flows through FormData → backend as `vendorId`.
+- When user doesn't preselect, `resolveVendorId(orgId, vendorName)` in the controller resolves via exact name → alias → fuzzy contains → reverse contains match on active vendors.
+- Resolved `vendorId` is persisted on the `Invoice` row for subsequent rematches.
+
+**Re-match button:**
+- New invoice-level Vendor dropdown at the top of the review panel + two buttons:
+  - **Re-run matching** (safe): preserves `manual` and high-confidence-`matched` items, re-matches only unmatched / low-confidence ones.
+  - **Force** (destructive, confirm dialog): re-matches ALL items including user-confirmed ones.
+- Powered by new endpoint `POST /api/invoice/:id/rematch { vendorId?, force? }`.
+
+#### Schema change
+```prisma
+model Invoice {
+  // ...
+  vendorId  Int?  // NEW — resolved Vendor FK, powers vendor-scoped matching
+  // ...
+  @@index([orgId, vendorId])
+}
+```
+Pushed via `npx prisma db push` — non-destructive, nullable column.
+
+#### Files changed
+| File | Change |
+|------|--------|
+| `backend/prisma/schema.prisma` | Added `Invoice.vendorId Int?` + `@@index([orgId, vendorId])` |
+| `backend/src/services/matchingService.js` | Rewrote cascade: dropped SKU tier, added vendor-scoped itemCode tier; new `buildItemCodeIndex`, `buildPluIndex`, `filterByVendor` helpers; `matchLineItems(..., { vendorId })` signature |
+| `backend/src/controllers/invoiceController.js` | Added `resolveVendorId` helper; threaded `vendorId` through `processInvoiceBackground`, `processMultipageBackground`, `uploadInvoices`; new `rematchInvoice` endpoint that preserves manual matches |
+| `backend/src/routes/invoiceRoutes.js` | Added `POST /:id/rematch` route |
+| `frontend/src/services/api.js` | Added `rematchInvoice(id, { vendorId, force })` |
+| `frontend/src/pages/InvoiceImport.jsx` | Live totals (`recomputeInvoiceTotal`, `recomputeLineTotal`, `_totalLocked`); Cases/Units toggle; vendor dropdowns (upload + review); Re-match button; Received-units preview strip + top-bar chip; inventory adjustment uses `qty × pack` |
+| `frontend/src/pages/InvoiceImport.css` | New `.ii-upload-vendor-row`, `.ii-vendor-row`, `.ii-received-toggle`, `.ii-receive-preview`, `.ii-receive-chip`, `.ii-rematch-btn` styles (all with `ii-` prefix, responsive breakpoints at 1024/768/480) |
+| `backend/tests/invoice_matching_live.test.mjs` | NEW — 7 test cases covering itemCode tier, collision traps, no-vendor fallback, UPC > itemCode priority, PLU tier, SKU exclusion, matchStats |
+
+#### Test coverage
+All 7 tests pass:
+- T1: Hershey invoice (`vendorId=1`) — matches 3/4 items via itemCode at high confidence
+- T2: **Collision trap** — Utz `27149` matches Utz product (201), NOT the Hershey trap product (901) ✓
+- T3: No vendorId → org-wide fallback at medium confidence (never high) ✓
+- T4: UPC fires before itemCode when UPC is present ✓
+- T5: PLU tier matches produce (`4011` → bananas) ✓
+- T6: Internal SKU does NOT match ✓
+- T7: `_matchStats` populated ✓
+
+Frontend `vite build` passes clean (14.91s, 3,329 modules transformed, no errors).
+
+### Backlog updates
+
+- [x] **Invoice Import — live totals**
+- [x] **Invoice Import — Cases/Units receipt toggle**
+- [x] **Invoice Import — QOH auto-update with correct unit conversion**
+- [x] **Invoice Import — distributor itemCode as primary mapping, vendor-scoped, skip internal SKU**
+- [x] **Invoice Import — vendor preselect at upload + re-match button**
+

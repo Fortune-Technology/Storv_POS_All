@@ -34,6 +34,12 @@ export const clearPOSCache = (userId) => {
 /**
  * Load catalog master products and normalise them for the matching engine.
  * Called when the POS cache is empty (first upload after restart/TTL expiry).
+ *
+ * IMPORTANT: we keep `itemCode` (distributor/vendor-assigned item number) separate
+ * from our internal `sku` so the matching cascade can use itemCode as the
+ * primary identifier and ignore our internal SKU (which vendor invoices never
+ * reference).
+ *
  * @param {string} orgId
  * @returns {Array} normalised products
  */
@@ -56,7 +62,10 @@ export const loadCatalogProductsForMatching = async (orgId) => {
       posProductId: String(p.id),
       name:         p.name,
       upc:          p.upc        || '',
-      sku:          p.sku || p.itemCode || p.plu || '',
+      itemCode:     p.itemCode   || '',   // vendor/distributor code (primary key for Tier 2)
+      plu:          p.plu        || '',   // PLU / produce code (Tier 4)
+      // `sku` retained for debugging/display only — NOT used in matching
+      sku:          p.sku        || '',
       retailPrice:  p.defaultRetailPrice != null ? Number(p.defaultRetailPrice) : null,
       costPrice:    p.defaultCostPrice   != null ? Number(p.defaultCostPrice)   : null,
       pack:         p.casePacks || p.unitsPerPack || p.pack || 1,
@@ -381,11 +390,41 @@ Return JSON only:
 
 // ─── INDEX BUILDERS ───────────────────────────────────────────────────────────
 
-const buildSKUIndex = (posProducts) => {
+/**
+ * Build a vendor-scoped index of distributor itemCode → product.
+ * Key format: `${vendorId}::${normalizedItemCode}` — prevents cross-vendor
+ * collisions (Hershey's 2468231280 vs Jeremy's 27149 vs Coca-Cola 115583).
+ *
+ * Also builds an org-wide fallback index `*::${normalizedItemCode}` used as a
+ * low-confidence fallback when the invoice has no resolved vendorId.
+ */
+const buildItemCodeIndex = (posProducts) => {
+  const vendorScoped = new Map();
+  const orgWide      = new Map();
+  for (const p of posProducts) {
+    if (!p.itemCode) continue;
+    const code = String(p.itemCode).trim().toLowerCase();
+    if (!code) continue;
+    // Vendor-scoped (only if product has a vendor assigned)
+    if (p.vendorId) {
+      vendorScoped.set(`${p.vendorId}::${code}`, p);
+    }
+    // Org-wide fallback — first match wins
+    if (!orgWide.has(code)) orgWide.set(code, p);
+  }
+  return { vendorScoped, orgWide };
+};
+
+/**
+ * Build a PLU index — PLUs are numeric produce codes (e.g. 4011 = banana)
+ * and are globally standardized, so no vendor scoping is needed.
+ */
+const buildPluIndex = (posProducts) => {
   const index = new Map();
   for (const p of posProducts) {
-    if (p.sku) index.set(String(p.sku).trim(), p);
-    if (p.posProductId) index.set(String(p.posProductId).trim(), p);
+    if (!p.plu) continue;
+    const key = String(p.plu).trim();
+    if (key) index.set(key, p);
   }
   return index;
 };
@@ -396,6 +435,17 @@ const buildIdIndex = (posProducts) => {
     if (p.posProductId) index.set(String(p.posProductId).trim(), p);
   }
   return index;
+};
+
+/**
+ * Filter the POS product list down to only products tagged to a specific vendor.
+ * Used to restrict composite / fuzzy / AI matching when an invoice vendor is known —
+ * this drastically reduces false positives and cuts AI tier cost.
+ */
+const filterByVendor = (posProducts, vendorId) => {
+  if (!vendorId) return posProducts;
+  const vId = String(vendorId);
+  return posProducts.filter(p => p.vendorId && String(p.vendorId) === vId);
 };
 
 // ─── APPLY MATCH ──────────────────────────────────────────────────────────────
@@ -452,19 +502,29 @@ const findVendorMapByDesc = (description, vendorMaps, idIndex) => {
 // ─── MAIN: matchLineItems ─────────────────────────────────────────────────────
 
 /**
- * Match all invoice line items against POS products using a 4-tier cascade.
+ * Match all invoice line items against POS products using a 7-tier cascade.
  *
- * Tier 1 — UPC exact + variants      (high confidence, zero cost)
- * Tier 2 — Learned VendorProductMap  (high confidence, zero cost, grows over time)
- * Tier 3 — Local fuzzy text          (medium/low confidence, zero cost)
- * Tier 4 — AI batch (gpt-4o-mini)    (remaining unmatched only, ~$0.01–0.05/invoice)
+ * Tier 1   — UPC exact + variants              (high  / zero cost)
+ * Tier 2   — Distributor ItemCode, vendor-scoped ★ NEW primary tier (high / zero cost)
+ *            Falls back to org-wide itemCode match at medium confidence if vendorId is null
+ * Tier 3   — Learned VendorProductMap          (high/medium / zero cost, grows over time)
+ * Tier 4   — PLU exact (produce codes only)    (high / zero cost)
+ * Tier 5   — Cross-store GlobalProductMatch    (medium / zero cost)
+ * Tier 6   — Cost-proximity + fuzzy composite  (medium/low / zero cost)
+ * Tier 7   — AI batch (gpt-4o-mini)            (remaining unmatched only, ~$0.01–0.05/invoice)
+ *
+ * The internal `sku` field is intentionally NOT used anywhere in the cascade —
+ * vendor invoices reference distributor item numbers, never our internal SKU.
  *
  * @param {Array}  lineItems    extracted invoice line items
- * @param {Array}  posProducts  normalized POS products
- * @param {string} vendorName   invoice vendor name (for VendorProductMap lookup)
+ * @param {Array}  posProducts  normalized POS products (from loadCatalogProductsForMatching)
+ * @param {string} vendorName   invoice vendor name (for VendorProductMap + global match lookup)
+ * @param {Object} opts         optional: { vendorId } — enables vendor-scoped tiers
  * @returns {Array} enriched line items with match metadata
  */
-export const matchLineItems = async (lineItems, posProducts, vendorName) => {
+export const matchLineItems = async (lineItems, posProducts, vendorName, opts = {}) => {
+  const vendorId = opts.vendorId != null ? String(opts.vendorId) : null;
+
   if (!posProducts || posProducts.length === 0) {
     return lineItems.map((item) => ({
       ...item,
@@ -477,9 +537,18 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
   }
 
   // Build lookup indexes once for the whole batch
-  const upcIndex = buildUPCIndex(posProducts);
-  const skuIndex = buildSKUIndex(posProducts);
-  const idIndex  = buildIdIndex(posProducts);
+  const upcIndex      = buildUPCIndex(posProducts);
+  const itemCodeIdx   = buildItemCodeIndex(posProducts);
+  const pluIndex      = buildPluIndex(posProducts);
+  const idIndex       = buildIdIndex(posProducts);
+
+  // When invoice vendor is known, narrow the search surface for fuzzy / cost / AI tiers.
+  // This dramatically cuts false positives and AI token cost.
+  const vendorScopedProducts = vendorId ? filterByVendor(posProducts, vendorId) : posProducts;
+  const useVendorScope = vendorId && vendorScopedProducts.length > 0;
+  if (useVendorScope) {
+    console.log(`🔒 Vendor-scoped matching: ${vendorScopedProducts.length}/${posProducts.length} products for vendorId=${vendorId}`);
+  }
 
   // Load learned vendor mappings for this vendor
   let vendorMaps = [];
@@ -527,14 +596,41 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       }
     }
 
-    // ── Tier 2a: Learned vendor map — by item code (confidence-weighted) ─────
+    // ── Tier 2: Distributor ItemCode — vendor-scoped (PRIMARY MAPPING) ───────
+    // Example: Hershey's "2468231280", Jeremy's "27149", Coca-Cola "115583".
+    // With a known vendorId this is near-perfect; without one we still try an
+    // org-wide lookup but downgrade to medium confidence to avoid cross-vendor
+    // collisions (e.g. "01328" could mean different things to two distributors).
+    if (item.itemCode) {
+      const code = String(item.itemCode).trim().toLowerCase();
+      if (code) {
+        // Vendor-scoped exact match — highest confidence
+        if (vendorId) {
+          const vendorHit = itemCodeIdx.vendorScoped.get(`${vendorId}::${code}`);
+          if (vendorHit) {
+            applyMatch(results, i, vendorHit, 'itemCode', 'high');
+            continue;
+          }
+        }
+        // Org-wide fallback — only when vendorId is unknown (safer to leave
+        // unmatched when vendorId IS known but scoped lookup missed)
+        if (!vendorId) {
+          const orgHit = itemCodeIdx.orgWide.get(code);
+          if (orgHit) {
+            applyMatch(results, i, orgHit, 'itemCode', 'medium');
+            continue;
+          }
+        }
+      }
+    }
+
+    // ── Tier 3a: Learned vendor map — by item code ───────────────────────────
     if (item.itemCode) {
       const key = String(item.itemCode).trim().toLowerCase();
       const vm = vendorMapByCode.get(key);
       if (vm) {
         const posProduct = idIndex.get(vm.posProductId);
         if (posProduct) {
-          // Confidence based on how many times this mapping was confirmed
           const conf = (vm.confirmedCount || 0) >= 2 ? 'high' : 'medium';
           applyMatch(results, i, posProduct, 'vendorMap', conf);
           continue;
@@ -542,7 +638,7 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       }
     }
 
-    // ── Tier 2b: Learned vendor map — by description (fuzzy ≥ 0.80) ──────────
+    // ── Tier 3b: Learned vendor map — by description (fuzzy ≥ 0.80) ──────────
     if (item.description && vendorMaps.length > 0) {
       const vmMatch = findVendorMapByDesc(item.description, vendorMaps, idIndex);
       if (vmMatch) {
@@ -551,24 +647,27 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       }
     }
 
-    // ── Tier 2c: SKU / PLU exact match ────────────────────────────────────────
-    const code = String(item.plu || item.itemCode || '').trim();
-    if (code) {
-      const match = skuIndex.get(code);
-      if (match) {
-        applyMatch(results, i, match, 'sku', 'medium');
-        continue;
+    // ── Tier 4: PLU exact match (produce codes) ──────────────────────────────
+    // PLUs are numeric 4-5 digit codes (e.g. 4011 = banana) and are globally
+    // standardized — no vendor scoping needed.
+    if (item.plu) {
+      const pluKey = String(item.plu).trim();
+      if (pluKey) {
+        const pluHit = pluIndex.get(pluKey);
+        if (pluHit) {
+          applyMatch(results, i, pluHit, 'plu', 'high');
+          continue;
+        }
       }
     }
 
-    // ── Tier 2d: Cross-store global matches ──────────────────────────────────
+    // ── Tier 5: Cross-store global matches ───────────────────────────────────
     if (item.itemCode && vendorName) {
       try {
         const globalMatch = await prisma.globalProductMatch.findUnique({
           where: { vendorName_vendorItemCode: { vendorName: vendorName.toLowerCase().trim(), vendorItemCode: String(item.itemCode).trim() } },
         });
         if (globalMatch && globalMatch.matchedUPC) {
-          // Find POS product by the globally-matched UPC
           const globalPosMatch = matchByUPC(globalMatch.matchedUPC, upcIndex);
           if (globalPosMatch) {
             const conf = globalMatch.orgCount >= 3 ? 'high' : 'medium';
@@ -579,25 +678,25 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
       } catch { /* non-fatal */ }
     }
 
-    // ── Tier 2.5: Cost-proximity matching ────────────────────────────────────
+    // ── Tier 6a: Cost-proximity matching (vendor-scoped if available) ────────
     if (item.caseCost || item.netCost) {
-      const costMatch = matchByCostProximity(item, posProducts);
+      const costMatch = matchByCostProximity(item, vendorScopedProducts);
       if (costMatch) {
         applyMatch(results, i, costMatch.product, 'costProx', costMatch.score >= 0.75 ? 'medium' : 'low');
         continue;
       }
     }
 
-    // ── Tier 3: Composite scoring (name + brand + size + cost + dept) ────────
+    // ── Tier 6b: Composite scoring (name + brand + size + cost + dept) ───────
     if (item.description) {
-      const compResult = findBestCompositeMatch(item, posProducts);
+      const compResult = findBestCompositeMatch(item, vendorScopedProducts);
       if (compResult && compResult.score >= 0.55) {
         const confidence = compResult.score >= 0.80 ? 'medium' : 'low';
         applyMatch(results, i, compResult.product, 'fuzzy', confidence);
         continue;
       }
       // Fallback to simple Jaccard if composite didn't find anything
-      const fuzzyResult = findBestFuzzyMatch(item.description, posProducts);
+      const fuzzyResult = findBestFuzzyMatch(item.description, vendorScopedProducts);
       if (fuzzyResult && fuzzyResult.score >= 0.70) {
         const confidence = fuzzyResult.score >= 0.85 ? 'medium' : 'low';
         applyMatch(results, i, fuzzyResult.product, 'fuzzy', confidence);
@@ -609,10 +708,10 @@ export const matchLineItems = async (lineItems, posProducts, vendorName) => {
     unmatchedForAI.push({ item: results[i], index: i });
   }
 
-  // ── Tier 4: AI batch for remaining unmatched ──────────────────────────────
+  // ── Tier 7: AI batch for remaining unmatched ──────────────────────────────
   if (unmatchedForAI.length > 0) {
-    console.log(`🤖 AI matching ${unmatchedForAI.length} unmatched items (gpt-4o-mini)...`);
-    const aiMatches = await aiBatchMatch(unmatchedForAI, posProducts);
+    console.log(`🤖 AI matching ${unmatchedForAI.length} unmatched items (gpt-4o-mini)${useVendorScope ? ` [vendor-scoped: ${vendorScopedProducts.length} products]` : ''}...`);
+    const aiMatches = await aiBatchMatch(unmatchedForAI, vendorScopedProducts);
     for (const aiMatch of aiMatches) {
       // Skip low-confidence AI guesses — flag for manual review instead
       if (aiMatch.confidence === 'low') continue;

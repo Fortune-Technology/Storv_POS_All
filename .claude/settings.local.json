@@ -45,7 +45,16 @@
       "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f\\\\\"  transactions: {len\\(d.get\\('transactions',[]\\)\\)}\\\\\"\\);print\\(f\\\\\"  total field: {d.get\\('total'\\)}\\\\\"\\);print\\(f\\\\\"  first 3: {[t['txNumber']+':'+str\\(t['grandTotal']\\) for t in d.get\\('transactions',[]\\)[:3]]}\\\\\"\\)\")",
       "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);t=d.get\\('today',{}\\);print\\(f'  today.totalSales: \\\\${t.get\\(\\\\\"totalSales\\\\\"\\)}'\\);print\\(f'  today.txCount: {t.get\\(\\\\\"transactionCount\\\\\"\\)}'\\);print\\(f'  today.cashSales: \\\\${t.get\\(\\\\\"cashSales\\\\\"\\)}'\\);print\\(f'  topProducts: {[p.get\\(\\\\\"name\\\\\"\\) for p in d.get\\(\\\\\"topProductsToday\\\\\",[]\\)[:3]]}'\\)\")",
       "Bash(python -c \"import sys,json;print\\(json.dumps\\(json.load\\(sys.stdin\\),indent=2,default=str\\)[:1500]\\)\")",
-      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'  status: {d.get\\(\\\\\"status\\\\\"\\)}'\\);print\\(f'  expected: \\\\${d.get\\(\\\\\"expectedAmount\\\\\"\\)}'\\);print\\(f'  closing: \\\\${d.get\\(\\\\\"closingAmount\\\\\"\\)}'\\);print\\(f'  variance: \\\\${d.get\\(\\\\\"variance\\\\\"\\)}'\\);print\\(f'  cashSales: \\\\${d.get\\(\\\\\"cashSales\\\\\"\\)}'\\);print\\(f'  cashRefunds: \\\\${d.get\\(\\\\\"cashRefunds\\\\\"\\)}'\\);print\\(f'  drops: \\\\${d.get\\(\\\\\"cashDropsTotal\\\\\"\\)}'\\);print\\(f'  payouts: \\\\${d.get\\(\\\\\"payoutsTotal\\\\\"\\)}'\\);print\\(f'  txCount: {d.get\\(\\\\\"transactionCount\\\\\"\\)}'\\)\")"
+      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'  status: {d.get\\(\\\\\"status\\\\\"\\)}'\\);print\\(f'  expected: \\\\${d.get\\(\\\\\"expectedAmount\\\\\"\\)}'\\);print\\(f'  closing: \\\\${d.get\\(\\\\\"closingAmount\\\\\"\\)}'\\);print\\(f'  variance: \\\\${d.get\\(\\\\\"variance\\\\\"\\)}'\\);print\\(f'  cashSales: \\\\${d.get\\(\\\\\"cashSales\\\\\"\\)}'\\);print\\(f'  cashRefunds: \\\\${d.get\\(\\\\\"cashRefunds\\\\\"\\)}'\\);print\\(f'  drops: \\\\${d.get\\(\\\\\"cashDropsTotal\\\\\"\\)}'\\);print\\(f'  payouts: \\\\${d.get\\(\\\\\"payoutsTotal\\\\\"\\)}'\\);print\\(f'  txCount: {d.get\\(\\\\\"transactionCount\\\\\"\\)}'\\)\")",
+      "mcp__code-review-graph__semantic_search_nodes_tool",
+      "Bash(npx prisma@5.22.0 db push)",
+      "Bash(\"C:/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/frontend/node_modules/.bin/vite\" build)",
+      "Bash(ln -sf \"../../../../frontend/node_modules\" ./node_modules)",
+      "Bash(node_modules/.bin/vite build *)",
+      "Bash(grep -E \"^\\(jest|@jest\\)$\")",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest tests/invoice_matching_live.test.mjs --no-coverage)",
+      "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest --testMatch='**/invoice_matching_live.test.mjs' --no-coverage)",
+      "Bash(node_modules/.bin/jest --no-coverage --testPathPattern='\\(pine-state|transformer\\)')"
     ]
   }
 }

@@ -832,6 +832,7 @@ model Invoice {
 
   // Header fields extracted by OCR
   vendorName          String?
+  vendorId            Int?      // resolved Vendor FK — powers vendor-scoped item-code matching
   customerNumber      String?
   invoiceNumber       String?
   invoiceDate         DateTime?
@@ -881,6 +882,7 @@ model Invoice {
   @@index([orgId, storeId, status])
   @@index([orgId, invoiceDate])
   @@index([orgId, vendorName])
+  @@index([orgId, vendorId])
   @@map("invoices")
 }
 

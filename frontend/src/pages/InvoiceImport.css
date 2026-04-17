@@ -444,3 +444,244 @@
   .ii-card { padding: 0.75rem; }
   .ii-review-topbar { padding: 0.5rem 0.75rem; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Invoice Import — Session (Apr 2026): Vendor selection, Cases/Units toggle,
+   live totals, re-match, inventory preview chip.
+   Prefix: ii- (shared with the rest of the InvoiceImport page)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Upload-area vendor picker ── */
+.ii-upload-vendor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.ii-upload-vendor-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.ii-upload-vendor-opt {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.ii-upload-vendor-select {
+  flex: 1;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  outline: none;
+  color-scheme: dark;
+  cursor: pointer;
+}
+.ii-upload-vendor-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.ii-upload-vendor-clear {
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ii-upload-vendor-clear:hover { background: rgba(239, 68, 68, 0.15); }
+.ii-upload-vendor-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex-basis: 100%;
+  line-height: 1.4;
+}
+
+/* ── Review-panel vendor row + re-match ── */
+.ii-vendor-row {
+  background: rgba(99, 102, 241, 0.05);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  padding: 0.55rem 1rem;
+}
+.ii-vendor-row-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.ii-vendor-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.ii-vendor-select {
+  flex: 1 1 240px;
+  max-width: 360px;
+  padding: 5px 9px;
+  font-size: 0.82rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  outline: none;
+  color-scheme: dark;
+  cursor: pointer;
+}
+.ii-vendor-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.ii-vendor-ocr-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-style: normal;
+}
+.ii-vendor-ocr-hint em { color: var(--text-primary); font-style: italic; }
+
+.ii-rematch-btn,
+.ii-rematch-force-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ii-rematch-btn {
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.32);
+}
+.ii-rematch-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+.ii-rematch-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.ii-rematch-force-btn {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  font-size: 0.7rem;
+}
+.ii-rematch-force-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+}
+.ii-rematch-force-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Qty row (4 cols) ── */
+.ii-qty-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr 1.3fr;
+  gap: 0.45rem;
+}
+
+/* ── Cases / Units toggle ── */
+.ii-received-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  overflow: hidden;
+  height: 30px;
+  background: var(--bg-primary);
+  width: 100%;
+}
+.ii-received-toggle--disabled { opacity: 0.6; }
+.ii-received-opt {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 8px;
+  transition: background 0.12s, color 0.12s;
+}
+.ii-received-opt:not(:last-child) { border-right: 1px solid var(--border-color); }
+.ii-received-opt:hover:not(:disabled):not(.ii-received-opt--active) {
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-primary);
+}
+.ii-received-opt--active {
+  background: #7c3aed;
+  color: #fff;
+}
+.ii-received-opt--active:hover { background: #8b5cf6; }
+.ii-received-opt:disabled { cursor: not-allowed; }
+
+/* ── Per-line "will add X units" preview ── */
+.ii-receive-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+  padding: 6px 10px;
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.18);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.ii-receive-preview-label { color: var(--text-muted); }
+.ii-receive-preview-qty { color: #10b981; font-size: 0.82rem; }
+.ii-receive-preview-meta { color: var(--text-muted); font-style: italic; }
+
+/* ── Received-units chip in the top bar ── */
+.ii-receive-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: #10b981;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ii-receive-chip strong { color: #10b981; }
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .ii-qty-row { grid-template-columns: 1fr 1fr; row-gap: 0.5rem; }
+}
+@media (max-width: 768px) {
+  .ii-vendor-row-inner { gap: 0.45rem; }
+  .ii-vendor-select { min-width: 180px; }
+  .ii-upload-vendor-row { padding: 0.55rem 0.75rem; }
+  .ii-upload-vendor-select { min-width: 180px; max-width: 100%; flex-basis: 100%; }
+  .ii-qty-row { grid-template-columns: 1fr; }
+  .ii-receive-chip { font-size: 0.7rem; padding: 3px 8px; }
+}
+@media (max-width: 480px) {
+  .ii-upload-vendor-row { flex-direction: column; align-items: stretch; }
+  .ii-upload-vendor-label { margin-bottom: 0.15rem; }
+  .ii-vendor-row-inner { flex-direction: column; align-items: stretch; }
+  .ii-rematch-btn, .ii-rematch-force-btn { justify-content: center; }
+}
+
+/* ── Spinner utility (re-use if not already present) ── */
+.ii-spin { animation: ii-spin 1s linear infinite; }
+@keyframes ii-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

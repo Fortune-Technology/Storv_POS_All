@@ -41,6 +41,7 @@ import {
   getCatalogVendors,
   clearInvoicePOSCache,
   adjustStoreStock,
+  rematchInvoice,
 } from '../services/api';
 import { toast } from 'react-toastify';
 
@@ -294,9 +295,10 @@ function InvoiceImageViewer({ pages }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function ReviewPanel({
   invoice, editData,
-  isConfirming, isSavingDraft,
+  isConfirming, isSavingDraft, isRematching,
   onClose, onConfirm, onSaveDraft,
   onHeaderChange, onItemChange, onApplyVendorToAll,
+  onInvoiceVendorChange, onRematch,
   onOpenSearch, onUpdatePOS, onCreatePOS,
   onDeleteItem, onAddItem, onAcceptAllHigh,
   readOnly, onConfirmWithPO,
@@ -439,6 +441,31 @@ function ReviewPanel({
               <span style={{ fontSize: '0.8rem', color: unmatchedCount > 0 ? '#f59e0b' : '#10b981' }}>
                 {unmatchedCount > 0 ? `⚠ ${unmatchedCount} unmatched` : '✓ All matched'}
               </span>
+              {/* Units-received chip — shows exactly how much inventory will
+                  be added when Confirm is pressed. Respects per-line
+                  Cases/Units toggle; only counts matched lines. */}
+              {(() => {
+                const matched = lineItems.filter(
+                  it => (it.mappingStatus === 'matched' || it.mappingStatus === 'manual')
+                    && parseFloat(it.quantity) > 0
+                );
+                if (matched.length === 0) return null;
+                const unitsToAdd = matched.reduce((s, it) => {
+                  const q    = parseFloat(it.quantity) || 0;
+                  const pk   = parseFloat(it.packUnits) || 1;
+                  const mode = it.receivedAs === 'units' ? 'units' : 'cases';
+                  return s + (mode === 'units' ? q : q * pk);
+                }, 0);
+                return (
+                  <span
+                    className="ii-receive-chip"
+                    title={`On Confirm: inventory (QOH) will increase by ${unitsToAdd} units across ${matched.length} product${matched.length === 1 ? '' : 's'}`}
+                  >
+                    <Package size={12} />
+                    <strong>+{unitsToAdd}</strong> units · {matched.length} product{matched.length === 1 ? '' : 's'}
+                  </span>
+                );
+              })()}
               {(() => {
                 const highCount = lineItems.filter(it => it.confidence === 'high' && it.mappingStatus !== 'matched' && it.mappingStatus !== 'manual').length;
                 return highCount > 0 ? (
@@ -478,6 +505,55 @@ function ReviewPanel({
           )}
         </div>
       </div>
+
+      {/* ── Vendor + Re-match row ── */}
+      {!readOnly && (
+        <div className="ii-vendor-row">
+          <div className="ii-vendor-row-inner">
+            <label className="ii-vendor-label">Invoice Vendor</label>
+            <select
+              className="ii-vendor-select"
+              value={editData?.vendorId ? String(editData.vendorId) : ''}
+              onChange={e => onInvoiceVendorChange && onInvoiceVendorChange(e.target.value)}
+              disabled={isRematching}
+            >
+              <option value="">— Auto-detect / unknown —</option>
+              {vendors.map(v => (
+                <option key={posId(v)} value={String(posId(v))}>{posName(v)}</option>
+              ))}
+            </select>
+            {editData?.vendorName && (
+              <span className="ii-vendor-ocr-hint" title="Vendor name read from the invoice by OCR">
+                OCR read: <em>{editData.vendorName}</em>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onRematch && onRematch({ force: false })}
+              disabled={isRematching}
+              className="ii-rematch-btn"
+              title="Re-run product matching with the selected vendor scope. User-confirmed manual matches are preserved."
+            >
+              {isRematching
+                ? <><Loader size={13} className="ii-spin" /> Re-matching…</>
+                : <><RefreshCw size={13} /> Re-run matching</>}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Force re-match ALL items — including manual matches you previously confirmed?')) {
+                  onRematch && onRematch({ force: true });
+                }
+              }}
+              disabled={isRematching}
+              className="ii-rematch-force-btn"
+              title="Force re-match ALL items including manual ones (destructive)"
+            >
+              Force
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── PO Match Banner ── */}
       {invoice?.linkedPurchaseOrderId && invoice?.poMatchResult?.matchedPO && (
@@ -880,23 +956,71 @@ function ReviewPanel({
                                 <input style={inpStyle(readOnly)} value={item.upc || ''} readOnly={readOnly} onChange={e => onItemChange(i, 'upc', e.target.value)} /></div>
                             </div>
 
-                            {/* Pack + Qty + Vendor Item Code */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem' }}>
+                            {/* Pack + Qty + Cases/Units Toggle + Vendor Item Code */}
+                            <div className="ii-qty-row">
                               <div><label style={lbl}>Pack (Units / Case)</label>
                                 <input style={inpStyle(readOnly)} type="number" min="1" step="1" value={item.packUnits || ''} readOnly={readOnly}
                                   onChange={e => onItemChange(i, 'packUnits', e.target.value)}
                                   onWheel={e => e.target.blur()} /></div>
                               <div>
-                                <label style={lbl}>Qty (Cases) <span style={{ color: '#f59e0b' }}>✎</span></label>
+                                <label style={lbl}>
+                                  Qty ({(item.receivedAs || 'cases') === 'units' ? 'Units' : 'Cases'}) <span style={{ color: '#f59e0b' }}>✎</span>
+                                </label>
                                 <input style={inpStyle(readOnly)} type="number" min="0" step="1"
                                   value={item.quantity ?? ''}
                                   readOnly={readOnly}
                                   onChange={e => onItemChange(i, 'quantity', e.target.value)}
                                   onWheel={e => e.target.blur()} />
                               </div>
+                              {/* Cases ↔ Units toggle */}
+                              <div>
+                                <label style={lbl}>Received as</label>
+                                <div
+                                  className={`ii-received-toggle${readOnly ? ' ii-received-toggle--disabled' : ''}`}
+                                  role="radiogroup"
+                                  aria-label="Received as"
+                                >
+                                  <button
+                                    type="button"
+                                    className={`ii-received-opt${(item.receivedAs || 'cases') === 'cases' ? ' ii-received-opt--active' : ''}`}
+                                    disabled={readOnly}
+                                    onClick={() => onItemChange(i, 'receivedAs', 'cases')}
+                                    title="Quantity is in CASES — inventory will be increased by qty × pack"
+                                  >
+                                    Cases
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`ii-received-opt${item.receivedAs === 'units' ? ' ii-received-opt--active' : ''}`}
+                                    disabled={readOnly}
+                                    onClick={() => onItemChange(i, 'receivedAs', 'units')}
+                                    title="Quantity is in SINGLE UNITS — inventory will be increased by qty (pack ignored)"
+                                  >
+                                    Units
+                                  </button>
+                                </div>
+                              </div>
                               <div><label style={lbl}>Vendor Item Code</label>
-                                <input style={inpStyle(readOnly)} value={item.cert_code || item.originalItemCode || ''} readOnly={readOnly} onChange={e => onItemChange(i, 'cert_code', e.target.value)} placeholder="cert_code / SKU" /></div>
+                                <input style={inpStyle(readOnly)} value={item.cert_code || item.originalItemCode || ''} readOnly={readOnly} onChange={e => onItemChange(i, 'cert_code', e.target.value)} placeholder="Distributor item #" /></div>
                             </div>
+
+                            {/* Received-into-inventory preview */}
+                            {(() => {
+                              const q   = parseFloat(item.quantity) || 0;
+                              const pk  = parseFloat(item.packUnits) || 1;
+                              const recAs = item.receivedAs === 'units' ? 'units' : 'cases';
+                              const unitsToAdd = recAs === 'units' ? q : q * pk;
+                              if (unitsToAdd <= 0) return null;
+                              return (
+                                <div className="ii-receive-preview">
+                                  <span className="ii-receive-preview-label">On confirm, inventory will increase by</span>
+                                  <strong className="ii-receive-preview-qty">+{unitsToAdd} unit{unitsToAdd === 1 ? '' : 's'}</strong>
+                                  <span className="ii-receive-preview-meta">
+                                    ({recAs === 'cases' ? `${q} case${q === 1 ? '' : 's'} × ${pk}/case` : `${q} unit${q === 1 ? '' : 's'} directly`})
+                                  </span>
+                                </div>
+                              );
+                            })()}
 
                             {/* Case Cost + Unit Cost (auto) + Retail */}
                             <div className="review-price-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem' }}>
@@ -1389,6 +1513,9 @@ const InvoiceImport = () => {
   const [searchModal,       setSearchModal]       = useState({ isOpen: false, itemIdx: null, query: '', results: [], isLoading: false, tab: 'search', itemData: null });
   const [isRefreshingPOS,   setIsRefreshingPOS]   = useState(false);
   const [multiPageModal,    setMultiPageModal]    = useState(null); // null | { files: File[] }
+  const [parentVendors,     setParentVendors]     = useState([]);    // for upload-area vendor picker
+  const [uploadVendorId,    setUploadVendorId]    = useState('');    // preselected vendor applied to all queued uploads
+  const [isRematching,      setIsRematching]      = useState(false);
   const pollRef = useRef(null);
 
   const selectedInvoice = invoices.find(inv => inv.id === selectedId) || null;
@@ -1410,6 +1537,14 @@ const InvoiceImport = () => {
 
   useEffect(() => {
     loadInvoices();
+    // Also load vendor list for the upload-area dropdown. Failures are
+    // non-fatal; the dropdown just stays empty / falls back to "Auto-detect".
+    getCatalogVendors()
+      .then(v => {
+        const list = Array.isArray(v) ? v : (v?.data || []);
+        setParentVendors(list.filter(x => !x.deleted && x.active !== false));
+      })
+      .catch(err => console.warn('Failed to load vendors for upload picker:', err?.message));
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [loadInvoices]);
 
@@ -1426,6 +1561,9 @@ const InvoiceImport = () => {
   // uploadFiles — core upload logic; multipage=true sends all files as one invoice
   const uploadFiles = useCallback(async (files, multipage) => {
     setIsUploading(true);
+    // If the user picked a vendor before dropping files, attach it so the
+    // matcher can use vendor-scoped item-code lookup on the first pass.
+    const selectedVendorId = uploadVendorId ? String(uploadVendorId) : null;
     if (multipage) {
       // All files → one combined invoice
       const stubId  = `stub-${Date.now()}-${Math.random()}`;
@@ -1434,6 +1572,7 @@ const InvoiceImport = () => {
       try {
         const fd = new FormData();
         files.forEach(f => fd.append('invoices', f));
+        if (selectedVendorId) fd.append('vendorId', selectedVendorId);
         const { data } = await queueMultipageInvoice(fd);
         const real = data.invoices?.[0];
         if (real) setInvoices(prev => prev.map(inv => inv.id === stubId ? real : inv));
@@ -1450,6 +1589,7 @@ const InvoiceImport = () => {
         try {
           const fd = new FormData();
           fd.append('invoices', file);
+          if (selectedVendorId) fd.append('vendorId', selectedVendorId);
           const { data } = await queueInvoice(fd);
           const real = data.invoices?.[0];
           if (real) setInvoices(prev => prev.map(inv => inv.id === stubId ? real : inv));
@@ -1461,7 +1601,7 @@ const InvoiceImport = () => {
       toast.info(`${files.length} invoice${files.length > 1 ? 's' : ''} queued — AI processing in background`);
     }
     setIsUploading(false);
-  }, []);
+  }, [uploadVendorId]);
 
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!acceptedFiles.length) return;
@@ -1495,18 +1635,93 @@ const InvoiceImport = () => {
     }));
   };
 
+  // Change the invoice-level vendor. Updates local editData only;
+  // the user must click "Re-run matching" to actually re-score line items.
+  const handleInvoiceVendorChange = (vendorId) => {
+    setEditData(prev => ({ ...prev, vendorId: vendorId ? parseInt(vendorId, 10) : null }));
+  };
+
+  // Re-run the matching cascade on the current invoice, scoped to the
+  // newly-selected vendor. Preserves user-confirmed manual matches.
+  const handleRematch = async ({ force = false } = {}) => {
+    if (!editData) return;
+    setIsRematching(true);
+    try {
+      const res = await rematchInvoice(editData.id, {
+        vendorId: editData.vendorId || null,
+        force,
+      });
+      if (res?.invoice) {
+        // Refresh editData with the server's merged line items
+        setEditData({
+          ...editData,
+          vendorId:   res.invoice.vendorId,
+          lineItems:  JSON.parse(JSON.stringify(res.invoice.lineItems || [])),
+          matchStats: res.invoice.matchStats,
+        });
+      }
+      const s = res?.stats || {};
+      toast.success(`🔁 Re-matched: ${s.matched ?? 0}/${s.total ?? 0} matched · ${s.preserved ?? 0} preserved`);
+    } catch (err) {
+      toast.error('Re-match failed: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsRematching(false);
+    }
+  };
+
+  // ── Helpers: line-item / invoice total recomputation ───────────────────────
+  // Sum of all line items' totalAmount (fallback to caseCost × qty when blank).
+  // Used to keep the invoice's totalInvoiceAmount in sync with the lines.
+  const recomputeInvoiceTotal = (items) =>
+    items.reduce((s, it) => {
+      const explicit = parseFloat(it.totalAmount);
+      if (Number.isFinite(explicit)) return s + explicit;
+      const cc = parseFloat(it.caseCost) || 0;
+      const q  = parseFloat(it.quantity) || 0;
+      return s + (cc * q);
+    }, 0);
+
+  // Should the line's totalAmount auto-recompute? Only when user has NOT
+  // manually overridden it (tracked via `_totalLocked`).
+  const recomputeLineTotal = (item) => {
+    if (item._totalLocked) return item;
+    const cc = parseFloat(item.caseCost) || 0;
+    const q  = parseFloat(item.quantity) || 0;
+    const t  = cc * q;
+    // Only set when we actually have numbers to compute — leave blank otherwise
+    if (cc > 0 || q > 0) {
+      return { ...item, totalAmount: Number(t.toFixed(4)) };
+    }
+    return item;
+  };
+
   const handleItemChange = (itemIdx, field, value) => {
     setEditData(prev => {
       const items = [...prev.lineItems];
       const val   = field === 'upc' ? normalizeUPC(value) : value;
-      const item  = { ...items[itemIdx], [field]: val };
-      if (['caseCost', 'packUnits'].includes(field)) {
-        const cc = parseFloat(field === 'caseCost' ? value : item.caseCost) || 0;
+      let item    = { ...items[itemIdx], [field]: val };
+
+      // Manual override of totalAmount — lock it so future edits to qty/caseCost
+      // don't clobber the user's number.
+      if (field === 'totalAmount') {
+        item._totalLocked = true;
+      }
+
+      // Recompute unitCost whenever caseCost or packUnits change
+      if (field === 'caseCost' || field === 'packUnits') {
+        const cc = parseFloat(field === 'caseCost'  ? value : item.caseCost)  || 0;
         const pk = parseFloat(field === 'packUnits' ? value : item.packUnits) || 1;
         item.unitCost = pk > 0 ? cc / pk : 0;
       }
+
+      // Recompute line total when qty or caseCost change (unless user locked it)
+      if (field === 'quantity' || field === 'caseCost') {
+        item = recomputeLineTotal(item);
+      }
+
       items[itemIdx] = item;
-      return { ...prev, lineItems: items };
+      // Always recompute the invoice total so the summary strip stays in sync
+      return { ...prev, lineItems: items, totalInvoiceAmount: recomputeInvoiceTotal(items).toFixed(2) };
     });
   };
 
@@ -1515,33 +1730,33 @@ const InvoiceImport = () => {
     if (!window.confirm(`Delete "${item.description || 'this item'}" from the invoice?`)) return;
     setEditData(prev => {
       const items = prev.lineItems.filter((_, idx) => idx !== itemIdx);
-      const newTotal = items.reduce((s, it) => s + (parseFloat(it.totalAmount || (parseFloat(it.caseCost || 0) * parseFloat(it.quantity || 0))) || 0), 0);
-      return { ...prev, lineItems: items, totalInvoiceAmount: newTotal.toFixed(2) };
+      return { ...prev, lineItems: items, totalInvoiceAmount: recomputeInvoiceTotal(items).toFixed(2) };
     });
     toast.info('Line item removed');
   };
 
   // Add a new empty line item
   const handleAddItem = () => {
-    setEditData(prev => ({
-      ...prev,
-      lineItems: [
+    setEditData(prev => {
+      const items = [
         ...prev.lineItems,
         {
           description: '',
           quantity: 1,
-          caseCost: '',
-          unitCost: '',
-          totalAmount: '',
+          caseCost: 0,
+          unitCost: 0,
+          totalAmount: 0,
           upc: '',
           packUnits: 1,
+          receivedAs: 'cases',          // NEW — "cases" | "units" toggle default
           suggestedRetailPrice: '',
           mappingStatus: 'new',
           confidence: null,
           matchTier: null,
         },
-      ],
-    }));
+      ];
+      return { ...prev, lineItems: items, totalInvoiceAmount: recomputeInvoiceTotal(items).toFixed(2) };
+    });
   };
 
   // Accept all high-confidence items — mark them as 'matched'
@@ -1565,7 +1780,8 @@ const InvoiceImport = () => {
     setIsSavingDraft(true);
     try {
       await saveInvoiceDraft(editData.id, {
-        lineItems: editData.lineItems, vendorName: editData.vendorName, invoiceNumber: editData.invoiceNumber,
+        lineItems: editData.lineItems, vendorName: editData.vendorName, vendorId: editData.vendorId,
+        invoiceNumber: editData.invoiceNumber,
         invoiceDate: editData.invoiceDate, paymentDueDate: editData.paymentDueDate, paymentType: editData.paymentType,
         checkNumber: editData.checkNumber, customerNumber: editData.customerNumber,
         totalInvoiceAmount: editData.totalInvoiceAmount, tax: editData.tax,
@@ -1653,22 +1869,37 @@ const InvoiceImport = () => {
         toast.success(`✅ ${editData.vendorName || editData.fileName} synced${unmatched > 0 ? ` · ${unmatched} unmatched items skipped` : ''}`);
       }
 
-      // Step 3 — update inventory counts for received items
+      // Step 3 — update inventory counts for received items.
+      //
+      // Unit conversion:
+      //   receivedAs === 'cases' (default) → adjustment = qty × packUnits
+      //   receivedAs === 'units'           → adjustment = qty (pack ignored)
+      //
+      // The backend's adjustStoreStock does  newQty = currentQty + adjustment,
+      // so this implements: New QOH = Old QOH + Units Received.
+      const inventoryPayloads = matchedItems
+        .filter(item => parseFloat(item.quantity) > 0)
+        .map(item => {
+          const q    = parseFloat(item.quantity) || 0;
+          const pk   = parseFloat(item.packUnits) || 1;
+          const mode = item.receivedAs === 'units' ? 'units' : 'cases';
+          const unitsReceived = mode === 'units' ? q : q * pk;
+          return {
+            masterProductId: parseInt(item.linkedProductId || item.posProductId),
+            adjustment:      unitsReceived,
+            reason:          `Invoice #${editData.invoiceNumber || editData.id} — ${editData.vendorName || 'Invoice import'} (${q} ${mode}${mode === 'cases' ? ` × ${pk}` : ''})`,
+          };
+        })
+        .filter(p => p.adjustment > 0 && Number.isFinite(p.masterProductId));
+
       const inventoryResults = await Promise.allSettled(
-        matchedItems
-          .filter(item => parseFloat(item.quantity) > 0)
-          .map(item =>
-            adjustStoreStock({
-              masterProductId: parseInt(item.linkedProductId || item.posProductId),
-              adjustment:      parseFloat(item.quantity) || 0,
-              reason:          `Invoice #${editData.invoiceNumber || editData.id} — ${editData.vendorName || 'Invoice import'}`,
-            })
-          )
+        inventoryPayloads.map(p => adjustStoreStock(p))
       );
-      const invOk   = inventoryResults.filter(r => r.status === 'fulfilled').length;
-      const invFail = inventoryResults.filter(r => r.status === 'rejected').length;
+      const invOk      = inventoryResults.filter(r => r.status === 'fulfilled').length;
+      const invFail    = inventoryResults.filter(r => r.status === 'rejected').length;
+      const unitsTotal = inventoryPayloads.reduce((s, p) => s + p.adjustment, 0);
       if (invOk > 0) {
-        toast.info(`📦 Inventory updated: +${invOk} product${invOk !== 1 ? 's' : ''}${invFail > 0 ? ` (${invFail} failed)` : ''}`);
+        toast.info(`📦 Inventory updated: +${unitsTotal} unit${unitsTotal === 1 ? '' : 's'} across ${invOk} product${invOk !== 1 ? 's' : ''}${invFail > 0 ? ` (${invFail} failed)` : ''}`);
       }
 
       closeReview();
@@ -1863,6 +2094,38 @@ const InvoiceImport = () => {
           </div>
         </div>
 
+        {/* ── Upload vendor picker — applied to all files queued in this batch ── */}
+        <div className="ii-upload-vendor-row">
+          <label htmlFor="ii-upload-vendor" className="ii-upload-vendor-label">
+            Vendor <span className="ii-upload-vendor-opt">(optional — speeds up matching)</span>
+          </label>
+          <select
+            id="ii-upload-vendor"
+            className="ii-upload-vendor-select"
+            value={uploadVendorId}
+            onChange={e => setUploadVendorId(e.target.value)}
+            disabled={isUploading}
+          >
+            <option value="">— Auto-detect from invoice —</option>
+            {parentVendors.map(v => (
+              <option key={v.id} value={String(v.id)}>{v.name}</option>
+            ))}
+          </select>
+          {uploadVendorId && (
+            <button
+              type="button"
+              className="ii-upload-vendor-clear"
+              onClick={() => setUploadVendorId('')}
+              title="Clear vendor selection"
+            >
+              Clear
+            </button>
+          )}
+          <span className="ii-upload-vendor-hint">
+            Pick a vendor to use their item codes for matching, or leave as auto-detect.
+          </span>
+        </div>
+
         <div {...getRootProps()} className={`ii-dropzone ${isDragActive ? 'ii-dropzone--active' : ''}`}>
           <input {...getInputProps()} />
           <div className={`ii-dropzone-icon ${isDragActive ? 'ii-dropzone-icon--active' : ''}`}>
@@ -1924,11 +2187,14 @@ const InvoiceImport = () => {
           editData={editData}
           isConfirming={isConfirming}
           isSavingDraft={isSavingDraft}
+          isRematching={isRematching}
           onClose={closeReview}
           onConfirm={handleConfirm}
           onConfirmWithPO={handleConfirmWithPO}
           onSaveDraft={handleSaveDraft}
           onHeaderChange={handleHeaderChange}
+          onInvoiceVendorChange={handleInvoiceVendorChange}
+          onRematch={handleRematch}
           onItemChange={handleItemChange}
           onApplyVendorToAll={handleApplyVendorToAll}
           onOpenSearch={(itemIdx, openTab = 'search') => setSearchModal({

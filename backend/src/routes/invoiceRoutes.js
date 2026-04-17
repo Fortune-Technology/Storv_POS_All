@@ -11,6 +11,7 @@ import {
   saveDraft,
   clearInvoicePOSCache,
   getMatchAccuracy,
+  rematchInvoice,
 } from '../controllers/invoiceController.js';
 import { protect, authorize } from '../middleware/auth.js';
 import multer from 'multer';
@@ -68,6 +69,7 @@ router.get('/accuracy', getMatchAccuracy);
 router.get('/history', getInvoiceHistory);
 router.get('/drafts', getInvoiceDrafts);
 router.patch('/:id/draft', saveDraft);
+router.post('/:id/rematch', rematchInvoice);
 router.get('/:id', getInvoiceById);
 router.delete('/drafts/:id', deleteDraft);
 

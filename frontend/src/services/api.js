@@ -128,6 +128,10 @@ export const saveInvoiceDraft = (id, data) => api.patch(`/invoice/${id}/draft`, 
 export const deleteInvoiceDraft = (id) => api.delete(`/invoice/drafts/${id}`);
 export const clearInvoicePOSCache = () => api.post('/invoice/clear-pos-cache');
 export const getInvoiceAccuracy = () => api.get('/invoice/accuracy').then(r => r.data);
+// Re-run the matching cascade on a draft invoice, optionally scoped to a vendor.
+// Preserves user-made manual matches unless force=true.
+export const rematchInvoice = (id, { vendorId, force } = {}) =>
+  api.post(`/invoice/${id}/rematch`, { vendorId, force }).then(r => r.data);
 
 // Products
 export const getProducts = () => api.get('/products');

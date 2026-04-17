@@ -12,11 +12,62 @@ import {
 } from '../services/matchingService.js';
 import fs from 'fs/promises';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal: resolve invoice vendorName → Vendor.id for vendor-scoped matching.
+// Tries, in order:
+//   1. Exact active vendor with same orgId and name (case-insensitive)
+//   2. Vendor where `aliases[]` contains the OCR name
+//   3. Fuzzy contains match on vendor name
+// Returns vendorId (Int) or null if nothing resolved.
+// ─────────────────────────────────────────────────────────────────────────────
+async function resolveVendorId(orgId, vendorName) {
+  if (!orgId || orgId === 'unknown' || !vendorName) return null;
+  const q = String(vendorName).trim();
+  if (!q) return null;
+  try {
+    // 1. Exact (case-insensitive)
+    const exact = await prisma.vendor.findFirst({
+      where: { orgId, active: true, name: { equals: q, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (exact) return exact.id;
+
+    // 2. Alias match
+    const byAlias = await prisma.vendor.findFirst({
+      where: { orgId, active: true, aliases: { has: q } },
+      select: { id: true },
+    });
+    if (byAlias) return byAlias.id;
+
+    // 3. Fuzzy contains — both directions (vendor.name contains OCR, OCR contains vendor.name)
+    const fuzzy = await prisma.vendor.findFirst({
+      where: { orgId, active: true, name: { contains: q, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (fuzzy) return fuzzy.id;
+
+    // 4. Reverse: iterate active vendors and check if their name is contained in the OCR string
+    //    (covers OCR variants like "HERSHEY CREAMERY CO." → vendor "Hershey Creamery")
+    const candidates = await prisma.vendor.findMany({
+      where: { orgId, active: true },
+      select: { id: true, name: true },
+      take: 200,
+    });
+    const lower = q.toLowerCase();
+    for (const v of candidates) {
+      if (v.name && lower.includes(v.name.toLowerCase())) return v.id;
+    }
+  } catch (err) {
+    console.warn('[resolveVendorId] failed:', err.message);
+  }
+  return null;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal: background processing (called after HTTP response is sent)
 // ─────────────────────────────────────────────────────────────────────────────
-async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
+async function processInvoiceBackground(invoiceId, file, user, storeId, orgId, preselectedVendorId = null) {
   try {
     let posProducts = getPOSCache(user.id);
     if (!posProducts || posProducts.length === 0) {
@@ -29,7 +80,19 @@ async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
     const result = await gptService.extractInvoiceData(buffer, file.mimetype);
     const { data, pages } = result;
 
-    const enrichedItems = await matchLineItems(data.lineItems, posProducts, data.vendor.vendorName);
+    // Resolve vendor — either the user picked one at upload time, or we
+    // try to match data.vendor.vendorName to an existing Vendor record.
+    const resolvedVendorId = preselectedVendorId || await resolveVendorId(orgId, data.vendor.vendorName);
+    if (resolvedVendorId) {
+      console.log(`🏷 Invoice ${invoiceId} resolved to vendorId=${resolvedVendorId} (${data.vendor.vendorName})`);
+    }
+
+    const enrichedItems = await matchLineItems(
+      data.lineItems,
+      posProducts,
+      data.vendor.vendorName,
+      { vendorId: resolvedVendorId },
+    );
 
     // ── Auto-match to Purchase Order ──────────────────────────────────
     let poMatchResult = null;
@@ -39,7 +102,7 @@ async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
       // Save enriched items first so the PO matcher can read them
       await prisma.invoice.update({
         where: { id: invoiceId },
-        data: { lineItems: enrichedItems, vendorName: data.vendor.vendorName },
+        data: { lineItems: enrichedItems, vendorName: data.vendor.vendorName, vendorId: resolvedVendorId },
       });
       const poMatch = await matchInvoiceToPO(orgId, storeId, invoiceId);
       if (poMatch.matchedPO) {
@@ -55,6 +118,7 @@ async function processInvoiceBackground(invoiceId, file, user, storeId, orgId) {
       data: {
         status:             'draft',
         vendorName:         data.vendor.vendorName,
+        vendorId:           resolvedVendorId,
         customerNumber:     data.vendor.customerNumber,
         invoiceNumber:      data.vendor.invoiceNumber,
         invoiceDate:        data.vendor.invoiceDate ? new Date(data.vendor.invoiceDate) : null,
@@ -104,6 +168,12 @@ export const queueUpload = async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
+    // Optional vendorId sent from the upload UI — when present, vendor-scoped
+    // matching kicks in on the first pass (skip the name-resolution heuristic).
+    const preVendorIdRaw = req.body?.vendorId;
+    const preselectedVendorId = preVendorIdRaw ? parseInt(preVendorIdRaw, 10) : null;
+    const validVendorId = Number.isFinite(preselectedVendorId) ? preselectedVendorId : null;
+
     const stubs = [];
 
     for (const file of files) {
@@ -115,13 +185,14 @@ export const queueUpload = async (req, res) => {
           orgId:    req.orgId   ?? 'unknown',
           storeId:  req.storeId ?? null,
           userId:   req.user.id ?? null,
+          vendorId: validVendorId,
         },
       });
 
       stubs.push(stub);
 
       setImmediate(() =>
-        processInvoiceBackground(stub.id, file, req.user, req.storeId, req.orgId).catch(err =>
+        processInvoiceBackground(stub.id, file, req.user, req.storeId, req.orgId, validVendorId).catch(err =>
           console.error('Background processing error:', err)
         )
       );
@@ -136,7 +207,7 @@ export const queueUpload = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal: background processing for multi-page invoices (multiple files = 1 invoice)
 // ─────────────────────────────────────────────────────────────────────────────
-async function processMultipageBackground(invoiceId, files, user, storeId, orgId) {
+async function processMultipageBackground(invoiceId, files, user, storeId, orgId, preselectedVendorId = null) {
   try {
     let posProducts = getPOSCache(user.id);
     if (!posProducts || posProducts.length === 0) {
@@ -151,13 +222,25 @@ async function processMultipageBackground(invoiceId, files, user, storeId, orgId
     );
 
     const { data, pages } = await gptService.extractMultiplePages(fileData);
-    const enrichedItems = await matchLineItems(data.lineItems, posProducts, data.vendor.vendorName);
+
+    const resolvedVendorId = preselectedVendorId || await resolveVendorId(orgId, data.vendor.vendorName);
+    if (resolvedVendorId) {
+      console.log(`🏷 Multi-page invoice ${invoiceId} resolved to vendorId=${resolvedVendorId} (${data.vendor.vendorName})`);
+    }
+
+    const enrichedItems = await matchLineItems(
+      data.lineItems,
+      posProducts,
+      data.vendor.vendorName,
+      { vendorId: resolvedVendorId },
+    );
 
     await prisma.invoice.update({
       where: { id: invoiceId },
       data: {
         status:             'draft',
         vendorName:         data.vendor.vendorName,
+        vendorId:           resolvedVendorId,
         customerNumber:     data.vendor.customerNumber,
         invoiceNumber:      data.vendor.invoiceNumber,
         invoiceDate:        data.vendor.invoiceDate ? new Date(data.vendor.invoiceDate) : null,
@@ -206,6 +289,10 @@ export const queueMultipageUpload = async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
+    const preVendorIdRaw = req.body?.vendorId;
+    const preselectedVendorId = preVendorIdRaw ? parseInt(preVendorIdRaw, 10) : null;
+    const validVendorId = Number.isFinite(preselectedVendorId) ? preselectedVendorId : null;
+
     const fileName = files.map(f => f.originalname).join(', ');
 
     // Create ONE invoice stub for all pages
@@ -217,11 +304,12 @@ export const queueMultipageUpload = async (req, res) => {
         orgId:    req.orgId   ?? 'unknown',
         storeId:  req.storeId ?? null,
         userId:   req.user.id ?? null,
+        vendorId: validVendorId,
       },
     });
 
     setImmediate(() =>
-      processMultipageBackground(stub.id, files, req.user, req.storeId, req.orgId).catch(err =>
+      processMultipageBackground(stub.id, files, req.user, req.storeId, req.orgId, validVendorId).catch(err =>
         console.error('Multi-page background processing error:', err)
       )
     );
@@ -251,6 +339,10 @@ export const uploadInvoices = async (req, res) => {
     }
     posProducts = posProducts || [];
 
+    const preVendorIdRaw = req.body?.vendorId;
+    const preselectedVendorId = preVendorIdRaw ? parseInt(preVendorIdRaw, 10) : null;
+    const validVendorId = Number.isFinite(preselectedVendorId) ? preselectedVendorId : null;
+
     const results = [];
 
     for (const file of files) {
@@ -259,7 +351,13 @@ export const uploadInvoices = async (req, res) => {
         const result = await gptService.extractInvoiceData(buffer, file.mimetype);
         const { data, pages } = result;
 
-        const enrichedItems = await matchLineItems(data.lineItems, posProducts, data.vendor.vendorName);
+        const resolvedVendorId = validVendorId || await resolveVendorId(req.orgId, data.vendor.vendorName);
+        const enrichedItems = await matchLineItems(
+          data.lineItems,
+          posProducts,
+          data.vendor.vendorName,
+          { vendorId: resolvedVendorId },
+        );
 
         const invoice = await prisma.invoice.create({
           data: {
@@ -270,6 +368,7 @@ export const uploadInvoices = async (req, res) => {
             storeId:            req.storeId ?? null,
             userId:             req.user.id ?? null,
             vendorName:         data.vendor.vendorName,
+            vendorId:           resolvedVendorId,
             customerNumber:     data.vendor.customerNumber,
             invoiceNumber:      data.vendor.invoiceNumber,
             invoiceDate:        data.vendor.invoiceDate ? new Date(data.vendor.invoiceDate) : null,
@@ -583,7 +682,7 @@ export const saveDraft = async (req, res) => {
     }
 
     const ALLOWED = [
-      'lineItems', 'vendorName', 'invoiceNumber', 'invoiceDate',
+      'lineItems', 'vendorName', 'vendorId', 'invoiceNumber', 'invoiceDate',
       'paymentDueDate', 'paymentType', 'checkNumber', 'customerNumber',
       'totalInvoiceAmount', 'tax', 'totalDiscount', 'totalDeposit',
       'otherFees', 'driverName', 'salesRepName', 'loadNumber',
@@ -591,6 +690,11 @@ export const saveDraft = async (req, res) => {
     const patch = {};
     for (const field of ALLOWED) {
       if (req.body[field] !== undefined) patch[field] = req.body[field];
+    }
+    // Normalize vendorId to Int? | null
+    if (patch.vendorId !== undefined) {
+      const v = parseInt(patch.vendorId, 10);
+      patch.vendorId = Number.isFinite(v) ? v : null;
     }
 
     const updated = await prisma.invoice.update({ where: { id }, data: patch });
@@ -708,6 +812,134 @@ export const getMatchAccuracy = async (req, res) => {
       timeline: timeline.slice(0, 50),
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// @desc    Re-run the matching cascade on a draft invoice, scoped to a vendor.
+//          Preserves any user-made manual matches; only re-matches items that
+//          are currently unmatched or low-confidence.
+// @route   POST /api/invoice/:id/rematch
+// @body    { vendorId?: number, force?: boolean }
+//          - vendorId: override invoice vendor (also persisted)
+//          - force: if true, re-matches ALL items (including user-confirmed ones)
+// @access  Private
+// ─────────────────────────────────────────────────────────────────────────────
+export const rematchInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { vendorId: newVendorId, force } = req.body || {};
+
+    const where = { id };
+    if (req.orgId) where.orgId = req.orgId;
+
+    const invoice = await prisma.invoice.findFirst({ where });
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    if (invoice.status === 'synced') {
+      return res.status(400).json({ error: 'Synced invoices cannot be re-matched' });
+    }
+
+    // Resolve final vendorId: explicit body value wins, else existing invoice value
+    let targetVendorId = invoice.vendorId;
+    if (newVendorId !== undefined) {
+      const parsed = parseInt(newVendorId, 10);
+      targetVendorId = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    // Load catalog
+    let posProducts = getPOSCache(req.user.id);
+    if (!posProducts || posProducts.length === 0) {
+      posProducts = await loadCatalogProductsForMatching(req.orgId);
+      if (posProducts.length > 0) setPOSCache(req.user.id, posProducts);
+    }
+    posProducts = posProducts || [];
+
+    const existingItems = Array.isArray(invoice.lineItems) ? invoice.lineItems : [];
+
+    // Split items into "preserve" (user-confirmed manual matches) vs "rematch".
+    // Preserved items keep their mapping; only the rest go through the cascade.
+    const toRematch = [];
+    const preserved = [];
+    for (const item of existingItems) {
+      const isManual = item.mappingStatus === 'manual';
+      const isHighConfidenceMatched = item.mappingStatus === 'matched' && item.confidence === 'high';
+      if (!force && (isManual || isHighConfidenceMatched)) {
+        preserved.push(item);
+      } else {
+        // Strip previous match metadata so the cascade sees a clean slate.
+        // Keep the ORIGINAL vendor fields (description / itemCode / upc) not the POS-overwritten ones.
+        toRematch.push({
+          ...item,
+          description: item.originalVendorDescription || item.description,
+          itemCode:    item.originalItemCode          || item.itemCode,
+          mappingStatus: 'unmatched',
+          confidence:    null,
+          matchTier:     null,
+          linkedProductId: undefined,
+        });
+      }
+    }
+
+    let newlyMatched = [];
+    if (toRematch.length > 0) {
+      newlyMatched = await matchLineItems(
+        toRematch,
+        posProducts,
+        invoice.vendorName,
+        { vendorId: targetVendorId },
+      );
+    }
+
+    // Merge: preserved items keep their original position, newly-matched fill in.
+    // We rebuild the lineItems array by walking the original list and pulling
+    // from either the preserved set (by identity) or the rematched set (by order).
+    const rematchedQueue = [...newlyMatched];
+    const merged = existingItems.map((orig) => {
+      const isManual = orig.mappingStatus === 'manual';
+      const isHighConfidenceMatched = orig.mappingStatus === 'matched' && orig.confidence === 'high';
+      if (!force && (isManual || isHighConfidenceMatched)) return orig;
+      return rematchedQueue.shift() || orig;
+    });
+
+    // Recompute matchStats
+    const matchedCount = merged.filter(r => r.mappingStatus === 'matched' || r.mappingStatus === 'manual').length;
+    const total = merged.length;
+    const byTier = merged.reduce((acc, r) => {
+      const key = r.matchTier || 'unmatched';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+
+    const updated = await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        vendorId:   targetVendorId,
+        lineItems:  merged,
+        matchStats: {
+          total,
+          matched: matchedCount,
+          unmatched: total - matchedCount,
+          matchRate: total > 0 ? Math.round((matchedCount / total) * 10000) / 100 : 0,
+          byTier,
+          rematchedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    res.json({
+      message: `Re-matched ${toRematch.length} item${toRematch.length === 1 ? '' : 's'} (${preserved.length} preserved)`,
+      invoice: updated,
+      stats: {
+        total,
+        matched: matchedCount,
+        preserved: preserved.length,
+        rematched: toRematch.length,
+        matchRate: total > 0 ? Math.round((matchedCount / total) * 10000) / 100 : 0,
+      },
+    });
+  } catch (error) {
+    console.error('[rematchInvoice] failed:', error);
     res.status(500).json({ error: error.message });
   }
 };
