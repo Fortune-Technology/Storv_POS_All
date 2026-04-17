@@ -51,7 +51,7 @@ const adminMenuGroups = [
   {
     label: 'Payments',
     items: [
-      { name: 'Payment Management', icon: <CreditCard size={13} />, path: '/payment' },
+      { name: 'Merchants (Dejavoo)', icon: <CreditCard size={13} />, path: '/merchants' },
     ],
   },
   {

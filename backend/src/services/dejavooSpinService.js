@@ -345,6 +345,53 @@ export async function status(merchant, opts) {
 }
 
 /**
+ * Prompt the customer on the terminal for input — used for phone number
+ * lookup, loyalty code, zip code, etc.
+ *
+ * Docs: POST /v2/Common/UserInput
+ *
+ * @param {object} opts
+ * @param {string} opts.title      Prompt line 1 (e.g. "Phone Number")
+ * @param {string} opts.prompt     Prompt line 2 (e.g. "Enter 10-digit phone")
+ * @param {string} opts.inputType  'Numeric' | 'Alphanumeric' | 'Password'
+ * @param {number} opts.minLength  Min characters required
+ * @param {number} opts.maxLength  Max characters allowed
+ * @param {number} opts.timeoutSec How long to wait for customer input (default 60s)
+ * @param {string} opts.referenceId Unique UUID (use generateReferenceId())
+ */
+export async function userInput(merchant, opts) {
+  const client = createClient(merchant);
+  const body = {
+    ...buildBasePayload(merchant, opts),
+    ReferenceId: opts.referenceId,
+    Title:       opts.title     || 'Input',
+    Prompt:      opts.prompt    || 'Please enter:',
+    InputType:   opts.inputType || 'Numeric',
+    MinLength:   opts.minLength ?? 1,
+    MaxLength:   opts.maxLength ?? 20,
+    TimeoutSec:  opts.timeoutSec ?? 60,
+  };
+
+  try {
+    const { data } = await client.post('/v2/Common/UserInput', body);
+    const gen = data?.GeneralResponse || {};
+    const approved = gen.StatusCode === '0000' || gen.ResultCode === 'Ok';
+    return {
+      approved,
+      statusCode: gen.StatusCode || null,
+      message:    gen.Message    || null,
+      // Customer's typed input — lives on the top-level response
+      value:      data?.Value || data?.UserInput || data?.Input || null,
+      referenceId: opts.referenceId,
+      transactionType: 'userInput',
+      _raw: data,
+    };
+  } catch (err) {
+    return handleError(err, 'userInput');
+  }
+}
+
+/**
  * Check if the terminal is connected and reachable.
  * Uses GET (unlike other endpoints which are POST).
  */

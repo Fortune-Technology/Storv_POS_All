@@ -620,8 +620,6 @@ model Station {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  paymentTerminal  PaymentTerminal?  // one CardPointe terminal per station
-
   @@index([orgId, storeId])
   @@map("stations")
 }
@@ -657,7 +655,6 @@ model Organization {
 
   users           User[]
   stores          Store[]
-  cpMerchant      CardPointeMerchant?
   subscription    OrgSubscription?
   purchaseOrders  PurchaseOrder[]
   vendorReturns   VendorReturn[]
@@ -1688,95 +1685,31 @@ model SystemConfig {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CARDPOINTE PAYMENT INTEGRATION
-// PCI-compliant in-store card processing via CardPointe Gateway
-// and Integrated Terminal APIs.
-// ═══════════════════════════════════════════════════════════════
-
-// ─────────────────────────────────────────────────
-// CARDPOINTE MERCHANT
-// One set of credentials per Organization.
-// Stores the CardPointe merchant ID, API user/password.
-// apiPassword is AES-256 encrypted at rest in the controller.
-// ─────────────────────────────────────────────────
-model CardPointeMerchant {
-  id          String   @id @default(cuid())
-  orgId       String   @unique
-  merchId     String                   // CardPointe merchant ID (numeric)
-  apiUser     String                   // CardPointe API username
-  apiPassword String                   // AES-256 encrypted API password
-  site        String   @default("fts") // UAT: "fts", production varies per reseller
-  baseUrl     String?                  // optional override (e.g. custom hosted endpoint)
-  isLive      Boolean  @default(false) // false = UAT environment
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  org          Organization        @relation(fields: [orgId], references: [id])
-  terminals    PaymentTerminal[]
-  transactions PaymentTransaction[]
-
-  @@map("cardpointe_merchants")
-}
-
-// ─────────────────────────────────────────────────
-// PAYMENT TERMINAL
-// Physical card reader registered per station.
-// hsn (hardware serial number) is the unique identifier
-// used in all CardPointe Terminal API calls.
-// ─────────────────────────────────────────────────
-model PaymentTerminal {
-  id          String    @id @default(cuid())
-  orgId       String
-  storeId     String
-  stationId   String?   @unique        // nullable — terminal may not be tied to a station yet
-  merchantId  String
-  hsn         String                   // hardware serial number — used in Terminal API
-  name        String?                  // "Register 1 Terminal", "Express Lane"
-  ipAddress   String?
-  port        Int       @default(6443) // HTTPS port (CardPointe Terminal API)
-  model       String?                  // "A920", "P400", etc.
-  status      String    @default("unknown") // active | inactive | unknown
-  lastSeenAt  DateTime?
-  lastPingMs  Int?
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  merchant     CardPointeMerchant  @relation(fields: [merchantId], references: [id])
-  station      Station?            @relation(fields: [stationId], references: [id])
-  transactions PaymentTransaction[]
-
-  @@index([orgId, storeId])
-  @@map("payment_terminals")
-}
-
-// ─────────────────────────────────────────────────
 // PAYMENT TRANSACTION
-// PCI-safe record of every card transaction.
-// Raw PAN, CVV, and full magnetic-stripe data are
-// NEVER stored. Only CardPointe-issued tokens and
-// masked card info (last 4, acct type) are persisted.
-// ─────────────────────────────────────────────────
+// PCI-safe audit record for every card transaction (Dejavoo / future providers).
+// Raw PAN, CVV, magnetic-stripe data are NEVER stored — only masked card info
+// (last 4, card type) and the processor-issued ReferenceId.
+// ═══════════════════════════════════════════════════════════════
 model PaymentTransaction {
   id               String   @id @default(cuid())
   orgId            String
   storeId          String
-  terminalId       String?  // FK to PaymentTerminal
-  merchantId       String   // FK to CardPointeMerchant
+  merchantId       String   // FK to PaymentMerchant (per-store credentials)
   posTransactionId String?  // FK to Transaction.id (nullable — set after POS tx saved)
+  provider         String   @default("dejavoo") // "dejavoo" | future providers
 
-  // ── CardPointe Gateway fields ───────────────────────────────
-  retref           String?  @unique  // retrieval reference number (CardPointe)
+  // ── Processor response fields ───────────────────────────────
+  retref           String?  @unique  // ReferenceId (Dejavoo UUID) — unique per transaction
   authCode         String?           // approval auth code
-  respCode         String?           // "000" = approved
-  respText         String?           // "Approval"
+  respCode         String?           // Dejavoo StatusCode — "0000" = approved
+  respText         String?           // Dejavoo Message — "Approved", "Declined", etc.
 
-  // ── Card info (PCI-safe — no raw PAN/CVV) ───────────────────
-  token            String?           // CardPointe token (not raw PAN)
-  lastFour         String?           // last 4 digits of card
-  acctType         String?           // VISA | MC | AMEX | DISC | DEBIT
+  // ── Card info (PCI-safe) ───────────────────────────────────
+  token            String?           // processor token (for future card-on-file)
+  lastFour         String?           // last 4 digits
+  acctType         String?           // Visa | Mastercard | Amex | Discover | EBT
   expiry           String?           // MMYY
-  entryMode        String?           // CONTACTLESS | CHIP | SWIPE | MANUAL | KEYED
+  entryMode        String?           // Chip | Swipe | Contactless | Manual
 
   // ── Amounts ─────────────────────────────────────────────────
   amount           Decimal  @db.Decimal(10, 2)
@@ -1787,19 +1720,18 @@ model PaymentTransaction {
   status           String   @default("pending") // pending | approved | declined | voided | refunded | error
 
   // ── Signature ───────────────────────────────────────────────
-  signatureData    String?  @db.Text  // base64 SVG from Terminal API readSignature
+  signatureData    String?  @db.Text
   signatureCaptured Boolean @default(false)
 
   // ── Linkage ─────────────────────────────────────────────────
-  originalRetref   String?           // for void/refund — references original sale retref
+  originalRetref   String?           // for void/refund — references original sale ReferenceId
   invoiceNumber    String?           // matches posTransaction.txNumber
   orderNote        String?
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  merchant  CardPointeMerchant @relation(fields: [merchantId], references: [id])
-  terminal  PaymentTerminal?   @relation(fields: [terminalId], references: [id])
+  merchant  PaymentMerchant @relation(fields: [merchantId], references: [id])
 
   @@index([orgId, storeId])
   @@index([posTransactionId])
@@ -1847,8 +1779,71 @@ model PaymentMerchant {
   updatedAt        DateTime @updatedAt
   updatedById      String?
 
+  // NOTE: `status` values used by app:
+  //   "pending"  — created but never successfully tested; processing BLOCKED
+  //   "active"   — tested ok at least once; processing ALLOWED
+  //   "disabled" — manually disabled by admin; processing BLOCKED
+
+  transactions     PaymentTransaction[]
+  terminals        PaymentTerminal[]
+  auditLogs        PaymentMerchantAudit[]
+
   @@index([orgId, storeId])
   @@map("payment_merchants")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAYMENT TERMINAL — physical device bound to a station (multi-terminal support)
+// One store may have multiple P17 devices (one per register). This model
+// binds each device to a specific station, with an optional per-device TPN
+// override (some processors assign a different TPN per lane).
+// ═══════════════════════════════════════════════════════════════
+model PaymentTerminal {
+  id                 String   @id @default(cuid())
+  orgId              String
+  storeId            String
+  merchantId         String           // FK → PaymentMerchant
+  stationId          String?  @unique // one terminal per station; nullable until paired
+  nickname           String?          // "Register 1 Terminal", "Express Lane"
+  deviceSerialNumber String?          // physical P17 serial (from About screen)
+  deviceModel        String?          // "P17", "Z8", "Z11"
+  overrideTpn        String?          // per-device TPN (falls back to merchant.spinTpn)
+  status             String   @default("active") // active | inactive | unknown
+  lastPingedAt       DateTime?
+  lastPingResult     String?
+  notes              String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  merchant           PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, storeId])
+  @@index([merchantId])
+  @@map("payment_terminals")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAYMENT MERCHANT AUDIT — immutable change log for merchant credentials
+// Every create/update/delete on PaymentMerchant appends a row here so we
+// have a forensic trail of who changed what and when. Secrets are NEVER
+// stored — only a flag indicating the secret was changed.
+// ═══════════════════════════════════════════════════════════════
+model PaymentMerchantAudit {
+  id           String   @id @default(cuid())
+  merchantId   String           // FK → PaymentMerchant
+  action       String           // "created" | "updated" | "deleted" | "activated" | "disabled" | "tested"
+  changedById  String?          // User.id of the superadmin who made the change
+  changedByName String?         // denormalized for display (user may be deleted later)
+  // What changed — JSON diff. Secret fields show { changed: true } instead of values.
+  changes      Json?
+  note         String?          // optional human-readable note
+  createdAt    DateTime @default(now())
+
+  merchant     PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, createdAt])
+  @@map("payment_merchant_audits")
 }
 
 // ─────────────────────────────────────────────────

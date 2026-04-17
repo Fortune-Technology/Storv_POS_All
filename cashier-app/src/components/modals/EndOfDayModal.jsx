@@ -3,9 +3,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, BarChart2, Printer, RefreshCw, Clock, DollarSign, CreditCard, Leaf } from 'lucide-react';
-import { getEndOfDayReport } from '../../api/pos.js';
+import { getEndOfDayReport, dejavooSettle, dejavooMerchantStatus } from '../../api/pos.js';
 import { fmt$ } from '../../utils/formatters.js';
 import { useAuthStore } from '../../stores/useAuthStore.js';
+import { useStationStore } from '../../stores/useStationStore.js';
 import { useHardware } from '../../hooks/useHardware.js';
 import { ESCPOS } from '../../services/printerService.js';
 import './EndOfDayModal.css';
@@ -92,9 +93,13 @@ export default function EndOfDayModal({ onClose }) {
   const storeId = cashier?.storeId;
   const today   = new Date().toISOString().split('T')[0];
 
+  const station = useStationStore(s => s.station);
   const [report,   setReport]   = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [printing, setPrinting] = useState(false);
+  const [settling, setSettling] = useState(false);
+  const [settleResult, setSettleResult] = useState(null); // { success, message } | null
+  const [hasDejavoo, setHasDejavoo]     = useState(false);
 
   const { hasReceiptPrinter, hw, isElectron: isElec } = useHardware();
 
@@ -106,6 +111,46 @@ export default function EndOfDayModal({ onClose }) {
   }, [storeId, today]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Check whether this store is on Dejavoo so we can show/hide the Close Batch button
+  useEffect(() => {
+    dejavooMerchantStatus()
+      .then(s => setHasDejavoo(!!(s?.configured && s?.provider === 'dejavoo' && s?.hasTpn)))
+      .catch(() => setHasDejavoo(false));
+  }, []);
+
+  // ── Close Batch ────────────────────────────────────────────────────────────
+  // Settles the current day's transactions on the Dejavoo terminal. Typically
+  // done once per day (Dejavoo also auto-settles overnight, but manual close
+  // gives the manager a clean EOD boundary).
+  const handleCloseBatch = useCallback(async () => {
+    if (settling) return;
+    if (!station?.id) {
+      setSettleResult({ success: false, message: 'No station — cannot settle' });
+      return;
+    }
+    if (!window.confirm('Close today\'s batch on the terminal? This will settle all card transactions with the processor.')) {
+      return;
+    }
+    setSettling(true);
+    setSettleResult(null);
+    try {
+      const r = await dejavooSettle({ stationId: station.id });
+      setSettleResult({
+        success: !!r?.success,
+        message: r?.success
+          ? 'Batch closed — all card transactions submitted to processor'
+          : (r?.result?.message || r?.error || 'Settle failed'),
+      });
+    } catch (err) {
+      setSettleResult({
+        success: false,
+        message: err?.response?.data?.error || err.message || 'Settle failed',
+      });
+    } finally {
+      setSettling(false);
+    }
+  }, [settling, station]);
 
   const handlePrint = useCallback(async () => {
     if (!report) return;
@@ -158,9 +203,44 @@ export default function EndOfDayModal({ onClose }) {
                 <Printer size={15} />
               </button>
             )}
+            {hasDejavoo && (
+              <button
+                onClick={handleCloseBatch}
+                disabled={settling}
+                title="Close the terminal's card batch — settles with the processor"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', borderRadius: 6,
+                  background: settling ? 'rgba(122,193,67,.10)' : 'rgba(122,193,67,.15)',
+                  border: '1px solid rgba(122,193,67,.35)',
+                  color: 'var(--green)',
+                  fontSize: '0.72rem', fontWeight: 700, cursor: settling ? 'wait' : 'pointer',
+                }}
+              >
+                <CreditCard size={13} />
+                {settling ? 'Closing…' : 'Close Batch'}
+              </button>
+            )}
             <button className="eod-icon-btn" onClick={onClose}><X size={16} /></button>
           </div>
         </div>
+
+        {/* Settle result banner */}
+        {settleResult && (
+          <div style={{
+            padding: '10px 16px',
+            background: settleResult.success ? 'rgba(122,193,67,.08)' : 'rgba(224,63,63,.08)',
+            borderBottom: `1px solid ${settleResult.success ? 'rgba(122,193,67,.25)' : 'rgba(224,63,63,.25)'}`,
+            color: settleResult.success ? 'var(--green)' : 'var(--red)',
+            fontSize: '0.78rem', fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span>{settleResult.success ? '✓' : '✗'} {settleResult.message}</span>
+            <button onClick={() => setSettleResult(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <X size={13} />
+            </button>
+          </div>
+        )}
 
         <div className="eod-body">
           {loading ? (

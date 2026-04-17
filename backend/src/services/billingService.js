@@ -5,7 +5,6 @@
  */
 
 import prisma from '../config/postgres.js';
-import { getMerchantConfig, gatewayAuth } from './cardPointeService.js';
 
 const STORV_ORG_ID = process.env.STORV_ORG_ID;
 export const FREE_SHIPPING_THRESHOLD = 500;
@@ -66,53 +65,16 @@ export function calculateInvoiceAmount(subscription) {
   return { base, discount, total };
 }
 
-// ── Charge subscription via Storv's own CardPointe merchant ──────────────────
-export async function chargeSubscription(subscription, amount, invoiceNumber) {
-  if (!STORV_ORG_ID) throw new Error('STORV_ORG_ID not configured in environment');
-  if (!subscription.paymentToken) throw new Error('No payment method on file for this subscription');
+// ── Subscription + equipment charging ───────────────────────────────────────
+// Platform billing (Storv-level, not merchant-level) is now unimplemented.
+// These were previously wired to CardPointe; will be replaced with Dejavoo
+// iPOS Transact (tokenized card-on-file) in a future sprint.
+// Throwing explicit "not configured" so callers fail loudly instead of silently.
 
-  const merchant = await getMerchantConfig(STORV_ORG_ID);
-  if (!merchant) throw new Error('Storv merchant CardPointe credentials not configured');
-
-  const amountCents = Math.round(amount * 100);
-
-  const result = await gatewayAuth(merchant, {
-    amount:   amountCents,
-    account:  subscription.paymentToken,
-    ecomind:  'R',              // recurring indicator
-    orderid:  invoiceNumber,
-    name:     subscription.organization?.name || 'Storv Subscriber',
-    currency: 'USD',
-  });
-
-  if (result.respstat !== 'A') {
-    throw new Error(result.resptext || `Payment declined (${result.respcode || 'unknown'})`);
-  }
-
-  return result; // { retref, authcode, respstat, ... }
+export async function chargeSubscription(/* subscription, amount, invoiceNumber */) {
+  throw new Error('Platform billing not configured — Dejavoo Transact integration pending');
 }
 
-// ── Charge equipment order via Storv's CardPointe merchant ───────────────────
-export async function chargeEquipmentOrder(paymentToken, amount, orderNumber, customerName) {
-  if (!STORV_ORG_ID) throw new Error('STORV_ORG_ID not configured in environment');
-
-  const merchant = await getMerchantConfig(STORV_ORG_ID);
-  if (!merchant) throw new Error('Storv merchant CardPointe credentials not configured');
-
-  const amountCents = Math.round(amount * 100);
-
-  const result = await gatewayAuth(merchant, {
-    amount:   amountCents,
-    account:  paymentToken,
-    ecomind:  'E',              // ecommerce
-    orderid:  orderNumber,
-    name:     customerName,
-    currency: 'USD',
-  });
-
-  if (result.respstat !== 'A') {
-    throw new Error(result.resptext || `Payment declined (${result.respcode || 'unknown'})`);
-  }
-
-  return result;
+export async function chargeEquipmentOrder(/* paymentToken, amount, orderNumber, customerName */) {
+  throw new Error('Platform billing not configured — Dejavoo Transact integration pending');
 }

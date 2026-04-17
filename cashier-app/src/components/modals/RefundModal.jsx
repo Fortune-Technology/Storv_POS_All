@@ -8,7 +8,7 @@ import {
   Scan, ChevronRight, AlertTriangle, DollarSign,
   CreditCard, Package, Trash2,
 } from 'lucide-react';
-import { listTransactions, createRefund as apiRefund, createOpenRefund } from '../../api/pos.js';
+import { listTransactions, createRefund as apiRefund, createOpenRefund, dejavooRefund } from '../../api/pos.js';
 import { searchProducts } from '../../db/dexie.js';
 import { fmt$ } from '../../utils/formatters.js';
 import { useAuthStore } from '../../stores/useAuthStore.js';
@@ -122,11 +122,43 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
       const tenderLines = method === 'cash'
         ? [{ method: 'cash', amount: refundTotal }]
         : (selected.tenderLines || []).map(l => ({ ...l, amount: refundTotal * (l.amount / selected.grandTotal) }));
+
+      // ── Dejavoo card refund — push the money back to the customer's card ──
+      // When refunding to the original method AND the original was a Dejavoo
+      // card/EBT payment, call SPIn Return BEFORE recording the POS refund.
+      // This ensures we never record a POS refund that didn't actually process.
+      if (method === 'original') {
+        const djLine = (selected.tenderLines || []).find(
+          l => l.provider === 'dejavoo' && (l.method === 'card' || l.method === 'ebt')
+        );
+        if (djLine) {
+          const stationId = station?.id;
+          if (!stationId) throw new Error('No station — cannot process card refund');
+          const r = await dejavooRefund({
+            stationId,
+            amount:              refundTotal,
+            paymentType:         djLine.method === 'ebt' ? 'ebt_food' : 'card',
+            originalReferenceId: djLine.referenceId || null,
+            invoiceNumber:       selected.txNumber,
+          });
+          if (!r?.success) {
+            throw new Error(r?.result?.message || 'Card refund was declined on the terminal');
+          }
+          // Annotate the tender line with the refund reference for the receipt
+          tenderLines.forEach(tl => {
+            if (tl.method === djLine.method) {
+              tl.refundReferenceId = r?.result?.referenceId || null;
+              tl.refundAuthCode    = r?.result?.authCode    || null;
+            }
+          });
+        }
+      }
+
       await apiRefund(selected.id, { lineItems, tenderLines, grandTotal: refundTotal, subtotal: refundTotal, taxTotal: 0, refundMethod: method, note: note || `Refund for ${selected.txNumber}` });
       setStep('done');
       setTimeout(() => { onRefunded?.(); onClose(); }, 1600);
     } catch (e) {
-      alert(e.response?.data?.error || 'Refund failed. Please try again.');
+      alert(e.response?.data?.error || e.message || 'Refund failed. Please try again.');
       setSaving(false);
     }
   };

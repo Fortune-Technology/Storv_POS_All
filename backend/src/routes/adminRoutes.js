@@ -7,6 +7,24 @@
 import { Router } from 'express';
 import { protect, authorize } from '../middleware/auth.js';
 import {
+  listPaymentMerchants,
+  getPaymentMerchant,
+  createPaymentMerchant,
+  updatePaymentMerchant,
+  deletePaymentMerchant,
+  testPaymentMerchant,
+  activatePaymentMerchant,
+  disablePaymentMerchant,
+  getPaymentMerchantAudit,
+} from '../controllers/adminPaymentMerchantController.js';
+import {
+  listTerminals,
+  createTerminal,
+  updateTerminal,
+  deleteTerminal,
+  pingTerminal,
+} from '../controllers/adminPaymentTerminalController.js';
+import {
   getDashboardStats,
   getAllUsers,
   approveUser,
@@ -45,16 +63,7 @@ import {
   getUserActivity,
   getJobApplications,
   updateJobApplication,
-  adminListPaymentTerminals,
-  adminPingTerminal,
-  adminGetPaymentMerchant,
-  adminSavePaymentMerchant,
-  adminGetPaymentSettings,
-  adminSavePaymentSettings,
   adminListPaymentHistory,
-  adminCreateTerminal,
-  adminUpdateTerminal,
-  adminDeleteTerminal,
   adminListPlans,
   adminCreatePlan,
   adminUpdatePlan,
@@ -138,19 +147,26 @@ router.post('/tickets/:id/reply',   addAdminTicketReply);
 router.get('/config',             getSystemConfig);
 router.put('/config',             updateSystemConfig);
 
-// Payment terminals (cross-org superadmin view)
-router.get('/payment/terminals',            adminListPaymentTerminals);
-router.post('/payment/terminals/:id/ping',  adminPingTerminal);
+// ── Payment transaction history (cross-org superadmin) ────────────────────
+router.get('/payment/history', adminListPaymentHistory);
 
-// ── Payment management (cross-org superadmin) ─────────────────────────────
-router.get( '/payment/merchant',             adminGetPaymentMerchant);
-router.put( '/payment/merchant',             adminSavePaymentMerchant);
-router.get( '/payment/settings/:storeId',    adminGetPaymentSettings);
-router.put( '/payment/settings/:storeId',    adminSavePaymentSettings);
-router.get( '/payment/history',              adminListPaymentHistory);
-router.post('/payment/terminals',            adminCreateTerminal);
-router.put( '/payment/terminals/:id',        adminUpdateTerminal);
-router.delete('/payment/terminals/:id',      adminDeleteTerminal);
+// ── Dejavoo Payment Merchants (per-store credentials, superadmin-only) ──
+router.get(   '/payment-merchants',               listPaymentMerchants);
+router.get(   '/payment-merchants/:id',           getPaymentMerchant);
+router.post(  '/payment-merchants',               createPaymentMerchant);
+router.put(   '/payment-merchants/:id',           updatePaymentMerchant);
+router.delete('/payment-merchants/:id',           deletePaymentMerchant);
+router.post(  '/payment-merchants/:id/test',      testPaymentMerchant);
+router.post(  '/payment-merchants/:id/activate',  activatePaymentMerchant);
+router.post(  '/payment-merchants/:id/disable',   disablePaymentMerchant);
+router.get(   '/payment-merchants/:id/audit',     getPaymentMerchantAudit);
+
+// ── Dejavoo Payment Terminals (per-device, one per station) ───────────
+router.get(   '/payment-terminals',           listTerminals);
+router.post(  '/payment-terminals',           createTerminal);
+router.put(   '/payment-terminals/:id',       updateTerminal);
+router.delete('/payment-terminals/:id',       deleteTerminal);
+router.post(  '/payment-terminals/:id/ping',  pingTerminal);
 
 // ── Admin Billing — Plans ──────────────────────────────────────────────────
 router.get('/billing/plans',                adminListPlans);

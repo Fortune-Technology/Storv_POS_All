@@ -111,31 +111,31 @@ export default function TenderModal({
   );
   const [payStatus,   setPayStatus]   = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
   const [payResult,   setPayResult]   = useState(null);
-  const [cpTxId,      setCpTxId]      = useState(null); // CardPointe paymentTransactionId
   const hw = loadHardwareConfig();
   const hasPAX = !!(hw?.paxTerminal?.enabled && hw?.paxTerminal?.ip);
 
-  // CardPointe terminal + payment settings — loaded once on mount
-  const [cpTerminal,    setCpTerminal]    = useState(null);  // PaymentTerminal record
-  const [cpPaySettings, setCpPaySettings] = useState(null);  // PaymentSettings record
-  const cpLoadedRef = useRef(false);
-  const storeId2 = cashier?.storeId || cashier?.stores?.[0]?.storeId;
+  // Dejavoo merchant status — null until loaded; { configured, provider, ebtEnabled, ... }
+  const [dejavooStatus, setDejavooStatus] = useState(null);
+  // Dejavoo last-transaction tracking so we can abort an in-flight charge
+  const [djReferenceId,    setDjReferenceId]    = useState(null);
+  const [djPaymentTxId,    setDjPaymentTxId]    = useState(null);
+  // Last offline-mode warning from SPIn (P17 stores-and-forwards)
+  const [djOfflineWarning, setDjOfflineWarning] = useState(false);
+  const djLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (cpLoadedRef.current) return;
-    cpLoadedRef.current = true;
-    // Load CardPointe terminal assigned to this station
-    if (station?.id) {
-      posApi.getPaymentTerminalForStation(station.id, storeId2).then(t => setCpTerminal(t)).catch(() => {});
-    }
-    // Load payment settings (signature threshold etc.)
-    if (storeId2) {
-      posApi.getPaymentSettings(storeId2).then(s => setCpPaySettings(s)).catch(() => {});
-    }
+    if (djLoadedRef.current) return;
+    djLoadedRef.current = true;
+    posApi.dejavooMerchantStatus()
+      .then(s => setDejavooStatus(s))
+      .catch(() => setDejavooStatus({ configured: false }));
   }, []); // eslint-disable-line
 
-  const hasCardPointe = !!cpTerminal;
-  const signatureThreshold = cpPaySettings?.signatureThreshold ?? 25;
+  const hasDejavoo    = !!(dejavooStatus?.configured && dejavooStatus?.provider === 'dejavoo' && dejavooStatus?.hasTpn);
+  const ebtEnabled    = hasDejavoo ? !!dejavooStatus?.ebtEnabled : true;
+  // Signature threshold is now per-merchant (PaymentMerchant may add it later).
+  // Default $25 matches typical processor requirement.
+  const signatureThreshold = 25;
   // amount = raw digit string. "2694" → $26.94  (phone-terminal style)
   const [amount,  setAmount]  = useState(initCashAmount ? numberToDigits(initCashAmount) : '');
   const [note,    setNote]    = useState('');
@@ -204,20 +204,45 @@ export default function TenderModal({
   const complete = async () => {
     if (!canComplete || saving) return;
 
-    // ── CardPointe terminal charge ───────────────────────────────────────────
-    if (method === 'card' && hasCardPointe && payStatus !== 'approved') {
+    // ── Dejavoo SPIn terminal charge (Card / EBT) ────────────────────────────
+    // Supports P17 offline mode: if the terminal is offline, SPIn returns
+    // statusCode === '0000' with OfflineMode flag. We accept the sale and
+    // surface a warning banner so the cashier knows it will settle later.
+    if (hasDejavoo && (method === 'card' || method === 'ebt') && payStatus !== 'approved') {
       setPayStatus('waiting');
+      setDjOfflineWarning(false);
       try {
-        const result = await posApi.cpCharge({
-          terminalId:       cpTerminal.id,
-          amount:           totals.grandTotal,
-          invoiceNumber:    txNumber,
+        const payload = {
+          stationId:     station?.id,
+          amount:        Math.abs(totals.grandTotal),
+          invoiceNumber: txNumber,
+          // Map cashier tender method → Dejavoo PaymentType
+          // 'card' → terminal decides credit vs debit based on card
+          // 'ebt'  → default to EBT_Food (receipt screen will let cashier pick SNAP vs Cash)
+          paymentType:   method === 'ebt' ? 'ebt_food' : 'card',
           captureSignature: Number(totals.grandTotal) >= Number(signatureThreshold),
-        });
+        };
+
+        const fn = method === 'ebt' ? posApi.dejavooSale : posApi.dejavooSale;
+        const resp = await fn(payload);
+        const result = resp?.result || resp || {};
+
+        // Save referenceId + paymentTransactionId for possible abort / linking
+        setDjReferenceId(result.referenceId || null);
+        setDjPaymentTxId(resp?.paymentTransactionId || null);
+
+        // Detect offline-accepted transactions (P17 store-and-forward)
+        const raw = result._raw || {};
+        const isOfflineAccepted = result.approved && (
+          raw.OfflineMode === true ||
+          raw.StoredOffline === true ||
+          result.message?.toLowerCase().includes('offline')
+        );
+        if (isOfflineAccepted) setDjOfflineWarning(true);
+
         if (result.approved) {
           setPayStatus('approved');
           setPayResult(result);
-          setCpTxId(result.paymentTransactionId || null);
           // Fall through to save POS transaction
         } else {
           setPayStatus('declined');
@@ -226,13 +251,13 @@ export default function TenderModal({
         }
       } catch (err) {
         setPayStatus('error');
-        setPayResult({ message: err.message });
+        setPayResult({ message: err?.response?.data?.error || err.message });
         return;
       }
     }
 
-    // ── Legacy PAX fallback ────────────────────────────────────────────────
-    if (method === 'card' && hasPAX && !hasCardPointe && payStatus !== 'approved') {
+    // ── Legacy PAX fallback (only when Dejavoo not configured) ────────────
+    if (method === 'card' && hasPAX && !hasDejavoo && payStatus !== 'approved') {
       setPayStatus('waiting');
       try {
         const result = await posApi.paxSale({
@@ -309,25 +334,25 @@ export default function TenderModal({
       ...totals,
     };
 
-    // Include CardPointe payment info in tender lines for receipt display
-    if (cpTxId && payResult?.approved) {
-      const cardLine = finalLines.find(l => l.method === 'card');
-      if (cardLine) {
-        cardLine.paymentTransactionId = cpTxId;
-        cardLine.lastFour  = payResult.lastFour  || undefined;
-        cardLine.acctType  = payResult.acctType  || undefined;
-        cardLine.authCode  = payResult.authCode  || undefined;
-        cardLine.entryMode = payResult.entryMode || undefined;
+    // Include Dejavoo payment info in tender lines for receipt display
+    if (djPaymentTxId && payResult?.approved && hasDejavoo) {
+      const tenderId = method === 'ebt' ? 'ebt' : 'card';
+      const payLine = finalLines.find(l => l.method === tenderId);
+      if (payLine) {
+        payLine.paymentTransactionId = djPaymentTxId;
+        payLine.referenceId = payResult.referenceId || undefined;
+        payLine.lastFour    = payResult.last4       || undefined;
+        payLine.acctType    = payResult.cardType    || undefined;
+        payLine.authCode    = payResult.authCode    || undefined;
+        payLine.entryMode   = payResult.entryType   || undefined;
+        payLine.provider    = 'dejavoo';
+        if (djOfflineWarning) payLine.offlineAccepted = true;
       }
     }
 
     try {
       if (isOnline) {
         const saved = await submitTransaction(payload);
-        // Link CardPointe payment transaction to the saved POS transaction (fire-and-forget)
-        if (cpTxId && saved.id) {
-          posApi.cpLinkTransaction(cpTxId, saved.id).catch(() => {});
-        }
         finish({ ...payload, id: saved.id, txNumber: saved.txNumber || txNumber }, change);
       } else {
         await enqueue(payload);
@@ -451,17 +476,17 @@ export default function TenderModal({
             {/* Status message */}
             {!isWaiting && !isApproved && !isDeclined && (
               <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '0.88rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                {hasCardPointe
+                {hasDejavoo
                   ? <><Wifi size={15} color="var(--blue)" /> Tap / swipe / insert on terminal</>
                   : <><span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--blue)', display: 'inline-block', opacity: 0.8 }} /> Tap / swipe / insert on terminal</>
                 }
               </div>
             )}
 
-            {/* Terminal name if CardPointe */}
-            {hasCardPointe && !isWaiting && !isApproved && !isDeclined && cpTerminal?.name && (
+            {/* Terminal provider label */}
+            {hasDejavoo && !isWaiting && !isApproved && !isDeclined && (
               <div style={{ marginTop: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {cpTerminal.name}
+                Dejavoo {dejavooStatus?.environment === 'prod' ? '' : '(UAT)'} · Terminal ready
               </div>
             )}
 
@@ -482,19 +507,29 @@ export default function TenderModal({
             {isApproved && payResult && (
               <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(122,193,67,.08)', border: '1px solid rgba(122,193,67,.25)', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '0.06em' }}>APPROVED</div>
-                {payResult.acctType && (
+                {/* Dejavoo returns cardType; CardPointe returns acctType. Fall back across both. */}
+                {(payResult.acctType || payResult.cardType) && (
                   <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                    {payResult.acctType} •••• {payResult.lastFour}
+                    {payResult.acctType || payResult.cardType} •••• {payResult.lastFour || payResult.last4}
                   </div>
                 )}
-                {payResult.entryMode && (
+                {(payResult.entryMode || payResult.entryType) && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    {payResult.entryMode.toUpperCase()} · Auth: {payResult.authCode || '—'}
+                    {(payResult.entryMode || payResult.entryType).toString().toUpperCase()} · Auth: {payResult.authCode || '—'}
                   </div>
                 )}
                 {payResult.signatureCaptured && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--green)', marginTop: 2 }}>
                     ✓ Signature captured
+                  </div>
+                )}
+                {/* P17 offline store-and-forward warning */}
+                {djOfflineWarning && (
+                  <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 6, background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <WifiOff size={12} color="#f59e0b" />
+                    <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 600 }}>
+                      Accepted offline — will sync when terminal reconnects
+                    </span>
                   </div>
                 )}
               </div>
@@ -525,12 +560,12 @@ export default function TenderModal({
               /* Declined — retry or switch method */
               <>
                 <button
-                  onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); }}
+                  onClick={() => { setPayStatus(null); setPayResult(null); }}
                   className="tm-big-btn" style={{ background: 'var(--blue, #3b82f6)' }}
                 >
                   <RotateCcw size={18} /> Try Again
                 </button>
-                <button onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); switchMethod('cash'); }}
+                <button onClick={() => { setPayStatus(null); setPayResult(null); switchMethod('cash'); }}
                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 0' }}>
                   Use a different payment method
                 </button>
@@ -538,7 +573,18 @@ export default function TenderModal({
             ) : isWaiting ? (
               /* Waiting — show cancel only */
               <button
-                onClick={() => { setPayStatus(null); setPayResult(null); setCpTxId(null); if (cpTerminal?.id) posApi.cpCancel({ terminalId: cpTerminal.id }).catch(() => {}); }}
+                onClick={() => {
+                  setPayStatus(null); setPayResult(null);
+                  setDjPaymentTxId(null);
+                  setDjOfflineWarning(false);
+                  if (hasDejavoo && station?.id) {
+                    posApi.dejavooCancel({
+                      stationId: station.id,
+                      referenceId: djReferenceId,
+                    }).catch(() => {});
+                    setDjReferenceId(null);
+                  }
+                }}
                 style={{ width: '100%', padding: '0.875rem', borderRadius: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
               >
                 Cancel
@@ -549,7 +595,7 @@ export default function TenderModal({
                 <button onClick={complete} disabled={saving} className="tm-big-btn" style={{ background: saving ? undefined : 'var(--blue, #3b82f6)' }}>
                   {saving
                     ? <><RotateCcw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
-                    : hasCardPointe
+                    : hasDejavoo
                       ? <><CreditCard size={18} /> Charge Terminal — {fmt$(totals.grandTotal)}</>
                       : <><Check size={18} /> Payment Complete — Confirm</>}
                 </button>

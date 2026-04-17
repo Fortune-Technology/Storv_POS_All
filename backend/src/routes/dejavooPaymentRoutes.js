@@ -17,6 +17,7 @@ import {
   dejavooTransactionStatus,
   dejavooSettle,
   dejavooMerchantStatus,
+  dejavooLookupCustomer,
 } from '../controllers/dejavooPaymentController.js';
 
 const router = Router();
@@ -31,6 +32,9 @@ router.post('/void',            dejavooVoid);
 
 // ── EBT ──────────────────────────────────────────────────────────────────────
 router.post('/ebt-balance',     dejavooEbtBalance);
+
+// ── Customer lookup (prompts phone on terminal → local Customer search) ────
+router.post('/lookup-customer', dejavooLookupCustomer);
 
 // ── Terminal control ─────────────────────────────────────────────────────────
 router.post('/cancel',          dejavooCancel);

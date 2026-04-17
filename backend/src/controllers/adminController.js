@@ -984,171 +984,9 @@ export const updateJobApplication = async (req, res, next) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ADMIN — PAYMENT TERMINALS (cross-org)
-// ═════════════════════════════════════════════════════════════════════════════
-
-/** List all payment terminals across all orgs (superadmin) */
-export const adminListPaymentTerminals = async (req, res) => {
-  try {
-    const { orgId, storeId, status, page: p = 1, limit: l = 100 } = req.query;
-    const where = {};
-    if (orgId)  where.orgId   = orgId;
-    if (storeId) where.storeId = storeId;
-    if (status)  where.status  = status;
-
-    const [total, terminals] = await Promise.all([
-      prisma.paymentTerminal.count({ where }),
-      prisma.paymentTerminal.findMany({
-        where,
-        orderBy: [{ orgId: 'asc' }, { createdAt: 'asc' }],
-        skip: (Number(p) - 1) * Number(l),
-        take: Number(l),
-        include: {
-          merchant: { select: { orgId: true, site: true, isLive: true, merchId: true } },
-          station:  { select: { id: true, name: true } },
-        },
-      }),
-    ]);
-
-    // Attach org name if possible
-    const orgIds = [...new Set(terminals.map(t => t.orgId))];
-    const orgs   = await prisma.organization.findMany({
-      where: { id: { in: orgIds } },
-      select: { id: true, name: true },
-    });
-    const orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
-
-    const data = terminals.map(t => ({ ...t, orgName: orgMap[t.orgId] || t.orgId }));
-
-    return res.json({ success: true, data, total, page: Number(p), pages: Math.ceil(total / Number(l)) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-/** Ping any terminal (superadmin) */
-export const adminPingTerminal = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
-    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
-
-    const { getMerchantConfig, terminalPing } = await import('../services/cardPointeService.js');
-    const merchant = await getMerchantConfig(terminal.orgId);
-    if (!merchant) return res.status(400).json({ success: false, error: 'Merchant not configured' });
-
-    const result = await terminalPing(merchant, terminal.hsn);
-
-    await prisma.paymentTerminal.update({
-      where: { id },
-      data: {
-        status:     result.connected ? 'active' : 'inactive',
-        lastSeenAt: result.connected ? new Date() : terminal.lastSeenAt,
-        lastPingMs: result.latencyMs,
-      },
-    }).catch(() => {});
-
-    return res.json({ success: true, ...result });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// ADMIN — PAYMENT MERCHANT CREDENTIALS (cross-org, superadmin)
-// ═════════════════════════════════════════════════════════════════════════════
-
-export const adminGetPaymentMerchant = async (req, res) => {
-  try {
-    const { orgId } = req.query;
-    if (!orgId) return res.status(400).json({ success: false, error: 'orgId required' });
-
-    const m = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
-    if (!m) return res.json({ success: true, data: null });
-
-    return res.json({
-      success: true,
-      data: {
-        id: m.id, orgId: m.orgId, merchId: m.merchId,
-        apiUser: m.apiUser,
-        apiPasswordMasked: '••••••••',
-        site: m.site, baseUrl: m.baseUrl, isLive: m.isLive,
-        createdAt: m.createdAt, updatedAt: m.updatedAt,
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-export const adminSavePaymentMerchant = async (req, res) => {
-  try {
-    const { orgId, merchId, apiUser, apiPassword, site, baseUrl, isLive } = req.body;
-    if (!orgId || !merchId || !apiUser || !apiPassword) {
-      return res.status(400).json({ success: false, error: 'orgId, merchId, apiUser, apiPassword required' });
-    }
-
-    const { encryptCredential } = await import('../services/cardPointeService.js');
-    const encPw = encryptCredential(apiPassword);
-
-    const existing = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
-    const data = { merchId, apiUser, apiPassword: encPw, site: site || 'fts', baseUrl: baseUrl || null, isLive: isLive ?? false };
-
-    const m = existing
-      ? await prisma.cardPointeMerchant.update({ where: { orgId }, data })
-      : await prisma.cardPointeMerchant.create({ data: { orgId, ...data } });
-
-    return res.json({ success: true, data: { id: m.id, orgId: m.orgId, merchId: m.merchId, apiUser: m.apiUser, site: m.site, isLive: m.isLive } });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// ADMIN — PAYMENT SETTINGS (per store, cross-org)
-// ═════════════════════════════════════════════════════════════════════════════
-
-export const adminGetPaymentSettings = async (req, res) => {
-  try {
-    const storeId = req.params.storeId;
-    let settings = await prisma.paymentSettings.findUnique({ where: { storeId } });
-    if (!settings) {
-      return res.json({ success: true, data: { storeId, signatureThreshold: 25.00, tipEnabled: false, tipPresets: [15,18,20,25], surchargeEnabled: false, surchargePercent: null, acceptCreditCards: true, acceptDebitCards: true, acceptAmex: true, acceptContactless: true } });
-    }
-    return res.json({ success: true, data: settings });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-export const adminSavePaymentSettings = async (req, res) => {
-  try {
-    const storeId = req.params.storeId;
-    const store = await prisma.store.findFirst({ where: { id: storeId }, select: { orgId: true } });
-    if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
-
-    const { signatureThreshold, tipEnabled, tipPresets, surchargeEnabled, surchargePercent, acceptCreditCards, acceptDebitCards, acceptAmex, acceptContactless } = req.body;
-    const data = {
-      orgId: store.orgId,
-      ...(signatureThreshold != null ? { signatureThreshold: Number(signatureThreshold) } : {}),
-      ...(tipEnabled != null ? { tipEnabled } : {}),
-      ...(tipPresets != null ? { tipPresets } : {}),
-      ...(surchargeEnabled != null ? { surchargeEnabled } : {}),
-      ...(surchargePercent != null ? { surchargePercent: Number(surchargePercent) } : {}),
-      ...(acceptCreditCards != null ? { acceptCreditCards } : {}),
-      ...(acceptDebitCards != null ? { acceptDebitCards } : {}),
-      ...(acceptAmex != null ? { acceptAmex } : {}),
-      ...(acceptContactless != null ? { acceptContactless } : {}),
-    };
-    const settings = await prisma.paymentSettings.upsert({ where: { storeId }, create: { storeId, ...data }, update: data });
-    return res.json({ success: true, data: settings });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
 // ADMIN — PAYMENT HISTORY (cross-org)
+// Payment merchants + Dejavoo terminal management are handled by
+// adminPaymentMerchantController.js under /api/admin/payment-merchants.
 // ═════════════════════════════════════════════════════════════════════════════
 
 export const adminListPaymentHistory = async (req, res) => {
@@ -1173,7 +1011,7 @@ export const adminListPaymentHistory = async (req, res) => {
         skip:  (Number(p) - 1) * Number(l),
         take:  Number(l),
         select: {
-          id: true, orgId: true, storeId: true,
+          id: true, orgId: true, storeId: true, provider: true,
           retref: true, authCode: true, respCode: true, respText: true,
           lastFour: true, acctType: true, entryMode: true,
           amount: true, capturedAmount: true,
@@ -1181,76 +1019,16 @@ export const adminListPaymentHistory = async (req, res) => {
           signatureCaptured: true,
           invoiceNumber: true, posTransactionId: true, originalRetref: true,
           createdAt: true, updatedAt: true,
-          // token intentionally excluded
         },
       }),
     ]);
 
-    // Attach org name
     const orgIds = [...new Set(rows.map(r => r.orgId))];
     const orgs   = await prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } });
     const orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
     const data   = rows.map(r => ({ ...r, orgName: orgMap[r.orgId] || r.orgId }));
 
     return res.json({ success: true, data, meta: { total, page: Number(p), limit: Number(l), pages: Math.ceil(total / Number(l)) } });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// ADMIN — TERMINAL CRUD (cross-org)
-// ═════════════════════════════════════════════════════════════════════════════
-
-export const adminCreateTerminal = async (req, res) => {
-  try {
-    const { orgId, storeId, hsn, name, ipAddress, port, model, stationId } = req.body;
-    if (!orgId || !storeId || !hsn) return res.status(400).json({ success: false, error: 'orgId, storeId, hsn required' });
-
-    const merchant = await prisma.cardPointeMerchant.findUnique({ where: { orgId } });
-    if (!merchant) return res.status(400).json({ success: false, error: 'Configure CardPointe merchant credentials for this org first' });
-
-    const terminal = await prisma.paymentTerminal.create({
-      data: { orgId, storeId, merchantId: merchant.id, hsn, name: name || null, ipAddress: ipAddress || null, port: port || 6443, model: model || null, stationId: stationId || null },
-    });
-    return res.json({ success: true, data: terminal });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-export const adminUpdateTerminal = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
-    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
-
-    const { name, hsn, ipAddress, port, model, stationId, status } = req.body;
-    const updated = await prisma.paymentTerminal.update({
-      where: { id },
-      data: {
-        ...(name      != null ? { name }      : {}),
-        ...(hsn       != null ? { hsn }       : {}),
-        ...(ipAddress != null ? { ipAddress } : {}),
-        ...(port      != null ? { port }      : {}),
-        ...(model     != null ? { model }     : {}),
-        ...(stationId !== undefined ? { stationId: stationId || null } : {}),
-        ...(status    != null ? { status }    : {}),
-      },
-    });
-    return res.json({ success: true, data: updated });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-export const adminDeleteTerminal = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const terminal = await prisma.paymentTerminal.findUnique({ where: { id } });
-    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
-    await prisma.paymentTerminal.delete({ where: { id } });
-    return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }

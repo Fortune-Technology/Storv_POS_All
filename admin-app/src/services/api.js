@@ -44,6 +44,24 @@ export const createAdminStore    = (data)      => api.post('/admin/stores', data
 export const updateAdminStore    = (id, data)  => api.put(`/admin/stores/${id}`, data).then(r => r.data);
 export const deleteAdminStore    = (id)        => api.delete(`/admin/stores/${id}`).then(r => r.data);
 
+// ── Dejavoo Payment Merchants (superadmin-only, per-store) ──────────────────
+export const listPaymentMerchants     = (params)   => api.get('/admin/payment-merchants', { params }).then(r => r.data);
+export const getPaymentMerchant       = (id)       => api.get(`/admin/payment-merchants/${id}`).then(r => r.data);
+export const createPaymentMerchant    = (data)     => api.post('/admin/payment-merchants', data).then(r => r.data);
+export const updatePaymentMerchant    = (id, data) => api.put(`/admin/payment-merchants/${id}`, data).then(r => r.data);
+export const deletePaymentMerchant    = (id)       => api.delete(`/admin/payment-merchants/${id}`).then(r => r.data);
+export const testPaymentMerchant      = (id)       => api.post(`/admin/payment-merchants/${id}/test`).then(r => r.data);
+export const activatePaymentMerchant  = (id)       => api.post(`/admin/payment-merchants/${id}/activate`).then(r => r.data);
+export const disablePaymentMerchant   = (id, reason) => api.post(`/admin/payment-merchants/${id}/disable`, { reason }).then(r => r.data);
+export const getPaymentMerchantAudit  = (id)       => api.get(`/admin/payment-merchants/${id}/audit`).then(r => r.data);
+
+// ── Dejavoo Payment Terminals (per-device, one per station) ─────────────────
+export const listPaymentTerminals    = (params)   => api.get('/admin/payment-terminals', { params }).then(r => r.data);
+export const createPaymentTerminal   = (data)     => api.post('/admin/payment-terminals', data).then(r => r.data);
+export const updatePaymentTerminal   = (id, data) => api.put(`/admin/payment-terminals/${id}`, data).then(r => r.data);
+export const deletePaymentTerminal   = (id)       => api.delete(`/admin/payment-terminals/${id}`).then(r => r.data);
+export const pingPaymentTerminal     = (id)       => api.post(`/admin/payment-terminals/${id}/ping`).then(r => r.data);
+
 // ── Admin CMS Pages ──────────────────────────────────────────────────────────
 export const getAdminCmsPages    = ()          => api.get('/admin/cms').then(r => r.data);
 export const createAdminCmsPage  = (data)      => api.post('/admin/cms', data).then(r => r.data);

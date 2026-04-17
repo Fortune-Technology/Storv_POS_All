@@ -171,41 +171,18 @@ export const saveHardwareConfig = (stationId, hardwareConfig, storeId) =>
 export const getHardwareConfig = (stationId, storeId) =>
   api.get(`/payment/hardware/${stationId}`, { headers: { 'x-store-id': storeId } }).then(r => r.data);
 
-// ── CardPointe — In-Store Terminal Payments ────────────────────────────────
-// All card-on-terminal operations. The backend proxies to CardPointe APIs.
-
-/** Initiate a card charge on the physical terminal. Waits for customer interaction. */
-export const cpCharge = (body) =>
-  api.post('/payment/cp/charge', body).then(r => r.data);
-
-/** Capture a signature on the terminal (standalone, after charge). */
-export const cpSignature = (body) =>
-  api.post('/payment/cp/signature', body).then(r => r.data);
-
-/** Void an open (not-yet-settled) payment via the Gateway API. */
-export const cpVoid = (body) =>
-  api.post('/payment/cp/void', body).then(r => r.data);
-
-/** Refund a settled payment via the Gateway API. */
-export const cpRefund = (body) =>
-  api.post('/payment/cp/refund', body).then(r => r.data);
-
-/** Cancel a pending terminal operation (customer walked away etc.). */
-export const cpCancel = (body) =>
-  api.post('/payment/cp/cancel', body).then(r => r.data);
-
-/** Link a CardPointe payment transaction to a POS transaction after it's saved. */
-export const cpLinkTransaction = (paymentTransactionId, posTransactionId) =>
-  api.patch('/payment/cp/link', { paymentTransactionId, posTransactionId }).then(r => r.data);
-
-/** Get the payment terminal registered to a station. */
-export const getPaymentTerminalForStation = (stationId, storeId) =>
-  api.get('/payment/terminals', { params: { stationId, storeId } })
-    .then(r => (r.data?.data || []).find(t => t.stationId === stationId) || null);
-
-/** Get payment settings for a store (signature threshold, tip config, etc.). */
-export const getPaymentSettings = (storeId) =>
-  api.get(`/payment/settings/${storeId}`).then(r => r.data?.data || null);
+// ── (REMOVED) CardPointe integration — replaced by Dejavoo SPIn below ──────
+// Keeping the export names cp* as deprecated no-op stubs so any stale UI
+// code won't crash while we finish migrating every caller.
+const __cpRemoved = () => Promise.reject(new Error('CardPointe integration removed — use Dejavoo SPIn'));
+export const cpCharge           = __cpRemoved;
+export const cpSignature        = __cpRemoved;
+export const cpVoid             = __cpRemoved;
+export const cpRefund           = __cpRemoved;
+export const cpCancel           = __cpRemoved;
+export const cpLinkTransaction  = __cpRemoved;
+export const getPaymentTerminalForStation = () => Promise.resolve(null);
+export const getPaymentSettings = () => Promise.resolve(null);
 
 // ── Dejavoo SPIn — In-Store Terminal Payments ────────────────────────────────
 // All Dejavoo card-on-terminal operations. The backend proxies to SPIn REST API.
@@ -246,6 +223,16 @@ export const dejavooSettle = (body) =>
 /** Get read-only merchant status for the store (no secrets exposed). */
 export const dejavooMerchantStatus = () =>
   api.get('/payment/dejavoo/merchant-status').then(r => r.data);
+
+/**
+ * Prompt the customer on the Dejavoo terminal to enter their phone number,
+ * then look up the matching Customer record. Used for instant loyalty lookup
+ * while the cashier is scanning products.
+ *
+ * Returns { success, customer } | { success, notFound, phone } | { success: false, reason }
+ */
+export const dejavooLookupCustomer = (body) =>
+  api.post('/payment/dejavoo/lookup-customer', body).then(r => r.data);
 
 // ── Legacy PAX POSLINK (backward compat for un-migrated stations) ──────────
 export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);

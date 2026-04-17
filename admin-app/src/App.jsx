@@ -21,7 +21,7 @@ import AdminOrgAnalytics from './pages/AdminOrgAnalytics';
 import AdminStorePerformance from './pages/AdminStorePerformance';
 import AdminUserActivity from './pages/AdminUserActivity';
 import AdminStores from './pages/AdminStores';
-import AdminPaymentSettings from './pages/AdminPaymentSettings';
+import AdminMerchants       from './pages/AdminMerchants';
 import AdminBilling         from './pages/AdminBilling';
 import AdminChat            from './pages/AdminChat';
 
@@ -55,7 +55,7 @@ function App() {
         <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminLayout><AdminCareerApplications /></AdminLayout></ProtectedRoute>} />
         <Route path="/tickets" element={<ProtectedRoute><AdminLayout><AdminTickets /></AdminLayout></ProtectedRoute>} />
         <Route path="/config" element={<ProtectedRoute><AdminLayout><AdminSystemConfig /></AdminLayout></ProtectedRoute>} />
-        <Route path="/payment" element={<ProtectedRoute><AdminLayout><AdminPaymentSettings /></AdminLayout></ProtectedRoute>} />
+        <Route path="/merchants" element={<ProtectedRoute><AdminLayout><AdminMerchants /></AdminLayout></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><AdminLayout><AdminBilling /></AdminLayout></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><AdminLayout><AdminChat /></AdminLayout></ProtectedRoute>} />
 

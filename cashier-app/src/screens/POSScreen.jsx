@@ -50,7 +50,8 @@ import TasksPanel      from '../components/modals/TasksPanel.jsx';
 import ChatPanel       from '../components/modals/ChatPanel.jsx';
 import HardwareSettingsModal from '../components/modals/HardwareSettingsModal.jsx';
 import { useLotteryStore } from '../stores/useLotteryStore.js';
-import { getLotteryBoxes, getPosBranding, logPosEvent, submitTransaction } from '../api/pos.js';
+import { getLotteryBoxes, getPosBranding, logPosEvent } from '../api/pos.js';
+import * as posApi from '../api/pos.js';
 import api from '../api/client.js';
 import { nanoid } from 'nanoid';
 import { playErrorBeep } from '../utils/sound.js';
@@ -82,7 +83,7 @@ export default function POSScreen() {
     addProduct, removeItem, updateQty, overridePrice,
     selectItem, clearSelection, requestAgeVerify,
     flash, flashState,
-    customer, clearCustomer, clearCart,
+    customer, setCustomer, clearCustomer, clearCart,
     orderDiscount, removeOrderDiscount,
     loyaltyRedemption, removeLoyaltyRedemption,
     verifiedAges,
@@ -214,6 +215,99 @@ export default function POSScreen() {
     });
   }, [hasCashDrawer, openDrawer, storeId, cashier, station]);
 
+  // ── Dejavoo Terminal Phone Lookup ────────────────────────────────────────
+  // Prompts customer on the terminal to enter their phone number, then
+  // searches local Customer table and auto-attaches the match to the cart.
+  // Lets the cashier keep scanning while the customer types on the terminal.
+  const handleTerminalPhoneLookup = useCallback(async () => {
+    if (terminalLookupBusy) return;
+    if (!station?.id) {
+      setScanError({ upc: 'No station — cannot prompt terminal', ts: Date.now() });
+      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+      scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
+      return;
+    }
+    setTerminalLookupBusy(true);
+    try {
+      const res = await posApi.dejavooLookupCustomer({
+        stationId: station.id,
+        title:     'Loyalty Lookup',
+        prompt:    'Enter phone number',
+        minLength: 7,
+        maxLength: 15,
+        timeoutSec: 45,
+      });
+      if (res?.success && res.customer) {
+        // Map API response shape to cart store expectations
+        setCustomer({
+          id:             res.customer.id,
+          name:           [res.customer.firstName, res.customer.lastName].filter(Boolean).join(' ') || res.customer.phone || 'Customer',
+          phone:          res.customer.phone,
+          email:          res.customer.email,
+          loyaltyPoints:  res.customer.loyaltyPoints,
+          balance:        res.customer.balance,
+          discount:       res.customer.discount,
+        });
+        // The customer chip appearing in the cart header is its own confirmation
+      } else if (res?.notFound) {
+        // Offer cashier the quick-create option
+        setScanError({ upc: `Phone ${res.phone} — no customer found. Use "Attach customer" to create.`, ts: Date.now() });
+        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+        scanErrorTimer.current = setTimeout(() => setScanError(null), 5000);
+      } else {
+        setScanError({ upc: res?.message || 'Customer did not enter phone', ts: Date.now() });
+        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+        scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+      }
+    } catch (err) {
+      console.warn('[POS] terminal phone lookup failed:', err);
+      setScanError({ upc: err?.response?.data?.error || err.message || 'Terminal lookup failed', ts: Date.now() });
+      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+      scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+    } finally {
+      setTerminalLookupBusy(false);
+    }
+  }, [terminalLookupBusy, station, setCustomer]);
+
+  // Load Dejavoo merchant status once so we know whether to show EBT button
+  useEffect(() => {
+    posApi.dejavooMerchantStatus()
+      .then(s => setDejavooEbtEnabled(!!(s?.configured && s?.provider === 'dejavoo' && s?.ebtEnabled)))
+      .catch(() => setDejavooEbtEnabled(false));
+  }, []);
+
+  // ── EBT Balance check — prompts customer on terminal to swipe EBT card ───
+  const handleEbtBalance = useCallback(async () => {
+    if (!station?.id) {
+      setScanError({ upc: 'No station — cannot check EBT balance', ts: Date.now() });
+      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+      scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
+      return;
+    }
+    // Ask which account to check
+    const choice = window.confirm('EBT Balance Check:\n\nOK = Food Stamp (SNAP)\nCancel = Cash Benefit');
+    const paymentType = choice ? 'ebt_food' : 'ebt_cash';
+    try {
+      const r = await posApi.dejavooEbtBalance({ stationId: station.id, paymentType });
+      const amt = r?.result?.totalAmount ?? r?.result?.amount;
+      if (r?.success && amt != null) {
+        setEbtBalanceResult({
+          type: paymentType === 'ebt_food' ? 'SNAP / Food Stamp' : 'Cash Benefit',
+          amount: amt,
+          last4: r.result?.last4,
+        });
+      } else {
+        setScanError({ upc: r?.result?.message || 'Could not read EBT balance', ts: Date.now() });
+        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+        scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+      }
+    } catch (err) {
+      setScanError({ upc: err?.response?.data?.error || err.message || 'EBT balance failed', ts: Date.now() });
+      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
+      scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+    }
+  }, [station]);
+
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
   useEffect(() => {
@@ -292,6 +386,9 @@ export default function POSScreen() {
   const [tenderInitCash,   setTenderInitCash]   = useState(null);  // pre-fill cash amount
   const [showHold,        setShowHold]        = useState(false);
   const [showCustomer,    setShowCustomer]    = useState(false);
+  const [terminalLookupBusy, setTerminalLookupBusy] = useState(false);
+  const [dejavooEbtEnabled, setDejavooEbtEnabled] = useState(false);
+  const [ebtBalanceResult, setEbtBalanceResult] = useState(null); // { amount, type } or null
   const [showPriceCheck,  setShowPriceCheck]  = useState(false);
   const [showHistory,    setShowHistory]    = useState(false);
   const [showVoid,       setShowVoid]       = useState(false);
@@ -1270,15 +1367,36 @@ export default function POSScreen() {
                 </button>
               </>
             ) : (
-              <button onClick={() => setShowCustomer(true)} style={{
-                flex: 1, background: 'none', border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 6,
-                color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600,
-                padding: '2px 0',
-              }}>
-                <User size={13} />
-                Attach customer (optional)
-              </button>
+              <>
+                <button onClick={() => setShowCustomer(true)} style={{
+                  flex: 1, background: 'none', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600,
+                  padding: '2px 0',
+                }}>
+                  <User size={13} />
+                  Attach customer (optional)
+                </button>
+                {/* Prompt customer on the Dejavoo terminal to enter phone — instant lookup */}
+                <button
+                  onClick={handleTerminalPhoneLookup}
+                  disabled={terminalLookupBusy}
+                  title="Prompt customer on terminal to enter phone number"
+                  style={{
+                    background: terminalLookupBusy ? 'rgba(59,130,246,.04)' : 'rgba(59,130,246,.10)',
+                    border: '1px solid rgba(59,130,246,.25)',
+                    borderRadius: 4,
+                    cursor: terminalLookupBusy ? 'wait' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    color: 'var(--blue, #3b82f6)',
+                    fontSize: '0.7rem', fontWeight: 700,
+                    padding: '3px 8px',
+                    flexShrink: 0,
+                  }}
+                >
+                  📱 {terminalLookupBusy ? 'Waiting…' : 'Phone on terminal'}
+                </button>
+              </>
             )}
           </div>
 
@@ -1692,6 +1810,8 @@ export default function POSScreen() {
         onTasks={() => setShowTasks(true)}
         onChat={() => { setChatUnread(0); chatUnreadRef.current = 0; setShowChat(true); }}
         chatUnread={chatUnread}
+        onEbtBalance={handleEbtBalance}
+        ebtEnabled={!!dejavooEbtEnabled}
         shiftOpen={!!shift}
         heldCount={heldCount}
         actionBarHeight={({'compact':48,'normal':58,'large':72}[posConfig.actionBarHeight] || 58)}
@@ -1701,6 +1821,46 @@ export default function POSScreen() {
 
       {/* Manager PIN (always mounted, renders when pendingAction is set) */}
       <ManagerPinModal />
+
+      {/* EBT Balance result overlay (auto-dismiss on click) */}
+      {ebtBalanceResult && (
+        <div
+          onClick={() => setEbtBalanceResult(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1500,
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 14, padding: '2rem 2.5rem',
+              textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,.3)',
+              minWidth: 320,
+            }}
+          >
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+              EBT Balance
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#475569', marginBottom: 4 }}>
+              {ebtBalanceResult.type}
+            </div>
+            {ebtBalanceResult.last4 && (
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 12 }}>
+                Card •••• {ebtBalanceResult.last4}
+              </div>
+            )}
+            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#16a34a', letterSpacing: '-0.02em' }}>
+              ${Number(ebtBalanceResult.amount).toFixed(2)}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 16 }}>
+              Tap anywhere to close
+            </div>
+          </div>
+        </div>
+      )}
 
       {showHardwareSettings && (
         <HardwareSettingsModal onClose={() => setShowHardwareSettings(false)} />

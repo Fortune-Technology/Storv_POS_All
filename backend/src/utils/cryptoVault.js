@@ -18,10 +18,7 @@ import crypto from 'crypto';
 const ALGO = 'aes-256-gcm';
 
 function loadKey() {
-  const raw =
-    process.env.DEJAVOO_VAULT_KEY ||
-    process.env.CARDPOINTE_ENC_KEY ||
-    '';
+  const raw = process.env.DEJAVOO_VAULT_KEY || '';
   if (!raw) {
     console.warn('[cryptoVault] No DEJAVOO_VAULT_KEY set — using ephemeral dev key. Set one in .env for production.');
     return crypto.createHash('sha256').update('storv-dev-vault-key-change-me').digest();

@@ -8,7 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Loader, Shield, CreditCard } from 'lucide-react';
+import { RefreshCw, Loader, Shield, CreditCard, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 import { fmtMoney as fmt$ } from '../utils/formatters';
@@ -16,6 +16,18 @@ import './PaymentSettings.css';
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtRelative(iso) {
+  if (!iso) return 'never';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diffMs / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 const TYPE_COLORS  = { sale: '#3b82f6', void: '#f59e0b', refund: '#a855f7' };
@@ -30,15 +42,112 @@ function Badge({ val, colorMap }) {
   );
 }
 
+// ── Read-only payment processor status (Option 4) ─────────────────────────
+function MerchantStatusCard({ loading, status, onRefresh }) {
+  if (loading) {
+    return (
+      <div className="pms-status-card pms-status-loading">
+        <Loader size={16} className="spin" /> Checking payment processor status…
+      </div>
+    );
+  }
+
+  if (!status || !status.configured) {
+    return (
+      <div className="pms-status-card pms-status-warn">
+        <XCircle size={18} />
+        <div className="pms-status-body">
+          <div className="pms-status-title">Payment processor not configured</div>
+          <div className="pms-status-sub">
+            Contact your Storv administrator to set up card processing for this store.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const s = status.status || 'unknown';
+  const tone =
+    s === 'active'   ? 'ok'  :
+    s === 'pending'  ? 'pending' :
+    s === 'disabled' ? 'warn' : 'muted';
+
+  const Icon =
+    s === 'active'   ? CheckCircle2 :
+    s === 'pending'  ? Clock :
+    s === 'disabled' ? XCircle : Shield;
+
+  const tested =
+    status.lastTestedAt
+      ? `${status.lastTestResult === 'ok' ? 'OK' : 'Failed'} · ${fmtRelative(status.lastTestedAt)}`
+      : 'Never tested';
+
+  return (
+    <div className={`pms-status-card pms-status-${tone}`}>
+      <Icon size={18} />
+      <div className="pms-status-body">
+        <div className="pms-status-title">
+          Payment processor:{' '}
+          {s === 'active'   && 'Connected & live'}
+          {s === 'pending'  && 'Pending activation'}
+          {s === 'disabled' && 'Disabled'}
+          {!['active','pending','disabled'].includes(s) && s.toUpperCase()}
+        </div>
+        <div className="pms-status-meta">
+          <span className="pms-status-chip">
+            {(status.provider || 'dejavoo').toUpperCase()}
+          </span>
+          <span className={`pms-status-chip pms-status-chip-${status.environment}`}>
+            {status.environment === 'prod' ? 'PRODUCTION' : 'SANDBOX'}
+          </span>
+          {status.hasTpn && <span className="pms-status-chip">Terminal paired</span>}
+          {status.ebtEnabled && <span className="pms-status-chip">EBT</span>}
+          {status.debitEnabled && <span className="pms-status-chip">Debit</span>}
+          <span className="pms-status-chip pms-status-chip-muted">Last test: {tested}</span>
+        </div>
+        {s === 'pending' && (
+          <div className="pms-status-sub">
+            Card payments are paused until your administrator completes the activation.
+          </div>
+        )}
+        {s === 'disabled' && (
+          <div className="pms-status-sub">
+            Card processing is disabled for this store. Contact your administrator.
+          </div>
+        )}
+      </div>
+      <button className="pms-status-refresh" onClick={onRefresh} title="Refresh status">
+        <RefreshCw size={14} />
+      </button>
+    </div>
+  );
+}
+
 export default function PaymentSettings() {
   const [rows,    setRows]    = useState([]);
   const [total,   setTotal]   = useState(0);
   const [loading, setLoading] = useState(true);
   const [page,    setPage]    = useState(1);
   const [filters, setFilters] = useState({ type: '', status: '', dateFrom: '', dateTo: '' });
+  const [status,  setStatus]  = useState(null);       // read-only merchant status
+  const [statusLoading, setStatusLoading] = useState(true);
   const limit = 50;
 
   const activeStoreId = localStorage.getItem('activeStoreId');
+
+  const fetchStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const r = await api.get('/payment/dejavoo/merchant-status');
+      setStatus(r.data || null);
+    } catch {
+      setStatus(null);
+    } finally {
+      setStatusLoading(false);
+    }
+  }, [activeStoreId]);
+
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
@@ -83,10 +192,13 @@ export default function PaymentSettings() {
               Payment terminals and settings are managed by POS Admin
             </div>
             <div className="pms-notice-desc">
-              Merchant credentials, CardPointe terminal assignments, signature thresholds, and surcharge configuration are controlled exclusively through the POS Admin console for security purposes.
+              Merchant credentials, Dejavoo terminal assignments, EBT configuration, and processing settings are controlled exclusively through the POS Admin console for security purposes.
             </div>
           </div>
         </div>
+
+        {/* Read-only merchant status card */}
+        <MerchantStatusCard loading={statusLoading} status={status} onRefresh={fetchStatus} />
 
         {/* Filters */}
         <div className="pms-filters">

@@ -7,7 +7,7 @@ import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
   ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
-  ClipboardList, Settings, Monitor, MessageSquare, Edit3,
+  ClipboardList, Settings, Monitor, MessageSquare, Edit3, Leaf,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -44,8 +44,10 @@ export default function ActionBar({
   onChat,
   chatUnread = 0,
   onOpenShift, onCloseShift, onCashDrop, onPayout,
+  onEbtBalance,
   shiftOpen = false,
   lotteryEnabled = true,
+  ebtEnabled = false,
   heldCount = 0,
   enabledShortcuts = {},
   actionBarHeight = 58,
@@ -161,6 +163,7 @@ export default function ActionBar({
       {/* Cashier actions */}
       {show('noSale') && <ACT icon={DollarSign} label="No Sale" onClick={mgr('No Sale', onNoSale)} locked={!valid} />}
       {show('reprint') && <ACT icon={Printer} label="Reprint" onClick={onReprint} />}
+      {ebtEnabled && onEbtBalance && <ACT icon={Leaf} label="EBT Balance" onClick={onEbtBalance} color="#34d399" />}
       <Divider />
       {show('history') && <ACT icon={History} label="History" onClick={onHistory} color="var(--blue)" />}
       {show('bottleReturn') && (

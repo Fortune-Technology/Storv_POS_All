@@ -1,8 +1,9 @@
 /**
  * paymentProviderFactory.js
  *
- * Routes payment operations to the correct provider service (Dejavoo SPIn
- * or CardPointe) based on the store's PaymentMerchant.provider field.
+ * Routes payment operations to the provider service configured on the
+ * store's PaymentMerchant. Currently Dejavoo SPIn only; designed to accept
+ * additional providers behind the same interface in the future.
  *
  * The cashier app and payment controller call this factory instead of
  * importing provider-specific services directly. This keeps the API
@@ -42,18 +43,35 @@ export async function loadMerchant(storeId) {
 }
 
 // ── Load merchant by station (looks up station → storeId → merchant) ────────
+// Also picks up any PaymentTerminal bound to that station and applies its
+// per-device TPN override (used when processor assigns per-lane TPNs).
 
 export async function loadMerchantByStation(stationId) {
   if (!stationId) throw Object.assign(new Error('stationId is required'), { status: 400 });
 
   const station = await prisma.station.findUnique({
     where: { id: stationId },
-    select: { storeId: true, name: true },
+    select: { id: true, storeId: true, name: true },
   });
   if (!station) throw Object.assign(new Error('Station not found'), { status: 404 });
 
   const merchant = await loadMerchant(station.storeId);
-  return { merchant, station };
+
+  // Check for a per-station PaymentTerminal with an overrideTpn
+  const terminal = await prisma.paymentTerminal.findUnique({ where: { stationId } });
+  if (terminal) {
+    if (terminal.status === 'inactive') {
+      throw Object.assign(
+        new Error('The terminal for this station is marked inactive. Contact your administrator.'),
+        { status: 403 }
+      );
+    }
+    if (terminal.overrideTpn) {
+      merchant.spinTpn = terminal.overrideTpn;
+    }
+  }
+
+  return { merchant, station, terminal };
 }
 
 // ── Provider dispatcher ─────────────────────────────────────────────────────
@@ -62,8 +80,6 @@ function getProvider(merchant) {
   switch (merchant.provider) {
     case 'dejavoo':
       return dejavooSpin;
-    // case 'cardpointe':
-    //   return cardPointeService; // TODO: wrap existing CardPointe service
     default:
       throw Object.assign(
         new Error(`Unsupported payment provider: "${merchant.provider}"`),
@@ -172,4 +188,14 @@ export async function settleBatch(merchant, opts = {}) {
 export async function checkTransactionStatus(merchant, opts) {
   const provider = getProvider(merchant);
   return provider.status(merchant, opts);
+}
+
+/**
+ * Prompt the customer on the terminal for input (phone number, loyalty code, etc.).
+ * Auto-generates a secure UUID for the referenceId.
+ */
+export async function promptUserInput(merchant, opts) {
+  const provider = getProvider(merchant);
+  const referenceId = provider.generateReferenceId();
+  return provider.userInput(merchant, { ...opts, referenceId });
 }

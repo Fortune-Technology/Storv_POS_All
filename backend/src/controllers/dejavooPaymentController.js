@@ -33,6 +33,7 @@ import {
   checkTerminalStatus,
   settleBatch,
   checkTransactionStatus,
+  promptUserInput,
 } from '../services/paymentProviderFactory.js';
 
 const getOrgId  = (req) => req.orgId || req.user?.orgId;
@@ -331,6 +332,106 @@ export const dejavooSettle = async (req, res) => {
     res.json({ success: result.approved, result });
   } catch (err) {
     console.error('[dejavooSettle]', err);
+    res.status(err.status || 500).json({ success: false, error: err.message });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// LOOKUP CUSTOMER BY PHONE (SPIn UserInput → local Customer search)
+// POST /api/payment/dejavoo/lookup-customer
+// Body: { stationId, title?, prompt?, minLength?, maxLength?, timeoutSec? }
+//
+// Flow:
+//   1. Prompts customer on the terminal: "Enter phone number"
+//   2. Customer types their phone on the terminal keypad
+//   3. Strip non-digits, normalize to last-10-digit match
+//   4. Search Customer table for match
+//   5. Return customer if found, or { notFound: true, phone }
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const dejavooLookupCustomer = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { stationId, title, prompt, minLength, maxLength, timeoutSec } = req.body;
+
+    if (!stationId) {
+      return res.status(400).json({ success: false, error: 'stationId is required' });
+    }
+
+    const { merchant } = await loadMerchantByStation(stationId);
+
+    // Prompt customer on the terminal for phone input
+    const result = await promptUserInput(merchant, {
+      title:      title     || 'Loyalty Lookup',
+      prompt:     prompt    || 'Enter phone number',
+      inputType:  'Numeric',
+      minLength:  minLength ?? 7,
+      maxLength:  maxLength ?? 15,
+      timeoutSec: timeoutSec ?? 45,
+    });
+
+    if (!result.approved || !result.value) {
+      return res.json({
+        success: false,
+        reason:  result.statusCode === '1012' ? 'cancelled' : 'no_input',
+        message: result.message || 'No phone number entered',
+      });
+    }
+
+    // Normalize — strip everything but digits; keep last 10 for US phone match
+    const digits = String(result.value).replace(/\D/g, '');
+    if (digits.length < 7) {
+      return res.json({
+        success: false,
+        reason:  'invalid_format',
+        message: 'Phone number too short',
+        rawValue: result.value,
+      });
+    }
+
+    const last10 = digits.slice(-10);
+
+    // Search Customer table — match by phone field containing those digits.
+    // This handles +1-555-555-0100, (555) 555-0100, 5555550100, etc.
+    const candidates = await prisma.customer.findMany({
+      where: {
+        orgId,
+        phone: { not: null },
+      },
+      select: { id: true, firstName: true, lastName: true, phone: true, email: true, loyaltyPoints: true, balance: true, discount: true },
+      take: 50,
+    });
+
+    const match = candidates.find(c => {
+      const cDigits = String(c.phone || '').replace(/\D/g, '');
+      return cDigits.endsWith(last10);
+    });
+
+    if (!match) {
+      return res.json({
+        success:   true,
+        notFound:  true,
+        phone:     digits,
+        message:   'No customer found with this phone — cashier can create a new one',
+      });
+    }
+
+    return res.json({
+      success: true,
+      customer: {
+        id:            match.id,
+        firstName:     match.firstName,
+        lastName:      match.lastName,
+        phone:         match.phone,
+        email:         match.email,
+        loyaltyPoints: match.loyaltyPoints,
+        balance:       match.balance,
+        discount:      match.discount,
+      },
+      phoneEntered: digits,
+    });
+  } catch (err) {
+    console.error('[dejavooLookupCustomer]', err);
     res.status(err.status || 500).json({ success: false, error: err.message });
   }
 };
