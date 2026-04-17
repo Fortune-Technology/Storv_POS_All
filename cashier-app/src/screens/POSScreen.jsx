@@ -132,6 +132,13 @@ export default function POSScreen() {
   // Store branding — used for receipt header
   const [storeBranding, setStoreBranding] = useState({});
 
+  // Terminal / EBT state — declared early because handleTerminalPhoneLookup / handleEbtBalance
+  // useCallbacks below reference these in their dependency arrays. Moving them later
+  // triggers a temporal-dead-zone ReferenceError on first render.
+  const [terminalLookupBusy, setTerminalLookupBusy] = useState(false);
+  const [dejavooEbtEnabled, setDejavooEbtEnabled]   = useState(false);
+  const [ebtBalanceResult, setEbtBalanceResult]     = useState(null); // { amount, type } or null
+
   // ── Shared receipt print helper — used by auto-print, ask-prompt, reprint, history ──
   const handlePrintTx = useCallback((tx) => {
     if (!hasReceiptPrinter || !tx) return;
@@ -386,9 +393,6 @@ export default function POSScreen() {
   const [tenderInitCash,   setTenderInitCash]   = useState(null);  // pre-fill cash amount
   const [showHold,        setShowHold]        = useState(false);
   const [showCustomer,    setShowCustomer]    = useState(false);
-  const [terminalLookupBusy, setTerminalLookupBusy] = useState(false);
-  const [dejavooEbtEnabled, setDejavooEbtEnabled] = useState(false);
-  const [ebtBalanceResult, setEbtBalanceResult] = useState(null); // { amount, type } or null
   const [showPriceCheck,  setShowPriceCheck]  = useState(false);
   const [showHistory,    setShowHistory]    = useState(false);
   const [showVoid,       setShowVoid]       = useState(false);

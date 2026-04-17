@@ -56,7 +56,9 @@
       "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest --testMatch='**/invoice_matching_live.test.mjs' --no-coverage)",
       "Bash(node_modules/.bin/jest --no-coverage --testPathPattern='\\(pine-state|transformer\\)')",
       "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest --testMatch='**/end_of_day_report.test.mjs' --no-coverage)",
-      "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest --testMatch='**/*.test.mjs' --no-coverage)"
+      "Bash(NODE_OPTIONS=--experimental-vm-modules node_modules/.bin/jest --testMatch='**/*.test.mjs' --no-coverage)",
+      "Bash(grep -n \"claude\\\\|worktree\" .gitignore)",
+      "Bash(ls .claude/worktrees/)"
     ]
   }
 }
