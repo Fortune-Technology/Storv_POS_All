@@ -5,7 +5,6 @@
 import prisma from '../config/postgres.js';
 import { nanoid } from 'nanoid';
 import { checkStockWithPOS } from '../services/stockCheckService.js';
-import { chargeCardToken } from '../services/cardPaymentService.js';
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -124,47 +123,35 @@ export const checkout = async (req, res) => {
     }
 
     // 3. Calculate totals
-    const subtotal    = items.reduce((sum, i) => sum + (i.price * i.qty), 0);
-    const taxTotal    = 0; // TODO: implement tax calculation
+    const subtotal = items.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    const taxTotal = 0; // TODO: implement tax calculation
     const deliveryFee = fulfillmentType === 'delivery' ? 0 : 0; // TODO: from fulfillmentConfig
-    const tip         = Number(tipAmount) || 0;
-    const grandTotal  = subtotal + taxTotal + deliveryFee + tip;
+    const tip = Number(tipAmount) || 0;
+    const grandTotal = subtotal + taxTotal + deliveryFee + tip;
 
     // 4. Process card payment BEFORE creating order (fail fast)
-    let paymentExternalId   = null;
-    let resolvedPayStatus   = paymentMethod === 'cash_on_pickup' ? 'pending' : 'pending';
-    let cardLastFour        = null;
-    let cardAcctType        = null;
+    let paymentExternalId = null;
+    let resolvedPayStatus = paymentMethod === 'cash_on_pickup' ? 'pending' : 'pending';
+    let cardLastFour = null;
+    let cardAcctType = null;
 
     if (paymentMethod === 'card') {
       let chargeResult;
       const orderRef = `ECOM-${Date.now().toString(36).toUpperCase()}`;
 
-      try {
-        chargeResult = await chargeCardToken({
-          token:    paymentToken,
-          amount:   grandTotal,
-          storeId:  req.storeId,
-          orderRef,
-          expiry:   paymentExpiry || undefined,
-        });
-      } catch (err) {
-        // POS backend unreachable or hard error
-        const msg = err.response?.data?.error || err.message || 'Payment service unavailable';
-        return res.status(502).json({ error: `Payment processing failed: ${msg}` });
-      }
+
 
       if (!chargeResult.approved) {
         return res.status(402).json({
-          error:    chargeResult.resptext || 'Card declined',
+          error: chargeResult.resptext || 'Card declined',
           respcode: chargeResult.respcode,
         });
       }
 
       paymentExternalId = chargeResult.retref || null;
       resolvedPayStatus = 'paid';
-      cardLastFour      = chargeResult.lastFour || null;
-      cardAcctType      = chargeResult.acctType  || null;
+      cardLastFour = chargeResult.lastFour || null;
+      cardAcctType = chargeResult.acctType || null;
     }
 
     // 5. Create order (payment already approved)
@@ -181,36 +168,36 @@ export const checkout = async (req, res) => {
         customerPhone: customerPhone || null,
         shippingAddress: shippingAddress || null,
         lineItems: items.map(i => ({
-          productId:    i.productId,
+          productId: i.productId,
           posProductId: i.posProductId || i.productId,
-          name:         i.name,
-          qty:          i.qty,
-          price:        i.price,
-          total:        i.price * i.qty,
-          imageUrl:     i.imageUrl,
+          name: i.name,
+          qty: i.qty,
+          price: i.price,
+          total: i.price * i.qty,
+          imageUrl: i.imageUrl,
         })),
         subtotal,
         taxTotal,
         deliveryFee,
         tipAmount: tip,
         grandTotal,
-        paymentStatus:     resolvedPayStatus,
-        paymentMethod:     paymentMethod || 'cash_on_pickup',
+        paymentStatus: resolvedPayStatus,
+        paymentMethod: paymentMethod || 'cash_on_pickup',
         paymentExternalId: paymentExternalId,
-        scheduledAt:  scheduledAt ? new Date(scheduledAt) : null,
-        notes:        notes || null,
-        confirmedAt:  new Date(),
+        scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+        notes: notes || null,
+        confirmedAt: new Date(),
       },
     });
 
     // 6. Clean up cart
-    await prisma.ecomCart.delete({ where: { sessionId } }).catch(() => {});
+    await prisma.ecomCart.delete({ where: { sessionId } }).catch(() => { });
 
     // 7. Confirmation email (non-blocking)
     import('../services/emailService.js').then(({ sendOrderConfirmationEmail }) => {
       const storeName = req.ecomStore?.storeName || 'Store';
       sendOrderConfirmationEmail(storeName, order);
-    }).catch(() => {});
+    }).catch(() => { });
 
     // 8. Return order + masked card info for receipt display
     return res.status(201).json({
@@ -300,7 +287,7 @@ export const updateOrderStatus = async (req, res) => {
     if (['preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'].includes(status)) {
       import('../services/emailService.js').then(({ sendOrderStatusEmail }) => {
         sendOrderStatusEmail('Store', order);
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     res.json({ success: true, data: order });
