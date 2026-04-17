@@ -14,6 +14,7 @@ import {
   updateClockEvent,
   deleteClockEvent,
 } from '../controllers/employeeReportsController.js';
+import { getEndOfDayReport } from '../controllers/endOfDayReportController.js';
 
 const router = Router();
 
@@ -32,5 +33,12 @@ router.get('/clock-events',         ...readGuard,  listClockEvents);
 router.post('/clock-events',        ...writeGuard, createClockSession);
 router.put('/clock-events/:id',     ...writeGuard, updateClockEvent);
 router.delete('/clock-events/:id',  ...writeGuard, deleteClockEvent);
+
+// ── End-of-Day report (Payouts / Tenders / Transactions) ─────────────────
+// Accessible to managers+ via back-office. Cashier app also calls this
+// (via the same JWT) when closing a shift, passing ?shiftId=...
+router.get('/end-of-day',           ...readGuard,  getEndOfDayReport);
+// Also expose on cashier-relaxed guard so closing a shift works:
+//   see posTerminalRoutes.js for the cashier-scope alias.
 
 export default router;

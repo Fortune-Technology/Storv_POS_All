@@ -94,14 +94,26 @@ export const getEmployeeReport = async (req, res) => {
       }
     });
 
-    // Transaction stats per cashier
+    // Transaction stats per cashier.
+    // Bug B9 fix: transactions already excludes voided at the query level.
+    // Here we distinguish complete from refund — refunds increment a separate
+    // counter so managers can see cashier refund activity.
     transactions.forEach(tx => {
       const cid = tx.cashierId;
       if (!employees[cid]) {
         const u = userMap[cid] || { name: 'Unknown', email: '', role: 'cashier' };
-        employees[cid] = { userId: cid, name: u.name, email: u.email, role: u.role, totalMinutes: 0, sessions: [], transactions: 0, totalSales: 0, clockEvents: [] };
+        employees[cid] = {
+          userId: cid, name: u.name, email: u.email, role: u.role,
+          totalMinutes: 0, sessions: [],
+          transactions: 0, totalSales: 0,
+          refunds: 0, refundsAmount: 0,
+          clockEvents: [],
+        };
       }
-      if (tx.status !== 'refund') {
+      if (tx.status === 'refund') {
+        employees[cid].refunds++;
+        employees[cid].refundsAmount += Math.abs(Number(tx.grandTotal));
+      } else {
         employees[cid].transactions++;
         employees[cid].totalSales += Number(tx.grandTotal);
       }
@@ -109,8 +121,12 @@ export const getEmployeeReport = async (req, res) => {
 
     const result = Object.values(employees).map(emp => ({
       ...emp,
-      totalSales:  Math.round(emp.totalSales * 100) / 100,
-      hoursWorked: Math.round(emp.totalMinutes / 6) / 10,
+      totalSales:    Math.round(emp.totalSales    * 100) / 100,
+      refundsAmount: Math.round((emp.refundsAmount || 0) * 100) / 100,
+      hoursWorked:   Math.round(emp.totalMinutes / 6) / 10,
+      avgSalesPerHour: emp.totalMinutes > 0
+        ? Math.round((emp.totalSales / (emp.totalMinutes / 60)) * 100) / 100
+        : null,
     })).sort((a, b) => b.totalSales - a.totalSales);
 
     res.json({ from: fromDate.toISOString(), to: toDate.toISOString(), employees: result });

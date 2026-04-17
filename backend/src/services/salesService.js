@@ -101,12 +101,18 @@ export async function getDailySales(user, storeId, from, to) {
     const dep   = Number(tx.depositTotal) || 0;
     const ebt   = Number(tx.ebtTotal)     || 0;
 
-    d.TotalNetSales          += sub;           // pre-tax, post-discount line totals
-    d.TotalGrossSales        += sub;           // gross of sales (alias for now)
+    // ── Bug B2 fix: Gross vs Net definitions ──────────────────────────────
+    // Per user clarification:
+    //   Gross Sales = what the customer paid = Σ grandTotal (INCLUDES tax, deposits)
+    //                 Must match the total of tender collected.
+    //   Net Sales   = Σ subtotal (after discount, BEFORE tax)
+    //   Tax / Deposit / EBT are tracked as separate columns.
+    d.TotalGrossSales        += grand;         // B2: total collected (incl. tax)
+    d.TotalNetSales          += sub;           // pre-tax, post-discount
     d.TotalTaxes             += tax;
     d.TotalDeposits          += dep;
     d.TotalEBT               += ebt;
-    d.TotalTotalCollected    += grand;         // what customer paid
+    d.TotalTotalCollected    += grand;         // alias for Gross (kept for back-compat)
     d.TotalTransactionsCount += 1;
 
     // Compute discounts from lineItems (if present)
@@ -251,48 +257,64 @@ export async function getMonthlySalesComparison(user, storeId) {
 export async function getDepartmentSales(user, storeId, from, to) {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { lineItems: true },
+    select: { id: true, lineItems: true },
   });
 
+  // Bug B1 fix: Track distinct transaction IDs per department so
+  // TotalTransactionsCount reflects unique baskets, not line-item count.
+  // Bug B2 fix applied here too: gross = line total BEFORE discount (unit × qty),
+  // net = line total AFTER discount (li.lineTotal). Department reports show
+  // line-level gross/net since tax isn't attributed per-line in our data.
   const depts = {};
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    // Only count a department once per transaction (even if basket has
+    // multiple items in that department).
+    const seenInThisTx = new Set();
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
       const deptName = li.departmentName || li.taxClass || 'Other';
       const deptId = li.departmentId || deptName;
       if (!depts[deptId]) {
         depts[deptId] = {
-          // All the field name variants the frontend might use
-          Name:           deptName,
-          Department:     deptName,
-          DepartmentId:   deptId,
-          TotalSales:     0,
-          TotalNetSales:  0,
+          Name:            deptName,
+          Department:      deptName,
+          DepartmentId:    deptId,
+          TotalSales:      0,
+          TotalNetSales:   0,
           TotalGrossSales: 0,
-          TotalItems:     0,
-          ItemsSold:      0,
+          TotalItems:      0,
+          ItemsSold:       0,
           TotalTransactionsCount: 0,
           TransactionCount: 0,
+          _txSet: new Set(),   // Internal — removed before JSON serialization
         };
       }
       const d = depts[deptId];
-      const lineTotal = Number(li.lineTotal) || 0;
-      const grossLine = Number(li.unitPrice || 0) * Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal) || 0;                    // after discount
+      const grossLine = Number(li.unitPrice || 0) * Number(li.qty || 1); // before discount
       const qty       = Number(li.qty) || 1;
 
-      d.TotalSales     += lineTotal;
-      d.TotalNetSales  += lineTotal;
+      d.TotalSales      += lineTotal;
+      d.TotalNetSales   += lineTotal;
       d.TotalGrossSales += grossLine;
-      d.TotalItems     += qty;
-      d.ItemsSold      += qty;
-      d.TotalTransactionsCount += 1;
-      d.TransactionCount += 1;
+      d.TotalItems      += qty;
+      d.ItemsSold       += qty;
+
+      // Distinct-transaction counting per department
+      if (!seenInThisTx.has(deptId)) {
+        d._txSet.add(tx.id);
+        seenInThisTx.add(deptId);
+      }
     }
   }
 
   const result = Object.values(depts)
     .map(d => {
+      // Replace the Set with its size, drop the internal field
+      d.TotalTransactionsCount = d._txSet.size;
+      d.TransactionCount       = d._txSet.size;
+      delete d._txSet;
       for (const k of Object.keys(d)) {
         if (typeof d[k] === 'number') d[k] = r2(d[k]);
       }
@@ -336,19 +358,27 @@ export async function getDepartmentComparison(user, storeId, from, to, from2, to
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function getTopProducts(user, storeId, date) {
+  // B8: default date = today (was yesterday)
   const from = date || toDateStr(new Date());
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, from),
     select: { lineItems: true },
   });
 
+  // B7: grouping key = productId → upc → name (productId is authoritative)
   const products = {};
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
-      const key = li.name || li.upc || 'Unknown';
-      if (!products[key]) products[key] = { Name: key, UPC: li.upc || '', Department: li.departmentName || li.taxClass || '', NetSales: 0, GrossSales: 0, UnitsSold: 0 };
+      const key = String(li.productId || li.upc || li.name || 'Unknown');
+      if (!products[key]) products[key] = {
+        Name: li.name || li.upc || 'Unknown',
+        ProductId: li.productId || null,
+        UPC: li.upc || '',
+        Department: li.departmentName || li.taxClass || '',
+        NetSales: 0, GrossSales: 0, UnitsSold: 0,
+      };
       products[key].NetSales   += r2(li.lineTotal || 0);
       products[key].GrossSales += r2((li.unitPrice || 0) * (li.qty || 1));
       products[key].UnitsSold  += Number(li.qty || 1);
@@ -362,7 +392,14 @@ export async function getTopProducts(user, storeId, date) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRODUCTS GROUPED (paginated best-sellers)
 // ═══════════════════════════════════════════════════════════════════════════════
-
+//
+// Bug B3 fix: margin is NO LONGER hardcoded to 35%.
+// 1. Prefer per-line cost (li.costPrice) recorded at sale time.
+// 2. Fallback to MasterProduct.defaultCostPrice by batch lookup (productId or UPC).
+// 3. If neither exists → return TotalCost=null, Profit=null, Margin=null (UI shows "—").
+//    This honors the user's point that margin changes over time with cost changes.
+// Bug B7 fix: grouping key = productId → upc → name (productId is authoritative).
+//
 export async function getProductsGrouped(user, storeId, from, to, orderBy = 'NetSales', pageSize = 20, skip = 0) {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
@@ -370,31 +407,98 @@ export async function getProductsGrouped(user, storeId, from, to, orderBy = 'Net
   });
 
   const products = {};
+  // Collect productIds and UPCs seen for batch MasterProduct lookup
+  const seenProductIds = new Set();
+  const seenUpcs       = new Set();
+
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
-      const key = li.upc || li.name || 'Unknown';
+      // B7 fix: productId > upc > name
+      const key = String(li.productId || li.upc || li.name || 'Unknown');
       if (!products[key]) products[key] = {
-        UPC: li.upc || '', Sales: [{ Description: li.name || '', DepartmentDescription: li.departmentName || li.taxClass || '' }],
-        NetSales: 0, GrossSales: 0, UnitsSold: 0, TotalCost: 0, Profit: 0, Margin: 0,
+        Key:          key,
+        ProductId:    li.productId || null,
+        UPC:          li.upc || '',
+        Sales:        [{ Description: li.name || '', DepartmentDescription: li.departmentName || li.taxClass || '' }],
+        NetSales:     0,
+        GrossSales:   0,
+        UnitsSold:    0,
+        TotalCost:    0,   // accumulated from real cost data
+        KnownCost:    false, // false until we find ANY cost for this product
+        Profit:       null,
+        Margin:       null,
       };
       const p = products[key];
+      const lineCost = Number(li.costPrice) * Number(li.qty || 1);
+      if (Number.isFinite(lineCost) && lineCost > 0) {
+        p.TotalCost += lineCost;
+        p.KnownCost  = true;
+      }
       p.NetSales   += r2(li.lineTotal || 0);
       p.GrossSales += r2((li.unitPrice || 0) * (li.qty || 1));
       p.UnitsSold  += Number(li.qty || 1);
+
+      if (li.productId) seenProductIds.add(parseInt(li.productId, 10));
+      if (li.upc)       seenUpcs.add(String(li.upc));
     }
   }
 
-  // Compute profit (estimate 30% margin if no cost data)
+  // Batch-load MasterProduct cost data for products that had no per-line cost
+  const costByProductId = new Map();
+  const costByUpc       = new Map();
+  try {
+    if (user?.orgId && (seenProductIds.size || seenUpcs.size)) {
+      const mps = await prisma.masterProduct.findMany({
+        where: {
+          orgId: user.orgId,
+          OR: [
+            ...(seenProductIds.size ? [{ id: { in: [...seenProductIds] } }] : []),
+            ...(seenUpcs.size       ? [{ upc: { in: [...seenUpcs] } }]       : []),
+          ],
+        },
+        select: { id: true, upc: true, defaultCostPrice: true },
+      });
+      for (const m of mps) {
+        const cost = m.defaultCostPrice != null ? Number(m.defaultCostPrice) : null;
+        if (!Number.isFinite(cost) || cost <= 0) continue;
+        costByProductId.set(String(m.id), cost);
+        if (m.upc) costByUpc.set(String(m.upc), cost);
+      }
+    }
+  } catch (err) {
+    console.warn('⚠ B3: MasterProduct cost lookup failed:', err.message);
+  }
+
+  // Compute real margin per product
   const all = Object.values(products).map(p => {
-    p.TotalCost = r2(p.NetSales * 0.65);
-    p.Profit = r2(p.NetSales - p.TotalCost);
-    p.Margin = p.NetSales ? r2((p.Profit / p.NetSales) * 100) : 0;
+    // If we don't have per-line cost data, try MasterProduct.defaultCostPrice × units
+    if (!p.KnownCost) {
+      const masterCost = costByProductId.get(String(p.ProductId)) ?? costByUpc.get(String(p.UPC)) ?? null;
+      if (masterCost != null) {
+        p.TotalCost = r2(masterCost * p.UnitsSold);
+        p.KnownCost = true;
+      }
+    }
+    if (p.KnownCost && p.NetSales > 0) {
+      p.TotalCost = r2(p.TotalCost);
+      p.Profit    = r2(p.NetSales - p.TotalCost);
+      p.Margin    = r2((p.Profit / p.NetSales) * 100);
+    } else {
+      // Unknown — frontend should render "—" / "not available"
+      p.TotalCost = null;
+      p.Profit    = null;
+      p.Margin    = null;
+    }
     return p;
   });
 
-  all.sort((a, b) => b[orderBy] - a[orderBy]);
+  all.sort((a, b) => {
+    const av = a[orderBy] ?? -Infinity;
+    const bv = b[orderBy] ?? -Infinity;
+    return bv - av;
+  });
   const total = all.length;
   const page = all.slice(skip, skip + pageSize);
 
@@ -477,7 +581,9 @@ export async function getProduct52WeekStats(user, storeId, upc) {
   const weeksWithSales = weeklyValues.length;
   const weeklyHigh     = Math.max(...weeklyValues);
   const weeklyLow      = Math.min(...weeklyValues);
-  const avgWeekly      = r2(totalUnits / 52); // avg over full 52 weeks, not just weeks with sales
+  // Bug B11 fix: divide by max(weeksWithSales, 4) for new/seasonal products.
+  // Avoids undercounting brand-new products that haven't been around for 52 weeks.
+  const avgWeekly      = r2(totalUnits / Math.max(weeksWithSales, 4));
   const suggestedQoH   = Math.ceil(avgWeekly * 2); // 2-week cover
 
   return { weeklyHigh, weeklyLow, avgWeekly, totalUnits, weeksWithSales, suggestedQoH };

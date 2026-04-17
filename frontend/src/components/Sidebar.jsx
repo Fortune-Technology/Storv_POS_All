@@ -92,6 +92,7 @@ const menuGroups = [
       { name: 'Analytics', icon: <BarChart2 size={13} />, path: '/portal/analytics' },
       { name: 'Employees', icon: <Users size={13} />, path: '/portal/employees' },
       { name: 'Reports', icon: <FileText size={13} />, path: '/portal/reports' },
+      { name: 'End of Day', icon: <FileText size={13} />, path: '/portal/end-of-day' },
       { name: 'Audit Log', icon: <Shield size={13} />, path: '/portal/audit' },
     ],
   },

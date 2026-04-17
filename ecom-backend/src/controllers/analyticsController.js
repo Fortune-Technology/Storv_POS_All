@@ -10,6 +10,18 @@ export const getAnalytics = async (req, res) => {
     const storeId = req.storeId;
     if (!storeId) return res.status(400).json({ error: 'X-Store-Id required' });
 
+    // Bug B5 fix: accept dateFrom/dateTo and exclude cancelled/pending orders
+    // from revenue KPIs (pending orders haven't been confirmed as sales yet).
+    const { dateFrom, dateTo } = req.query;
+    const dateFilter = {};
+    if (dateFrom) dateFilter.gte = new Date(dateFrom + 'T00:00:00');
+    if (dateTo)   dateFilter.lte = new Date(dateTo   + 'T23:59:59.999');
+
+    const baseWhere  = { storeId };
+    const rangeWhere = Object.keys(dateFilter).length ? { ...baseWhere, createdAt: dateFilter } : baseWhere;
+    // For revenue: exclude cancelled AND pending (not yet confirmed)
+    const revenueWhere = { ...rangeWhere, status: { notIn: ['cancelled', 'pending'] } };
+
     // KPIs — customer count from POS backend, orders from ecom DB
     let customerCount = 0;
     try {
@@ -17,17 +29,23 @@ export const getAnalytics = async (req, res) => {
       customerCount = countResult.count || 0;
     } catch { /* POS backend unreachable — use 0 */ }
 
-    const [orderCount, orders] = await Promise.all([
-      prisma.ecomOrder.count({ where: { storeId } }),
-      prisma.ecomOrder.findMany({ where: { storeId }, select: { grandTotal: true, status: true, createdAt: true, lineItems: true } }),
+    const [totalOrderCount, revenueOrders, allOrdersForStatus] = await Promise.all([
+      // Count all orders in range (for context, even pending/cancelled)
+      prisma.ecomOrder.count({ where: rangeWhere }),
+      // Revenue orders — real revenue only
+      prisma.ecomOrder.findMany({ where: revenueWhere, select: { grandTotal: true, status: true, createdAt: true, lineItems: true } }),
+      // All orders for status-breakdown pie
+      prisma.ecomOrder.findMany({ where: rangeWhere, select: { grandTotal: true, status: true, createdAt: true } }),
     ]);
 
+    const orders = revenueOrders;
+    const orderCount = orders.length;
     const totalRevenue = orders.reduce((s, o) => s + Number(o.grandTotal || 0), 0);
     const avgOrderValue = orderCount > 0 ? totalRevenue / orderCount : 0;
 
-    // Orders by status
+    // Orders by status — use ALL orders (including cancelled/pending) for the pie
     const statusCounts = {};
-    orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
+    allOrdersForStatus.forEach(o => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
 
     // Revenue last 30 days (daily)
     const now = new Date();
@@ -61,10 +79,17 @@ export const getAnalytics = async (req, res) => {
     res.json({
       success: true,
       data: {
-        kpis: { totalRevenue: Math.round(totalRevenue * 100) / 100, orderCount, customerCount, avgOrderValue: Math.round(avgOrderValue * 100) / 100 },
+        kpis: {
+          totalRevenue:  Math.round(totalRevenue * 100) / 100,
+          orderCount,                                // count of confirmed/non-cancelled orders
+          totalOrderCount,                           // includes pending + cancelled
+          customerCount,
+          avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        },
         statusCounts,
         revenueTrend,
         topProducts,
+        window: { dateFrom: dateFrom || null, dateTo: dateTo || null },
       },
     });
   } catch (err) {

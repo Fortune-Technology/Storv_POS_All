@@ -43,6 +43,7 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toISO = (d) => d.toISOString().slice(0, 10);
+const r2    = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const daysAgo = (n) => {
   const d = new Date();
@@ -143,7 +144,9 @@ export const departmentComparison = async (req, res) => {
 
 export const topProducts = async (req, res) => {
   try {
-    const { date = yesterday() } = req.query;
+    // B8 fix: default to today, not yesterday. If today has no data,
+    // callers can pass ?date=... explicitly.
+    const { date = today() } = req.query;
     const data = await getTopProducts(req.posUser ?? req.user, req.storeId, date);
     res.json(data);
   } catch (err) {
@@ -803,19 +806,28 @@ export const realtimeSales = async (req, res) => {
     });
 
     // ── Aggregate totals ──────────────────────────────────────────────────────
-    let netSales = 0, taxTotal = 0, depositTotal = 0, ebtTotal = 0;
+    // Bug B2 + B6 fix: redefine gross/net properly
+    //   grossSales = Σ grandTotal (what customer paid, incl. tax — matches tender)
+    //   netSales   = Σ subtotal   (after discount, pre-tax)
+    let netSales = 0, grossSales = 0, taxTotal = 0, depositTotal = 0, ebtTotal = 0;
     let cashTotal = 0, cardTotal = 0, ebtTender = 0;
-    let totalCost = 0, totalRevenue = 0;
+    let totalCost = 0, totalRevenue = 0, knownCostItems = 0, totalItems = 0;
     const productMap = {};
     const hourlyMap  = {};
 
+    // Bug B3 fix: collect productIds + UPCs for batch MasterProduct cost lookup
+    const seenProductIds = new Set();
+    const seenUpcs       = new Set();
+
     for (const tx of txns) {
       const gt = Number(tx.grandTotal)   || 0;
+      const st = Number(tx.subtotal)     || 0;
       const tt = Number(tx.taxTotal)     || 0;
       const dt = Number(tx.depositTotal) || 0;
       const et = Number(tx.ebtTotal)     || 0;
 
-      netSales     += gt;
+      netSales     += st;     // B2 fix — was gt
+      grossSales   += gt;     // B2 fix — tender total
       taxTotal     += tt;
       depositTotal += dt;
       ebtTotal     += et;
@@ -827,33 +839,89 @@ export const realtimeSales = async (req, res) => {
         const m   = (t.method || '').toLowerCase();
         if (m === 'cash')                          cashTotal  += amt;
         else if (['card','credit','debit'].includes(m)) cardTotal  += amt;
-        else if (m === 'ebt')                      ebtTender  += amt;
+        else if (m === 'ebt' || m === 'ebt_cash' || m === 'efs') ebtTender  += amt;
       }
 
-      // Top products from lineItems + cost tracking for margin
+      // Top products from lineItems. Cost is either:
+      //   1. per-line (li.costPrice), or
+      //   2. looked up from MasterProduct below
+      // We NO LONGER fabricate 35% margin (Bug B3).
       const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
       for (const li of items) {
         if (!li.name || li.isLottery || li.isBottleReturn || li.isBagFee) continue;
         const key = li.name;
+        const qty = Number(li.qty) || 1;
         const rev = Number(li.totalPrice ?? li.lineTotal ?? 0);
-        const cost = (Number(li.costPrice) || Number(li.unitPrice) * 0.65) * (Number(li.qty) || 1);
-        if (!productMap[key]) productMap[key] = { name: key, qty: 0, revenue: 0, cost: 0 };
-        productMap[key].qty     += Number(li.qty || 1);
+        const perLineCost = Number(li.costPrice);
+        const hasLineCost = Number.isFinite(perLineCost) && perLineCost > 0;
+
+        if (!productMap[key]) productMap[key] = {
+          name: key, qty: 0, revenue: 0, cost: 0,
+          productId: li.productId || null, upc: li.upc || null,
+          hasLineCost: false,
+        };
+        productMap[key].qty     += qty;
         productMap[key].revenue += rev;
-        productMap[key].cost    += cost;
         totalRevenue += rev;
-        totalCost    += cost;
+        totalItems   += qty;
+
+        if (hasLineCost) {
+          const lineCost = perLineCost * qty;
+          productMap[key].cost += lineCost;
+          productMap[key].hasLineCost = true;
+          totalCost      += lineCost;
+          knownCostItems += qty;
+        } else {
+          if (li.productId) seenProductIds.add(parseInt(li.productId, 10));
+          if (li.upc)       seenUpcs.add(String(li.upc));
+        }
       }
 
-      // Hourly buckets
+      // Hourly buckets — use gross (grandTotal) for "money through register per hour"
       const h = new Date(tx.createdAt).getHours();
       if (!hourlyMap[h]) hourlyMap[h] = { sales: 0, count: 0 };
       hourlyMap[h].sales += gt;
       hourlyMap[h].count += 1;
     }
 
+    // Batch MasterProduct cost lookup for items without per-line cost
+    if (seenProductIds.size || seenUpcs.size) {
+      try {
+        const mps = await prisma.masterProduct.findMany({
+          where: {
+            orgId,
+            OR: [
+              ...(seenProductIds.size ? [{ id: { in: [...seenProductIds] } }] : []),
+              ...(seenUpcs.size       ? [{ upc: { in: [...seenUpcs] } }]       : []),
+            ],
+          },
+          select: { id: true, upc: true, defaultCostPrice: true },
+        });
+        const costById  = new Map();
+        const costByUpc = new Map();
+        for (const m of mps) {
+          const c = m.defaultCostPrice != null ? Number(m.defaultCostPrice) : null;
+          if (!Number.isFinite(c) || c <= 0) continue;
+          costById.set(String(m.id), c);
+          if (m.upc) costByUpc.set(String(m.upc), c);
+        }
+        for (const p of Object.values(productMap)) {
+          if (p.hasLineCost) continue;
+          const mc = costById.get(String(p.productId)) ?? costByUpc.get(String(p.upc)) ?? null;
+          if (mc != null) {
+            const addCost = mc * p.qty;
+            p.cost += addCost;
+            totalCost      += addCost;
+            knownCostItems += p.qty;
+          }
+        }
+      } catch (err) {
+        console.warn('⚠ B3 live dashboard cost lookup failed:', err.message);
+      }
+    }
+
     const txCount = txns.length;
-    const avgTx   = txCount ? netSales / txCount : 0;
+    const avgTx   = txCount ? grossSales / txCount : 0;   // avg tx = gross / count (total money / sales)
 
     // Hourly array covering store hours (6 AM – 11 PM)
     const hourly = Array.from({ length: 24 }, (_, h) => {
@@ -967,8 +1035,14 @@ export const realtimeSales = async (req, res) => {
     }
 
     // ── Margin calculation ──────────────────────────────────────────────────────
-    const grossProfit  = totalRevenue - totalCost;
-    const avgMargin    = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 10000) / 100 : 0;
+    // B3: only compute margin when we have real cost data. If no cost data was
+    // found for any line item, return null (UI shows "—" instead of fake 35%).
+    const costCoverage = totalItems > 0 ? Math.round((knownCostItems / totalItems) * 100) : 0;
+    const hasCostData  = knownCostItems > 0;
+    const grossProfit  = hasCostData ? totalRevenue - totalCost : null;
+    const avgMargin    = (hasCostData && totalRevenue > 0)
+      ? Math.round(((totalRevenue - totalCost) / totalRevenue) * 10000) / 100
+      : null;
 
     // ── Inventory grade (non-blocking) ───────────────────────────────────────
     let inventoryGrade = null;
@@ -1016,7 +1090,22 @@ export const realtimeSales = async (req, res) => {
     }
 
     res.json({
-      todaySales: { netSales, grossSales: netSales, txCount, avgTx, taxTotal, depositTotal, ebtTotal, cashTotal, cardTotal, ebtTender, avgMargin, grossProfit: Math.round(grossProfit * 100) / 100 },
+      todaySales: {
+        netSales:     r2(netSales),        // B2: subtotal = pre-tax, post-discount
+        grossSales:   r2(grossSales),      // B2: grandTotal = tender total (incl. tax)
+        txCount,
+        avgTx:        r2(avgTx),
+        taxTotal:     r2(taxTotal),
+        depositTotal: r2(depositTotal),
+        ebtTotal:     r2(ebtTotal),
+        cashTotal:    r2(cashTotal),
+        cardTotal:    r2(cardTotal),
+        ebtTender:    r2(ebtTender),
+        avgMargin,                         // null when no cost data — B3
+        grossProfit:  grossProfit != null ? Math.round(grossProfit * 100) / 100 : null,
+        costCoverage,                      // 0-100% of items where we had cost data
+        hasCostData,
+      },
       inventoryGrade,
       lottery,
       hourly,
@@ -1024,6 +1113,7 @@ export const realtimeSales = async (req, res) => {
       recentTx,
       trend,
       weather,
+      weatherError: weather === null ? 'unavailable' : null,   // B10
       isToday,
       dataDate: todayStr,
       lastUpdated: new Date().toISOString(),

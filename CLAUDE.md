@@ -3314,3 +3314,106 @@ Frontend `vite build` passes clean (14.91s, 3,329 modules transformed, no errors
 - [x] **Invoice Import — distributor itemCode as primary mapping, vendor-scoped, skip internal SKU**
 - [x] **Invoice Import — vendor preselect at upload + re-match button**
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 22)
+
+### Reports Audit Fixes (B1-B14) + End-of-Day Report
+
+Following a comprehensive audit of Reports / Analytics / Dashboard surfaces (documented in the prior session report), this session fixed **13 real bugs** and shipped the full End-of-Day reconciliation report for both back-office and cashier-app.
+
+#### Bug Fixes
+
+| # | Fix | File(s) |
+|---|-----|---------|
+| **B1** | Department transaction count now uses `Set<txId>` — counts distinct baskets, not line items (was ~5× inflated) | [`salesService.js`](backend/src/services/salesService.js) `getDepartmentSales` |
+| **B2** | Redefined: `Gross = Σ grandTotal` (includes tax, matches tender total), `Net = Σ subtotal` (pre-tax, post-discount). User's accounting definition. | [`salesService.js`](backend/src/services/salesService.js) `getDailySales`, [`salesController.js`](backend/src/controllers/salesController.js) `realtimeSales` |
+| **B3** | Margin no longer hardcoded 35%. Uses `li.costPrice` per line OR batch-loads `MasterProduct.defaultCostPrice`. Returns `null` when cost data missing (UI shows "—" instead of fake 35%). Reports `hasCostData` + `costCoverage %`. | [`salesService.js`](backend/src/services/salesService.js) `getProductsGrouped`, [`salesController.js`](backend/src/controllers/salesController.js) `realtimeSales` |
+| **B4** | `listPayouts` summary now explicitly documents cash drops are excluded (they're separate `/cash-drops` endpoint — pickups, not expenses). | [`shiftController.js`](backend/src/controllers/shiftController.js) `listPayouts` |
+| **B5** | Ecom Analytics now: (a) excludes cancelled/pending from revenue, (b) accepts `dateFrom`/`dateTo` params, (c) still shows all statuses in the status pie. | [`ecom-backend/analyticsController.js`](ecom-backend/src/controllers/analyticsController.js) |
+| **B6** | Live Dashboard `netSales` now = subtotal (was grandTotal, which included tax) | [`salesController.js`](backend/src/controllers/salesController.js) `realtimeSales` |
+| **B7** | Product grouping key priority: `productId → upc → name` (was just `name`; rename-mid-period caused split rows) | [`salesService.js`](backend/src/services/salesService.js) `getTopProducts`, `getProductsGrouped` |
+| **B8** | Top Products default date = today (was yesterday — confusing first impression) | [`salesController.js`](backend/src/controllers/salesController.js) `topProducts` |
+| **B9** | Employee Reports now distinguishes `transactions / totalSales` (completed) from `refunds / refundsAmount` (refunded). Added `avgSalesPerHour` too. | [`employeeReportsController.js`](backend/src/controllers/employeeReportsController.js) |
+| **B10** | Live Dashboard returns `weatherError: 'unavailable'` alongside `weather: null` when fetch fails | [`salesController.js`](backend/src/controllers/salesController.js) `realtimeSales` |
+| **B11** | 52-week `avgWeekly` now divides by `max(weeksWithSales, 4)` — new/seasonal products no longer under-counted | [`salesService.js`](backend/src/services/salesService.js) `getProduct52WeekStats` |
+| **B13** | Deferred — trimming hour labels to store hours requires store-schedule config, scoped to future work |
+
+#### NEW — End-of-Day Report
+
+Full EoD reconciliation report with the three sections the user specified:
+
+**Section 1: Payouts** (9 categories)
+- Cashback, Loans, Pickups (drops), Paid-in, Paid-out, Received on Account, Refunds, Tips, Voids
+- Each with Type / Count / Amount
+
+**Section 2: Tender Details** (9 categories)
+- Cash, EBT Cash, Check, Debit Card, Credit Card, Electronic Food Stamp (EFS), Paper Food Stamp, In-store Charge, Store Gift Card
+- Tender method string normalized via `mapTenderMethod()` — handles legacy variants (`card`/`credit`/`debit`/`ebt`/etc.)
+
+**Section 3: Transactions**
+- Average Transaction, Net Sales, Gross Sales, Tax Collected, Cash Collected
+- Each with Type / Count / Amount
+
+**Section 4 (shift-scope only): Cash Drawer Reconciliation**
+- Opening + Cash Collected − Drops − Payouts = Expected → compared against Counted → Variance
+
+**Scope modes:**
+- `?shiftId=X` — single-shift (used by cashier-app on close)
+- `?date=YYYY-MM-DD` — single day
+- `?dateFrom=&dateTo=` — range
+- All scopes also accept `?cashierId=&stationId=&storeId=`
+
+#### New Files
+
+| File | Purpose |
+|------|---------|
+| [`backend/src/controllers/endOfDayReportController.js`](backend/src/controllers/endOfDayReportController.js) | EoD controller — tender mapping, payout categorization, reconciliation math |
+| [`frontend/src/pages/EndOfDayReport.jsx`](frontend/src/pages/EndOfDayReport.jsx) | Back-office EoD page — filter + display + Print/CSV/PDF export |
+| [`frontend/src/pages/EndOfDayReport.css`](frontend/src/pages/EndOfDayReport.css) | Page CSS with `eod-` prefix + responsive + print media query |
+| [`backend/tests/end_of_day_report.test.mjs`](backend/tests/end_of_day_report.test.mjs) | Tender/payout category invariant tests |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| [`backend/src/routes/reportsRoutes.js`](backend/src/routes/reportsRoutes.js) | Added `GET /reports/end-of-day` (manager+) |
+| [`backend/src/routes/posTerminalRoutes.js`](backend/src/routes/posTerminalRoutes.js) | Added `GET /pos-terminal/shift/:id/eod-report` (cashier) + `/pos-terminal/end-of-day` (back-office alternate) |
+| [`frontend/src/services/api.js`](frontend/src/services/api.js) | Added `getEndOfDayReport(params)` |
+| [`frontend/src/App.jsx`](frontend/src/App.jsx) | Added `/portal/end-of-day` route |
+| [`frontend/src/components/Sidebar.jsx`](frontend/src/components/Sidebar.jsx) | Added "End of Day" link under Reports & Analytics |
+| [`cashier-app/src/api/pos.js`](cashier-app/src/api/pos.js) | Rewrote `getEndOfDayReport()` — supports shiftId / object / legacy signatures |
+| [`cashier-app/src/services/printerService.js`](cashier-app/src/services/printerService.js) | Added `buildEoDReceiptString()`, `printEoDReportQZ()`, `printEoDReportNetwork()`, `printEoDReport()` dispatcher |
+| [`cashier-app/src/components/modals/CloseShiftModal.jsx`](cashier-app/src/components/modals/CloseShiftModal.jsx) | "Print EoD Receipt" button replaces `window.print()` — routes through thermal printer via QZ-Tray or network TCP |
+| [`cashier-app/src/components/modals/CloseShiftModal.css`](cashier-app/src/components/modals/CloseShiftModal.css) | Added `.csm-eod-error` style |
+
+#### Thermal Printer Template
+
+`buildEoDReceiptString(report, { paperWidth })` produces ESC/POS bytes for a 42-char (80mm) or 32-char (58mm) printer. Auto-cuts, drawer-safe, includes header (store, register, cashier, period, printed-at), all 3 sections in aligned columns, and reconciliation block for shift scope.
+
+Transport picks QZ-Tray (USB) when `receiptPrinter.method === 'qz'` else network-TCP proxy via `/api/pos-terminal/print-network`.
+
+#### Tests
+
+All 9 tests pass (7 matching + 2 EoD):
+- ✓ EoD `TENDER_CATEGORIES` exposes 9 categories in spec order
+- ✓ EoD `PAYOUT_CATEGORIES` exposes 9 categories in spec order
+- ✓ All prior matching tests still green
+
+Backend syntax: all 7 modified controllers/routes clean. All 8 frontend/cashier JSX files parse clean.
+
+### Backlog updates
+
+- [x] **B1** Department transaction count fixed
+- [x] **B2** Gross/Net redefined per user accounting
+- [x] **B3** Dynamic margin from real cost data
+- [x] **B4** Cash drops explicitly separated from payouts
+- [x] **B5** Ecom analytics proper status/date filters
+- [x] **B6** Live Dashboard netSales correct
+- [x] **B7** Product grouping key fixed
+- [x] **B8** Top products defaults to today
+- [x] **B9** Employee report refund double-filter cleaned
+- [x] **B10** Weather error surfaced
+- [x] **B11** 52-week avg divisor fixed
+- [x] **End-of-Day report** — back-office + cashier-app thermal print
+

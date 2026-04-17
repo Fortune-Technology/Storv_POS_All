@@ -101,8 +101,26 @@ export const createRefund = (id, body) =>
 export const createOpenRefund = (body) =>
   api.post('/pos-terminal/transactions/open-refund', body).then(r => r.data);
 
-export const getEndOfDayReport = (storeId, date) =>
-  api.get('/pos-terminal/reports/end-of-day', { params: { storeId, date } }).then(r => r.data);
+// End-of-Day report — flexible form. Call with either:
+//   getEndOfDayReport(shiftId)                          → single shift (cashier app closing flow)
+//   getEndOfDayReport(null, { storeId, date, ... })     → date-range / store / cashier view
+//   getEndOfDayReport({ storeId, date })                → date-range via object arg
+//
+// The legacy form (storeId, date) is still supported for back-compat.
+export const getEndOfDayReport = (shiftIdOrParams, maybeParams) => {
+  // String or number first arg → treat as shiftId
+  if (typeof shiftIdOrParams === 'string' || typeof shiftIdOrParams === 'number') {
+    if (maybeParams) {
+      // Legacy (storeId, date) form — shiftIdOrParams was actually storeId
+      return api.get('/pos-terminal/end-of-day', {
+        params: { storeId: shiftIdOrParams, ...(typeof maybeParams === 'string' ? { date: maybeParams } : maybeParams) },
+      }).then(r => r.data);
+    }
+    return api.get(`/pos-terminal/shift/${shiftIdOrParams}/eod-report`).then(r => r.data);
+  }
+  // Object arg → treat as query params
+  return api.get('/pos-terminal/end-of-day', { params: shiftIdOrParams || {} }).then(r => r.data);
+};
 
 // ── Clock in / out (station-token only, no JWT) ───────────────────────────
 export const clockInOut = (pin, type, storeId, stationToken) =>

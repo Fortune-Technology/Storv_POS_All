@@ -106,12 +106,13 @@ import Transactions from './pages/Transactions';
 import PosEventLog  from './pages/PosEventLog';
 
 // Tab hub pages
-import POSConfig     from './pages/POSConfig';
-import POSReports    from './pages/POSReports';
-import RulesAndFees  from './pages/RulesAndFees';
-import AnalyticsHub  from './pages/AnalyticsHub';
-import AccountHub    from './pages/AccountHub';
-import CustomersHub  from './pages/CustomersHub';
+import POSConfig         from './pages/POSConfig';
+import POSReports        from './pages/POSReports';
+import RulesAndFees      from './pages/RulesAndFees';
+import AnalyticsHub      from './pages/AnalyticsHub';
+import AccountHub        from './pages/AccountHub';
+import CustomersHub      from './pages/CustomersHub';
+import EndOfDayReport    from './pages/EndOfDayReport';
 
 // Components
 import Layout from './components/Layout';
@@ -227,6 +228,7 @@ function App() {
 
           {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
           <Route path="/portal/pos-reports"     element={<POSReports />} />
+          <Route path="/portal/end-of-day"      element={<EndOfDayReport />} />
 
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/rules"           element={<RulesAndFees />} />

@@ -446,3 +446,15 @@
   .csm-right { width: 100%; border-left: none; border-top: 1px solid var(--border); }
   .csm-denom-grid { grid-template-columns: 1fr; }
 }
+
+/* ── EoD Receipt button + error (Session 22) ── */
+.csm-eod-error {
+  padding: 8px 12px;
+  margin: 0 12px 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  color: #ef4444;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}

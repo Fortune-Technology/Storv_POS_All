@@ -1,0 +1,324 @@
+/**
+ * End-of-Day Report — back-office view
+ *
+ * Structured as 3 sections per the spec:
+ *   1. Payouts      (Cashback, Loans, Pickups, Paid-ins, Paid-outs,
+ *                    Received on Acct, Refunds, Tips, Voids)
+ *   2. Tender       (Cash, EBT Cash, Check, Debit, Credit, EFS, Paper FS,
+ *                    In-store Charge, Store Gift Card)
+ *   3. Transactions (Avg Tx, Net Sales, Gross Sales, Tax, Cash Collected)
+ *
+ * Supports single-day, date range, per-cashier, per-station, per-shift views.
+ * Offers Print, CSV, and PDF export.
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { Printer, Download, FileText, Calendar, User, Monitor, RefreshCw } from 'lucide-react';
+import { toast } from 'react-toastify';
+import {
+  getEndOfDayReport,
+  getStores,
+  getStoreEmployees,
+} from '../services/api';
+import { downloadCSV, downloadPDF } from '../utils/exportUtils';
+import './EndOfDayReport.css';
+
+const fmt$ = (n) => {
+  if (n == null) return '—';
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  return `${sign}$${Math.abs(v).toFixed(2)}`;
+};
+
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
+
+export default function EndOfDayReport() {
+  const [stores,    setStores]    = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [storeId,   setStoreId]   = useState('');
+  const [cashierId, setCashierId] = useState('');
+  const [date,      setDate]      = useState(todayStr());
+  const [useRange,  setUseRange]  = useState(false);
+  const [dateFrom,  setDateFrom]  = useState(todayStr());
+  const [dateTo,    setDateTo]    = useState(todayStr());
+  const [report,    setReport]    = useState(null);
+  const [loading,   setLoading]   = useState(false);
+
+  // Load stores + employees for filter dropdowns
+  useEffect(() => {
+    getStores().then(r => {
+      const list = Array.isArray(r) ? r : (r?.data || []);
+      setStores(list);
+      if (list.length && !storeId) setStoreId(list[0].id);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!storeId) return;
+    getStoreEmployees({ storeId }).then(r => {
+      setEmployees(r?.employees || []);
+    }).catch(() => {});
+  }, [storeId]);
+
+  const loadReport = async () => {
+    if (!storeId) { toast.warn('Pick a store first'); return; }
+    setLoading(true);
+    setReport(null);
+    try {
+      const params = { storeId };
+      if (cashierId) params.cashierId = cashierId;
+      if (useRange) { params.dateFrom = dateFrom; params.dateTo = dateTo; }
+      else          { params.date     = date; }
+      const data = await getEndOfDayReport(params);
+      setReport(data);
+    } catch (err) {
+      toast.error('Failed to load report: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { if (storeId) loadReport(); /* eslint-disable-line */ }, [storeId]);
+
+  // ── Print (receipt-like formatted view) ────────────────────────────────
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // ── CSV Export ─────────────────────────────────────────────────────────
+  const handleCSV = () => {
+    if (!report) return;
+    const rows = [];
+    const header = (section) => { rows.push({ Section: section, Type: '', Count: '', Amount: '' }); };
+    header('PAYOUTS');
+    report.payouts.forEach(p => rows.push({ Section: '', Type: p.label, Count: p.count, Amount: p.amount.toFixed(2) }));
+    rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+    header('TENDERS');
+    report.tenders.forEach(t => rows.push({ Section: '', Type: t.label, Count: t.count, Amount: t.amount.toFixed(2) }));
+    rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+    header('TRANSACTIONS');
+    report.transactions.forEach(tx => rows.push({ Section: '', Type: tx.label, Count: tx.count, Amount: tx.amount.toFixed(2) }));
+    downloadCSV(rows, [
+      { key: 'Section', label: 'Section' },
+      { key: 'Type',    label: 'Type'    },
+      { key: 'Count',   label: 'Count'   },
+      { key: 'Amount',  label: 'Amount'  },
+    ], `end-of-day-${date || dateFrom}.csv`);
+  };
+
+  // ── PDF Export ─────────────────────────────────────────────────────────
+  const handlePDF = () => {
+    if (!report) return;
+    const rows = [];
+    const push = (section, t) => rows.push({ Section: section, Type: t.label, Count: t.count, Amount: `$${t.amount.toFixed(2)}` });
+    report.payouts.forEach(p => push('Payout', p));
+    report.tenders.forEach(t => push('Tender', t));
+    report.transactions.forEach(tx => push('Transaction', tx));
+    downloadPDF({
+      title:    'End of Day Report',
+      subtitle: `${report.header.storeName || ''}  ${useRange ? `${dateFrom} → ${dateTo}` : date}`,
+      data: rows,
+      columns: [
+        { key: 'Section', label: 'Section' },
+        { key: 'Type',    label: 'Type'    },
+        { key: 'Count',   label: 'Count',  align: 'right' },
+        { key: 'Amount',  label: 'Amount', align: 'right' },
+      ],
+      filename: `end-of-day-${date || dateFrom}.pdf`,
+    });
+  };
+
+  const header = report?.header;
+  const grandTotals = useMemo(() => {
+    if (!report) return null;
+    return {
+      payoutsTotal:    report.payouts.reduce((s, p) => s + p.amount, 0),
+      tenderTotal:     report.tenders.reduce((s, t) => s + t.amount, 0),
+      grossSales:      report.totals?.grossSales ?? 0,
+      netSales:        report.totals?.netSales   ?? 0,
+      cashCollected:   report.totals?.cashCollected ?? 0,
+    };
+  }, [report]);
+
+  return (
+    <div className="eod-page">
+      {/* ── Non-print toolbar ── */}
+      <div className="eod-toolbar" data-no-print>
+        <div className="eod-toolbar-left">
+          <h1 className="eod-title"><FileText size={22} /> End of Day Report</h1>
+        </div>
+        <div className="eod-toolbar-right">
+          <button className="eod-btn eod-btn-secondary" onClick={loadReport} disabled={loading} title="Refresh report">
+            <RefreshCw size={14} className={loading ? 'eod-spin' : ''} /> Refresh
+          </button>
+          <button className="eod-btn eod-btn-ghost" onClick={handleCSV} disabled={!report} title="Export CSV">
+            <Download size={14} /> CSV
+          </button>
+          <button className="eod-btn eod-btn-ghost" onClick={handlePDF} disabled={!report} title="Export PDF">
+            <Download size={14} /> PDF
+          </button>
+          <button className="eod-btn eod-btn-primary" onClick={handlePrint} disabled={!report} title="Print">
+            <Printer size={14} /> Print
+          </button>
+        </div>
+      </div>
+
+      {/* ── Filter bar ── */}
+      <div className="eod-filters" data-no-print>
+        <div className="eod-filter-group">
+          <label className="eod-filter-label">Store</label>
+          <select className="eod-input" value={storeId} onChange={e => setStoreId(e.target.value)}>
+            <option value="">— Select store —</option>
+            {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div className="eod-filter-group">
+          <label className="eod-filter-label">Cashier</label>
+          <select className="eod-input" value={cashierId} onChange={e => setCashierId(e.target.value)}>
+            <option value="">— All cashiers —</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        <div className="eod-filter-group">
+          <label className="eod-filter-label">
+            <input type="checkbox" checked={useRange} onChange={e => setUseRange(e.target.checked)} /> Date range
+          </label>
+          {useRange ? (
+            <div className="eod-date-range">
+              <input type="date" className="eod-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+              <span>→</span>
+              <input type="date" className="eod-input" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+            </div>
+          ) : (
+            <input type="date" className="eod-input" value={date} onChange={e => setDate(e.target.value)} />
+          )}
+        </div>
+        <button className="eod-btn eod-btn-primary" onClick={loadReport} disabled={loading}>
+          {loading ? 'Loading…' : 'Generate Report'}
+        </button>
+      </div>
+
+      {/* ── Report body (printable) ── */}
+      {report ? (
+        <div className="eod-report-body">
+          {/* Header */}
+          <div className="eod-report-header">
+            <h2 className="eod-report-title">END OF DAY REPORT</h2>
+            <div className="eod-header-grid">
+              <div className="eod-header-row"><span className="eod-header-label">Store:</span> <span>{header.storeName || '—'}</span></div>
+              {header.stationName && <div className="eod-header-row"><span className="eod-header-label">Register:</span> <Monitor size={12} /> <span>{header.stationName}</span></div>}
+              {header.cashierName && <div className="eod-header-row"><span className="eod-header-label">Cashier:</span> <User size={12} /> <span>{header.cashierName}</span></div>}
+              <div className="eod-header-row">
+                <span className="eod-header-label">Period:</span>
+                <Calendar size={12} />
+                <span>
+                  {new Date(header.from).toLocaleString()} — {new Date(header.to).toLocaleString()}
+                </span>
+              </div>
+              <div className="eod-header-row eod-header-row-small">
+                <span className="eod-header-label">Printed:</span>
+                <span>{new Date(header.printedAt).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1: Payouts */}
+          <EoDSection
+            title="PAYOUTS"
+            rows={report.payouts}
+            totalLabel="Payouts Total"
+            total={grandTotals.payoutsTotal}
+          />
+
+          {/* Section 2: Tenders */}
+          <EoDSection
+            title="TENDER DETAILS"
+            rows={report.tenders}
+            totalLabel="Tenders Total"
+            total={grandTotals.tenderTotal}
+          />
+
+          {/* Section 3: Transactions */}
+          <EoDSection
+            title="TRANSACTIONS"
+            rows={report.transactions}
+            totalLabel={null}
+          />
+
+          {/* Reconciliation (shift mode only) */}
+          {report.reconciliation && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">CASH DRAWER RECONCILIATION</h3>
+              <table className="eod-table">
+                <tbody>
+                  <tr><td>Opening Amount</td><td className="eod-num">{fmt$(report.reconciliation.openingAmount)}</td></tr>
+                  <tr><td>+ Cash Collected</td><td className="eod-num">{fmt$(report.reconciliation.cashCollected)}</td></tr>
+                  <tr><td>− Cash Drops (Pickups)</td><td className="eod-num">{fmt$(report.reconciliation.cashDropsTotal)}</td></tr>
+                  <tr><td>− Cash Payouts</td><td className="eod-num">{fmt$(report.reconciliation.cashPayoutsTotal)}</td></tr>
+                  <tr className="eod-row-strong"><td>= Expected in Drawer</td><td className="eod-num">{fmt$(report.reconciliation.expectedInDrawer)}</td></tr>
+                  {report.reconciliation.closingAmount != null && (
+                    <>
+                      <tr><td>Closing (Counted)</td><td className="eod-num">{fmt$(report.reconciliation.closingAmount)}</td></tr>
+                      <tr className={`eod-row-strong ${Math.abs(report.reconciliation.variance) > 0.01 ? (report.reconciliation.variance < 0 ? 'eod-row-warn' : 'eod-row-ok') : ''}`}>
+                        <td>Variance</td><td className="eod-num">{fmt$(report.reconciliation.variance)}</td>
+                      </tr>
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="eod-footer">
+            <span>Storv POS · End of Day Report</span>
+            <span>Printed: {new Date(header.printedAt).toLocaleString()}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="eod-empty">
+          {loading ? 'Loading…' : 'Pick filters and click "Generate Report".'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Generic section component ──────────────────────────────────────────────
+function EoDSection({ title, rows, totalLabel, total }) {
+  return (
+    <div className="eod-section">
+      <h3 className="eod-section-title">{title}</h3>
+      <table className="eod-table">
+        <thead>
+          <tr>
+            <th className="eod-th">Type</th>
+            <th className="eod-th eod-th-num">Count</th>
+            <th className="eod-th eod-th-num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.key}>
+              <td>{r.label}</td>
+              <td className="eod-num">{r.count}</td>
+              <td className="eod-num">{fmt$(r.amount)}</td>
+            </tr>
+          ))}
+          {totalLabel && (
+            <tr className="eod-row-strong">
+              <td>{totalLabel}</td>
+              <td className="eod-num">—</td>
+              <td className="eod-num">{fmt$(total)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}

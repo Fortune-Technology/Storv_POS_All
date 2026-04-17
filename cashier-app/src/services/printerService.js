@@ -200,6 +200,151 @@ export const printReceiptNetwork = async (ip, port, receipt) => {
   });
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// END-OF-DAY REPORT — ESC/POS template for thermal printer
+// ─────────────────────────────────────────────────────────────────────────
+// Input shape must match the /api/reports/end-of-day response:
+//   { header, payouts[], tenders[], transactions[], reconciliation, totals }
+//
+// Paper width: 80mm = 42 chars (default) or 58mm = 32 chars
+//
+export const buildEoDReceiptString = (report, opts = {}) => {
+  const W = opts.paperWidth === '58mm' ? 32 : 42;
+  const money = (n) => {
+    if (n == null) return '—';
+    const v = Number(n);
+    if (!Number.isFinite(v)) return '—';
+    const sign = v < 0 ? '-' : '';
+    return `${sign}$${Math.abs(v).toFixed(2)}`;
+  };
+  const row = (left, right) => line(left, right, W);
+  const divider = '-'.repeat(W) + LF;
+  const hr = '='.repeat(W) + LF;
+
+  let r = '';
+  r += ESCPOS.INIT;
+  r += ESCPOS.ALIGN_CENTER;
+
+  // Header
+  if (report.header.storeName) {
+    r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE + report.header.storeName + LF + ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
+  }
+  if (report.header.storeAddress) r += report.header.storeAddress + LF;
+  if (report.header.storePhone)   r += report.header.storePhone + LF;
+  r += LF;
+  r += ESCPOS.BOLD_ON + 'END OF DAY REPORT' + LF + ESCPOS.BOLD_OFF;
+  r += hr;
+  r += ESCPOS.ALIGN_LEFT;
+
+  // Header details
+  if (report.header.stationName) r += row('Register:', report.header.stationName);
+  if (report.header.cashierName) r += row('Cashier:',  report.header.cashierName);
+  if (report.header.shiftId)     r += row('Shift:',    String(report.header.shiftId).slice(-8));
+
+  const fromStr = new Date(report.header.from).toLocaleString();
+  const toStr   = new Date(report.header.to).toLocaleString();
+  r += 'Period:' + LF;
+  r += '  ' + fromStr + LF;
+  r += '  ' + toStr + LF;
+  r += row('Printed:', new Date(report.header.printedAt).toLocaleString());
+  r += hr;
+
+  // ── Section 1: Payouts ────────────────────────────────────────────────
+  r += ESCPOS.BOLD_ON + 'PAYOUTS' + LF + ESCPOS.BOLD_OFF;
+  r += divider;
+  r += pad('Type', W - 18) + rpad('Count', 6) + rpad('Amount', 12) + LF;
+  r += divider;
+  let payoutsTotal = 0;
+  for (const p of (report.payouts || [])) {
+    r += pad(p.label, W - 18) + rpad(String(p.count), 6) + rpad(money(p.amount), 12) + LF;
+    payoutsTotal += Number(p.amount) || 0;
+  }
+  r += divider;
+  r += row('Payouts Total', money(payoutsTotal));
+  r += LF;
+
+  // ── Section 2: Tender Details ─────────────────────────────────────────
+  r += ESCPOS.BOLD_ON + 'TENDER DETAILS' + LF + ESCPOS.BOLD_OFF;
+  r += divider;
+  r += pad('Type', W - 18) + rpad('Count', 6) + rpad('Amount', 12) + LF;
+  r += divider;
+  let tenderTotal = 0;
+  for (const t of (report.tenders || [])) {
+    r += pad(t.label, W - 18) + rpad(String(t.count), 6) + rpad(money(t.amount), 12) + LF;
+    tenderTotal += Number(t.amount) || 0;
+  }
+  r += divider;
+  r += row('Tender Total', money(tenderTotal));
+  r += LF;
+
+  // ── Section 3: Transactions ───────────────────────────────────────────
+  r += ESCPOS.BOLD_ON + 'TRANSACTIONS' + LF + ESCPOS.BOLD_OFF;
+  r += divider;
+  r += pad('Type', W - 18) + rpad('Count', 6) + rpad('Amount', 12) + LF;
+  r += divider;
+  for (const tx of (report.transactions || [])) {
+    r += pad(tx.label, W - 18) + rpad(String(tx.count), 6) + rpad(money(tx.amount), 12) + LF;
+  }
+
+  // ── Reconciliation (shift only) ───────────────────────────────────────
+  if (report.reconciliation) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'CASH RECONCILIATION' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    r += row('Opening',     money(report.reconciliation.openingAmount));
+    r += row('+ Cash In',   money(report.reconciliation.cashCollected));
+    r += row('- Drops',     money(report.reconciliation.cashDropsTotal));
+    r += row('- Payouts',   money(report.reconciliation.cashPayoutsTotal));
+    r += divider;
+    r += ESCPOS.BOLD_ON + row('Expected',   money(report.reconciliation.expectedInDrawer)) + ESCPOS.BOLD_OFF;
+    if (report.reconciliation.closingAmount != null) {
+      r += row('Counted',     money(report.reconciliation.closingAmount));
+      r += ESCPOS.BOLD_ON + row('Variance',   money(report.reconciliation.variance)) + ESCPOS.BOLD_OFF;
+    }
+  }
+
+  r += LF + hr;
+  r += ESCPOS.ALIGN_CENTER;
+  r += 'End of Report' + LF;
+  r += ESCPOS.FEED_3;
+  r += ESCPOS.CUT_PARTIAL;
+  return r;
+};
+
+// ── Print EoD report — routes through QZ Tray (USB) or network-proxy ─────
+// Mirrors printReceiptQZ / printReceiptNetwork so the cashier-app can use
+// whichever printer transport is configured in hardware settings.
+export const printEoDReportQZ = async (printerName, report, paperWidth = '80mm') => {
+  if (!isQZConnected()) await connectQZ();
+  const data = buildEoDReceiptString(report, { paperWidth });
+  await printRaw(printerName, [data]);
+};
+
+export const printEoDReportNetwork = async (ip, port, report, paperWidth = '80mm') => {
+  const data = buildEoDReceiptString(report, { paperWidth });
+  await api.post('/pos-terminal/print-network', {
+    ip, port,
+    data: btoa(unescape(encodeURIComponent(data))),
+  });
+};
+
+// Top-level convenience dispatcher — picks transport based on config
+export const printEoDReport = async (config, report) => {
+  const method     = config?.receiptPrinter?.method || 'qz';
+  const qzName     = config?.receiptPrinter?.qzName || config?.receiptPrinter?.name;
+  const ip         = config?.receiptPrinter?.ip;
+  const port       = config?.receiptPrinter?.port || 9100;
+  const paperWidth = config?.receiptPrinter?.paperWidth || '80mm';
+
+  if (method === 'network') {
+    if (!ip) throw new Error('Receipt printer network IP not configured');
+    await printEoDReportNetwork(ip, port, report, paperWidth);
+    return;
+  }
+  if (!qzName) throw new Error('Receipt printer name not configured');
+  await printEoDReportQZ(qzName, report, paperWidth);
+};
+
 // ── Build ZPL shelf label ────────────────────────────────────────────────
 export const buildShelfLabelZPL = ({ productName = '', price = '0.00', upc = '', size = '' }) => `
 ^XA

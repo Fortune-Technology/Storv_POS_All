@@ -3,9 +3,12 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { X, Lock, TrendingDown, TrendingUp, Minus, Printer, CheckCircle, Delete } from 'lucide-react';
+import { X, Lock, TrendingDown, TrendingUp, Minus, Printer, CheckCircle, Delete, FileText } from 'lucide-react';
 import { useShiftStore } from '../../stores/useShiftStore.js';
 import { useAuthStore }  from '../../stores/useAuthStore.js';
+import { getEndOfDayReport as apiGetEoDReport } from '../../api/pos.js';
+import { printEoDReport } from '../../services/printerService.js';
+import { usePOSConfig }   from '../../hooks/usePOSConfig.js';
 import './CloseShiftModal.css';
 
 const fmt = (n) => (n == null ? '--' : `$${Number(n).toFixed(2)}`);
@@ -142,6 +145,7 @@ function ShiftReportPrintable({ report }) {
 export default function CloseShiftModal({ onClose, onClosed }) {
   const { shift, closeShift, loading, error, clearError } = useShiftStore();
   const logout = useAuthStore(s => s.logout);
+  const posConfig = usePOSConfig();
 
   const [mode, setMode] = useState('denominations');
   const [counts, setCounts] = useState(initCounts);
@@ -149,6 +153,8 @@ export default function CloseShiftModal({ onClose, onClosed }) {
   const [digits, setDigits] = useState('');
   const [note, setNote] = useState('');
   const [report, setReport] = useState(null);
+  const [printingEoD, setPrintingEoD] = useState(false);
+  const [eodError, setEodError] = useState(null);
 
   const denomTotal = useMemo(() => ALL.reduce((s, d) => s + d.value * (parseInt(counts[String(d.value)]) || 0), 0), [counts]);
   const manualAmount = parseInt(digits || '0') / 100;
@@ -179,6 +185,26 @@ export default function CloseShiftModal({ onClose, onClosed }) {
     if (result.ok) setReport(result.report);
   };
 
+  // Print the End-of-Day report to the THERMAL receipt printer (not window.print).
+  // Pulls the shift-scoped EoD report from the backend, routes through
+  // printerService which picks QZ-Tray (USB) or network-TCP based on POS config.
+  const handlePrintEoD = async () => {
+    const shiftId = report?.id || shift?.id;
+    if (!shiftId) { setEodError('No shift ID — can\'t build the EoD report'); return; }
+    setPrintingEoD(true);
+    setEodError(null);
+    try {
+      const eod = await apiGetEoDReport(shiftId);
+      await printEoDReport(posConfig, eod);
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Print failed';
+      setEodError(msg);
+      console.warn('[EoD print] failed:', err);
+    } finally {
+      setPrintingEoD(false);
+    }
+  };
+
   const numpadDisplay = mode === 'manual'
     ? `$${manualAmount.toFixed(2)}`
     : activeKey
@@ -199,9 +225,19 @@ export default function CloseShiftModal({ onClose, onClosed }) {
               </div>
             </div>
             <div className="csm-report-body"><ShiftReportBody report={report} /></div>
+            {eodError && (
+              <div className="csm-eod-error">
+                ⚠ Receipt printer error: {eodError}
+              </div>
+            )}
             <div className="csm-report-footer">
-              <button className="csm-btn-print" onClick={() => window.print()}>
-                <Printer size={15} /> Print
+              <button
+                className="csm-btn-print"
+                onClick={handlePrintEoD}
+                disabled={printingEoD}
+                title="Print full End-of-Day report (payouts, tenders, transactions) to the receipt printer"
+              >
+                <FileText size={15} /> {printingEoD ? 'Printing…' : 'Print EoD Receipt'}
               </button>
               <button className="csm-btn-done" onClick={() => { onClosed?.(report); onClose(); logout(); }}>
                 Done &amp; Sign Out

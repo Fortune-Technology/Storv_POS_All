@@ -443,6 +443,9 @@ export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data
 
 // ── Employee Reports & Clock Management ──────────────────────────────────────
 export const getEmployeeReport    = (params)     => api.get('/reports/employees',       { params }).then(r => r.data);
+// End-of-Day Report (Payouts / Tenders / Transactions)
+// Accepts { shiftId } OR { date, storeId, cashierId, stationId } OR { dateFrom, dateTo, ... }
+export const getEndOfDayReport    = (params)     => api.get('/reports/end-of-day',       { params }).then(r => r.data);
 export const getStoreEmployees    = (params)     => api.get('/reports/employees/list',  { params }).then(r => r.data);
 export const getClockEvents       = (params)     => api.get('/reports/clock-events',    { params }).then(r => r.data);
 export const createClockSession   = (data)       => api.post('/reports/clock-events',   data).then(r => r.data);

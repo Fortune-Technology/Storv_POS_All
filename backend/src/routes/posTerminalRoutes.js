@@ -104,6 +104,17 @@ router.post('/shift/:id/payout', ...guard, addPayout);
 router.get('/shift/:id/report',  ...guard, getShiftReport);
 router.put('/shift/:id/balance', ...guard, updateShiftBalance);
 
+// End-of-Day report — cashier-accessible alias (scoped to their shift by shiftId).
+// Back-office uses /api/reports/end-of-day with the same controller.
+import { getEndOfDayReport as _eodReport } from '../controllers/endOfDayReportController.js';
+router.get('/shift/:id/eod-report', ...guard, (req, res) => {
+  // Translate :id → ?shiftId= so the controller's resolveScope() finds it.
+  req.query.shiftId = req.params.id;
+  return _eodReport(req, res);
+});
+// Alternative: /pos-terminal/end-of-day?shiftId=… / ?date=… etc.
+router.get('/end-of-day',         ...guard, _eodReport);
+
 // Payout & Cash Drop reporting (back-office)
 router.get('/payouts',           ...guard, listPayouts);
 router.get('/cash-drops',        ...guard, listCashDrops);

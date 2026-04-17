@@ -423,6 +423,11 @@ export const listPayouts = async (req, res) => {
       : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
 
+    // Bug B4 fix: summary treats ONLY cash payouts (which are real expenses
+    // out of the drawer) as expenses. Cash drops (register pickups) are a
+    // separate movement — they do NOT count as expenses and are shown in
+    // their own endpoint (/cash-drops). The EoD report presents both
+    // separately.
     const totalExpense     = payouts.filter(p => p.payoutType !== 'merchandise').reduce((s, p) => s + Number(p.amount), 0);
     const totalMerchandise = payouts.filter(p => p.payoutType === 'merchandise').reduce((s, p) => s + Number(p.amount), 0);
 
@@ -435,10 +440,12 @@ export const listPayouts = async (req, res) => {
         shift:        undefined,
       })),
       summary: {
-        total:         totalExpense + totalMerchandise,
+        total:            totalExpense + totalMerchandise,
         totalExpense,
         totalMerchandise,
-        count:         payouts.length,
+        count:            payouts.length,
+        // Explicit clarification: cash drops are NOT included here
+        note: 'Summary includes only cash payouts (expenses + merchandise). Cash drops/pickups are separate — see /cash-drops.',
       },
     });
   } catch (err) {
