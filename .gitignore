@@ -27,3 +27,6 @@ dist-ssr
 package-lock.json
 # Added by code-review-graph
 .code-review-graph/
+
+# Claude Code internal worktrees
+.claude/worktrees/
