@@ -68,6 +68,7 @@ export default function TenderModal({
   initCashAmount = null,   // numeric dollar amount from quick-cash buttons
   cashRounding   = 'none',
   lotteryCashOnly = false,
+  fuelCashOnly    = false,
   bagFeeInfo     = null,   // { bagTotal, ebtEligible, discountable } | null
   bagCount       = 0,
   bagPrice       = 0,
@@ -94,7 +95,8 @@ export default function TenderModal({
 
   const totals = selectTotals(items, taxRules, effectiveCombinedDiscount, bagFeeInfo);
   const hasLotteryItems  = items.some(i => i.isLottery);
-  const allowedMethods   = (lotteryCashOnly && hasLotteryItems)
+  const hasFuelItems     = items.some(i => i.isFuel);
+  const allowedMethods   = ((lotteryCashOnly && hasLotteryItems) || (fuelCashOnly && hasFuelItems))
     ? METHODS.filter(m => m.id === 'cash')
     : METHODS;
   const cashier  = useAuthStore(s => s.cashier);
@@ -105,7 +107,7 @@ export default function TenderModal({
   const [splits,  setSplits]  = useState([]);
   // When lottery cash-only is enforced, always start on cash regardless of initMethod
   const [method,  setMethod]  = useState(
-    (lotteryCashOnly && hasLotteryItems)
+    ((lotteryCashOnly && hasLotteryItems) || (fuelCashOnly && hasFuelItems))
       ? 'cash'
       : (initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'))
   );
@@ -298,7 +300,7 @@ export default function TenderModal({
     }
 
     // Build line items, adding synthetic bag-fee entry if applicable
-    const txLineItems = items.filter(i => !i.isLottery);
+    const txLineItems = items.filter(i => !i.isLottery && !i.isFuel);
     if (bagCount > 0 && bagPrice > 0) {
       const bt = Math.round(bagCount * bagPrice * 100) / 100;
       txLineItems.push({
@@ -325,6 +327,16 @@ export default function TenderModal({
         amount: Math.abs(i.lineTotal),
         gameId: i.gameId || undefined,
         notes:  i.name,
+      })),
+      fuelItems: items.filter(i => i.isFuel).map(i => ({
+        type:           i.fuelType,                    // 'sale' | 'refund'
+        fuelTypeId:     i.fuelTypeId || undefined,
+        fuelTypeName:   i.fuelTypeName || 'Fuel',
+        gallons:        Math.abs(Number(i.gallons) || 0),
+        pricePerGallon: Math.abs(Number(i.pricePerGallon) || 0),
+        amount:         Math.abs(Number(i.lineTotal)  || 0),
+        entryMode:      i.entryMode || 'amount',
+        taxAmount:      Math.abs(Number(i.taxAmount)  || 0),
       })),
       tenderLines: finalLines,
       changeGiven: change,
@@ -449,7 +461,7 @@ export default function TenderModal({
   // SCREEN: CARD QUICK MODE (no numpad — just confirm)
   // Skipped when lottery cash-only is enforced — falls through to entry modal
   // ════════════════════════════════════════════════════════════════════════════
-  if (initMethod === 'card' && splits.length === 0 && !(lotteryCashOnly && hasLotteryItems)) {
+  if (initMethod === 'card' && splits.length === 0 && !(lotteryCashOnly && hasLotteryItems) && !(fuelCashOnly && hasFuelItems)) {
     const isWaiting  = payStatus === 'waiting';
     const isApproved = payStatus === 'approved';
     const isDeclined = payStatus === 'declined' || payStatus === 'error';
@@ -821,6 +833,11 @@ export default function TenderModal({
               {lotteryCashOnly && hasLotteryItems && (
                 <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   🎟️ Lottery items — cash only
+                </div>
+              )}
+              {fuelCashOnly && hasFuelItems && (
+                <div style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  ⛽ Fuel items — cash only
                 </div>
               )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

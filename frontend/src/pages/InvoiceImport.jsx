@@ -47,7 +47,7 @@ import { toast } from 'react-toastify';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS = {
-  processing: { label: 'Processing',      color: '#818cf8', bg: 'rgba(99,102,241,0.12)'  },
+  processing: { label: 'Processing',      color: 'var(--accent-secondary)', bg: 'var(--brand-12)'  },
   draft:      { label: 'Ready to Review', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   failed:     { label: 'Failed',          color: '#ef4444', bg: 'rgba(239,68,68,0.12)'   },
   synced:     { label: 'Synced',          color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
@@ -217,7 +217,7 @@ function InvoiceCard({ inv, selected, onOpen, onDelete }) {
           {inv.invoiceDate          && <span>{inv.invoiceDate}</span>}
           {inv.totalInvoiceAmount > 0 && <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{fmt(inv.totalInvoiceAmount)}</span>}
           {inv.lineItems?.length > 0 && <span>{inv.lineItems.length} items</span>}
-          {inv.status === 'processing' && <span style={{ color: '#818cf8' }}>AI is reading your invoice...</span>}
+          {inv.status === 'processing' && <span style={{ color: 'var(--accent-secondary)' }}>AI is reading your invoice...</span>}
           {inv.status === 'failed'     && <span style={{ color: '#ef4444' }}>{inv.processingError || 'Extraction failed'}</span>}
         </div>
       </div>
@@ -672,8 +672,8 @@ function ReviewPanel({
             const allSame = ids.length > 0 && ids.every(v => v === ids[0]);
             const commonVendorId = allSame ? (ids[0] || '') : '';
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', padding: '0.65rem 1rem' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', background: 'var(--brand-05)', border: '1px solid var(--brand-20)', borderRadius: '8px', padding: '0.65rem 1rem' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                   🏭 POS Vendor
                 </span>
                 <select
@@ -821,7 +821,7 @@ function ReviewPanel({
                           const filled = item.mappingStatus === 'unmatched'
                             ? 0
                             : (TIER_BARS[item.matchTier] ?? (item.confidence === 'high' ? 4 : item.confidence === 'medium' ? 3 : 2));
-                          const barColor = filled >= 4 ? '#10b981' : filled >= 3 ? '#818cf8' : filled >= 2 ? '#f59e0b' : '#ef4444';
+                          const barColor = filled >= 4 ? '#10b981' : filled >= 3 ? 'var(--accent-secondary)' : filled >= 2 ? '#f59e0b' : '#ef4444';
                           // Bar heights grow from left → right for filled, flat for empty
                           const heights = [5, 7, 9, 11, 13];
                           return (
@@ -850,7 +850,7 @@ function ReviewPanel({
                         {!readOnly && item.mappingStatus === 'unmatched' ? (
                           <div style={{ display: 'flex', gap: '3px' }} onClick={e => e.stopPropagation()}>
                             <button onClick={() => onOpenSearch(i, 'search')}
-                              style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '5px', padding: '3px 7px', cursor: 'pointer', fontSize: '0.67rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                              style={{ background: 'var(--brand-12)', border: '1px solid var(--brand-30)', borderRadius: '5px', padding: '3px 7px', cursor: 'pointer', fontSize: '0.67rem', color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap', fontWeight: 700 }}>
                               <Search size={10} /> Link
                             </button>
                             <button onClick={() => onOpenSearch(i, 'create')}
@@ -889,7 +889,7 @@ function ReviewPanel({
                       <div style={{ padding: '0 1rem 0.5rem', fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                         <span>📄 Invoice: <em>{item.originalVendorDescription}</em></span>
                         {item.originalItemCode && <span>Code: {item.originalItemCode}</span>}
-                        <span style={{ color: '#818cf8' }}>→ POS: {item.description}</span>
+                        <span style={{ color: 'var(--accent-secondary)' }}>→ POS: {item.description}</span>
                       </div>
                     )}
 
@@ -933,7 +933,7 @@ function ReviewPanel({
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.6rem' }}>This item won&apos;t be synced until linked to a product.</div>
                                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                   <button onClick={() => onOpenSearch(i, 'search')}
-                                    style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
+                                    style={{ background: 'var(--brand-12)', border: '1px solid var(--brand-30)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontSize: '0.78rem', color: 'var(--accent-secondary)', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
                                     <Search size={13} /> Search Existing Product
                                   </button>
                                   <button onClick={() => onOpenSearch(i, 'create')}
@@ -945,7 +945,7 @@ function ReviewPanel({
                             )}
                             <p style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.15rem' }}>
                               🏪 POS Fields
-                              {!readOnly && <span style={{ color: '#818cf8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}> — edits tracked in draft</span>}
+                              {!readOnly && <span style={{ color: 'var(--accent-secondary)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}> — edits tracked in draft</span>}
                             </p>
 
                             {/* Description + UPC */}
@@ -1148,14 +1148,14 @@ function ReviewPanel({
                   onClick={onAddItem}
                   style={{
                     width: '100%', padding: '0.6rem', marginTop: '0.25rem',
-                    background: 'rgba(99,102,241,0.06)', border: '1px dashed rgba(99,102,241,0.3)',
+                    background: 'var(--brand-05)', border: '1px dashed var(--brand-30)',
                     borderRadius: '10px', cursor: 'pointer', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', gap: '6px',
-                    fontSize: '0.82rem', fontWeight: 600, color: '#818cf8',
+                    fontSize: '0.82rem', fontWeight: 600, color: 'var(--accent-secondary)',
                     transition: 'background 0.15s, border-color 0.15s',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.06)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--brand-12)'; e.currentTarget.style.borderColor = 'var(--brand-40)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--brand-05)'; e.currentTarget.style.borderColor = 'var(--brand-30)'; }}
                 >
                   <Plus size={15} /> Add Line Item
                 </button>
@@ -1221,7 +1221,7 @@ function MultiPageModal({ files, onConfirm, onClose }) {
       }}>
         {/* Icon + title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--brand-12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <FileText size={22} color="var(--accent-primary)" />
           </div>
           <div>
@@ -2139,7 +2139,7 @@ const InvoiceImport = () => {
           </div>
           {invoices.length > 0 && (
             <div className="ii-dropzone-stats">
-              {stats.processing > 0 && <span className="ii-dropzone-stat" style={{ color: '#818cf8' }}><Loader size={13} className="ii-spin" /> {stats.processing} processing</span>}
+              {stats.processing > 0 && <span className="ii-dropzone-stat" style={{ color: 'var(--accent-secondary)' }}><Loader size={13} className="ii-spin" /> {stats.processing} processing</span>}
               {stats.draft      > 0 && <span className="ii-dropzone-stat" style={{ color: '#f59e0b' }}>{stats.draft} ready to review</span>}
               {stats.synced     > 0 && <span className="ii-dropzone-stat" style={{ color: '#10b981' }}>{stats.synced} synced</span>}
               {stats.failed     > 0 && <span className="ii-dropzone-stat" style={{ color: '#ef4444' }}>{stats.failed} failed</span>}

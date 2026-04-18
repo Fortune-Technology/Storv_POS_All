@@ -26,7 +26,7 @@ export function SetupGuide({ stage, storeCount, productCount, onDismiss }) {
 
   const variants = {
     0: { color: '#f59e0b', bgColor: '#f59e0b0d', border: '#f59e0b30', Icon: AlertTriangle, heading: 'Build your catalog now — products sync to stores automatically', sub: "Products you add are saved at the organization level. When you add a store, every product you've built will be ready there automatically. Start building your catalog first!" },
-    1: { color: '#6366f1', bgColor: '#6366f10d', border: '#6366f130', Icon: Package, heading: 'Your store is ready — now build your product catalog', sub: 'Start adding products. Every product you add will be automatically available at your store — no extra steps needed.' },
+    1: { color: 'var(--accent-primary)', bgColor: 'var(--brand-05)', border: 'var(--brand-30)', Icon: Package, heading: 'Your store is ready — now build your product catalog', sub: 'Start adding products. Every product you add will be automatically available at your store — no extra steps needed.' },
     2: { color: '#10b981', bgColor: '#10b9810d', border: '#10b98130', Icon: CheckCircle, heading: 'Looking good! Products are live at your store', sub: 'Your catalog products are available at your store. Use Store Inventory to set custom prices per location or track stock levels.' },
   };
 

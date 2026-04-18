@@ -182,6 +182,18 @@ export const getLotteryShiftReport = (shiftId) =>
 export const saveLotteryShiftReport = (data) =>
   api.post('/lottery/shift-reports', data).then(r => r.data);
 
+// ── Fuel ──────────────────────────────────────────────────────────────────────
+export const getFuelTypes = (storeId) =>
+  api.get('/fuel/types', { params: { storeId } })
+    .then(r => {
+      const d = r.data;
+      return Array.isArray(d) ? d : (d?.data ?? []);
+    });
+
+export const getFuelSettings = (storeId) =>
+  api.get('/fuel/settings', { params: { storeId } })
+    .then(r => r.data?.data ?? r.data);
+
 // ── Hardware config (receipt printer / cash drawer / scale) ───────────────
 export const saveHardwareConfig = (stationId, hardwareConfig, storeId) =>
   api.post('/payment/hardware', { stationId, hardwareConfig }, { headers: { 'x-store-id': storeId } }).then(r => r.data);

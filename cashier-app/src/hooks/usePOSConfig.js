@@ -39,6 +39,12 @@ export const DEFAULT_POS_CONFIG = {
     cashOnly:              false,
     scanRequiredAtShiftEnd: false,
   },
+  // Store-level age verification policy. Overrides per-product `ageRequired`
+  // for items whose taxClass matches. Configurable in back-office Store Settings.
+  ageLimits: {
+    tobacco: 21,
+    alcohol: 21,
+  },
   quickTender: ['card', 'cash', 'ebt'],
   vendorTenderMethods: [
     { id: 'cash',          label: 'Cash',              enabled: true  },
@@ -101,6 +107,10 @@ function mergeConfig(defaults, data) {
     lottery: {
       ...defaults.lottery,
       ...(data.lottery || {}),
+    },
+    ageLimits: {
+      ...defaults.ageLimits,
+      ...(data.ageLimits || {}),
     },
     hardware: {
       ...defaults.hardware,

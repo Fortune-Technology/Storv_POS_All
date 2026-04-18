@@ -40,6 +40,7 @@ import CloseShiftModal         from '../components/modals/CloseShiftModal.jsx';
 import CashDrawerModal         from '../components/modals/CashDrawerModal.jsx';
 import LotteryModal            from '../components/modals/LotteryModal.jsx';
 import LotteryShiftModal       from '../components/modals/LotteryShiftModal.jsx';
+import FuelModal                from '../components/modals/FuelModal.jsx';
 import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
@@ -63,6 +64,7 @@ import { useCatalogSync }    from '../hooks/useCatalogSync.js';
 import { useBranding }       from '../hooks/useBranding.js';
 import { useOnlineStatus }   from '../hooks/useOnlineStatus.js';
 import { usePOSConfig }      from '../hooks/usePOSConfig.js';
+import { useFuelSettings }   from '../hooks/useFuelSettings.js';
 import { useHardware }       from '../hooks/useHardware.js';
 import { useCustomerDisplayPublisher } from '../hooks/useBroadcastSync.js';
 import { useCartStore, selectTotals } from '../stores/useCartStore.js';
@@ -104,6 +106,7 @@ export default function POSScreen() {
   const { lookup }     = useProductLookup();
   const { manualSync } = useCatalogSync();
   const posConfig      = usePOSConfig();
+  const fuel           = useFuelSettings();
   const cashier        = useAuthStore(s => s.cashier);
 
   // ── Hardware (receipt printer, cash drawer) ──────────────────────────────
@@ -406,6 +409,8 @@ export default function POSScreen() {
   // Lottery modals
   const [showLottery,        setShowLottery]        = useState(false);
   const [showLotteryShift,   setShowLotteryShift]   = useState(false);
+  // Fuel modal
+  const [fuelModalMode,      setFuelModalMode]      = useState(null);  // null | 'sale' | 'refund'
   const [showBottleReturn,   setShowBottleReturn]   = useState(false);
   const [showVendorPayout,   setShowVendorPayout]   = useState(false);
   const [showHardwareSettings, setShowHardwareSettings] = useState(false);
@@ -556,19 +561,33 @@ export default function POSScreen() {
 
   // ── Age-check helper: skip if already verified this transaction ──────────
   const addWithAgeCheck = useCallback((product) => {
+    // Apply store-level age override for tobacco / alcohol items.
+    // Per-product `ageRequired` is overridden by the store-wide policy so
+    // cashiers always enforce the same minimum across the catalog.
+    const taxClass = (product.taxClass || product.department?.taxClass || '').toLowerCase();
+    const storeAge = taxClass === 'tobacco' ? posConfig.ageLimits?.tobacco
+                   : taxClass === 'alcohol' ? posConfig.ageLimits?.alcohol
+                   : null;
+    const effectiveAge = storeAge != null && storeAge > 0
+      ? storeAge
+      : (product.ageRequired || null);
+    const enforced = effectiveAge != null
+      ? { ...product, ageRequired: effectiveAge }
+      : product;
+
     // If age verification is disabled in store settings, skip check entirely
     if (!posConfig.ageVerification) {
-      addProduct(product);
+      addProduct(enforced);
       return;
     }
-    if (product.ageRequired && verifiedAges.includes(product.ageRequired)) {
-      addProduct(product); // same age threshold already cleared this transaction
-    } else if (product.ageRequired) {
-      requestAgeVerify(product);
+    if (enforced.ageRequired && verifiedAges.includes(enforced.ageRequired)) {
+      addProduct(enforced); // same age threshold already cleared this transaction
+    } else if (enforced.ageRequired) {
+      requestAgeVerify(enforced);
     } else {
-      addProduct(product);
+      addProduct(enforced);
     }
-  }, [posConfig.ageVerification, verifiedAges, addProduct, requestAgeVerify]);
+  }, [posConfig.ageVerification, posConfig.ageLimits, verifiedAges, addProduct, requestAgeVerify]);
 
   // ── Scan error toast ──────────────────────────────────────────────────────
   const [scanError, setScanError]           = useState(null);  // { upc, ts }
@@ -822,7 +841,7 @@ export default function POSScreen() {
     }
 
     const txNumber = `TXN-${Date.now().toString(36).toUpperCase()}`;
-    const txLineItems = items.filter(i => !i.isLottery);
+    const txLineItems = items.filter(i => !i.isLottery && !i.isFuel);
     if (bagCount > 0 && bagPrice > 0) {
       const bt = Math.round(bagCount * bagPrice * 100) / 100;
       txLineItems.push({
@@ -854,6 +873,16 @@ export default function POSScreen() {
         amount: Math.abs(i.lineTotal),
         gameId: i.gameId || undefined,
         notes:  i.name,
+      })),
+      fuelItems: items.filter(i => i.isFuel).map(i => ({
+        type:           i.fuelType,
+        fuelTypeId:     i.fuelTypeId || undefined,
+        fuelTypeName:   i.fuelTypeName || 'Fuel',
+        gallons:        Math.abs(Number(i.gallons) || 0),
+        pricePerGallon: Math.abs(Number(i.pricePerGallon) || 0),
+        amount:         Math.abs(Number(i.lineTotal)  || 0),
+        entryMode:      i.entryMode || 'amount',
+        taxAmount:      Math.abs(Number(i.taxAmount)  || 0),
       })),
       tenderLines: finalLines,
       changeGiven: change,
@@ -956,6 +985,23 @@ export default function POSScreen() {
       {shift?._crossedMidnight && (
         <div className="pos-midnight-warn">
           \u26A0 This shift was opened before midnight — please close it and open a new shift for today.
+        </div>
+      )}
+
+      {/* ── Age verification policy chips (store-level) ──────────────────── */}
+      {(posConfig.ageLimits?.tobacco > 0 || posConfig.ageLimits?.alcohol > 0) && (
+        <div className="pos-age-policy">
+          <span className="pos-age-policy-label">Age Policy:</span>
+          {posConfig.ageLimits?.tobacco > 0 && (
+            <span className="pos-age-chip pos-age-chip--tobacco">
+              Tobacco {posConfig.ageLimits.tobacco}+
+            </span>
+          )}
+          {posConfig.ageLimits?.alcohol > 0 && (
+            <span className="pos-age-chip pos-age-chip--alcohol">
+              Alcohol {posConfig.ageLimits.alcohol}+
+            </span>
+          )}
         </div>
       )}
 
@@ -1802,8 +1848,16 @@ export default function POSScreen() {
         onLottery={() => setShowLottery(true)}
         onLotteryShift={handleOpenLotteryShift}
         lotteryEnabled={posConfig.lottery?.enabled ?? true}
+        onFuelSale={() => setFuelModalMode('sale')}
+        onFuelRefund={() => setFuelModalMode('refund')}
+        fuelEnabled={fuel.settings?.enabled === true}
+        fuelRefundsEnabled={fuel.settings?.allowRefunds !== false}
         onBottleReturn={() => setShowBottleReturn(true)}
         onHardwareSettings={() => setShowHardwareSettings(true)}
+        onAdminPortal={() => {
+          const portalUrl = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5173';
+          window.open(`${portalUrl}/portal/realtime`, '_blank', 'noopener,noreferrer');
+        }}
         onCustomerDisplay={() => {
           if (window.electronAPI?.openCustomerDisplay) {
             window.electronAPI.openCustomerDisplay();
@@ -1889,6 +1943,7 @@ export default function POSScreen() {
           initCashAmount={tenderInitCash}
           cashRounding={posConfig.cashRounding || 'none'}
           lotteryCashOnly={posConfig.lottery?.cashOnly || false}
+          fuelCashOnly={fuel.settings?.cashOnly || false}
           bagFeeInfo={bagFeeInfo}
           bagCount={bagCount}
           bagPrice={bagPrice}
@@ -2051,6 +2106,16 @@ export default function POSScreen() {
         open={showLottery}
         games={lotteryGames}
         onClose={() => setShowLottery(false)}
+      />
+
+      {/* ── Fuel Modal (sale or refund) ── */}
+      <FuelModal
+        open={!!fuelModalMode}
+        mode={fuelModalMode || 'sale'}
+        fuelTypes={fuel.types}
+        defaultEntryMode={fuel.settings?.defaultEntryMode || 'amount'}
+        defaultFuelTypeId={fuel.settings?.defaultFuelTypeId}
+        onClose={() => setFuelModalMode(null)}
       />
       {showLotteryShift && (
         <LotteryShiftModal

@@ -24,6 +24,7 @@ import catalogRoutes     from './routes/catalogRoutes.js';
 import posTerminalRoutes from './routes/posTerminalRoutes.js';
 import reportsRoutes     from './routes/reportsRoutes.js';
 import lotteryRoutes     from './routes/lotteryRoutes.js';
+import fuelRoutes        from './routes/fuelRoutes.js';
 import loyaltyRoutes     from './routes/loyaltyRoutes.js';
 import dejavooPaymentRoutes from './routes/dejavooPaymentRoutes.js';
 import adminRoutes       from './routes/adminRoutes.js';
@@ -79,6 +80,12 @@ app.use(cors({
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
+// Static files — re-hosted product images
+app.use('/uploads/product-images', express.static(path.join(__dirname, '..', 'uploads', 'product-images'), {
+  maxAge: '30d',
+  immutable: true,
+}));
+
 // API routes
 app.use('/api/auth',         authRoutes);
 app.use('/api/tenants',      tenantRoutes);
@@ -95,6 +102,7 @@ app.use('/api/catalog',       catalogRoutes);
 app.use('/api/pos-terminal', posTerminalRoutes);
 app.use('/api/reports',      reportsRoutes);
 app.use('/api/lottery',      lotteryRoutes);
+app.use('/api/fuel',         fuelRoutes);
 app.use('/api/loyalty',      loyaltyRoutes);
 app.use('/api/payment/dejavoo', dejavooPaymentRoutes);
 app.use('/api/admin',        adminRoutes);

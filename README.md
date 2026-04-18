@@ -49,7 +49,7 @@ A modern, cloud-first retail management system for independent convenience, groc
 | Icons | Lucide React |
 | Backend | Node.js, Express 4 |
 | Database | **PostgreSQL 16** via Prisma 5 ORM |
-| Auth | JWT (2-hour access tokens, configurable via `JWT_ACCESS_TTL`) + bcryptjs (passwords & POS PINs) |
+| Auth | JWT (8-hour access tokens, configurable via `JWT_ACCESS_TTL`) + bcryptjs (passwords & POS PINs) |
 | Auth Hardening | DOMPurify XSS sanitization, in-memory rate limiting, server-side password/email/phone validators, `parsePrice` hardening |
 | File Handling | Multer, pdf2pic, csv-parser, fast-csv, xlsx |
 | OCR | Azure Document Intelligence + OpenAI GPT-4o-mini |
@@ -309,7 +309,7 @@ CORS_ORIGIN="http://localhost:5173,http://localhost:5174,http://localhost:5175,h
 
 # Auth (Session 18 hardening)
 JWT_SECRET="your-secret-key"           # must match ecom-backend JWT_SECRET
-JWT_ACCESS_TTL="2h"                    # access token expiry (default 2h)
+JWT_ACCESS_TTL="8h"                    # access token expiry (default 8h)
 APP_SECRET="your-app-secret-key"       # CardPointe credential encryption
 
 # Internal service-to-service (C-1 fix — required)
@@ -547,8 +547,19 @@ All routes require `Authorization: Bearer <token>` unless noted.
 | GET | `/settings` | manager+ | Get store lottery settings |
 | PUT | `/settings` | manager+ | Update store lottery settings |
 
+### Admin `/api/admin` (superadmin only)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/backup/:target` | Download database backup (main/ecom) |
+| GET | `/images/rehost-status` | Global image cache stats |
+| POST | `/images/rehost` | Re-host next batch of external images |
+
 ### Catalog `/api/catalog`
 CRUD for Departments, MasterProducts, StoreProducts, TaxRules, DepositRules, Promotions, Vendors.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/products/:id/image` | Upload product image (multer, 5MB max) |
 
 ### Reports `/api/reports`
 Sales reports, employee hours, department breakdowns.
@@ -602,6 +613,11 @@ Analytics with weather correlation, predictions.
 | `LotteryTransaction` | id, storeId, shiftId, type (sale/payout), amount, gameId, boxId, ticketCount, posTransactionId |
 | `LotteryShiftReport` | id, storeId, shiftId, machineAmount, scannedAmount, boxScans (JSON), totalSales, totalPayouts, netAmount, variance |
 | `LotterySettings` | id, storeId (unique), enabled, cashOnly, state, commissionRate, scanRequiredAtShiftEnd |
+
+### Product Image Cache
+| Model | Key Fields |
+|-------|-----------|
+| `GlobalProductImage` | strippedUpc (unique), originalUpc, imageUrl, rehostedUrl, source, productName, brand |
 
 ### Documents & OCR
 | Model | Key Fields |
@@ -826,7 +842,7 @@ Panels: Today's sales, hourly trend, top products, recent transactions, weather 
 
 ### JWT Auth
 - Token in `Authorization: Bearer <token>` header
-- **2-hour access token TTL** (was 30d — reduced in Session 18 / C-6). Override with `JWT_ACCESS_TTL` env var.
+- **8-hour access token TTL** (was 30d → 2h in Session 18, then 8h in Session 29). Override with `JWT_ACCESS_TTL` env var.
 - Payload: `{ id, orgId, role, storeIds[] }`
 - Middleware: `protect` (validates token) + `authorize(...roles)` (role check)
 - **Global 401 interceptor** in `frontend/src/services/api.js` clears stale session and redirects to `/login?session=expired&returnTo=...`
@@ -1353,7 +1369,8 @@ Storv_POS_All/
 │   │   ├── middleware/               # auth, scopeToTenant, attachPOSUser
 │   │   ├── controllers/
 │   │   │   ├── salesController.js    # Analytics + realtime + predictions
-│   │   │   ├── catalogController.js  # Product CRUD + label queue hooks
+│   │   │   ├── catalogController.js  # Product CRUD + label queue hooks + image fallback
+│   │   │   ├── backupController.js   # Database backup (pg_dump streaming)
 │   │   │   ├── orderController.js    # Purchase order lifecycle + PDF
 │   │   │   ├── paymentController.js  # CardPointe terminal charges
 │   │   │   ├── posTerminalController.js  # POS transactions + label printing
@@ -1363,6 +1380,8 @@ Storv_POS_All/
 │   │   ├── services/
 │   │   │   ├── salesService.js       # Prisma-native sales aggregation
 │   │   │   ├── orderEngine.js        # 14-factor auto-reorder algorithm
+│   │   │   ├── globalImageService.js # Cross-org product image cache by UPC
+│   │   │   ├── imageRehostService.js # Download external images to local storage
 │   │   │   ├── labelQueueService.js  # Label queue CRUD + auto-detection
 │   │   │   ├── weatherService.js     # Open-Meteo integration + caching
 │   │   │   ├── cardPointeService.js  # CardPointe gateway + terminal API
@@ -1450,6 +1469,53 @@ Storv_POS_All/
 ├── ENGINEERING_PRINCIPLES.md         # Development standards
 └── ECOMMERCE_GUIDE.md               # E-commerce module docs
 ```
+
+---
+
+### April 2026 — Session 29: Image System, Backup, UI Consistency
+
+#### Product Image System (3 Phases)
+- **Phase 1 — Import**: `imageUrl` field mapped during CSV/Excel bulk import (aliases: image, images, photourl, etc.)
+- **Phase 2 — Global UPC Cache**: `GlobalProductImage` table keyed by stripped UPC; auto-populated on import/create/update; cross-org image sharing via `batchResolveProductImages()`
+- **Phase 3 — Re-hosting**: Background download of external images to `backend/uploads/product-images/`; admin UI with stats + trigger button; protects against CDN deletion
+- **Product Form**: New image card with preview, URL input, file upload (5MB), remove button
+
+#### Database Backup (Admin Panel)
+- Manual pg_dump from System Config page — streams SQL directly to browser download
+- Auto-discovers `pg_dump.exe` on Windows (scans `C:\Program Files\PostgreSQL\{ver}\bin\`)
+- Supports both main DB and ecom DB; filename: `{db}-backup-DD-MM-YYYY.sql`
+
+#### UPC Normalization
+- New `stripUpc()` utility — removes ALL leading zeros for consistent cross-org matching
+- Existing `normalizeUPC()` (EAN-13) + `upcVariants()` (15+ format variants) unchanged
+
+#### Admin UI Consistency
+- Fixed table header background boxes (misused `.admin-header-icon` class)
+- Added `.admin-header-actions`, `.admin-name-cell`, `.admin-row-actions` classes
+- Standardized filter tab `border-radius: 8px` (was mixed pill/rectangle)
+- Replaced hardcoded colors with CSS variables across AdminTickets, AdminBilling, AdminPaymentSettings
+
+#### Button Hover Contrast
+- Fixed invisible-text-on-hover bug in 11 files — every active filter tab/button now has `.active:hover` guard
+
+#### CSS Variable Centralization
+- `--content-max-width: 1400px` (portal + admin), `--mkt-max-width: 1200px` (marketing) — 22 files updated
+- Horizontal scroll prevention: `overflow-x: hidden` on `.main-content`
+
+#### Mobile Responsiveness
+- Added 480px breakpoint: `.main-content` padding `0.625rem`, compact headers/tables/buttons
+- TaxRules/DepositRules: hardcoded colors → CSS variables
+- StoreSettings: 640px compact breakpoint
+
+#### Dashboard Showcase (Marketing Home)
+- 6-tab screenshot showcase in PC monitor mockup with side-by-side layout
+- Tabs: Live Dashboard, Analytics, Products, Transactions, Employees, Vendor Orders
+
+#### JWT TTL
+- Changed from 2h → 8h (full workday). `.env` + `.env.example` updated.
+
+#### Seed Script
+- New `seedToday.js` — generates 35-50 transactions for today with realistic hourly distribution
 
 ---
 

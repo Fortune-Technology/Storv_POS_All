@@ -44,35 +44,35 @@ datasource db {
 // Org-level product groupings (Beer, Wine, Grocery…)
 // ─────────────────────────────────────────────────
 model Department {
-  id              Int       @id @default(autoincrement())
-  orgId           String    // tenant isolation
-  name            String
-  code            String?   // "BEER", "WINE", "SPIRITS", "GROC", "TOBAC", "FOOD"
-  description     String?
+  id          Int     @id @default(autoincrement())
+  orgId       String // tenant isolation
+  name        String
+  code        String? // "BEER", "WINE", "SPIRITS", "GROC", "TOBAC", "FOOD"
+  description String?
 
   // Age verification
-  ageRequired     Int?      // minimum purchase age: 21 (alcohol), 18 (tobacco), null (none)
+  ageRequired Int? // minimum purchase age: 21 (alcohol), 18 (tobacco), null (none)
 
   // Tax / EBT
-  ebtEligible     Boolean   @default(false)
-  taxClass        String?   // "alcohol", "tobacco", "hot_food", "grocery", "none"
-  defaultTaxRate  Decimal?  @db.Decimal(6, 4) // override if no TaxRule matched
+  ebtEligible    Boolean  @default(false)
+  taxClass       String? // "alcohol", "tobacco", "hot_food", "grocery", "none"
+  defaultTaxRate Decimal? @db.Decimal(6, 4) // override if no TaxRule matched
 
   // Industry flags — restrict features by industry profile
   // e.g. bottle deposits only relevant for "liquor" / "grocery"
-  bottleDeposit   Boolean   @default(false)
+  bottleDeposit Boolean @default(false)
 
   // Display
-  sortOrder       Int       @default(0)
-  color           String?   // hex color for POS UI
-  showInPOS       Boolean   @default(true)  // whether dept appears as category filter in POS
-  active          Boolean   @default(true)
+  sortOrder Int     @default(0)
+  color     String? // hex color for POS UI
+  showInPOS Boolean @default(true) // whether dept appears as category filter in POS
+  active    Boolean @default(true)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  products        MasterProduct[]
-  productGroups   ProductGroup[]
+  products      MasterProduct[]
+  productGroups ProductGroup[]
 
   @@unique([orgId, code])
   @@index([orgId, active])
@@ -84,28 +84,28 @@ model Department {
 // Configurable tax rates per org / store / product class
 // ─────────────────────────────────────────────────
 model TaxRule {
-  id          Int       @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   orgId       String
-  storeId     String?   // null = org-wide default; set to override for a specific store
-  name        String    // "Maine State Food Tax", "Maine Alcohol Excise"
+  storeId     String? // null = org-wide default; set to override for a specific store
+  name        String // "Maine State Food Tax", "Maine Alcohol Excise"
   description String?
 
-  rate        Decimal   @db.Decimal(6, 4) // e.g. 0.0550 = 5.5%
+  rate Decimal @db.Decimal(6, 4) // e.g. 0.0550 = 5.5%
 
   // Which product classes this rule applies to
   // Stored as comma-separated string: "alcohol,spirits"
-  appliesTo   String    // "grocery", "alcohol", "tobacco", "hot_food", "all"
+  appliesTo String // "grocery", "alcohol", "tobacco", "hot_food", "all"
 
   // EBT: if true, EBT-eligible items are exempt from this tax
-  ebtExempt   Boolean   @default(true)
+  ebtExempt Boolean @default(true)
 
   // Geographic
-  state       String?   // "ME", "NH" — for multi-state support later
-  county      String?   // county-level tax if needed
+  state  String? // "ME", "NH" — for multi-state support later
+  county String? // county-level tax if needed
 
-  active      Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, appliesTo])
   @@map("tax_rules")
@@ -117,29 +117,29 @@ model TaxRule {
 // Maine: <24oz = $0.05, ≥24oz = $0.15
 // ─────────────────────────────────────────────────
 model DepositRule {
-  id              Int       @id @default(autoincrement())
-  orgId           String
-  name            String    // "Maine CRV Small", "Maine CRV Large"
-  description     String?
+  id          Int     @id @default(autoincrement())
+  orgId       String
+  name        String // "Maine CRV Small", "Maine CRV Large"
+  description String?
 
   // Volume range (oz) — null means no limit in that direction
-  minVolumeOz     Float?    // inclusive lower bound
-  maxVolumeOz     Float?    // exclusive upper bound (null = no max)
+  minVolumeOz Float? // inclusive lower bound
+  maxVolumeOz Float? // exclusive upper bound (null = no max)
 
   // Container types this rule applies to (comma-separated)
-  containerTypes  String    @default("bottle,can") // "bottle", "can", "carton", "jug"
+  containerTypes String @default("bottle,can") // "bottle", "can", "carton", "jug"
 
-  depositAmount   Decimal   @db.Decimal(10, 4)  // e.g. 0.05 or 0.15
+  depositAmount Decimal @db.Decimal(10, 4) // e.g. 0.05 or 0.15
 
   // Geographic
-  state           String?   // "ME"
+  state String? // "ME"
 
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  products        MasterProduct[]
-  productGroups   ProductGroup[]
+  products      MasterProduct[]
+  productGroups ProductGroup[]
 
   @@index([orgId, state])
   @@map("deposit_rules")
@@ -150,48 +150,48 @@ model DepositRule {
 // Supplier / distributor records
 // ─────────────────────────────────────────────────
 model Vendor {
-  id          Int       @id @default(autoincrement())
-  orgId       String
-  name        String
-  code        String?   // short code e.g. "HERSHEYS", "PINE-STATE"
+  id    Int     @id @default(autoincrement())
+  orgId String
+  name  String
+  code  String? // short code e.g. "HERSHEYS", "PINE-STATE"
 
   // Contact
   contactName String?
   email       String?
   phone       String?
-  address     Json?     // { street, city, state, zip }
+  address     Json? // { street, city, state, zip }
   website     String?
 
   // Terms
-  terms       String?   // "Net 30", "Net 14", "COD"
-  accountNo   String?   // our account number with this vendor
+  terms     String? // "Net 30", "Net 14", "COD"
+  accountNo String? // our account number with this vendor
 
   // Invoice import — link vendor aliases used in invoices
-  aliases     String[]  // ["Hershey's", "HERSHEY ICE CREAM"] for fuzzy matching
+  aliases String[] // ["Hershey's", "HERSHEY ICE CREAM"] for fuzzy matching
 
-  active      Boolean   @default(true)
+  active Boolean @default(true)
 
   // ── Ordering / Fulfillment ──
-  leadTimeDays          Int       @default(3)         // avg days from order to delivery
-  minOrderAmount        Decimal?  @db.Decimal(10, 2)  // minimum $ per order
-  orderFrequency        String    @default("weekly")  // "daily","weekly","biweekly","monthly"
-  deliveryDays          String[]  @default([])        // ["Monday","Thursday"]
-  lastOrderedAt         DateTime?
+  leadTimeDays   Int       @default(3) // avg days from order to delivery
+  minOrderAmount Decimal?  @db.Decimal(10, 2) // minimum $ per order
+  orderFrequency String    @default("weekly") // "daily","weekly","biweekly","monthly"
+  deliveryDays   String[]  @default([]) // ["Monday","Thursday"]
+  lastOrderedAt  DateTime?
 
   // ── Delivery scheduling ──
-  orderCutoffTime       String?                       // "14:00" — must order by this time for next delivery
-  orderCutoffDaysBefore Int       @default(1)         // order N days before delivery day
-  autoOrderEnabled      Boolean   @default(false)     // auto-generate draft POs
-  preferredServiceLevel String    @default("standard") // "critical","standard","low"
-  vendorNotes           String?                       // internal notes
+  orderCutoffTime       String? // "14:00" — must order by this time for next delivery
+  orderCutoffDaysBefore Int     @default(1) // order N days before delivery day
+  autoOrderEnabled      Boolean @default(false) // auto-generate draft POs
+  preferredServiceLevel String  @default("standard") // "critical","standard","low"
+  vendorNotes           String? // internal notes
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  products        MasterProduct[]
-  purchaseOrders  PurchaseOrder[]
-  vendorReturns   VendorReturn[]
-  productGroups   ProductGroup[]
+  products       MasterProduct[]
+  purchaseOrders PurchaseOrder[]
+  vendorReturns  VendorReturn[]
+  productGroups  ProductGroup[]
 
   @@unique([orgId, name])
   @@index([orgId, active])
@@ -204,29 +204,29 @@ model Vendor {
 // (Marlboro, Newport, Camel, etc.)
 // ─────────────────────────────────────────────────
 model RebateProgram {
-  id              Int       @id @default(autoincrement())
-  orgId           String
-  name            String    // "Marlboro Premium Retailer Rebate"
-  manufacturer    String    // "Philip Morris", "RJ Reynolds"
-  description     String?
+  id           Int     @id @default(autoincrement())
+  orgId        String
+  name         String // "Marlboro Premium Retailer Rebate"
+  manufacturer String // "Philip Morris", "RJ Reynolds"
+  description  String?
 
   // Which products qualify (can link to specific MasterProducts later)
-  qualifyingUpcs  String[]  // UPCs or SKUs this rebate applies to
+  qualifyingUpcs String[] // UPCs or SKUs this rebate applies to
 
   // Rebate structure
-  rebateType      String    // "per_unit", "percent_of_purchase", "fixed_monthly"
-  rebateAmount    Decimal   @db.Decimal(10, 4) // $ per unit OR percent OR fixed
+  rebateType   String // "per_unit", "percent_of_purchase", "fixed_monthly"
+  rebateAmount Decimal @db.Decimal(10, 4) // $ per unit OR percent OR fixed
 
-  minQtyPerMonth  Int?      // minimum units to qualify
-  maxQtyPerMonth  Int?      // cap per month
+  minQtyPerMonth Int? // minimum units to qualify
+  maxQtyPerMonth Int? // cap per month
 
   // Validity
-  startDate       DateTime?
-  endDate         DateTime?
-  active          Boolean   @default(true)
+  startDate DateTime?
+  endDate   DateTime?
+  active    Boolean   @default(true)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, active])
   @@map("rebate_programs")
@@ -239,121 +239,121 @@ model RebateProgram {
 // overrides live in StoreProduct.
 // ─────────────────────────────────────────────────
 model MasterProduct {
-  id                  Int           @id @default(autoincrement())
-  orgId               String
+  id    Int    @id @default(autoincrement())
+  orgId String
 
   // Identifiers
-  upc                 String?       // 7–14 digit barcode (primary scan key)
-  plu                 String?       // Price Look-Up (produce, bulk)
-  sku                 String?       // internal SKU / item code
-  itemCode            String?       // vendor item code (e.g. Hershey's code)
+  upc      String? // 7–14 digit barcode (primary scan key)
+  plu      String? // Price Look-Up (produce, bulk)
+  sku      String? // internal SKU / item code
+  itemCode String? // vendor item code (e.g. Hershey's code)
 
   // Display
-  name                String
-  description         String?       // long description for ecom / shelf tag
-  brand               String?
-  imageUrl            String?
+  name        String
+  description String? // long description for ecom / shelf tag
+  brand       String?
+  imageUrl    String?
 
   // Physical attributes
-  size                String?       // "12oz", "750ml", "1.75L", "1lb"
-  sizeUnit            String?       // "oz", "ml", "L", "lb", "g", "each"
-  pack                Int?          // total individual units per case (always = casePacks × sellUnitSize)
-  casePacks           Int?          // how many sell units come in a vendor case (e.g. 4 for "4 of 6pk")
-  sellUnitSize        Int?          // units per sell unit (1=single, 6=6pk, 18=18pk whole)
-  sellUnit            String?       // "each" | "pack" | "case"
+  size         String? // "12oz", "750ml", "1.75L", "1lb"
+  sizeUnit     String? // "oz", "ml", "L", "lb", "g", "each"
+  pack         Int? // total individual units per case (always = casePacks × sellUnitSize)
+  casePacks    Int? // how many sell units come in a vendor case (e.g. 4 for "4 of 6pk")
+  sellUnitSize Int? // units per sell unit (1=single, 6=6pk, 18=18pk whole)
+  sellUnit     String? // "each" | "pack" | "case"
   // Legacy aliases kept for backward compat:
-  innerPack           Int?          // alias for casePacks
-  unitsPerPack        Int?          // alias for sellUnitSize
-  weight              Decimal?      @db.Decimal(10, 4) // net weight for by-weight items
+  innerPack    Int? // alias for casePacks
+  unitsPerPack Int? // alias for sellUnitSize
+  weight       Decimal? @db.Decimal(10, 4) // net weight for by-weight items
 
   // Classification
-  departmentId        Int?
-  department          Department?   @relation(fields: [departmentId], references: [id])
-  vendorId            Int?
-  vendor              Vendor?       @relation(fields: [vendorId], references: [id])
-  productGroupId      Int?
-  productGroup        ProductGroup? @relation(fields: [productGroupId], references: [id])
+  departmentId   Int?
+  department     Department?   @relation(fields: [departmentId], references: [id])
+  vendorId       Int?
+  vendor         Vendor?       @relation(fields: [vendorId], references: [id])
+  productGroupId Int?
+  productGroup   ProductGroup? @relation(fields: [productGroupId], references: [id])
 
   // Tax
-  taxClass            String?       // "grocery", "alcohol", "tobacco", "hot_food", "none"
+  taxClass String? // "grocery", "alcohol", "tobacco", "hot_food", "none"
   // Tax rates resolved at checkout using TaxRule table; taxClass is the lookup key
 
   // Deposit / CRV
-  depositRuleId       Int?
-  depositRule         DepositRule?  @relation(fields: [depositRuleId], references: [id])
-  containerType       String?       // "bottle", "can", "carton" — used to match DepositRule
-  containerVolumeOz   Float?        // actual volume for deposit calculation
+  depositRuleId     Int?
+  depositRule       DepositRule? @relation(fields: [depositRuleId], references: [id])
+  containerType     String? // "bottle", "can", "carton" — used to match DepositRule
+  containerVolumeOz Float? // actual volume for deposit calculation
 
   // Pricing (org-level defaults; stores can override in StoreProduct)
-  defaultCostPrice    Decimal?      @db.Decimal(10, 4)
-  defaultRetailPrice  Decimal?      @db.Decimal(10, 4)
-  defaultCasePrice    Decimal?      @db.Decimal(10, 4)  // cost per case
+  defaultCostPrice   Decimal? @db.Decimal(10, 4)
+  defaultRetailPrice Decimal? @db.Decimal(10, 4)
+  defaultCasePrice   Decimal? @db.Decimal(10, 4) // cost per case
 
   // Selling method
-  byWeight            Boolean       @default(false)   // sold per lb/kg at scale
-  byUnit              Boolean       @default(true)
+  byWeight Boolean @default(false) // sold per lb/kg at scale
+  byUnit   Boolean @default(true)
 
   // Compliance flags
-  ebtEligible         Boolean       @default(false)
-  ageRequired         Int?          // 21 or 18; null = no age check
-  taxable             Boolean       @default(true)
-  discountEligible    Boolean       @default(true)
-  foodstamp           Boolean       @default(false)  // alias for ebtEligible
+  ebtEligible      Boolean @default(false)
+  ageRequired      Int? // 21 or 18; null = no age check
+  taxable          Boolean @default(true)
+  discountEligible Boolean @default(true)
+  foodstamp        Boolean @default(false) // alias for ebtEligible
 
   // Inventory management
-  trackInventory      Boolean       @default(true)
-  reorderPoint        Int?          // trigger reorder when stock hits this
-  reorderQty          Int?          // suggested order quantity
-  shelfLifeDays       Int?          // perishable items: days until expiry
-  serviceLevel        String        @default("standard")  // "critical","standard","low"
+  trackInventory Boolean @default(true)
+  reorderPoint   Int? // trigger reorder when stock hits this
+  reorderQty     Int? // suggested order quantity
+  shelfLifeDays  Int? // perishable items: days until expiry
+  serviceLevel   String  @default("standard") // "critical","standard","low"
 
   // ── Grocery / Scale features (enabled when store type = grocery) ──
-  wicEligible         Boolean       @default(false)      // WIC program eligibility
-  tareWeight          Decimal?      @db.Decimal(10, 4)   // tare weight for scale items (lbs)
-  scaleByCount        Boolean       @default(false)      // scale by count instead of weight
-  scalePluType        String?                            // CAS scale PLU type
-  ingredients         String?       @db.Text             // scale label ingredients list
-  nutritionFacts      String?       @db.Text             // scale nutrition data (JSON or text)
-  certCode            String?                            // "organic", "kosher", "halal", "gluten-free"
-  sectionId           Int?                               // sub-department / section
-  expirationDate      DateTime?                          // product expiry date
-  labelFormatId       Int?                               // electronic shelf label format number
+  wicEligible    Boolean   @default(false) // WIC program eligibility
+  tareWeight     Decimal?  @db.Decimal(10, 4) // tare weight for scale items (lbs)
+  scaleByCount   Boolean   @default(false) // scale by count instead of weight
+  scalePluType   String? // CAS scale PLU type
+  ingredients    String?   @db.Text // scale label ingredients list
+  nutritionFacts String?   @db.Text // scale nutrition data (JSON or text)
+  certCode       String? // "organic", "kosher", "halal", "gluten-free"
+  sectionId      Int? // sub-department / section
+  expirationDate DateTime? // product expiry date
+  labelFormatId  Int? // electronic shelf label format number
 
   // ── E-commerce extended ──
-  hideFromEcom        Boolean       @default(false)
-  ecomDescription     String?       // SEO-friendly description
-  ecomTags            String[]      // searchable tags
-  ecomExternalId      String?       // external ecom platform product ID
-  ecomPackWeight      Decimal?      @db.Decimal(10, 4)   // shipping weight
-  ecomPrice           Decimal?      @db.Decimal(10, 4)   // separate ecommerce price
-  ecomSalePrice       Decimal?      @db.Decimal(10, 4)   // ecommerce sale price
-  ecomOnSale          Boolean       @default(false)      // ecommerce sale flag
-  ecomSummary         String?       @db.Text             // ecommerce summary text
+  hideFromEcom    Boolean  @default(false)
+  ecomDescription String? // SEO-friendly description
+  ecomTags        String[] // searchable tags
+  ecomExternalId  String? // external ecom platform product ID
+  ecomPackWeight  Decimal? @db.Decimal(10, 4) // shipping weight
+  ecomPrice       Decimal? @db.Decimal(10, 4) // separate ecommerce price
+  ecomSalePrice   Decimal? @db.Decimal(10, 4) // ecommerce sale price
+  ecomOnSale      Boolean  @default(false) // ecommerce sale flag
+  ecomSummary     String?  @db.Text // ecommerce summary text
 
-  posLastSyncAt       DateTime?     // last time synced from/to POS
+  posLastSyncAt DateTime? // last time synced from/to POS
 
   // Status
-  active              Boolean       @default(true)
-  deleted             Boolean       @default(false)
+  active  Boolean @default(true)
+  deleted Boolean @default(false)
 
   // Simplified pack config (v2)
-  unitPack            Int?          // individual units in one sell unit (1=single, 6=6-pk, 12=12-pk)
-  packInCase          Int?          // sell units per vendor case (e.g. 4 means "4 × 6-packs per case")
+  unitPack   Int? // individual units in one sell unit (1=single, 6=6-pk, 12=12-pk)
+  packInCase Int? // sell units per vendor case (e.g. 4 means "4 × 6-packs per case")
 
   // Simplified deposit (v2)
-  depositPerUnit      Decimal?      @db.Decimal(10, 4)  // flat per-unit deposit
-  caseDeposit         Decimal?      @db.Decimal(10, 4)  // total deposit for a full vendor case
+  depositPerUnit Decimal? @db.Decimal(10, 4) // flat per-unit deposit
+  caseDeposit    Decimal? @db.Decimal(10, 4) // total deposit for a full vendor case
 
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  storeProducts       StoreProduct[]
-  upcs                ProductUpc[]
-  packSizes           ProductPackSize[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  vendorReturnItems       VendorReturnItem[]
-  inventoryAdjustments    InventoryAdjustment[]
-  labelQueueItems         LabelQueue[]
+  storeProducts        StoreProduct[]
+  upcs                 ProductUpc[]
+  packSizes            ProductPackSize[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  vendorReturnItems    VendorReturnItem[]
+  inventoryAdjustments InventoryAdjustment[]
+  labelQueueItems      LabelQueue[]
 
   @@index([orgId, upc])
   @@index([orgId, deleted, active])
@@ -370,54 +370,54 @@ model MasterProduct {
 // Bulk price / sale price changes cascade to all members.
 // ─────────────────────────────────────────────────
 model ProductGroup {
-  id                  Int       @id @default(autoincrement())
-  orgId               String
-  name                String    // "750ml Red Wine", "12oz Can Beer"
-  description         String?
-  color               String?   // UI chip color
+  id          Int     @id @default(autoincrement())
+  orgId       String
+  name        String // "750ml Red Wine", "12oz Can Beer"
+  description String?
+  color       String? // UI chip color
 
   // Classification template
-  departmentId        Int?
-  department          Department?   @relation(fields: [departmentId], references: [id])
-  vendorId            Int?
-  vendor              Vendor?       @relation(fields: [vendorId], references: [id])
-  taxClass            String?
-  ageRequired         Int?
-  ebtEligible         Boolean?
-  discountEligible    Boolean?
-  taxable             Boolean?
-  depositRuleId       Int?
-  depositRule         DepositRule?  @relation(fields: [depositRuleId], references: [id])
-  containerType       String?
-  containerVolumeOz   Decimal?      @db.Decimal(10, 2)
+  departmentId      Int?
+  department        Department?  @relation(fields: [departmentId], references: [id])
+  vendorId          Int?
+  vendor            Vendor?      @relation(fields: [vendorId], references: [id])
+  taxClass          String?
+  ageRequired       Int?
+  ebtEligible       Boolean?
+  discountEligible  Boolean?
+  taxable           Boolean?
+  depositRuleId     Int?
+  depositRule       DepositRule? @relation(fields: [depositRuleId], references: [id])
+  containerType     String?
+  containerVolumeOz Decimal?     @db.Decimal(10, 2)
 
   // Size / Pack template
-  size                String?
-  sizeUnit            String?
-  pack                Int?
-  casePacks           Int?
-  sellUnitSize        Int?
+  size         String?
+  sizeUnit     String?
+  pack         Int?
+  casePacks    Int?
+  sellUnitSize Int?
 
   // Pricing template
-  defaultCostPrice    Decimal?      @db.Decimal(10, 4)
-  defaultRetailPrice  Decimal?      @db.Decimal(10, 4)
-  defaultCasePrice    Decimal?      @db.Decimal(10, 4)
+  defaultCostPrice   Decimal? @db.Decimal(10, 4)
+  defaultRetailPrice Decimal? @db.Decimal(10, 4)
+  defaultCasePrice   Decimal? @db.Decimal(10, 4)
 
   // Sale pricing (applies to all members when active)
-  salePrice           Decimal?      @db.Decimal(10, 4)
-  saleStart           DateTime?
-  saleEnd             DateTime?
+  salePrice Decimal?  @db.Decimal(10, 4)
+  saleStart DateTime?
+  saleEnd   DateTime?
 
   // When true, changes to the group cascade to all member products.
   // When false, the group is a one-time template (manual apply).
-  autoSync            Boolean       @default(true)
+  autoSync Boolean @default(true)
 
-  active              Boolean       @default(true)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  products            MasterProduct[]
-  organization        Organization  @relation(fields: [orgId], references: [id])
+  products     MasterProduct[]
+  organization Organization    @relation(fields: [orgId], references: [id])
 
   @@unique([orgId, name])
   @@index([orgId, active])
@@ -429,15 +429,15 @@ model ProductGroup {
 // PRODUCT UPC  (multiple barcodes per product)
 // ─────────────────────────────────────────────────
 model ProductUpc {
-  id              String        @id @default(cuid())
+  id              String   @id @default(cuid())
   orgId           String
   masterProductId Int
   upc             String
-  label           String?       // optional description e.g. "12-Pack box"
-  isDefault       Boolean       @default(false)
-  createdAt       DateTime      @default(now())
+  label           String? // optional description e.g. "12-Pack box"
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
 
-  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, upc])
   @@index([orgId, masterProductId])
@@ -448,23 +448,44 @@ model ProductUpc {
 // PRODUCT PACK SIZE  (cashier picker at scan time)
 // ─────────────────────────────────────────────────
 model ProductPackSize {
-  id              String        @id @default(cuid())
+  id              String   @id @default(cuid())
   orgId           String
   masterProductId Int
-  label           String        // "Single", "6-Pack", "12-Pack"
-  unitCount       Int           @default(1)   // individual units in this pack
-  packsPerCase    Int?                        // how many of this pack come in one vendor case
-  retailPrice     Decimal       @db.Decimal(10, 4)
-  costPrice       Decimal?      @db.Decimal(10, 4)
-  isDefault       Boolean       @default(false)
-  sortOrder       Int           @default(0)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  label           String // "Single", "6-Pack", "12-Pack"
+  unitCount       Int      @default(1) // individual units in this pack
+  packsPerCase    Int? // how many of this pack come in one vendor case
+  retailPrice     Decimal  @db.Decimal(10, 4)
+  costPrice       Decimal? @db.Decimal(10, 4)
+  isDefault       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
 
   @@index([orgId, masterProductId])
   @@map("product_pack_sizes")
+}
+
+// ─────────────────────────────────────────────────
+// GLOBAL PRODUCT IMAGE  (cross-org image cache by UPC)
+// Shared image lookup: if a product has no imageUrl,
+// fall back to this table using stripped UPC.
+// ─────────────────────────────────────────────────
+model GlobalProductImage {
+  id            String    @id @default(cuid())
+  strippedUpc   String    @unique         // UPC with ALL leading zeros removed (match key)
+  originalUpc   String?                   // original UPC for audit / display
+  imageUrl      String                    // external or re-hosted image URL
+  rehostedUrl   String?                   // our CDN URL after re-hosting (Phase 3)
+  source        String    @default("import") // "import" | "manual" | "api"
+  productName   String?                   // denormalized name for admin display
+  brand         String?                   // denormalized brand
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([strippedUpc])
+  @@map("global_product_images")
 }
 
 // ─────────────────────────────────────────────────
@@ -473,44 +494,44 @@ model ProductPackSize {
 // settings for each product at each location.
 // ─────────────────────────────────────────────────
 model StoreProduct {
-  id                Int           @id @default(autoincrement())
-  storeId           String        // MongoDB Store._id
-  orgId             String
+  id      Int    @id @default(autoincrement())
+  storeId String // MongoDB Store._id
+  orgId   String
 
-  masterProductId   Int
-  masterProduct     MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  masterProductId Int
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
 
   // Price overrides (null = use MasterProduct default)
-  retailPrice       Decimal?      @db.Decimal(10, 4)
-  costPrice         Decimal?      @db.Decimal(10, 4)
-  casePrice         Decimal?      @db.Decimal(10, 4)
+  retailPrice Decimal? @db.Decimal(10, 4)
+  costPrice   Decimal? @db.Decimal(10, 4)
+  casePrice   Decimal? @db.Decimal(10, 4)
 
   // Sale / promo price
-  salePrice         Decimal?      @db.Decimal(10, 4)
-  saleStart         DateTime?
-  saleEnd           DateTime?
+  salePrice Decimal?  @db.Decimal(10, 4)
+  saleStart DateTime?
+  saleEnd   DateTime?
 
   // Stock
-  quantityOnHand    Decimal?      @db.Decimal(10, 2)   // Decimal supports by-weight (lbs)
-  quantityOnOrder   Decimal?      @db.Decimal(10, 2)
-  lastStockUpdate   DateTime?
-  lastReceivedAt    DateTime?
+  quantityOnHand  Decimal?  @db.Decimal(10, 2) // Decimal supports by-weight (lbs)
+  quantityOnOrder Decimal?  @db.Decimal(10, 2)
+  lastStockUpdate DateTime?
+  lastReceivedAt  DateTime?
 
   // Store-specific flags
-  active            Boolean       @default(true)
-  inStock           Boolean       @default(true)       // for quick ecom filtering
+  active  Boolean @default(true)
+  inStock Boolean @default(true) // for quick ecom filtering
 
   // Shelf info
-  aisle             String?
-  shelfLocation     String?
-  bin               String?
+  aisle         String?
+  shelfLocation String?
+  bin           String?
 
   // POS sync tracking
-  posLastSyncAt     DateTime?
-  posSyncSource     String?       // "itretail", "manual", "invoice"
+  posLastSyncAt DateTime?
+  posSyncSource String? // "itretail", "manual", "invoice"
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([storeId, masterProductId])
   @@index([storeId, orgId, active])
@@ -530,31 +551,31 @@ model StoreProduct {
 //   combo:      { productIds, comboPrice }
 // ─────────────────────────────────────────────────
 model Promotion {
-  id            Int       @id @default(autoincrement())
-  orgId         String
+  id    Int    @id @default(autoincrement())
+  orgId String
 
-  name          String
-  promoType     String    // "sale" | "bogo" | "volume" | "mix_match" | "combo"
-  description   String?
+  name        String
+  promoType   String // "sale" | "bogo" | "volume" | "mix_match" | "combo"
+  description String?
 
   // Scope — either specific products or entire departments
-  productIds    Int[]     // MasterProduct IDs this promo applies to
-  departmentIds Int[]     // Department IDs (broadens scope)
+  productIds    Int[] // MasterProduct IDs this promo applies to
+  departmentIds Int[] // Department IDs (broadens scope)
 
   // Deal configuration — shape depends on promoType
-  dealConfig    Json      @default("{}")
+  dealConfig Json @default("{}")
 
   // POS display
-  badgeLabel    String?   // e.g. "2 FOR $5", "BOGO", "BUY 6 SAVE 10%"
-  badgeColor    String?   // hex e.g. "#ef4444"
+  badgeLabel String? // e.g. "2 FOR $5", "BOGO", "BUY 6 SAVE 10%"
+  badgeColor String? // hex e.g. "#ef4444"
 
   // Validity window
-  startDate     DateTime?
-  endDate       DateTime?
-  active        Boolean   @default(true)
+  startDate DateTime?
+  endDate   DateTime?
+  active    Boolean   @default(true)
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, active])
   @@index([orgId, promoType])
@@ -566,36 +587,36 @@ model Promotion {
 // ─────────────────────────────────────────────────────────────
 
 model Transaction {
-  id               String    @id @default(cuid())
-  orgId            String
-  storeId          String
-  cashierId        String
-  stationId        String?
+  id        String  @id @default(cuid())
+  orgId     String
+  storeId   String
+  cashierId String
+  stationId String?
 
-  txNumber         String    // human-readable: "TXN-20240301-001423"
-  status           String    @default("complete") // "complete"|"voided"|"suspended"
+  txNumber String // human-readable: "TXN-20240301-001423"
+  status   String @default("complete") // "complete"|"voided"|"suspended"
 
-  lineItems        Json      // CartItem[] — denormalised snapshot at time of sale
-  subtotal         Decimal   @db.Decimal(10, 4)
-  taxTotal         Decimal   @db.Decimal(10, 4)
-  depositTotal     Decimal   @db.Decimal(10, 4)  @default(0)
-  ebtTotal         Decimal   @db.Decimal(10, 4)  @default(0)
-  grandTotal       Decimal   @db.Decimal(10, 4)
+  lineItems    Json // CartItem[] — denormalised snapshot at time of sale
+  subtotal     Decimal @db.Decimal(10, 4)
+  taxTotal     Decimal @db.Decimal(10, 4)
+  depositTotal Decimal @default(0) @db.Decimal(10, 4)
+  ebtTotal     Decimal @default(0) @db.Decimal(10, 4)
+  grandTotal   Decimal @db.Decimal(10, 4)
 
-  tenderLines      Json      // [{ method, amount }]
-  changeGiven      Decimal   @db.Decimal(10, 4)  @default(0)
+  tenderLines Json // [{ method, amount }]
+  changeGiven Decimal @default(0) @db.Decimal(10, 4)
 
-  ageVerifications Json?     // [{ productId, method, age, verifiedAt }]
+  ageVerifications Json? // [{ productId, method, age, verifiedAt }]
   notes            String?
 
   offlineCreatedAt DateTime? // set when created offline
   syncedAt         DateTime? // set when synced to server
-  refundOf         String?    // ID of original transaction (for refunds)
-  voidedAt         DateTime?  // timestamp when voided
-  voidedById       String?    // user ID who performed the void
+  refundOf         String? // ID of original transaction (for refunds)
+  voidedAt         DateTime? // timestamp when voided
+  voidedById       String? // user ID who performed the void
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, createdAt])
   @@index([orgId, cashierId])
@@ -610,15 +631,15 @@ model Transaction {
 // in the browser's localStorage so cashiers can PIN-in.
 // ─────────────────────────────────────────────────
 model Station {
-  id          String    @id @default(cuid())
-  orgId       String
-  storeId     String
-  name        String    // "Register 1", "Express Lane"
-  token       String    @unique  // long-lived station token — stored in POS localStorage
+  id             String    @id @default(cuid())
+  orgId          String
+  storeId        String
+  name           String // "Register 1", "Express Lane"
+  token          String    @unique // long-lived station token — stored in POS localStorage
   lastSeenAt     DateTime?
-  hardwareConfig   Json?     // Stores peripheral config: receipt printer, scale, PAX, label printer
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  hardwareConfig Json? // Stores peripheral config: receipt printer, scale, PAX, label printer
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([orgId, storeId])
   @@map("stations")
@@ -633,32 +654,32 @@ model Station {
 // Top-level billing / account entity.
 // ─────────────────────────────────────────────────
 model Organization {
-  id            String    @id @default(cuid())
-  name          String
-  slug          String    @unique           // URL-safe identifier
-  plan          String    @default("trial") // "trial" | "starter" | "pro" | "enterprise"
-  billingEmail  String?
-  trialEndsAt   DateTime?
-  maxStores     Int       @default(1)
-  maxUsers      Int       @default(3)
-  ratePerStation Decimal? @db.Decimal(10, 2)
+  id             String    @id @default(cuid())
+  name           String
+  slug           String    @unique // URL-safe identifier
+  plan           String    @default("trial") // "trial" | "starter" | "pro" | "enterprise"
+  billingEmail   String?
+  trialEndsAt    DateTime?
+  maxStores      Int       @default(1)
+  maxUsers       Int       @default(3)
+  ratePerStation Decimal?  @db.Decimal(10, 2)
 
   // Org-wide preferences stored as JSONB
   // { timezone, currency, defaultTaxRate, receiptFooter, loyaltyEnabled }
-  settings      Json      @default("{}")
+  settings Json @default("{}")
 
   isActive      Boolean   @default(true)
   deactivatedAt DateTime?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users           User[]
-  stores          Store[]
-  subscription    OrgSubscription?
-  purchaseOrders  PurchaseOrder[]
-  vendorReturns   VendorReturn[]
-  productGroups   ProductGroup[]
+  users          User[]
+  stores         Store[]
+  subscription   OrgSubscription?
+  purchaseOrders PurchaseOrder[]
+  vendorReturns  VendorReturn[]
+  productGroups  ProductGroup[]
 
   @@map("organizations")
 }
@@ -669,36 +690,36 @@ model Organization {
 // May have access to multiple stores via UserStore.
 // ─────────────────────────────────────────────────
 model User {
-  id                  String       @id @default(cuid())
-  orgId               String
-  organization        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  name                String
-  email               String       @unique
-  phone               String?
-  password            String       // bcrypt hash — never select by default in queries
-  posPin              String?      // bcrypt hash of 4–6 digit POS PIN
+  name     String
+  email    String  @unique
+  phone    String?
+  password String // bcrypt hash — never select by default in queries
+  posPin   String? // bcrypt hash of 4–6 digit POS PIN
 
-  role                String       @default("staff") // "superadmin" | "admin" | "manager" | "staff"
-  status              String       @default("active") // "pending" | "active" | "suspended"
+  role   String @default("staff") // "superadmin" | "admin" | "manager" | "staff"
+  status String @default("active") // "pending" | "active" | "suspended"
 
   // Default store location (used for weather, etc.)
-  storeLatitude       Float?
-  storeLongitude      Float?
-  storeTimezone       String?
-  storeAddress        String?
+  storeLatitude  Float?
+  storeLongitude Float?
+  storeTimezone  String?
+  storeAddress   String?
 
   // Password reset flow
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
 
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  stores              UserStore[]
-  invoices            Invoice[]
-  documents           Document[]
-  posToken            PosToken?
+  stores    UserStore[]
+  invoices  Invoice[]
+  documents Document[]
+  posToken  PosToken?
 
   @@index([orgId, role])
   @@index([orgId, email])
@@ -723,38 +744,38 @@ model UserStore {
 // Physical retail location within an org.
 // ─────────────────────────────────────────────────
 model Store {
-  id                    String       @id @default(cuid())
-  orgId                 String
-  organization          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  ownerId               String?      // User.id of the store owner / manager
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerId      String? // User.id of the store owner / manager
 
   name                  String
   latitude              Float?
   longitude             Float?
   timezone              String?
   address               String?
-  stationCount          Int          @default(1)
-  monthlyRatePerStation Decimal?     @db.Decimal(10, 2)
+  stationCount          Int      @default(1)
+  monthlyRatePerStation Decimal? @db.Decimal(10, 2)
 
   // POS integration credentials — stored as JSONB so we can support
   // multiple POS systems without schema changes.
   // Shape: { type, username, password, storeCode, chainCode, locationId,
   //          merchantId, restaurantGuid, apiKey }
-  pos                   Json?
+  pos Json?
 
-  isActive              Boolean      @default(true)
-  branding              Json?        @default("{}")
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
+  isActive  Boolean  @default(true)
+  branding  Json?    @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users                 UserStore[]
-  customers             Customer[]
-  invoices              Invoice[]
-  documents             Document[]
-  posTokens             PosToken[]
-  posLogs               PosLog[]
-  feeMappings           FeeMapping[]
-  vendorProductMaps     VendorProductMap[]
+  users             UserStore[]
+  customers         Customer[]
+  invoices          Invoice[]
+  documents         Document[]
+  posTokens         PosToken[]
+  posLogs           PosLog[]
+  feeMappings       FeeMapping[]
+  vendorProductMaps VendorProductMap[]
 
   @@index([orgId, isActive])
   @@map("stores")
@@ -769,43 +790,43 @@ model Store {
 // Loyalty / house-account customer.
 // ─────────────────────────────────────────────────
 model Customer {
-  id                   String   @id @default(cuid())
-  orgId                String
-  storeId              String?
-  store                Store?   @relation(fields: [storeId], references: [id])
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
 
   // Name fields — some POS systems provide split, some combined
-  name                 String?
-  firstName            String?
-  lastName             String?
-  email                String?
-  phone                String?
+  name      String?
+  firstName String?
+  lastName  String?
+  email     String?
+  phone     String?
 
   // Storefront auth (nullable — POS-only customers have no password)
-  passwordHash         String?
-  addresses            Json     @default("[]")
+  passwordHash String?
+  addresses    Json    @default("[]")
 
   // Loyalty
-  loyaltyPoints        Int      @default(0)
+  loyaltyPoints Int  @default(0)
   // Array of { date, points, reason, balance } — JSONB for flexibility
-  pointsHistory        Json     @default("[]")
+  pointsHistory Json @default("[]")
 
   // POS-synced fields
   posCustomerId        String?
   cardNo               String?
-  discount             Decimal? @db.Decimal(5, 4)  // e.g. 0.0500 = 5%
+  discount             Decimal? @db.Decimal(5, 4) // e.g. 0.0500 = 5%
   balance              Decimal? @db.Decimal(10, 2)
   balanceLimit         Decimal? @db.Decimal(10, 2)
   instoreChargeEnabled Boolean  @default(false)
 
-  birthDate            DateTime?
-  expirationDate       DateTime?
+  birthDate      DateTime?
+  expirationDate DateTime?
 
-  deleted              Boolean  @default(false)
-  posSyncedAt          DateTime?
+  deleted     Boolean   @default(false)
+  posSyncedAt DateTime?
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, deleted])
   @@index([orgId, email])
@@ -820,64 +841,64 @@ model Customer {
 // pages     → JSONB array of page image paths / Azure page metadata
 // ─────────────────────────────────────────────────
 model Invoice {
-  id                  String   @id @default(cuid())
-  orgId               String
-  storeId             String?
-  store               Store?   @relation(fields: [storeId], references: [id])
-  userId              String?
-  user                User?    @relation(fields: [userId], references: [id])
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id])
 
-  fileName            String?
-  fileType            String?  // "pdf" | "image" | "csv"
+  fileName String?
+  fileType String? // "pdf" | "image" | "csv"
 
   // Header fields extracted by OCR
-  vendorName          String?
-  vendorId            Int?      // resolved Vendor FK — powers vendor-scoped item-code matching
-  customerNumber      String?
-  invoiceNumber       String?
-  invoiceDate         DateTime?
-  paymentDueDate      DateTime?
-  paymentType         String?
-  checkNumber         String?
+  vendorName     String?
+  vendorId       Int? // resolved Vendor FK — powers vendor-scoped item-code matching
+  customerNumber String?
+  invoiceNumber  String?
+  invoiceDate    DateTime?
+  paymentDueDate DateTime?
+  paymentType    String?
+  checkNumber    String?
 
   // Financial summary
-  totalInvoiceAmount  Decimal? @db.Decimal(10, 2)
-  tax                 Decimal? @db.Decimal(10, 2)
-  totalDiscount       Decimal? @db.Decimal(10, 2)
-  totalDeposit        Decimal? @db.Decimal(10, 2)
-  otherFees           Decimal? @db.Decimal(10, 2)
+  totalInvoiceAmount Decimal? @db.Decimal(10, 2)
+  tax                Decimal? @db.Decimal(10, 2)
+  totalDiscount      Decimal? @db.Decimal(10, 2)
+  totalDeposit       Decimal? @db.Decimal(10, 2)
+  otherFees          Decimal? @db.Decimal(10, 2)
 
   // Quantity summary
-  totalCasesReceived  Decimal? @db.Decimal(10, 2)
-  totalUnitsReceived  Decimal? @db.Decimal(10, 2)
+  totalCasesReceived Decimal? @db.Decimal(10, 2)
+  totalUnitsReceived Decimal? @db.Decimal(10, 2)
 
   // Personnel
-  driverName          String?
-  salesRepName        String?
-  loadNumber          String?
+  driverName   String?
+  salesRepName String?
+  loadNumber   String?
 
   // Page images / Azure page results (array of objects)
-  pages               Json     @default("[]")
+  pages Json @default("[]")
 
   // Line items — complex, vendor-specific shape
   // Each item may have: description, upc, sku, qty, caseQty, unitQty,
   // unitCost, caseCost, retailPrice, deposit, discount, tax, total, etc.
-  lineItems           Json     @default("[]")
+  lineItems Json @default("[]")
 
   // Processing state
-  status              String   @default("pending") // "pending" | "processing" | "complete" | "error"
-  processingError     String?
-  rawText             String?  @db.Text
+  status          String  @default("pending") // "pending" | "processing" | "complete" | "error"
+  processingError String?
+  rawText         String? @db.Text
 
   // Match accuracy tracking
-  matchStats          Json?    // { total, matched, unmatched, byTier: {upc, vendorMap, fuzzy, ai, manual, costProx, global}, avgConfidence }
+  matchStats Json? // { total, matched, unmatched, byTier: {upc, vendorMap, fuzzy, ai, manual, costProx, global}, avgConfidence }
 
   // PO linkage — auto-matched after OCR
   linkedPurchaseOrderId String?
-  poMatchResult         Json?    // { matchedPO, matchedItems, costVariances, summary }
+  poMatchResult         Json? // { matchedPO, matchedItems, costVariances, summary }
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([orgId, invoiceDate])
@@ -892,17 +913,17 @@ model Invoice {
 // internal fee types for consistent reporting.
 // ─────────────────────────────────────────────────
 model FeeMapping {
-  id           String   @id @default(cuid())
-  orgId        String
-  storeId      String?
-  store        Store?   @relation(fields: [storeId], references: [id])
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
 
-  feeType      String   // "bottle_deposit" | "bag_fee" | "alcohol_surcharge"
-  mappedValue  String   // the raw label as it appears in invoices / POS
-  description  String?
+  feeType     String // "bottle_deposit" | "bag_fee" | "alcohol_surcharge"
+  mappedValue String // the raw label as it appears in invoices / POS
+  description String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([orgId, storeId, feeType, mappedValue])
   @@index([orgId, storeId])
@@ -914,18 +935,18 @@ model FeeMapping {
 // Cached POS auth token per user (one per user max).
 // ─────────────────────────────────────────────────
 model PosToken {
-  id        String    @id @default(cuid())
-  orgId     String
-  storeId   String?
-  store     Store?    @relation(fields: [storeId], references: [id])
-  userId    String    @unique
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
+  userId  String  @unique
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   token     String    @db.Text
   expiresAt DateTime?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("pos_tokens")
@@ -938,18 +959,18 @@ model PosToken {
 // (equivalent to MongoDB TTL index).
 // ─────────────────────────────────────────────────
 model PosLog {
-  id         Int      @id @default(autoincrement())
-  orgId      String
-  storeId    String?
-  store      Store?   @relation(fields: [storeId], references: [id])
+  id      Int     @id @default(autoincrement())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
 
   endpoint   String
-  method     String   // "GET" | "POST" | "PUT" | "DELETE"
-  status     String   // "success" | "error"
+  method     String // "GET" | "POST" | "PUT" | "DELETE"
+  status     String // "success" | "error"
   statusCode Int?
   message    String?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([orgId, storeId, createdAt])
   @@map("pos_logs")
@@ -961,22 +982,22 @@ model PosLog {
 // Unique on (date, latitude, longitude).
 // ─────────────────────────────────────────────────
 model WeatherCache {
-  id               Int      @id @default(autoincrement())
-  date             String   // "YYYY-MM-DD"
-  latitude         Float
-  longitude        Float
+  id        Int    @id @default(autoincrement())
+  date      String // "YYYY-MM-DD"
+  latitude  Float
+  longitude Float
 
   temperatureMax   Float?
   temperatureMin   Float?
   temperatureMean  Float?
   precipitationSum Float?
   weatherCode      Int?
-  condition        String?  // "sunny" | "rainy" | "snowy" | "cloudy"
+  condition        String? // "sunny" | "rainy" | "snowy" | "cloudy"
   windSpeedMax     Float?
   humidity         Float?
 
-  source           String?  // "open-meteo" | "noaa"
-  fetchedAt        DateTime @default(now())
+  source    String? // "open-meteo" | "noaa"
+  fetchedAt DateTime @default(now())
 
   @@unique([date, latitude, longitude])
   @@index([date])
@@ -990,22 +1011,22 @@ model WeatherCache {
 // extractedFields → flexible JSONB per docType.
 // ─────────────────────────────────────────────────
 model Document {
-  id              String   @id @default(cuid())
-  orgId           String
-  storeId         String?
-  store           Store?   @relation(fields: [storeId], references: [id])
-  userId          String?
-  user            User?    @relation(fields: [userId], references: [id])
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id])
 
   fileName        String
-  fileType        String?  // "pdf" | "image" | "csv"
-  docType         String?  // "invoice" | "contract" | "receipt" | "other"
-  extractedFields Json?    // shape varies by docType — kept as JSONB
-  confidence      Float?   // overall OCR confidence score 0.0–1.0
+  fileType        String? // "pdf" | "image" | "csv"
+  docType         String? // "invoice" | "contract" | "receipt" | "other"
+  extractedFields Json? // shape varies by docType — kept as JSONB
+  confidence      Float? // overall OCR confidence score 0.0–1.0
 
-  uploadedAt      DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  uploadedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([orgId, storeId, docType])
   @@map("documents")
@@ -1017,26 +1038,26 @@ model Document {
 // Built up over time from invoice processing.
 // ─────────────────────────────────────────────────
 model VendorProductMap {
-  id                String    @id @default(cuid())
-  orgId             String
-  storeId           String?
-  store             Store?    @relation(fields: [storeId], references: [id])
+  id      String  @id @default(cuid())
+  orgId   String
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
 
   vendorName        String
   vendorItemCode    String
   vendorDescription String?
 
   // Matched POS product
-  posProductId      String?
-  posUPC            String?
-  posName           String?
+  posProductId String?
+  posUPC       String?
+  posName      String?
 
-  matchTier         String?   // "exact" | "fuzzy" | "manual"
-  confirmedCount    Int       @default(0)  // how many times confirmed correct
-  lastSeenAt        DateTime?
+  matchTier      String? // "exact" | "fuzzy" | "manual"
+  confirmedCount Int       @default(0) // how many times confirmed correct
+  lastSeenAt     DateTime?
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([orgId, storeId, vendorName, vendorItemCode])
   @@index([orgId, storeId, vendorName])
@@ -1053,23 +1074,23 @@ model VendorProductMap {
 // Tracks uploaded CSV/Excel files before transform.
 // ─────────────────────────────────────────────────
 model Upload {
-  id           String    @id @default(cuid())
-  uploadId     String    @unique  // legacy UUID from original app
+  id       String @id @default(cuid())
+  uploadId String @unique // legacy UUID from original app
 
   filename     String
   originalPath String?
   fileType     String?
   fileSize     Int?
   rowCount     Int?
-  columns      Json      @default("[]")  // String[] — column headers
-  preview      Json?     // first N rows as array of objects
+  columns      Json    @default("[]") // String[] — column headers
+  preview      Json? // first N rows as array of objects
   vendorId     String?
-  status       String    @default("pending") // "pending" | "processing" | "complete" | "error"
+  status       String  @default("pending") // "pending" | "processing" | "complete" | "error"
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  transforms   Transform[]
+  transforms Transform[]
 
   @@map("uploads")
 }
@@ -1079,24 +1100,24 @@ model Upload {
 // Result of a CSV transformation run.
 // ─────────────────────────────────────────────────
 model Transform {
-  id            String    @id @default(cuid())
-  transformId   String    @unique  // legacy UUID
+  id          String @id @default(cuid())
+  transformId String @unique // legacy UUID
 
-  uploadId      String
-  upload        Upload    @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  uploadId String
+  upload   Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   depositMapId  String?
   outputPath    String?
-  outputFormat  String?   // "csv" | "xlsx"
+  outputFormat  String? // "csv" | "xlsx"
   vendorId      String?
   rowsProcessed Int?
-  warnings      Json      @default("[]")  // String[] — non-fatal issues
+  warnings      Json      @default("[]") // String[] — non-fatal issues
   status        String    @default("pending")
   error         String?
   completedAt   DateTime?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("transforms")
 }
@@ -1107,16 +1128,16 @@ model Transform {
 // mappings → JSONB object: { [itemCode]: depositAmount }
 // ─────────────────────────────────────────────────
 model DepositMap {
-  id            String   @id @default(cuid())
-  depositMapId  String   @unique  // legacy UUID
+  id           String @id @default(cuid())
+  depositMapId String @unique // legacy UUID
 
   filename      String
   filePath      String?
-  mappings      Json     @default("{}")  // { itemCode: depositAmount }
-  totalMappings Int      @default(0)
+  mappings      Json    @default("{}") // { itemCode: depositAmount }
+  totalMappings Int     @default(0)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("deposit_maps")
 }
@@ -1126,40 +1147,40 @@ model DepositMap {
 // Cash drawer open/close session per register per day.
 // ─────────────────────────────────────────────────
 model Shift {
-  id                   String       @id @default(cuid())
-  orgId                String
-  storeId              String
-  stationId            String?      // which register
-  cashierId            String       // who opened
-  closedById           String?      // who closed
+  id         String  @id @default(cuid())
+  orgId      String
+  storeId    String
+  stationId  String? // which register
+  cashierId  String // who opened
+  closedById String? // who closed
 
-  status               String       @default("open")  // "open" | "closed"
-  openedAt             DateTime     @default(now())
-  closedAt             DateTime?
+  status   String    @default("open") // "open" | "closed"
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
 
   // Opening count
-  openingAmount        Decimal      @db.Decimal(10, 4)
-  openingDenominations Json?        // { "100": 2, "20": 5, "1": 3, "0.25": 8, ... }
+  openingAmount        Decimal @db.Decimal(10, 4)
+  openingDenominations Json? // { "100": 2, "20": 5, "1": 3, "0.25": 8, ... }
   openingNote          String?
 
   // Closing count (filled in when shift is closed)
-  closingAmount        Decimal?     @db.Decimal(10, 4)
+  closingAmount        Decimal? @db.Decimal(10, 4)
   closingDenominations Json?
   closingNote          String?
 
   // Calculated at close
-  expectedAmount       Decimal?     @db.Decimal(10, 4)
-  variance             Decimal?     @db.Decimal(10, 4)  // closingAmount - expectedAmount
-  cashSales            Decimal?     @db.Decimal(10, 4)
-  cashRefunds          Decimal?     @db.Decimal(10, 4)
-  cashDropsTotal       Decimal?     @db.Decimal(10, 4)
-  payoutsTotal         Decimal?     @db.Decimal(10, 4)
+  expectedAmount Decimal? @db.Decimal(10, 4)
+  variance       Decimal? @db.Decimal(10, 4) // closingAmount - expectedAmount
+  cashSales      Decimal? @db.Decimal(10, 4)
+  cashRefunds    Decimal? @db.Decimal(10, 4)
+  cashDropsTotal Decimal? @db.Decimal(10, 4)
+  payoutsTotal   Decimal? @db.Decimal(10, 4)
 
-  drops                CashDrop[]
-  payouts              CashPayout[]
+  drops   CashDrop[]
+  payouts CashPayout[]
 
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([orgId, storeId, openedAt])
@@ -1192,9 +1213,9 @@ model CashPayout {
   shiftId     String
   shift       Shift    @relation(fields: [shiftId], references: [id])
   amount      Decimal  @db.Decimal(10, 4)
-  recipient   String?  // vendor name / free-text recipient
-  vendorId    Int?     // optional FK to Vendor
-  payoutType  String?  // 'expense' | 'merchandise'
+  recipient   String? // vendor name / free-text recipient
+  vendorId    Int? // optional FK to Vendor
+  payoutType  String? // 'expense' | 'merchandise'
   note        String?
   createdById String
   createdAt   DateTime @default(now())
@@ -1207,19 +1228,19 @@ model CashPayout {
 // VENDOR PAYMENT  (back-office managed vendor payments)
 // ─────────────────────────────────────────────────
 model VendorPayment {
-  id          String    @id @default(cuid())
-  orgId       String
-  storeId     String?
-  vendorId    Int?
-  vendorName  String?
-  amount      Decimal   @db.Decimal(10, 4)
-  paymentType  String    @default("expense")
-  tenderMethod String?   @default("cash")
+  id           String   @id @default(cuid())
+  orgId        String
+  storeId      String?
+  vendorId     Int?
+  vendorName   String?
+  amount       Decimal  @db.Decimal(10, 4)
+  paymentType  String   @default("expense")
+  tenderMethod String?  @default("cash")
   notes        String?
-  paymentDate DateTime  @default(now())
-  createdById String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  paymentDate  DateTime @default(now())
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@index([orgId, paymentDate])
@@ -1232,12 +1253,12 @@ model VendorPayment {
 // Identified by PIN without requiring a full JWT session.
 // ─────────────────────────────────────────────────
 model ClockEvent {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   orgId     String
   storeId   String
   userId    String
   stationId String?
-  type      String   // "in" | "out"
+  type      String // "in" | "out"
   note      String?
 
   createdAt DateTime @default(now())
@@ -1253,31 +1274,31 @@ model ClockEvent {
 // partial-success reporting, and error audit.
 // ─────────────────────────────────────────────────
 model ImportJob {
-  id           Int       @id @default(autoincrement())
-  orgId        String
-  storeId      String?   // null = org-wide import
+  id      Int     @id @default(autoincrement())
+  orgId   String
+  storeId String? // null = org-wide import
 
-  type         String    // "products" | "departments" | "vendors" | "promotions" | "deposits" | "invoice_costs"
-  fileName     String
-  fileSize     Int?      // bytes
+  type     String // "products" | "departments" | "vendors" | "promotions" | "deposits" | "invoice_costs"
+  fileName String
+  fileSize Int? // bytes
 
-  totalRows    Int       @default(0)
-  successRows  Int       @default(0)
-  failedRows   Int       @default(0)
-  skippedRows  Int       @default(0)   // duplicates skipped per strategy
+  totalRows   Int @default(0)
+  successRows Int @default(0)
+  failedRows  Int @default(0)
+  skippedRows Int @default(0) // duplicates skipped per strategy
 
-  status       String    @default("pending")
+  status String @default("pending")
   // "pending" | "validating" | "importing" | "done" | "failed"
 
   // [{ row, field, message, value, type: "error"|"warning" }]
-  errors       Json      @default("[]")
+  errors Json @default("[]")
 
   // Options snapshot — what settings were used
-  options      Json      @default("{}")
+  options Json @default("{}")
 
-  createdBy    String    // User.id
-  createdAt    DateTime  @default(now())
-  completedAt  DateTime?
+  createdBy   String // User.id
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
 
   @@index([orgId, type, createdAt])
   @@index([orgId, status])
@@ -1296,27 +1317,27 @@ model ImportJob {
 // Defines ticket price, commission rate, and tickets per box.
 // ─────────────────────────────────────────────────
 model LotteryGame {
-  id             String   @id @default(cuid())
-  orgId          String
-  storeId        String
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
 
-  name           String            // "$1 Scratch", "$5 Big Winner"
-  gameName       String?           // Optional display name override
-  gameNumber     String?           // State lottery game # for inventory orders
-  ticketPrice    Decimal  @db.Decimal(10, 2)
-  ticketsPerBox  Int      @default(300)
-  active         Boolean  @default(true)
-  deleted        Boolean  @default(false)
+  name          String // "$1 Scratch", "$5 Big Winner"
+  gameName      String? // Optional display name override
+  gameNumber    String? // State lottery game # for inventory orders
+  ticketPrice   Decimal @db.Decimal(10, 2)
+  ticketsPerBox Int     @default(300)
+  active        Boolean @default(true)
+  deleted       Boolean @default(false)
 
   // State/province this game belongs to (e.g. "ON", "BC", "AB", "QC")
   // Set at admin level; stores filter games by their state
-  state          String?
-  isGlobal       Boolean  @default(false)  // true = admin-managed, visible to all stores in that state
+  state    String?
+  isGlobal Boolean @default(false) // true = admin-managed, visible to all stores in that state
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  boxes          LotteryBox[]
+  boxes LotteryBox[]
 
   @@index([orgId, storeId])
   @@map("lottery_games")
@@ -1328,35 +1349,35 @@ model LotteryGame {
 // Moves through: inventory → active → depleted → settled.
 // ─────────────────────────────────────────────────
 model LotteryBox {
-  id            String      @id @default(cuid())
-  orgId         String
-  storeId       String
-  gameId        String
-  game          LotteryGame @relation(fields: [gameId], references: [id])
+  id      String      @id @default(cuid())
+  orgId   String
+  storeId String
+  gameId  String
+  game    LotteryGame @relation(fields: [gameId], references: [id])
 
-  boxNumber     String?           // Physical serial / pack number
-  slotNumber    Int?              // Physical slot in the lottery machine (1–32)
-  totalTickets  Int
-  ticketPrice   Decimal     @db.Decimal(10, 2)
-  totalValue    Decimal     @db.Decimal(10, 2)  // totalTickets × ticketPrice
+  boxNumber    String? // Physical serial / pack number
+  slotNumber   Int? // Physical slot in the lottery machine (1–32)
+  totalTickets Int
+  ticketPrice  Decimal @db.Decimal(10, 2)
+  totalValue   Decimal @db.Decimal(10, 2) // totalTickets × ticketPrice
 
   // Lifecycle
-  status        String      @default("inventory")  // inventory | active | depleted | settled
-  activatedAt   DateTime?
-  depletedAt    DateTime?
+  status      String    @default("inventory") // inventory | active | depleted | settled
+  activatedAt DateTime?
+  depletedAt  DateTime?
 
   // Ticket tracking
   startTicket          String?
   currentTicket        String?
-  lastShiftEndTicket   String?   // ticket # scanned at end of last shift (for next-shift calculation)
-  lastShiftStartTicket String?   // ticket # at the start of the current/last shift
+  lastShiftEndTicket   String? // ticket # scanned at end of last shift (for next-shift calculation)
+  lastShiftStartTicket String? // ticket # at the start of the current/last shift
 
   // Running totals (updated on each LotteryTransaction)
-  ticketsSold   Int         @default(0)
-  salesAmount   Decimal     @default(0) @db.Decimal(10, 2)
+  ticketsSold Int     @default(0)
+  salesAmount Decimal @default(0) @db.Decimal(10, 2)
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([gameId])
@@ -1369,24 +1390,24 @@ model LotteryBox {
 // amount is always positive; type signals direction.
 // ─────────────────────────────────────────────────
 model LotteryTransaction {
-  id               String   @id @default(cuid())
-  orgId            String
-  storeId          String
-  shiftId          String?  // FK to Shift (not enforced; Shift may be from POS terminal)
-  cashierId        String?
-  stationId        String?
+  id        String  @id @default(cuid())
+  orgId     String
+  storeId   String
+  shiftId   String? // FK to Shift (not enforced; Shift may be from POS terminal)
+  cashierId String?
+  stationId String?
 
-  type             String   // "sale" | "payout"
-  amount           Decimal  @db.Decimal(10, 2)  // always positive
-  ticketCount      Int?     // number of tickets sold
+  type        String // "sale" | "payout"
+  amount      Decimal @db.Decimal(10, 2) // always positive
+  ticketCount Int? // number of tickets sold
 
-  gameId           String?
-  boxId            String?
-  notes            String?
+  gameId String?
+  boxId  String?
+  notes  String?
 
-  posTransactionId String?  // links to parent cart transaction when recorded together
+  posTransactionId String? // links to parent cart transaction when recorded together
 
-  createdAt        DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([orgId, storeId, shiftId])
   @@index([orgId, storeId, createdAt])
@@ -1400,32 +1421,32 @@ model LotteryTransaction {
 // app validates against recorded transactions.
 // ─────────────────────────────────────────────────
 model LotteryShiftReport {
-  id              String   @id @default(cuid())
-  orgId           String
-  storeId         String
-  shiftId         String   @unique
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+  shiftId String @unique
 
   // Cashier-entered values (from physical lottery machine)
-  machineAmount   Decimal? @db.Decimal(10, 2)  // cash on lottery machine printout
-  digitalAmount   Decimal? @db.Decimal(10, 2)  // digital/online lottery sales
-  scannedTickets  Json?                          // [{gameId, gameName, count, amount}]
-  scannedAmount   Decimal? @db.Decimal(10, 2)   // sum of scanned ticket amounts
+  machineAmount  Decimal? @db.Decimal(10, 2) // cash on lottery machine printout
+  digitalAmount  Decimal? @db.Decimal(10, 2) // digital/online lottery sales
+  scannedTickets Json? // [{gameId, gameName, count, amount}]
+  scannedAmount  Decimal? @db.Decimal(10, 2) // sum of scanned ticket amounts
 
   // Per-box scan data — [{boxId, gameId, gameName, slotNumber, startTicket, endTicket, ticketsSold, amount}]
-  boxScans        Json?
+  boxScans Json?
 
   // Computed from LotteryTransactions
-  totalSales      Decimal? @db.Decimal(10, 2)
-  totalPayouts    Decimal? @db.Decimal(10, 2)
-  netAmount       Decimal? @db.Decimal(10, 2)   // totalSales - totalPayouts
-  variance        Decimal? @db.Decimal(10, 2)   // (machineAmount+digitalAmount) - netAmount
+  totalSales   Decimal? @db.Decimal(10, 2)
+  totalPayouts Decimal? @db.Decimal(10, 2)
+  netAmount    Decimal? @db.Decimal(10, 2) // totalSales - totalPayouts
+  variance     Decimal? @db.Decimal(10, 2) // (machineAmount+digitalAmount) - netAmount
 
-  notes           String?
-  closedById      String?
-  closedAt        DateTime?
+  notes      String?
+  closedById String?
+  closedAt   DateTime?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("lottery_shift_reports")
@@ -1437,24 +1458,24 @@ model LotteryShiftReport {
 // Commission is managed here, not at individual game level.
 // ─────────────────────────────────────────────────
 model LotterySettings {
-  id                    String   @id @default(cuid())
-  orgId                 String
-  storeId               String   @unique
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String @unique
 
-  enabled               Boolean  @default(true)
-  cashOnly              Boolean  @default(false)   // restrict lottery transactions to cash
+  enabled  Boolean @default(true)
+  cashOnly Boolean @default(false) // restrict lottery transactions to cash
 
   // Store's province/state — determines which games are visible
-  state                 String?                    // e.g. "ON", "BC", "AB"
+  state String? // e.g. "ON", "BC", "AB"
 
   // Commission — store-level rate applied to all lottery sales
-  commissionRate        Decimal? @db.Decimal(5, 4) // e.g. 0.0540 = 5.4%
+  commissionRate Decimal? @db.Decimal(5, 4) // e.g. 0.0540 = 5.4%
 
   // Shift-end ticket scan mandate
-  scanRequiredAtShiftEnd Boolean @default(false)   // if true, cashier must scan before closing shift
+  scanRequiredAtShiftEnd Boolean @default(false) // if true, cashier must scan before closing shift
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("lottery_settings")
@@ -1467,18 +1488,18 @@ model LotterySettings {
 // own state / province.
 // ─────────────────────────────────────────────────
 model LotteryTicketCatalog {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   name           String
   gameNumber     String?
-  ticketPrice    Decimal  @db.Decimal(10, 2)
-  ticketsPerBook Int      @default(300)
-  state          String                         // e.g. "TX", "ON", "CA"
-  category       String?                        // e.g. "instant", "draw"
-  active         Boolean  @default(true)
-  createdBy      String?                        // superadmin user id
+  ticketPrice    Decimal @db.Decimal(10, 2)
+  ticketsPerBook Int     @default(300)
+  state          String // e.g. "TX", "ON", "CA"
+  category       String? // e.g. "instant", "draw"
+  active         Boolean @default(true)
+  createdBy      String? // superadmin user id
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([state])
   @@map("lottery_ticket_catalog")
@@ -1502,10 +1523,10 @@ model LotteryTicketRequest {
   notes             String?
   status            String   @default("pending") // pending | approved | rejected
   adminNotes        String?
-  resolvedCatalogId String?                       // linked catalog entry after approval
+  resolvedCatalogId String? // linked catalog entry after approval
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@index([status])
@@ -1517,17 +1538,17 @@ model LotteryTicketRequest {
 // System-level content pages managed by superadmin
 // ─────────────────────────────────────────────────
 model CmsPage {
-  id          String   @id @default(cuid())
-  slug        String   @unique        // URL-safe identifier (e.g. "home", "about", "features")
-  title       String
-  content     String   @db.Text       // HTML or Markdown body
-  metaTitle   String?                 // SEO meta title
-  metaDesc    String?                 // SEO meta description
-  published   Boolean  @default(false)
-  sortOrder   Int      @default(0)
+  id        String  @id @default(cuid())
+  slug      String  @unique // URL-safe identifier (e.g. "home", "about", "features")
+  title     String
+  content   String  @db.Text // HTML or Markdown body
+  metaTitle String? // SEO meta title
+  metaDesc  String? // SEO meta description
+  published Boolean @default(false)
+  sortOrder Int     @default(0)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("cms_pages")
 }
@@ -1537,18 +1558,18 @@ model CmsPage {
 // Job listings managed by superadmin
 // ─────────────────────────────────────────────────
 model CareerPosting {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   title       String
-  department  String?                 // e.g. "Engineering", "Sales", "Support"
-  location    String?                 // e.g. "Remote", "Toronto, ON"
-  type        String?                 // "full-time" | "part-time" | "contract" | "internship"
-  description String   @db.Text       // Full job description (HTML or Markdown)
-  published   Boolean  @default(false)
+  department  String? // e.g. "Engineering", "Sales", "Support"
+  location    String? // e.g. "Remote", "Toronto, ON"
+  type        String? // "full-time" | "part-time" | "contract" | "internship"
+  description String  @db.Text // Full job description (HTML or Markdown)
+  published   Boolean @default(false)
 
   applications JobApplication[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("career_postings")
 }
@@ -1562,17 +1583,17 @@ model JobApplication {
   careerPostingId String
   careerPosting   CareerPosting @relation(fields: [careerPostingId], references: [id], onDelete: Cascade)
 
-  name            String
-  email           String
-  phone           String?
-  coverLetter     String?       @db.Text
-  resumeUrl       String?       // file path to uploaded resume
+  name        String
+  email       String
+  phone       String?
+  coverLetter String? @db.Text
+  resumeUrl   String? // file path to uploaded resume
 
-  status          String        @default("new")  // "new" | "reviewed" | "shortlisted" | "rejected"
-  adminNotes      String?       @db.Text
+  status     String  @default("new") // "new" | "reviewed" | "shortlisted" | "rejected"
+  adminNotes String? @db.Text
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([careerPostingId])
   @@index([status])
@@ -1584,20 +1605,20 @@ model JobApplication {
 // Customer/user support requests
 // ─────────────────────────────────────────────────
 model SupportTicket {
-  id          String   @id @default(cuid())
-  userId      String?                 // optional — may be from unauthenticated user
-  orgId       String?                 // optional — which org the ticket relates to
-  email       String                  // contact email
-  name        String?                 // contact name
-  subject     String
-  body        String   @db.Text
-  status      String   @default("open")   // "open" | "in_progress" | "resolved" | "closed"
-  priority    String   @default("normal") // "low" | "normal" | "high" | "urgent"
-  adminNotes  String?  @db.Text           // internal notes by superadmin
-  responses   Json?    @default("[]")     // Array of { by, message, date }
+  id         String  @id @default(cuid())
+  userId     String? // optional — may be from unauthenticated user
+  orgId      String? // optional — which org the ticket relates to
+  email      String // contact email
+  name       String? // contact name
+  subject    String
+  body       String  @db.Text
+  status     String  @default("open") // "open" | "in_progress" | "resolved" | "closed"
+  priority   String  @default("normal") // "low" | "normal" | "high" | "urgent"
+  adminNotes String? @db.Text // internal notes by superadmin
+  responses  Json?   @default("[]") // Array of { by, message, date }
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([orgId])
@@ -1614,13 +1635,13 @@ model LoyaltyProgram {
   storeId               String   @unique
   enabled               Boolean  @default(true)
   programName           String   @default("Loyalty Rewards")
-  pointsPerDollar       Decimal  @default(1)    @db.Decimal(8, 4)   // pts earned per $1 spent
-  redeemPointsPerDollar Decimal  @default(100)  @db.Decimal(10, 2)  // pts needed per $1 off
+  pointsPerDollar       Decimal  @default(1) @db.Decimal(8, 4) // pts earned per $1 spent
+  redeemPointsPerDollar Decimal  @default(100) @db.Decimal(10, 2) // pts needed per $1 off
   minPointsToRedeem     Int      @default(100)
-  maxRedemptionPerTx    Decimal? @db.Decimal(10, 2)                 // max $ off per tx (null = unlimited)
+  maxRedemptionPerTx    Decimal? @db.Decimal(10, 2) // max $ off per tx (null = unlimited)
   welcomeBonus          Int      @default(0)
   birthdayBonus         Int      @default(0)
-  expiryDays            Int?                                         // null = no expiry
+  expiryDays            Int? // null = no expiry
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -1633,17 +1654,17 @@ model LoyaltyProgram {
 // Department or product overrides for earning multiplier
 // ─────────────────────────────────────────────────
 model LoyaltyEarnRule {
-  id           String   @id @default(cuid())
-  orgId        String
-  storeId      String
-  targetType   String   // 'department' | 'product'
-  targetId     String   // departmentId or productId
-  targetName   String?  // denormalised label for display
-  action       String   // 'exclude' | 'multiply'
-  multiplier   Decimal  @default(1) @db.Decimal(8, 4)  // only used when action='multiply'
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String   @id @default(cuid())
+  orgId      String
+  storeId    String
+  targetType String // 'department' | 'product'
+  targetId   String // departmentId or productId
+  targetName String? // denormalised label for display
+  action     String // 'exclude' | 'multiply'
+  multiplier Decimal  @default(1) @db.Decimal(8, 4) // only used when action='multiply'
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("loyalty_earn_rules")
@@ -1654,18 +1675,18 @@ model LoyaltyEarnRule {
 // Fixed reward tiers customers can redeem
 // ─────────────────────────────────────────────────
 model LoyaltyReward {
-  id           String   @id @default(cuid())
-  orgId        String
-  storeId      String
-  name         String
-  description  String?
-  pointsCost   Int
-  rewardType   String   @default("dollar_off")  // 'dollar_off' | 'pct_off'
-  rewardValue  Decimal  @db.Decimal(10, 2)
-  active       Boolean  @default(true)
-  sortOrder    Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(cuid())
+  orgId       String
+  storeId     String
+  name        String
+  description String?
+  pointsCost  Int
+  rewardType  String   @default("dollar_off") // 'dollar_off' | 'pct_off'
+  rewardValue Decimal  @db.Decimal(10, 2)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("loyalty_rewards")
@@ -1676,12 +1697,12 @@ model LoyaltyReward {
 // Global key-value settings managed by superadmin
 // ─────────────────────────────────────────────────
 model SystemConfig {
-  id          Int      @id @default(autoincrement())
-  key         String   @unique        // e.g. "maintenance_mode", "signup_enabled", "default_plan"
-  value       String                  // stored as string; parse in controller
-  description String?                 // human-readable description of the setting
+  id          Int     @id @default(autoincrement())
+  key         String  @unique // e.g. "maintenance_mode", "signup_enabled", "default_plan"
+  value       String // stored as string; parse in controller
+  description String? // human-readable description of the setting
 
-  updatedAt   DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@map("system_config")
 }
@@ -1693,47 +1714,47 @@ model SystemConfig {
 // (last 4, card type) and the processor-issued ReferenceId.
 // ═══════════════════════════════════════════════════════════════
 model PaymentTransaction {
-  id               String   @id @default(cuid())
+  id               String  @id @default(cuid())
   orgId            String
   storeId          String
-  merchantId       String   // FK to PaymentMerchant (per-store credentials)
-  posTransactionId String?  // FK to Transaction.id (nullable — set after POS tx saved)
-  provider         String   @default("dejavoo") // "dejavoo" | future providers
+  merchantId       String // FK to PaymentMerchant (per-store credentials)
+  posTransactionId String? // FK to Transaction.id (nullable — set after POS tx saved)
+  provider         String  @default("dejavoo") // "dejavoo" | future providers
 
   // ── Processor response fields ───────────────────────────────
-  retref           String?  @unique  // ReferenceId (Dejavoo UUID) — unique per transaction
-  authCode         String?           // approval auth code
-  respCode         String?           // Dejavoo StatusCode — "0000" = approved
-  respText         String?           // Dejavoo Message — "Approved", "Declined", etc.
+  retref   String? @unique // ReferenceId (Dejavoo UUID) — unique per transaction
+  authCode String? // approval auth code
+  respCode String? // Dejavoo StatusCode — "0000" = approved
+  respText String? // Dejavoo Message — "Approved", "Declined", etc.
 
   // ── Card info (PCI-safe) ───────────────────────────────────
-  token            String?           // processor token (for future card-on-file)
-  lastFour         String?           // last 4 digits
-  acctType         String?           // Visa | Mastercard | Amex | Discover | EBT
-  expiry           String?           // MMYY
-  entryMode        String?           // Chip | Swipe | Contactless | Manual
+  token     String? // processor token (for future card-on-file)
+  lastFour  String? // last 4 digits
+  acctType  String? // Visa | Mastercard | Amex | Discover | EBT
+  expiry    String? // MMYY
+  entryMode String? // Chip | Swipe | Contactless | Manual
 
   // ── Amounts ─────────────────────────────────────────────────
-  amount           Decimal  @db.Decimal(10, 2)
-  capturedAmount   Decimal? @db.Decimal(10, 2)
+  amount         Decimal  @db.Decimal(10, 2)
+  capturedAmount Decimal? @db.Decimal(10, 2)
 
   // ── Status ──────────────────────────────────────────────────
-  type             String   @default("sale")    // sale | void | refund
-  status           String   @default("pending") // pending | approved | declined | voided | refunded | error
+  type   String @default("sale") // sale | void | refund
+  status String @default("pending") // pending | approved | declined | voided | refunded | error
 
   // ── Signature ───────────────────────────────────────────────
-  signatureData    String?  @db.Text
+  signatureData     String? @db.Text
   signatureCaptured Boolean @default(false)
 
   // ── Linkage ─────────────────────────────────────────────────
-  originalRetref   String?           // for void/refund — references original sale ReferenceId
-  invoiceNumber    String?           // matches posTransaction.txNumber
-  orderNote        String?
+  originalRetref String? // for void/refund — references original sale ReferenceId
+  invoiceNumber  String? // matches posTransaction.txNumber
+  orderNote      String?
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  merchant  PaymentMerchant @relation(fields: [merchantId], references: [id])
+  merchant PaymentMerchant @relation(fields: [merchantId], references: [id])
 
   @@index([orgId, storeId])
   @@index([posTransactionId])
@@ -1747,48 +1768,48 @@ model PaymentTransaction {
 // Credentials encrypted at rest via cryptoVault.js.
 // ═══════════════════════════════════════════════════════════════
 model PaymentMerchant {
-  id               String   @id @default(cuid())
-  orgId            String
-  storeId          String   @unique
-  provider         String   @default("dejavoo")
-  environment      String   @default("uat")
+  id          String @id @default(cuid())
+  orgId       String
+  storeId     String @unique
+  provider    String @default("dejavoo")
+  environment String @default("uat")
 
   // ── Dejavoo SPIn (in-person) ──
-  spinTpn          String?
-  spinAuthKey      String?  // encrypted
-  spinBaseUrl      String?
+  spinTpn     String?
+  spinAuthKey String? // encrypted
+  spinBaseUrl String?
 
   // ── Dejavoo HPP (online checkout) ──
-  hppMerchantId    String?
-  hppAuthKey       String?  // encrypted
-  hppBaseUrl       String?
+  hppMerchantId String?
+  hppAuthKey    String? // encrypted
+  hppBaseUrl    String?
 
   // ── Dejavoo iPOS Transact (card-on-file) ──
-  transactApiKey   String?  // encrypted
-  transactBaseUrl  String?
+  transactApiKey  String? // encrypted
+  transactBaseUrl String?
 
   // ── Feature flags ──
-  ebtEnabled       Boolean  @default(false)
-  debitEnabled     Boolean  @default(true)
-  tokenizeEnabled  Boolean  @default(false)
+  ebtEnabled      Boolean @default(false)
+  debitEnabled    Boolean @default(true)
+  tokenizeEnabled Boolean @default(false)
 
   // ── Status / audit ──
-  status           String   @default("active")
-  lastTestedAt     DateTime?
-  lastTestResult   String?
-  notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  updatedById      String?
+  status         String    @default("active")
+  lastTestedAt   DateTime?
+  lastTestResult String?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  updatedById    String?
 
   // NOTE: `status` values used by app:
   //   "pending"  — created but never successfully tested; processing BLOCKED
   //   "active"   — tested ok at least once; processing ALLOWED
   //   "disabled" — manually disabled by admin; processing BLOCKED
 
-  transactions     PaymentTransaction[]
-  terminals        PaymentTerminal[]
-  auditLogs        PaymentMerchantAudit[]
+  transactions PaymentTransaction[]
+  terminals    PaymentTerminal[]
+  auditLogs    PaymentMerchantAudit[]
 
   @@index([orgId, storeId])
   @@map("payment_merchants")
@@ -1801,24 +1822,24 @@ model PaymentMerchant {
 // override (some processors assign a different TPN per lane).
 // ═══════════════════════════════════════════════════════════════
 model PaymentTerminal {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   orgId              String
   storeId            String
-  merchantId         String           // FK → PaymentMerchant
-  stationId          String?  @unique // one terminal per station; nullable until paired
-  nickname           String?          // "Register 1 Terminal", "Express Lane"
-  deviceSerialNumber String?          // physical P17 serial (from About screen)
-  deviceModel        String?          // "P17", "Z8", "Z11"
-  overrideTpn        String?          // per-device TPN (falls back to merchant.spinTpn)
-  status             String   @default("active") // active | inactive | unknown
+  merchantId         String // FK → PaymentMerchant
+  stationId          String?   @unique // one terminal per station; nullable until paired
+  nickname           String? // "Register 1 Terminal", "Express Lane"
+  deviceSerialNumber String? // physical P17 serial (from About screen)
+  deviceModel        String? // "P17", "Z8", "Z11"
+  overrideTpn        String? // per-device TPN (falls back to merchant.spinTpn)
+  status             String    @default("active") // active | inactive | unknown
   lastPingedAt       DateTime?
   lastPingResult     String?
   notes              String?
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  merchant           PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchant PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@index([orgId, storeId])
   @@index([merchantId])
@@ -1832,17 +1853,17 @@ model PaymentTerminal {
 // stored — only a flag indicating the secret was changed.
 // ═══════════════════════════════════════════════════════════════
 model PaymentMerchantAudit {
-  id           String   @id @default(cuid())
-  merchantId   String           // FK → PaymentMerchant
-  action       String           // "created" | "updated" | "deleted" | "activated" | "disabled" | "tested"
-  changedById  String?          // User.id of the superadmin who made the change
-  changedByName String?         // denormalized for display (user may be deleted later)
+  id            String   @id @default(cuid())
+  merchantId    String // FK → PaymentMerchant
+  action        String // "created" | "updated" | "deleted" | "activated" | "disabled" | "tested"
+  changedById   String? // User.id of the superadmin who made the change
+  changedByName String? // denormalized for display (user may be deleted later)
   // What changed — JSON diff. Secret fields show { changed: true } instead of values.
-  changes      Json?
-  note         String?          // optional human-readable note
-  createdAt    DateTime @default(now())
+  changes       Json?
+  note          String? // optional human-readable note
+  createdAt     DateTime @default(now())
 
-  merchant     PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  merchant PaymentMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@index([merchantId, createdAt])
   @@map("payment_merchant_audits")
@@ -1853,29 +1874,29 @@ model PaymentMerchantAudit {
 // Per-store configuration for card payment behaviour.
 // ─────────────────────────────────────────────────
 model PaymentSettings {
-  id                  String   @id @default(cuid())
-  orgId               String
-  storeId             String   @unique
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String @unique
 
   // Signature capture
-  signatureThreshold  Decimal  @default(25.00) @db.Decimal(10, 2) // require sig above this amount
+  signatureThreshold Decimal @default(25.00) @db.Decimal(10, 2) // require sig above this amount
 
   // Tips
-  tipEnabled          Boolean  @default(false)
-  tipPresets          Json?                      // [15, 18, 20, 25] as percent integers
+  tipEnabled Boolean @default(false)
+  tipPresets Json? // [15, 18, 20, 25] as percent integers
 
   // Surcharge / convenience fee
-  surchargeEnabled    Boolean  @default(false)
-  surchargePercent    Decimal? @db.Decimal(5, 4) // e.g. 0.0300 = 3%
+  surchargeEnabled Boolean  @default(false)
+  surchargePercent Decimal? @db.Decimal(5, 4) // e.g. 0.0300 = 3%
 
   // Accepted card types
-  acceptCreditCards   Boolean  @default(true)
-  acceptDebitCards    Boolean  @default(true)
-  acceptAmex          Boolean  @default(true)
-  acceptContactless   Boolean  @default(true)
+  acceptCreditCards Boolean @default(true)
+  acceptDebitCards  Boolean @default(true)
+  acceptAmex        Boolean @default(true)
+  acceptContactless Boolean @default(true)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId])
   @@map("payment_settings")
@@ -1889,21 +1910,21 @@ model PaymentSettings {
 // SUBSCRIPTION PLAN
 // ─────────────────────────────────────────────────
 model SubscriptionPlan {
-  id                String    @id @default(cuid())
+  id                String   @id @default(cuid())
   name              String
-  slug              String    @unique
+  slug              String   @unique
   description       String?
-  basePrice         Decimal   @db.Decimal(10, 2)
-  pricePerStore     Decimal   @default(0) @db.Decimal(10, 2)
-  pricePerRegister  Decimal   @default(0) @db.Decimal(10, 2)
-  includedStores    Int       @default(1)
-  includedRegisters Int       @default(1)
-  trialDays         Int       @default(14)
-  isPublic          Boolean   @default(true)
-  isActive          Boolean   @default(true)
-  sortOrder         Int       @default(0)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  basePrice         Decimal  @db.Decimal(10, 2)
+  pricePerStore     Decimal  @default(0) @db.Decimal(10, 2)
+  pricePerRegister  Decimal  @default(0) @db.Decimal(10, 2)
+  includedStores    Int      @default(1)
+  includedRegisters Int      @default(1)
+  trialDays         Int      @default(14)
+  isPublic          Boolean  @default(true)
+  isActive          Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   addons        PlanAddon[]
   subscriptions OrgSubscription[]
@@ -1934,40 +1955,40 @@ model PlanAddon {
 // ORG SUBSCRIPTION
 // ─────────────────────────────────────────────────
 model OrgSubscription {
-  id                   String           @id @default(cuid())
-  orgId                String           @unique
-  organization         Organization     @relation(fields: [orgId], references: [id])
-  planId               String
-  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
+  id           String           @id @default(cuid())
+  orgId        String           @unique
+  organization Organization     @relation(fields: [orgId], references: [id])
+  planId       String
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id])
 
-  status               String           @default("trial")
-  trialEndsAt          DateTime?
-  currentPeriodStart   DateTime?
-  currentPeriodEnd     DateTime?
+  status             String    @default("trial")
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
 
-  storeCount           Int              @default(1)
-  registerCount        Int              @default(1)
-  extraAddons          String[]
+  storeCount    Int      @default(1)
+  registerCount Int      @default(1)
+  extraAddons   String[]
 
-  basePriceOverride    Decimal?         @db.Decimal(10, 2)
+  basePriceOverride Decimal? @db.Decimal(10, 2)
 
-  discountType         String?
-  discountValue        Decimal?         @db.Decimal(10, 2)
-  discountNote         String?
-  discountExpiry       DateTime?
+  discountType   String?
+  discountValue  Decimal?  @db.Decimal(10, 2)
+  discountNote   String?
+  discountExpiry DateTime?
 
-  paymentToken         String?
-  paymentMasked        String?
-  paymentMethod        String?
+  paymentToken  String?
+  paymentMasked String?
+  paymentMethod String?
 
-  retryCount           Int              @default(0)
-  lastFailedAt         DateTime?
-  nextRetryAt          DateTime?
+  retryCount   Int       @default(0)
+  lastFailedAt DateTime?
+  nextRetryAt  DateTime?
 
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  invoices             BillingInvoice[]
+  invoices BillingInvoice[]
 
   @@map("org_subscriptions")
 }
@@ -1976,29 +1997,29 @@ model OrgSubscription {
 // BILLING INVOICE
 // ─────────────────────────────────────────────────
 model BillingInvoice {
-  id              String          @id @default(cuid())
-  invoiceNumber   String          @unique
-  subscriptionId  String
-  subscription    OrgSubscription @relation(fields: [subscriptionId], references: [id])
+  id             String          @id @default(cuid())
+  invoiceNumber  String          @unique
+  subscriptionId String
+  subscription   OrgSubscription @relation(fields: [subscriptionId], references: [id])
 
-  periodStart     DateTime
-  periodEnd       DateTime
+  periodStart DateTime
+  periodEnd   DateTime
 
-  baseAmount      Decimal         @db.Decimal(10, 2)
-  discountAmount  Decimal         @default(0) @db.Decimal(10, 2)
-  totalAmount     Decimal         @db.Decimal(10, 2)
+  baseAmount     Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount    Decimal @db.Decimal(10, 2)
 
-  status          String          @default("pending")
-  attempts        Int             @default(0)
-  lastAttemptAt   DateTime?
-  paidAt          DateTime?
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime?
+  paidAt        DateTime?
 
-  retref          String?
-  authcode        String?
-  notes           String?
+  retref   String?
+  authcode String?
+  notes    String?
 
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([subscriptionId, status])
   @@map("billing_invoices")
@@ -2008,22 +2029,22 @@ model BillingInvoice {
 // EQUIPMENT PRODUCT
 // ─────────────────────────────────────────────────
 model EquipmentProduct {
-  id          String               @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
-  slug        String               @unique
+  slug        String   @unique
   category    String
   description String?
-  price       Decimal              @db.Decimal(10, 2)
+  price       Decimal  @db.Decimal(10, 2)
   images      String[]
   specs       Json?
-  stockQty    Int                  @default(0)
-  trackStock  Boolean              @default(true)
-  isActive    Boolean              @default(true)
-  sortOrder   Int                  @default(0)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  stockQty    Int      @default(0)
+  trackStock  Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  orderItems  EquipmentOrderItem[]
+  orderItems EquipmentOrderItem[]
 
   @@map("equipment_products")
 }
@@ -2032,33 +2053,33 @@ model EquipmentProduct {
 // EQUIPMENT ORDER
 // ─────────────────────────────────────────────────
 model EquipmentOrder {
-  id              String               @id @default(cuid())
-  orderNumber     String               @unique
-  orgId           String?
+  id          String  @id @default(cuid())
+  orderNumber String  @unique
+  orgId       String?
 
   customerName    String
   customerEmail   String
   customerPhone   String?
   shippingAddress Json
 
-  subtotal        Decimal              @db.Decimal(10, 2)
-  shipping        Decimal              @db.Decimal(10, 2)
-  total           Decimal              @db.Decimal(10, 2)
+  subtotal Decimal @db.Decimal(10, 2)
+  shipping Decimal @db.Decimal(10, 2)
+  total    Decimal @db.Decimal(10, 2)
 
-  paymentToken    String?
-  retref          String?
-  authcode        String?
-  paymentStatus   String               @default("pending")
+  paymentToken  String?
+  retref        String?
+  authcode      String?
+  paymentStatus String  @default("pending")
 
-  status          String               @default("pending")
+  status          String  @default("pending")
   trackingCarrier String?
   trackingNumber  String?
   notes           String?
 
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  items           EquipmentOrderItem[]
+  items EquipmentOrderItem[]
 
   @@map("equipment_orders")
 }
@@ -2084,51 +2105,51 @@ model EquipmentOrderItem {
 // PURCHASE ORDER — Vendor reorder system
 // ─────────────────────────────────────────────────
 model PurchaseOrder {
-  id            String   @id @default(cuid())
-  orgId         String
-  storeId       String
-  vendorId      Int
-  poNumber      String   @unique   // "PO-YYYYMMDD-001"
-  status        String   @default("draft")  // draft, pending_approval, approved, submitted, partial, received, cancelled
+  id       String @id @default(cuid())
+  orgId    String
+  storeId  String
+  vendorId Int
+  poNumber String @unique // "PO-YYYYMMDD-001"
+  status   String @default("draft") // draft, pending_approval, approved, submitted, partial, received, cancelled
 
-  orderDate     DateTime @default(now())
-  expectedDate  DateTime?           // orderDate + vendor.leadTimeDays
-  receivedDate  DateTime?
+  orderDate    DateTime  @default(now())
+  expectedDate DateTime? // orderDate + vendor.leadTimeDays
+  receivedDate DateTime?
 
-  subtotal      Decimal  @db.Decimal(10, 2)
-  taxTotal      Decimal  @db.Decimal(10, 2) @default(0)
-  grandTotal    Decimal  @db.Decimal(10, 2)
+  subtotal   Decimal @db.Decimal(10, 2)
+  taxTotal   Decimal @default(0) @db.Decimal(10, 2)
+  grandTotal Decimal @db.Decimal(10, 2)
 
-  notes         String?
-  generatedBy   String   @default("manual")  // "manual" | "auto" | "suggestion"
-  createdById   String
+  notes       String?
+  generatedBy String  @default("manual") // "manual" | "auto" | "suggestion"
+  createdById String
 
   // ── Invoice linkage ──
-  invoiceId       String?
-  invoiceNumber   String?
+  invoiceId     String?
+  invoiceNumber String?
 
   // ── Receiving ──
-  receivedById    String?
-  receiverNotes   String?
-  totalVariance   Decimal  @db.Decimal(10, 2) @default(0)
+  receivedById  String?
+  receiverNotes String?
+  totalVariance Decimal @default(0) @db.Decimal(10, 2)
 
   // ── Approval workflow ──
-  approvalRequired Boolean  @default(false)
+  approvalRequired Boolean   @default(false)
   approvedById     String?
   approvedAt       DateTime?
   approvalNotes    String?
 
   // ── Vendor communication ──
-  sentToVendor     Boolean  @default(false)
-  sentAt           DateTime?
-  sentMethod       String?  // "email" | "manual"
+  sentToVendor Boolean   @default(false)
+  sentAt       DateTime?
+  sentMethod   String? // "email" | "manual"
 
-  items         PurchaseOrderItem[]
-  vendor        Vendor       @relation(fields: [vendorId], references: [id])
-  organization  Organization @relation(fields: [orgId], references: [id])
+  items        PurchaseOrderItem[]
+  vendor       Vendor              @relation(fields: [vendorId], references: [id])
+  organization Organization        @relation(fields: [orgId], references: [id])
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([vendorId])
@@ -2136,43 +2157,43 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              String   @id @default(cuid())
+  id              String @id @default(cuid())
   orderId         String
   masterProductId Int
 
-  qtyOrdered      Int                // units ordered
-  qtyCases        Int     @default(0) // cases ordered (for display)
-  qtyReceived     Int     @default(0) // units actually received
-  qtyDamaged      Int     @default(0) // units damaged on arrival
-  qtyReturned     Int     @default(0) // units returned to vendor
+  qtyOrdered  Int // units ordered
+  qtyCases    Int @default(0) // cases ordered (for display)
+  qtyReceived Int @default(0) // units actually received
+  qtyDamaged  Int @default(0) // units damaged on arrival
+  qtyReturned Int @default(0) // units returned to vendor
 
-  unitCost        Decimal @db.Decimal(10, 4)
-  caseCost        Decimal @db.Decimal(10, 4) @default(0)
-  lineTotal       Decimal @db.Decimal(10, 2)
+  unitCost  Decimal @db.Decimal(10, 4)
+  caseCost  Decimal @default(0) @db.Decimal(10, 4)
+  lineTotal Decimal @db.Decimal(10, 2)
 
   // ── Invoice reconciliation ──
-  actualUnitCost  Decimal? @db.Decimal(10, 4) // cost from invoice (may differ)
-  actualCaseCost  Decimal? @db.Decimal(10, 4)
-  costVariance    Decimal? @db.Decimal(10, 4) // actualUnitCost - unitCost
-  varianceFlag    String?  // "none" | "minor" | "major"
+  actualUnitCost Decimal? @db.Decimal(10, 4) // cost from invoice (may differ)
+  actualCaseCost Decimal? @db.Decimal(10, 4)
+  costVariance   Decimal? @db.Decimal(10, 4) // actualUnitCost - unitCost
+  varianceFlag   String? // "none" | "minor" | "major"
 
   // ── Backorder tracking ──
-  backorderQty    Int      @default(0)  // qtyOrdered - qtyReceived when short
-  backorderStatus String?  // "pending" | "on_next_po" | "cancelled"
+  backorderQty    Int     @default(0) // qtyOrdered - qtyReceived when short
+  backorderStatus String? // "pending" | "on_next_po" | "cancelled"
 
-  receivedNotes   String?
+  receivedNotes String?
 
   // Algorithm metadata — why this qty was suggested
-  forecastDemand    Decimal? @db.Decimal(10, 2)
-  safetyStock       Decimal? @db.Decimal(10, 2)
-  currentOnHand     Decimal? @db.Decimal(10, 2)
-  avgDailySales     Decimal? @db.Decimal(10, 4)
-  reorderReason     String?  // "below_reorder_point","forecast_demand","trending_up","low_days_supply","backorder"
+  forecastDemand Decimal? @db.Decimal(10, 2)
+  safetyStock    Decimal? @db.Decimal(10, 2)
+  currentOnHand  Decimal? @db.Decimal(10, 2)
+  avgDailySales  Decimal? @db.Decimal(10, 4)
+  reorderReason  String? // "below_reorder_point","forecast_demand","trending_up","low_days_supply","backorder"
 
-  order           PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product         MasterProduct  @relation(fields: [masterProductId], references: [id])
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product MasterProduct @relation(fields: [masterProductId], references: [id])
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@map("purchase_order_items")
 }
@@ -2181,27 +2202,27 @@ model PurchaseOrderItem {
 // VENDOR RETURNS — Track returns to vendors for credit
 // ─────────────────────────────────────────────────
 model VendorReturn {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   orgId           String
   storeId         String
   vendorId        Int
-  purchaseOrderId String?  // optional link to original PO
-  returnNumber    String   @unique  // "RET-YYYYMMDD-001"
-  status          String   @default("draft")  // draft, submitted, credited, closed
-  reason          String   // damaged, expired, wrong_item, overstock, recall
-  totalAmount     Decimal  @db.Decimal(10, 2) @default(0)
-  creditReceived  Decimal  @db.Decimal(10, 2) @default(0)
+  purchaseOrderId String? // optional link to original PO
+  returnNumber    String    @unique // "RET-YYYYMMDD-001"
+  status          String    @default("draft") // draft, submitted, credited, closed
+  reason          String // damaged, expired, wrong_item, overstock, recall
+  totalAmount     Decimal   @default(0) @db.Decimal(10, 2)
+  creditReceived  Decimal   @default(0) @db.Decimal(10, 2)
   notes           String?
   submittedAt     DateTime?
   creditedAt      DateTime?
   createdById     String
 
-  items           VendorReturnItem[]
-  vendor          Vendor       @relation(fields: [vendorId], references: [id])
-  organization    Organization @relation(fields: [orgId], references: [id])
+  items        VendorReturnItem[]
+  vendor       Vendor             @relation(fields: [vendorId], references: [id])
+  organization Organization       @relation(fields: [orgId], references: [id])
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([vendorId])
@@ -2209,16 +2230,16 @@ model VendorReturn {
 }
 
 model VendorReturnItem {
-  id              String   @id @default(cuid())
+  id              String  @id @default(cuid())
   returnId        String
   masterProductId Int
   qty             Int
-  unitCost        Decimal  @db.Decimal(10, 4)
-  lineTotal       Decimal  @db.Decimal(10, 2)
-  reason          String   // per-item reason
+  unitCost        Decimal @db.Decimal(10, 4)
+  lineTotal       Decimal @db.Decimal(10, 2)
+  reason          String // per-item reason
 
-  return          VendorReturn  @relation(fields: [returnId], references: [id], onDelete: Cascade)
-  product         MasterProduct @relation(fields: [masterProductId], references: [id])
+  return  VendorReturn  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product MasterProduct @relation(fields: [masterProductId], references: [id])
 
   @@map("vendor_return_items")
 }
@@ -2231,15 +2252,15 @@ model InventoryAdjustment {
   orgId           String
   storeId         String
   masterProductId Int
-  adjustmentQty   Int           // negative = shrinkage, positive = found stock
-  previousQty     Int           @default(0)
-  newQty          Int           @default(0)
-  reason          String        // shrinkage, damage, spoilage, expired, theft, count_correction, found, return
+  adjustmentQty   Int // negative = shrinkage, positive = found stock
+  previousQty     Int      @default(0)
+  newQty          Int      @default(0)
+  reason          String // shrinkage, damage, spoilage, expired, theft, count_correction, found, return
   notes           String?
   createdById     String
   createdAt       DateTime @default(now())
 
-  product         MasterProduct @relation(fields: [masterProductId], references: [id])
+  product MasterProduct @relation(fields: [masterProductId], references: [id])
 
   @@index([orgId, storeId, createdAt])
   @@index([masterProductId])
@@ -2252,17 +2273,17 @@ model InventoryAdjustment {
 model LabelQueue {
   id              Int       @id @default(autoincrement())
   orgId           String
-  storeId         String?   // null = org-wide master product change
+  storeId         String? // null = org-wide master product change
   masterProductId Int
-  reason          String    // "price_change"|"new_product"|"sale_started"|"sale_ended"|"manual"
+  reason          String // "price_change"|"new_product"|"sale_started"|"sale_ended"|"manual"
   oldPrice        Decimal?  @db.Decimal(10, 4)
   newPrice        Decimal?  @db.Decimal(10, 4)
-  status          String    @default("pending")  // "pending"|"printed"|"dismissed"
+  status          String    @default("pending") // "pending"|"printed"|"dismissed"
   addedAt         DateTime  @default(now())
   printedAt       DateTime?
-  printedBy       String?   // User.id who printed
+  printedBy       String? // User.id who printed
 
-  product         MasterProduct @relation(fields: [masterProductId], references: [id])
+  product MasterProduct @relation(fields: [masterProductId], references: [id])
 
   @@unique([orgId, storeId, masterProductId, status])
   @@index([orgId, storeId, status])
@@ -2275,21 +2296,21 @@ model LabelQueue {
 // Cannot be deleted by any user including admin.
 // ─────────────────────────────────────────────────
 model AuditLog {
-  id          Int      @id @default(autoincrement())
-  orgId       String
-  storeId     String?
-  userId      String             // who performed the action
-  userName    String?            // denormalized for fast display
-  userRole    String?            // role at time of action
-  action      String             // "create"|"update"|"delete"|"void"|"refund"|"login"|"logout"|"shift_open"|"shift_close"|"price_change"|"settings_change"
-  entity      String             // "product"|"transaction"|"shift"|"user"|"store"|"order"|"customer"|"label"|"settings"
-  entityId    String?            // ID of the affected record
-  details     Json?              // { field: "retailPrice", oldValue: 4.99, newValue: 5.49 }
-  ipAddress   String?
-  userAgent   String?
-  source      String   @default("portal") // "portal"|"cashier"|"admin"|"api"
+  id        Int     @id @default(autoincrement())
+  orgId     String
+  storeId   String?
+  userId    String // who performed the action
+  userName  String? // denormalized for fast display
+  userRole  String? // role at time of action
+  action    String // "create"|"update"|"delete"|"void"|"refund"|"login"|"logout"|"shift_open"|"shift_close"|"price_change"|"settings_change"
+  entity    String // "product"|"transaction"|"shift"|"user"|"store"|"order"|"customer"|"label"|"settings"
+  entityId  String? // ID of the affected record
+  details   Json? // { field: "retailPrice", oldValue: 4.99, newValue: 5.49 }
+  ipAddress String?
+  userAgent String?
+  source    String  @default("portal") // "portal"|"cashier"|"admin"|"api"
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([orgId, createdAt])
   @@index([orgId, userId])
@@ -2304,16 +2325,16 @@ model ChatMessage {
   id          String   @id @default(cuid())
   orgId       String
   storeId     String?
-  channelId   String             // "store:{storeId}" for store-wide, "direct:{userId1}:{userId2}" for DM
+  channelId   String // "store:{storeId}" for store-wide, "direct:{userId1}:{userId2}" for DM
   senderId    String
-  senderName  String             // denormalized
-  senderRole  String?            // "owner"|"manager"|"cashier" etc
+  senderName  String // denormalized
+  senderRole  String? // "owner"|"manager"|"cashier" etc
   message     String   @db.Text
-  messageType String   @default("text")  // "text"|"image"|"system"|"alert"
-  readBy      String[] @default([])       // array of userIds who read it
+  messageType String   @default("text") // "text"|"image"|"system"|"alert"
+  readBy      String[] @default([]) // array of userIds who read it
   pinned      Boolean  @default(false)
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([orgId, channelId, createdAt])
   @@index([orgId, storeId, createdAt])
@@ -2324,43 +2345,43 @@ model ChatMessage {
 // TASK — Task assignment system
 // ─────────────────────────────────────────────────
 model Task {
-  id          String    @id @default(cuid())
+  id          String  @id @default(cuid())
   orgId       String
   storeId     String?
   title       String
-  description String?   @db.Text
-  priority    String    @default("normal")   // "low"|"normal"|"high"|"urgent"
-  status      String    @default("open")     // "open"|"in_progress"|"completed"|"cancelled"
-  category    String?                         // "cleaning"|"stocking"|"display"|"inventory"|"other"
+  description String? @db.Text
+  priority    String  @default("normal") // "low"|"normal"|"high"|"urgent"
+  status      String  @default("open") // "open"|"in_progress"|"completed"|"cancelled"
+  category    String? // "cleaning"|"stocking"|"display"|"inventory"|"other"
 
-  assignedTo  String?            // userId — who should do it
-  assignedBy  String             // userId — who created it
-  assigneeName String?           // denormalized
-  assignerName String?           // denormalized
+  assignedTo   String? // userId — who should do it
+  assignedBy   String // userId — who created it
+  assigneeName String? // denormalized
+  assignerName String? // denormalized
 
   // Checklist items: [{ id, text, done, completedAt, completedBy }]
-  checklist   Json      @default("[]")
+  checklist Json @default("[]")
 
   // Assign to register (optional — in addition to assignedTo user)
-  stationId   String?                         // which register this task is for
-  stationName String?                         // denormalized
+  stationId   String? // which register this task is for
+  stationName String? // denormalized
 
   // Recurring schedule
-  isRecurring Boolean   @default(false)
-  recurType   String?                         // "daily"|"weekly"|"biweekly"|"monthly"
-  recurDays   String[]  @default([])          // ["Monday","Wednesday","Friday"] for weekly
-  recurDayOfMonth Int?                        // 1-31 for monthly
-  recurTime   String?                         // "09:00" — time of day to create instance
-  templateId  String?                         // if this task was spawned from a template, link to parent
-  nextRunAt   DateTime?                       // when next recurring instance should be created
-  lastRunAt   DateTime?                       // when last instance was created
+  isRecurring     Boolean   @default(false)
+  recurType       String? // "daily"|"weekly"|"biweekly"|"monthly"
+  recurDays       String[]  @default([]) // ["Monday","Wednesday","Friday"] for weekly
+  recurDayOfMonth Int? // 1-31 for monthly
+  recurTime       String? // "09:00" — time of day to create instance
+  templateId      String? // if this task was spawned from a template, link to parent
+  nextRunAt       DateTime? // when next recurring instance should be created
+  lastRunAt       DateTime? // when last instance was created
 
   dueDate     DateTime?
   completedAt DateTime?
   completedBy String?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId, status])
   @@index([orgId, assignedTo, status])
@@ -2376,12 +2397,12 @@ model StoreIntegration {
   id              String    @id @default(cuid())
   orgId           String
   storeId         String
-  platform        String    // "doordash"|"ubereats"|"instacart"|"grubhub"|"postmates"
-  credentials     Json      // platform-specific: { developerId, keyId, signingSecret, storeLocationId, ... }
-  config          Json      @default("{}")  // { autoConfirm, syncInterval, syncEnabled, menuId }
-  inventoryConfig Json      @default("{}")  // { syncFrequency, departments, defaultBehavior }
+  platform        String // "doordash"|"ubereats"|"instacart"|"grubhub"|"postmates"
+  credentials     Json // platform-specific: { developerId, keyId, signingSecret, storeLocationId, ... }
+  config          Json      @default("{}") // { autoConfirm, syncInterval, syncEnabled, menuId }
+  inventoryConfig Json      @default("{}") // { syncFrequency, departments, defaultBehavior }
   status          String    @default("inactive") // "inactive"|"active"|"error"
-  storeName       String?   // name on the platform
+  storeName       String? // name on the platform
   lastSyncAt      DateTime?
   lastError       String?
   createdAt       DateTime  @default(now())
@@ -2399,18 +2420,18 @@ model PlatformOrder {
   id              String    @id @default(cuid())
   orgId           String
   storeId         String
-  platform        String    // "doordash"|"ubereats"|"instacart"|"grubhub"
-  platformOrderId String    // external platform order ID
-  shortCode       String?   // delivery short code (DoorDash)
+  platform        String // "doordash"|"ubereats"|"instacart"|"grubhub"
+  platformOrderId String // external platform order ID
+  shortCode       String? // delivery short code (DoorDash)
   status          String    @default("new") // new|confirmed|preparing|ready|picked_up|delivered|cancelled|failed
-  fulfillmentType String?   // "delivery"|"pickup"|"merchant_delivery"
-  items           Json      // [{name, qty, price, merchantItemId, specialInstructions}]
+  fulfillmentType String? // "delivery"|"pickup"|"merchant_delivery"
+  items           Json // [{name, qty, price, merchantItemId, specialInstructions}]
   customerName    String?
   customerPhone   String?
   subtotal        Decimal   @db.Decimal(10, 2)
-  tax             Decimal   @db.Decimal(10, 2) @default(0)
-  deliveryFee     Decimal   @db.Decimal(10, 2) @default(0)
-  tip             Decimal   @db.Decimal(10, 2) @default(0)
+  tax             Decimal   @default(0) @db.Decimal(10, 2)
+  deliveryFee     Decimal   @default(0) @db.Decimal(10, 2)
+  tip             Decimal   @default(0) @db.Decimal(10, 2)
   grandTotal      Decimal   @db.Decimal(10, 2)
   estimatedPickup DateTime?
   confirmedAt     DateTime?
@@ -2419,8 +2440,8 @@ model PlatformOrder {
   deliveredAt     DateTime?
   cancelledAt     DateTime?
   cancelReason    String?
-  dasherStatus    String?   // DASHER_CONFIRMED|ARRIVED|PICKED_UP|DROPPED_OFF
-  webhookData     Json?     // raw webhook payload for audit
+  dasherStatus    String? // DASHER_CONFIRMED|ARRIVED|PICKED_UP|DROPPED_OFF
+  webhookData     Json? // raw webhook payload for audit
   notes           String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -2438,13 +2459,13 @@ model PlatformOrder {
 // ─────────────────────────────────────────────────
 model GlobalProductMatch {
   id                Int      @id @default(autoincrement())
-  vendorName        String   // normalized: lowercase, trimmed
-  vendorItemCode    String   // vendor's item code
-  vendorDescription String?  // vendor's product description
-  matchedUPC        String   // canonical UPC of matched POS product
-  matchedName       String   // canonical product name
-  confirmedCount    Int      @default(1)  // total confirmations across ALL stores
-  orgCount          Int      @default(1)  // unique orgs that confirmed this mapping
+  vendorName        String // normalized: lowercase, trimmed
+  vendorItemCode    String // vendor's item code
+  vendorDescription String? // vendor's product description
+  matchedUPC        String // canonical UPC of matched POS product
+  matchedName       String // canonical product name
+  confirmedCount    Int      @default(1) // total confirmations across ALL stores
+  orgCount          Int      @default(1) // unique orgs that confirmed this mapping
   orgs              String[] @default([]) // array of orgIds that contributed (for dedup)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -2454,3 +2475,101 @@ model GlobalProductMatch {
   @@map("global_product_matches")
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FUEL MODULE
+// Fuel sales (gas station mode) — types, settings, transactions.
+// Mirrors the lottery module pattern: store-level enable flag,
+// per-type pricing locked in back-office, cashier records sales.
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// FUEL TYPE
+// A grade of fuel sold at this store (e.g. "Regular 87",
+// "Premium 91", "Diesel"). Price is set per gallon in the
+// back-office and locked at cashier (cashier cannot override).
+// ─────────────────────────────────────────────────
+model FuelType {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  name           String // "Regular", "Premium", "Diesel"
+  gradeLabel     String? // optional: "87 Octane", "91 Octane"
+  pricePerGallon Decimal  @db.Decimal(10, 3) // 3.999 / gallon
+  color          String? // hex color for UI badge: "#16a34a"
+  isDefault      Boolean  @default(false) // pre-selected in cashier modal
+  isTaxable      Boolean  @default(false)
+  taxRate        Decimal? @db.Decimal(5, 4) // optional override (e.g. 0.0825 = 8.25%)
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+  deleted        Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions FuelTransaction[]
+
+  @@index([orgId, storeId])
+  @@map("fuel_types")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL SETTINGS
+// Store-level fuel configuration. Mirrors LotterySettings.
+// ─────────────────────────────────────────────────
+model FuelSettings {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String @unique
+
+  enabled          Boolean @default(false)
+  cashOnly         Boolean @default(false) // restrict fuel sales to cash
+  allowRefunds     Boolean @default(true) // allow fuel refund button at cashier
+  defaultEntryMode String  @default("amount") // "amount" | "gallons"
+
+  // Optional convenience: pre-selected default fuel type id (set via portal)
+  defaultFuelTypeId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("fuel_settings")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL TRANSACTION
+// Individual fuel sale or refund recorded with a POS transaction.
+// Stores both gallons and amount so reports can aggregate either.
+// pricePerGallon is snapshotted at sale-time (3-decimal precision).
+// ─────────────────────────────────────────────────
+model FuelTransaction {
+  id        String  @id @default(cuid())
+  orgId     String
+  storeId   String
+  shiftId   String?
+  cashierId String?
+  stationId String?
+
+  type         String // "sale" | "refund"
+  fuelTypeId   String?
+  fuelType     FuelType? @relation(fields: [fuelTypeId], references: [id])
+  fuelTypeName String // snapshot for reporting after type rename/delete
+
+  gallons        Decimal @db.Decimal(10, 3) // 10.234 gallons
+  pricePerGallon Decimal @db.Decimal(10, 3) // 3.999 / gallon
+  amount         Decimal @db.Decimal(10, 2) // gallons × price (always positive)
+  entryMode      String  @default("amount") // "amount" | "gallons" (which side cashier entered)
+
+  taxAmount Decimal? @db.Decimal(10, 2)
+  notes     String?
+
+  posTransactionId String? // links to parent cart Transaction
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, storeId, shiftId])
+  @@index([orgId, storeId, createdAt])
+  @@index([fuelTypeId])
+  @@map("fuel_transactions")
+}

@@ -55,8 +55,11 @@ function computeAggregation(rows) {
 }
 
 // ─── Helper: build base WHERE clause ────────────────────────────────────────
+// Includes both 'complete' sales and 'refund' transactions so refunds net out
+// of Gross / Net (matches End-of-Day report semantics — see
+// endOfDayReportController.aggregateTransactions).
 function buildWhere(user, storeId, from, to) {
-  const where = { status: 'complete' };
+  const where = { status: { in: ['complete', 'refund'] } };
   if (user?.orgId) where.orgId = user.orgId;
   if (storeId) where.storeId = storeId;
   if (from || to) {
@@ -86,7 +89,7 @@ function getWeekStart(d) {
 export async function getDailySales(user, storeId, from, to) {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { grandTotal: true, subtotal: true, taxTotal: true, depositTotal: true, ebtTotal: true, tenderLines: true, lineItems: true, createdAt: true },
+    select: { grandTotal: true, subtotal: true, taxTotal: true, depositTotal: true, ebtTotal: true, tenderLines: true, lineItems: true, status: true, createdAt: true },
     orderBy: { createdAt: 'asc' },
   });
 
@@ -95,11 +98,18 @@ export async function getDailySales(user, storeId, from, to) {
     const ds = toDateStr(new Date(tx.createdAt));
     if (!days[ds]) days[ds] = emptyBucket(ds);
     const d = days[ds];
-    const sub   = Number(tx.subtotal)     || 0;
-    const tax   = Number(tx.taxTotal)     || 0;
-    const grand = Number(tx.grandTotal)   || 0;
-    const dep   = Number(tx.depositTotal) || 0;
-    const ebt   = Number(tx.ebtTotal)     || 0;
+    // Sign convention (matches EoD aggregateTransactions):
+    //   • status='complete' → use RAW signed values. grandTotal can be negative
+    //     for net-negative carts (e.g. bottle returns > sales) and that should
+    //     subtract from gross.
+    //   • status='refund'   → grandTotal stored as POSITIVE amount of refund;
+    //     subtract via -Math.abs() (refund money going out).
+    const isRefund = tx.status === 'refund';
+    const sub   = isRefund ? -Math.abs(Number(tx.subtotal)     || 0) : (Number(tx.subtotal)     || 0);
+    const tax   = isRefund ? -Math.abs(Number(tx.taxTotal)     || 0) : (Number(tx.taxTotal)     || 0);
+    const grand = isRefund ? -Math.abs(Number(tx.grandTotal)   || 0) : (Number(tx.grandTotal)   || 0);
+    const dep   = isRefund ? -Math.abs(Number(tx.depositTotal) || 0) : (Number(tx.depositTotal) || 0);
+    const ebt   = isRefund ? -Math.abs(Number(tx.ebtTotal)     || 0) : (Number(tx.ebtTotal)     || 0);
 
     // ── Bug B2 fix: Gross vs Net definitions ──────────────────────────────
     // Per user clarification:
@@ -113,13 +123,17 @@ export async function getDailySales(user, storeId, from, to) {
     d.TotalDeposits          += dep;
     d.TotalEBT               += ebt;
     d.TotalTotalCollected    += grand;         // alias for Gross (kept for back-compat)
-    d.TotalTransactionsCount += 1;
+    if (isRefund) {
+      d.TotalRefunds         += Math.abs(Number(tx.grandTotal) || 0);
+      // Refund tx itself is not counted as a "sale" in the count column
+    } else {
+      d.TotalTransactionsCount += 1;
+    }
 
     // Compute discounts from lineItems (if present)
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
     for (const li of items) {
       d.TotalDiscounts += Number(li.discountAmount) || 0;
-      if (li.isRefund) d.TotalRefunds += Math.abs(Number(li.lineTotal) || 0);
     }
   }
 
@@ -257,7 +271,7 @@ export async function getMonthlySalesComparison(user, storeId) {
 export async function getDepartmentSales(user, storeId, from, to) {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { id: true, lineItems: true },
+    select: { id: true, lineItems: true, status: true },
   });
 
   // Bug B1 fix: Track distinct transaction IDs per department so
@@ -265,11 +279,16 @@ export async function getDepartmentSales(user, storeId, from, to) {
   // Bug B2 fix applied here too: gross = line total BEFORE discount (unit × qty),
   // net = line total AFTER discount (li.lineTotal). Department reports show
   // line-level gross/net since tax isn't attributed per-line in our data.
+  // Refund txs subtract their line totals so department reports reconcile
+  // with the End-of-Day report.
   const depts = {};
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
-    // Only count a department once per transaction (even if basket has
-    // multiple items in that department).
+    const isRefund = tx.status === 'refund';
+    // Sign convention: refund tx → -|line values|; complete tx → raw signed
+    // (so a negative-total complete cart subtracts correctly).
+    // Only count a department once per transaction. Refunds DON'T add to the
+    // basket count — they reduce the gross sales amount.
     const seenInThisTx = new Set();
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
@@ -291,9 +310,12 @@ export async function getDepartmentSales(user, storeId, from, to) {
         };
       }
       const d = depts[deptId];
-      const lineTotal = Number(li.lineTotal) || 0;                    // after discount
-      const grossLine = Number(li.unitPrice || 0) * Number(li.qty || 1); // before discount
-      const qty       = Number(li.qty) || 1;
+      const rawLineTotal = Number(li.lineTotal) || 0;
+      const rawGrossLine = (Number(li.unitPrice || 0) * Number(li.qty || 1));
+      const rawQty       = Number(li.qty) || 1;
+      const lineTotal = isRefund ? -Math.abs(rawLineTotal) : rawLineTotal;
+      const grossLine = isRefund ? -Math.abs(rawGrossLine) : rawGrossLine;
+      const qty       = isRefund ? -Math.abs(rawQty)       : rawQty;
 
       d.TotalSales      += lineTotal;
       d.TotalNetSales   += lineTotal;
@@ -301,8 +323,8 @@ export async function getDepartmentSales(user, storeId, from, to) {
       d.TotalItems      += qty;
       d.ItemsSold       += qty;
 
-      // Distinct-transaction counting per department
-      if (!seenInThisTx.has(deptId)) {
+      // Distinct-transaction counting per department — only for non-refund txs
+      if (!isRefund && !seenInThisTx.has(deptId)) {
         d._txSet.add(tx.id);
         seenInThisTx.add(deptId);
       }
@@ -362,13 +384,16 @@ export async function getTopProducts(user, storeId, date) {
   const from = date || toDateStr(new Date());
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, from),
-    select: { lineItems: true },
+    select: { lineItems: true, status: true },
   });
 
   // B7: grouping key = productId → upc → name (productId is authoritative)
+  // Sign convention matches getDepartmentSales: refund tx → -|values|;
+  // complete tx → raw signed.
   const products = {};
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    const isRefund = tx.status === 'refund';
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
       const key = String(li.productId || li.upc || li.name || 'Unknown');
@@ -379,13 +404,21 @@ export async function getTopProducts(user, storeId, date) {
         Department: li.departmentName || li.taxClass || '',
         NetSales: 0, GrossSales: 0, UnitsSold: 0,
       };
-      products[key].NetSales   += r2(li.lineTotal || 0);
-      products[key].GrossSales += r2((li.unitPrice || 0) * (li.qty || 1));
-      products[key].UnitsSold  += Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal || 0);
+      const grossLine = (Number(li.unitPrice || 0) * Number(li.qty || 1));
+      const qty       = Number(li.qty || 1);
+      products[key].NetSales   += isRefund ? -Math.abs(r2(lineTotal)) : r2(lineTotal);
+      products[key].GrossSales += isRefund ? -Math.abs(r2(grossLine)) : r2(grossLine);
+      products[key].UnitsSold  += isRefund ? -Math.abs(qty)            : qty;
     }
   }
 
-  const result = Object.values(products).sort((a, b) => b.NetSales - a.NetSales).slice(0, 20);
+  // After refunds net out, products with non-positive net sales drop off the
+  // top-products list (they're net returns, not top sellers).
+  const result = Object.values(products)
+    .filter(p => p.NetSales > 0)
+    .sort((a, b) => b.NetSales - a.NetSales)
+    .slice(0, 20);
   return { value: result, '@odata.count': result.length };
 }
 
@@ -403,7 +436,7 @@ export async function getTopProducts(user, storeId, date) {
 export async function getProductsGrouped(user, storeId, from, to, orderBy = 'NetSales', pageSize = 20, skip = 0) {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { lineItems: true },
+    select: { lineItems: true, status: true },
   });
 
   const products = {};
@@ -413,6 +446,7 @@ export async function getProductsGrouped(user, storeId, from, to, orderBy = 'Net
 
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    const isRefund = tx.status === 'refund';
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
       // B7 fix: productId > upc > name
@@ -431,14 +465,18 @@ export async function getProductsGrouped(user, storeId, from, to, orderBy = 'Net
         Margin:       null,
       };
       const p = products[key];
-      const lineCost = Number(li.costPrice) * Number(li.qty || 1);
+      const qtyRaw   = Number(li.qty || 1);
+      const signedQty= isRefund ? -Math.abs(qtyRaw) : qtyRaw;
+      const lineCost = Number(li.costPrice) * Math.abs(qtyRaw);
       if (Number.isFinite(lineCost) && lineCost > 0) {
-        p.TotalCost += lineCost;
+        p.TotalCost += isRefund ? -lineCost : lineCost;
         p.KnownCost  = true;
       }
-      p.NetSales   += r2(li.lineTotal || 0);
-      p.GrossSales += r2((li.unitPrice || 0) * (li.qty || 1));
-      p.UnitsSold  += Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal || 0);
+      const grossLine = (Number(li.unitPrice || 0) * qtyRaw);
+      p.NetSales   += isRefund ? -Math.abs(r2(lineTotal)) : r2(lineTotal);
+      p.GrossSales += isRefund ? -Math.abs(r2(grossLine)) : r2(grossLine);
+      p.UnitsSold  += signedQty;
 
       if (li.productId) seenProductIds.add(parseInt(li.productId, 10));
       if (li.upc)       seenUpcs.add(String(li.upc));

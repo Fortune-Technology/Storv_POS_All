@@ -71,8 +71,8 @@ function AppliesToBadge({ value }) {
     <span style={{
       fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.55rem',
       borderRadius: 8,
-      background: 'rgba(99,102,241,.1)', color: '#818cf8',
-      border: '1px solid rgba(99,102,241,.25)',
+      background: 'var(--brand-10)', color: 'var(--accent-secondary)',
+      border: '1px solid var(--brand-25)',
     }}>
       {opt?.label || value}
     </span>
@@ -137,7 +137,7 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
   return (
     <form onSubmit={handleSubmit} style={{
       background: 'var(--bg-secondary, #111827)',
-      border: '1px solid rgba(99,102,241,.3)',
+      border: '1px solid var(--brand-30)',
       borderRadius: 14, padding: '1.25rem 1.5rem',
       marginBottom: '1rem',
     }}>
@@ -227,7 +227,7 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
         }}>Cancel</button>
         <button type="submit" disabled={saving} style={{
           padding: '0.5rem 1.5rem', borderRadius: 8,
-          background: saving ? 'var(--bg-input, #2a2a3a)' : 'rgba(99,102,241,.9)',
+          background: saving ? 'var(--bg-input, #2a2a3a)' : 'var(--accent-primary)',
           border: 'none',
           color: saving ? 'var(--text-muted, #6b7280)' : '#fff',
           fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.875rem',
@@ -250,17 +250,17 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
       display: 'flex', alignItems: 'center', gap: 12,
       transition: 'border-color .12s',
     }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,.3)'}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--brand-30)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-color, #1f2937)'}
     >
       {/* Rate badge */}
       <div style={{
         width: 52, height: 52, borderRadius: 12, flexShrink: 0,
-        background: 'rgba(99,102,241,.1)',
-        border: '1px solid rgba(99,102,241,.25)',
+        background: 'var(--brand-10)',
+        border: '1px solid var(--brand-25)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       }}>
-        <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#818cf8', lineHeight: 1 }}>
+        <span style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--accent-secondary)', lineHeight: 1 }}>
           {Number(rule.rate).toFixed(Number(rule.rate) % 1 === 0 ? 0 : 3).replace(/0+$/, '').replace(/\.$/, '')}%
         </span>
       </div>
@@ -401,7 +401,7 @@ export default function TaxRules({ embedded }) {
               onClick={() => setShowForm('new')}
               style={{
                 height: 38, padding: '0 1.25rem',
-                background: 'rgba(99,102,241,.9)', border: 'none',
+                background: 'var(--accent-primary)', border: 'none',
                 borderRadius: 8, color: '#fff',
                 fontWeight: 800, fontSize: '0.875rem',
                 cursor: 'pointer',
@@ -417,11 +417,11 @@ export default function TaxRules({ embedded }) {
       {/* ── Info note ── */}
       <div style={{
         padding: '0.75rem 1rem', borderRadius: 10, marginBottom: '1.25rem',
-        background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.2)',
+        background: 'var(--brand-05)', border: '1px solid var(--brand-20)',
         fontSize: '0.78rem', color: 'var(--text-secondary, #9ca3af)',
         display: 'flex', alignItems: 'flex-start', gap: 8,
       }}>
-        <Info size={14} color="#818cf8" style={{ flexShrink: 0, marginTop: 1 }} />
+        <Info size={14} color="var(--accent-secondary)" style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
           Tax rules are applied at checkout based on product category. State-specific rules override org-wide rules
           for stores in matching states. Rules are automatically inherited by all stores unless a store-specific

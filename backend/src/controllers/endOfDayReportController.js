@@ -26,6 +26,7 @@
 import prisma from '../config/postgres.js';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const r3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 
 // ─── Local-day window helpers (same as listTransactions fix) ────────────────
 const startOfLocalDay = (str) => {
@@ -98,7 +99,7 @@ async function resolveScope(req) {
     if (!shift) { const e = new Error('Shift not found'); e.statusCode = 404; throw e; }
     const [cashier, station] = await Promise.all([
       prisma.user.findUnique({ where: { id: shift.cashierId }, select: { name: true } }),
-      shift.stationId ? prisma.station.findUnique({ where: { id: shift.stationId }, select: { name: true, stationNumber: true } }) : null,
+      shift.stationId ? prisma.station.findUnique({ where: { id: shift.stationId }, select: { name: true } }) : null,
     ]);
     return {
       orgId,
@@ -106,7 +107,7 @@ async function resolveScope(req) {
       cashierId: shift.cashierId,
       stationId: shift.stationId,
       cashierName: cashier?.name || 'Unknown',
-      stationName: station?.name || (station?.stationNumber ? `POS-${station.stationNumber}` : null),
+      stationName: station?.name || null,
       from: shift.openedAt,
       to:   shift.closedAt || new Date(),
       shift,
@@ -132,7 +133,7 @@ async function resolveScope(req) {
   // Resolve names for the header
   const [cashier, station] = await Promise.all([
     cashierId ? prisma.user.findUnique({ where: { id: cashierId }, select: { name: true } }) : null,
-    stationId ? prisma.station.findUnique({ where: { id: stationId }, select: { name: true, stationNumber: true } }) : null,
+    stationId ? prisma.station.findUnique({ where: { id: stationId }, select: { name: true } }) : null,
   ]);
 
   return {
@@ -256,6 +257,91 @@ async function aggregateTransactions(scope) {
   };
 }
 
+// ─── Aggregate fuel transactions for the scope window ──────────────────────
+async function aggregateFuel(scope) {
+  const where = {
+    orgId:     scope.orgId,
+    createdAt: { gte: scope.from, lte: scope.to },
+  };
+  if (scope.storeId)   where.storeId   = scope.storeId;
+  if (scope.cashierId) where.cashierId = scope.cashierId;
+  if (scope.stationId) where.stationId = scope.stationId;
+  if (scope.shift)     where.shiftId   = scope.shift.id;
+
+  const txs = await prisma.fuelTransaction.findMany({
+    where,
+    include: { fuelType: { select: { name: true, gradeLabel: true, color: true } } },
+  });
+
+  const byType = new Map();
+  let totalGallons = 0, totalAmount = 0;
+  let totalSalesGallons = 0, totalSalesAmount = 0;
+  let totalRefundGallons = 0, totalRefundAmount = 0;
+  let salesCount = 0, refundCount = 0;
+
+  for (const t of txs) {
+    const id = t.fuelTypeId || `__${t.fuelTypeName || 'unknown'}`;
+    if (!byType.has(id)) {
+      byType.set(id, {
+        fuelTypeId: t.fuelTypeId || null,
+        name:       t.fuelType?.name || t.fuelTypeName || 'Fuel',
+        gradeLabel: t.fuelType?.gradeLabel || null,
+        color:      t.fuelType?.color || null,
+        salesGallons: 0, salesAmount: 0, salesCount: 0,
+        refundGallons: 0, refundAmount: 0, refundCount: 0,
+        netGallons: 0, netAmount: 0,
+        avgPrice: 0,
+      });
+    }
+    const row = byType.get(id);
+    const gal = Number(t.gallons) || 0;
+    const amt = Number(t.amount)  || 0;
+    if (t.type === 'refund') {
+      row.refundGallons += gal;
+      row.refundAmount  += amt;
+      row.refundCount   += 1;
+      totalRefundGallons += gal; totalRefundAmount += amt; refundCount += 1;
+    } else {
+      row.salesGallons += gal;
+      row.salesAmount  += amt;
+      row.salesCount   += 1;
+      totalSalesGallons += gal; totalSalesAmount += amt; salesCount += 1;
+    }
+  }
+
+  const rows = Array.from(byType.values()).map(r => {
+    r.netGallons = r.salesGallons - r.refundGallons;
+    r.netAmount  = r.salesAmount  - r.refundAmount;
+    r.avgPrice   = r.netGallons > 0 ? r.netAmount / r.netGallons : 0;
+    r.salesGallons  = r3(r.salesGallons);
+    r.salesAmount   = r2(r.salesAmount);
+    r.refundGallons = r3(r.refundGallons);
+    r.refundAmount  = r2(r.refundAmount);
+    r.netGallons    = r3(r.netGallons);
+    r.netAmount     = r2(r.netAmount);
+    r.avgPrice      = r3(r.avgPrice);
+    return r;
+  }).sort((a, b) => b.netAmount - a.netAmount);
+
+  totalGallons = totalSalesGallons - totalRefundGallons;
+  totalAmount  = totalSalesAmount  - totalRefundAmount;
+
+  return {
+    rows,
+    totals: {
+      gallons:        r3(totalGallons),
+      amount:         r2(totalAmount),
+      salesGallons:   r3(totalSalesGallons),
+      salesAmount:    r2(totalSalesAmount),
+      refundGallons:  r3(totalRefundGallons),
+      refundAmount:   r2(totalRefundAmount),
+      salesCount,
+      refundCount,
+      avgPrice:       r3(totalGallons > 0 ? totalAmount / totalGallons : 0),
+    },
+  };
+}
+
 // ─── Aggregate shift-scoped payouts and drops ───────────────────────────────
 // When scope has a specific shift, we pull the shift's drops[] / payouts[]
 // directly. Otherwise we query CashPayout / CashDrop by date range.
@@ -267,11 +353,13 @@ async function aggregateCashEvents(scope) {
     };
   }
 
+  // CashDrop / CashPayout don't have a direct storeId column — they're scoped via shift.
+  // Filter by shift.storeId when a storeId is provided.
   const where = {
     orgId:     scope.orgId,
     createdAt: { gte: scope.from, lte: scope.to },
+    ...(scope.storeId ? { shift: { storeId: scope.storeId } } : {}),
   };
-  if (scope.storeId) where.storeId = scope.storeId;
 
   const [payouts, drops] = await Promise.all([
     prisma.cashPayout.findMany({ where, orderBy: { createdAt: 'asc' } }),
@@ -286,12 +374,13 @@ export const getEndOfDayReport = async (req, res) => {
   try {
     const scope = await resolveScope(req);
 
-    const [txAgg, cashEvents, openingRow] = await Promise.all([
+    const [txAgg, cashEvents, openingRow, fuelAgg] = await Promise.all([
       aggregateTransactions(scope),
       aggregateCashEvents(scope),
       // Opening cash amount — only meaningful for single-shift scope
       scope.shift ? Promise.resolve({ openingAmount: Number(scope.shift.openingAmount || 0) })
                   : Promise.resolve(null),
+      aggregateFuel(scope),
     ]);
 
     // ── PAYOUTS section (9 categories) ───────────────────────────────────────
@@ -337,27 +426,39 @@ export const getEndOfDayReport = async (req, res) => {
     for (const k of Object.keys(txAgg.tenderMap)) txAgg.tenderMap[k].amount = r2(txAgg.tenderMap[k].amount);
 
     // ── TRANSACTIONS section ─────────────────────────────────────────────────
-    const avgTxAmount = txAgg.completeCount > 0 ? txAgg.grossSales / txAgg.completeCount : 0;
+    // Average tx uses GROSS *before* refund-subtraction over total successful
+    // tickets (completes + refunds), so a $40 sale + a $10 refund averages
+    // ~$25 not $30. This is the standard convention for POS daily-summary reports.
+    const grossBeforeRefunds = txAgg.grossSales + txAgg.refundAmount;
+    const allTxCount         = txAgg.completeCount + txAgg.refundCount;
+    const avgTxAmount        = allTxCount > 0 ? grossBeforeRefunds / allTxCount : 0;
     const transactionSection = [
-      { key: 'avgTransaction', label: 'Average Transaction', count: txAgg.completeCount, amount: r2(avgTxAmount) },
-      { key: 'netSales',       label: 'Net Sales',           count: txAgg.completeCount, amount: r2(txAgg.netSales) },
-      { key: 'grossSales',     label: 'Gross Sales',         count: txAgg.completeCount, amount: r2(txAgg.grossSales) },
-      { key: 'tax',            label: 'Tax Collected',       count: txAgg.completeCount, amount: r2(txAgg.taxCollected) },
+      { key: 'avgTransaction', label: 'Average Transaction', count: allTxCount,           amount: r2(avgTxAmount) },
+      { key: 'netSales',       label: 'Net Sales',           count: txAgg.completeCount,  amount: r2(txAgg.netSales) },
+      { key: 'grossSales',     label: 'Gross Sales',         count: txAgg.completeCount,  amount: r2(txAgg.grossSales) },
+      { key: 'tax',            label: 'Tax Collected',       count: txAgg.completeCount,  amount: r2(txAgg.taxCollected) },
       { key: 'cashCollected',  label: 'Cash Collected',      count: txAgg.tenderMap.cash?.count || 0, amount: r2(txAgg.cashCollected) },
     ];
 
     // ── Totals for reconciliation (only if shift-scope) ──────────────────────
+    // Cash flow into the drawer:  opening + cashCollected + paid_in + received_on_acct
+    // Cash flow out of the drawer: pickups (drops) + paid_out + loans
+    // (refunds + cashback are already netted out of cashCollected via tx tender lines)
     let reconciliation = null;
     if (scope.shift) {
       const opening           = Number(scope.shift.openingAmount) || 0;
       const cashDropsTotal    = payoutMap.pickups.amount;
-      const cashPayoutsTotal  = payoutMap.paid_out.amount + payoutMap.loans.amount + payoutMap.paid_in.amount + payoutMap.received_on_acct.amount;
-      const expectedInDrawer  = opening + txAgg.cashCollected - cashDropsTotal - cashPayoutsTotal;
+      const cashIn            = payoutMap.paid_in.amount + payoutMap.received_on_acct.amount;
+      const cashOut           = payoutMap.paid_out.amount + payoutMap.loans.amount;
+      const expectedInDrawer  = opening + txAgg.cashCollected + cashIn - cashDropsTotal - cashOut;
       reconciliation = {
         openingAmount:    r2(opening),
         cashCollected:    r2(txAgg.cashCollected),
-        cashDropsTotal:   r2(cashDropsTotal),
-        cashPayoutsTotal: r2(cashPayoutsTotal),
+        cashIn:           r2(cashIn),                    // Paid-in + Received on Account
+        cashOut:          r2(cashOut),                   // Paid-out + Loans
+        cashDropsTotal:   r2(cashDropsTotal),            // Pickups
+        // Legacy field kept for back-compat with existing UI/print templates
+        cashPayoutsTotal: r2(cashOut),
         expectedInDrawer: r2(expectedInDrawer),
         closingAmount:    scope.shift.closingAmount != null ? Number(scope.shift.closingAmount) : null,
         variance:         scope.shift.variance      != null ? Number(scope.shift.variance)      : null,
@@ -366,7 +467,7 @@ export const getEndOfDayReport = async (req, res) => {
 
     // ── Build header ─────────────────────────────────────────────────────────
     const storeName = scope.storeId ? (await prisma.store.findUnique({
-      where: { id: scope.storeId }, select: { name: true, address: true, phone: true, timezone: true },
+      where: { id: scope.storeId }, select: { name: true },
     })) : null;
 
     res.json({
@@ -374,8 +475,8 @@ export const getEndOfDayReport = async (req, res) => {
         reportType:   scope.shift ? 'shift' : 'date-range',
         storeId:      scope.storeId,
         storeName:    storeName?.name || null,
-        storeAddress: storeName?.address || null,
-        storePhone:   storeName?.phone || null,
+        storeAddress: null,
+        storePhone:   null,
         cashierId:    scope.cashierId,
         cashierName:  scope.cashierName,
         stationId:    scope.stationId,
@@ -388,6 +489,7 @@ export const getEndOfDayReport = async (req, res) => {
       payouts:      PAYOUT_CATEGORIES.map(c => payoutMap[c.key]),
       tenders:      TENDER_CATEGORIES.map(c => txAgg.tenderMap[c.key]),
       transactions: transactionSection,
+      fuel:         fuelAgg,
       reconciliation,
       totals: {
         grossSales:       r2(txAgg.grossSales),

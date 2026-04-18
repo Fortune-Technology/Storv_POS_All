@@ -779,10 +779,12 @@ export const realtimeSales = async (req, res) => {
     const todayStart = new Date(`${todayStr}T00:00:00`);
     const todayEnd   = new Date(`${todayStr}T23:59:59.999`);
 
-    // ── Fetch today's completed transactions ──────────────────────────────────
+    // ── Fetch today's completed transactions + refunds ────────────────────────
+    // Refunds are netted out of Gross/Net so the live dashboard reconciles
+    // with the End-of-Day report.
     const todayWhere = {
       orgId,
-      status: 'complete',
+      status: { in: ['complete', 'refund'] },
       createdAt: { gte: todayStart, lte: todayEnd },
     };
     if (storeId) todayWhere.storeId = storeId;
@@ -799,6 +801,7 @@ export const realtimeSales = async (req, res) => {
         ebtTotal: true,
         tenderLines: true,
         lineItems: true,
+        status: true,
         createdAt: true,
         stationId: true,
       },
@@ -820,11 +823,16 @@ export const realtimeSales = async (req, res) => {
     const seenUpcs       = new Set();
 
     for (const tx of txns) {
-      const gt = Number(tx.grandTotal)   || 0;
-      const st = Number(tx.subtotal)     || 0;
-      const tt = Number(tx.taxTotal)     || 0;
-      const dt = Number(tx.depositTotal) || 0;
-      const et = Number(tx.ebtTotal)     || 0;
+      // Sign convention (matches EoD):
+      //   • complete → raw signed values (grandTotal can be negative for net-
+      //     negative carts e.g. bottle returns)
+      //   • refund   → grandTotal stored as positive; subtract via -Math.abs()
+      const isRefund = tx.status === 'refund';
+      const gt = isRefund ? -Math.abs(Number(tx.grandTotal)   || 0) : (Number(tx.grandTotal)   || 0);
+      const st = isRefund ? -Math.abs(Number(tx.subtotal)     || 0) : (Number(tx.subtotal)     || 0);
+      const tt = isRefund ? -Math.abs(Number(tx.taxTotal)     || 0) : (Number(tx.taxTotal)     || 0);
+      const dt = isRefund ? -Math.abs(Number(tx.depositTotal) || 0) : (Number(tx.depositTotal) || 0);
+      const et = isRefund ? -Math.abs(Number(tx.ebtTotal)     || 0) : (Number(tx.ebtTotal)     || 0);
 
       netSales     += st;     // B2 fix — was gt
       grossSales   += gt;     // B2 fix — tender total
@@ -832,10 +840,11 @@ export const realtimeSales = async (req, res) => {
       depositTotal += dt;
       ebtTotal     += et;
 
-      // Tender breakdown
+      // Tender breakdown — refund cash leg subtracts (cash goes OUT of drawer)
       const tenders = Array.isArray(tx.tenderLines) ? tx.tenderLines : [];
       for (const t of tenders) {
-        const amt = Number(t.amount) || 0;
+        // Tender amounts are stored as positive numbers; refund leg subtracts.
+        const amt = (isRefund ? -1 : 1) * Math.abs(Number(t.amount) || 0);
         const m   = (t.method || '').toLowerCase();
         if (m === 'cash')                          cashTotal  += amt;
         else if (['card','credit','debit'].includes(m)) cardTotal  += amt;
@@ -846,7 +855,9 @@ export const realtimeSales = async (req, res) => {
       //   1. per-line (li.costPrice), or
       //   2. looked up from MasterProduct below
       // We NO LONGER fabricate 35% margin (Bug B3).
-      const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+      // Skip refund tx line-items for top-products — refunds reduce overall
+      // sales but shouldn't appear as "top products" since they're returns.
+      const items = (tx.status === 'refund') ? [] : (Array.isArray(tx.lineItems) ? tx.lineItems : []);
       for (const li of items) {
         if (!li.name || li.isLottery || li.isBottleReturn || li.isBagFee) continue;
         const key = li.name;
@@ -920,8 +931,14 @@ export const realtimeSales = async (req, res) => {
       }
     }
 
-    const txCount = txns.length;
-    const avgTx   = txCount ? grossSales / txCount : 0;   // avg tx = gross / count (total money / sales)
+    // txCount = completed sales only (refunds reported separately)
+    const completedTxns = txns.filter(t => t.status !== 'refund');
+    const refundedTxns  = txns.filter(t => t.status === 'refund');
+    const txCount       = completedTxns.length;
+    const refundCount   = refundedTxns.length;
+    // Avg tx uses pre-refund gross over total tickets (matches EoD avg-tx)
+    const grossPreRefund = grossSales + refundedTxns.reduce((s, t) => s + Math.abs(Number(t.grandTotal) || 0), 0);
+    const avgTx          = (txCount + refundCount) ? grossPreRefund / (txCount + refundCount) : 0;
 
     // Hourly array covering store hours (6 AM – 11 PM)
     const hourly = Array.from({ length: 24 }, (_, h) => {
@@ -1091,14 +1108,15 @@ export const realtimeSales = async (req, res) => {
 
     res.json({
       todaySales: {
-        netSales:     r2(netSales),        // B2: subtotal = pre-tax, post-discount
-        grossSales:   r2(grossSales),      // B2: grandTotal = tender total (incl. tax)
-        txCount,
+        netSales:     r2(netSales),        // B2: subtotal = pre-tax, post-discount (refunds netted)
+        grossSales:   r2(grossSales),      // B2: grandTotal = tender total incl. tax (refunds netted)
+        txCount,                           // completed sales only
+        refundCount,                       // refund tx count (separate)
         avgTx:        r2(avgTx),
         taxTotal:     r2(taxTotal),
         depositTotal: r2(depositTotal),
         ebtTotal:     r2(ebtTotal),
-        cashTotal:    r2(cashTotal),
+        cashTotal:    r2(cashTotal),       // net cash collected (refund cash subtracted)
         cardTotal:    r2(cardTotal),
         ebtTender:    r2(ebtTender),
         avgMargin,                         // null when no cost data — B3

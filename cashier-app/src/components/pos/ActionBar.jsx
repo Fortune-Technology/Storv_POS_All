@@ -6,8 +6,8 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
-  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, History, Recycle,
-  ClipboardList, Settings, Monitor, MessageSquare, Edit3, Leaf,
+  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, Fuel, History, Recycle,
+  ClipboardList, Settings, Monitor, MessageSquare, Edit3, Leaf, ExternalLink,
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
@@ -38,7 +38,10 @@ export default function ActionBar({
   onOpenCustomer,
   onLottery,
   onLotteryShift,
+  onFuelSale,
+  onFuelRefund,
   onHardwareSettings,
+  onAdminPortal,
   onCustomerDisplay,
   onTasks,
   onChat,
@@ -47,6 +50,8 @@ export default function ActionBar({
   onEbtBalance,
   shiftOpen = false,
   lotteryEnabled = true,
+  fuelEnabled = false,
+  fuelRefundsEnabled = true,
   ebtEnabled = false,
   heldCount = 0,
   enabledShortcuts = {},
@@ -101,6 +106,8 @@ export default function ActionBar({
         </button>
       )}
 
+      {/* Scrollable area — manager button stays fixed on the left */}
+      <div className="ab-scroll">
       <div className="ab-spacer" />
 
       {/* Manager actions */}
@@ -149,6 +156,15 @@ export default function ActionBar({
               <Divider />
             </>
           )}
+          {fuelEnabled && (
+            <>
+              <ACT icon={Fuel} label="Fuel Sale" onClick={onFuelSale} color="#dc2626" />
+              {fuelRefundsEnabled && (
+                <ACT icon={Fuel} label="Fuel Refund" onClick={onFuelRefund} color="#f59e0b" />
+              )}
+              <Divider />
+            </>
+          )}
         </>
       )}
 
@@ -161,6 +177,12 @@ export default function ActionBar({
       )}
 
       {/* Cashier actions */}
+      {onAdminPortal && (
+        <>
+          <ACT icon={ExternalLink} label="Back Office" onClick={mgr('Back Office', onAdminPortal)} color="#7c3aed" locked={!valid} />
+          <Divider />
+        </>
+      )}
       {show('noSale') && <ACT icon={DollarSign} label="No Sale" onClick={mgr('No Sale', onNoSale)} locked={!valid} />}
       {show('reprint') && <ACT icon={Printer} label="Reprint" onClick={onReprint} />}
       {ebtEnabled && onEbtBalance && <ACT icon={Leaf} label="EBT Balance" onClick={onEbtBalance} color="#34d399" />}
@@ -198,6 +220,7 @@ export default function ActionBar({
           <ACT icon={Edit3} label="Manual Item" onClick={onOpenItem} color="#f59e0b" />
         </>
       )}
+      </div>
     </div>
   );
 }

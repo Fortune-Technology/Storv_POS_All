@@ -5,9 +5,17 @@ import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { useSyncStore }    from '../../stores/useSyncStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
+import { usePOSConfig }    from '../../hooks/usePOSConfig.js';
 import { fmtTime }         from '../../utils/formatters.js';
 import { countCachedProducts } from '../../db/dexie.js';
 import './StatusBar.css';
+
+// "Born on or before X" date for an age threshold (today − N years).
+const ageDate = (years) => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 /** How many minutes ago was the last catalog sync (rounded) */
 function fmtSyncAge(isoStr) {
@@ -28,6 +36,9 @@ export default function StatusBar({ onRefresh }) {
   // Total quantity of items to bag (sum of qty across all lines, not line count)
   const cartItemCount = useCartStore(s => s.items.reduce((sum, i) => sum + (i.qty || 1), 0));
   const checkLogout   = useAuthStore(s => s.checkLogout);
+  const posConfig     = usePOSConfig();
+  const tobaccoAge    = Number(posConfig.ageLimits?.tobacco) || 0;
+  const alcoholAge    = Number(posConfig.ageLimits?.alcohol) || 0;
 
   const [time,          setTime]          = useState(fmtTime());
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -61,13 +72,13 @@ export default function StatusBar({ onRefresh }) {
     return () => clearInterval(id);
   }, [catalogSyncedAt]);
 
-  // 21+ age-check date: "must be born on or before" for age-restricted sales.
-  // Recalculated with the clock tick so it rolls over at midnight automatically.
-  const age21Date = (() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() - 21);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  })();
+  // Age-check dates: "must be born on or before" for tobacco / alcohol.
+  // Falls back to a standard 21+ chip when both store-level limits are 0/unset.
+  // Recomputed each render so they roll over at midnight (clock tick re-renders).
+  const tobaccoDate = tobaccoAge > 0 ? ageDate(tobaccoAge) : null;
+  const alcoholDate = alcoholAge > 0 ? ageDate(alcoholAge) : null;
+  const showLegacy21 = !tobaccoDate && !alcoholDate;
+  const legacy21Date = showLegacy21 ? ageDate(21) : null;
 
   // Two-tap logout: first tap arms it (3 s window), second tap fires
   const handleLogout = async () => {
@@ -166,11 +177,33 @@ export default function StatusBar({ onRefresh }) {
         </div>
       )}
 
-      {/* 21+ Age Check — born on or before this date */}
-      <div className="sb-age21" title="Customer must be born on or before this date to purchase 21+ items">
-        <ShieldCheck size={12} />
-        <span>21+: {age21Date}</span>
-      </div>
+      {/* Age-check chips — born on or before this date.
+          Tobacco + Alcohol shown side-by-side when their limits are configured;
+          falls back to a single 21+ chip when neither is set. */}
+      {tobaccoDate && (
+        <div
+          className="sb-age-chip sb-age-chip--tobacco"
+          title={`Customer must be born on or before this date to purchase tobacco (${tobaccoAge}+) items`}
+        >
+          <ShieldCheck size={12} />
+          <span>Tobacco {tobaccoAge}+: {tobaccoDate}</span>
+        </div>
+      )}
+      {alcoholDate && (
+        <div
+          className="sb-age-chip sb-age-chip--alcohol"
+          title={`Customer must be born on or before this date to purchase alcohol (${alcoholAge}+) items`}
+        >
+          <ShieldCheck size={12} />
+          <span>Alcohol {alcoholAge}+: {alcoholDate}</span>
+        </div>
+      )}
+      {showLegacy21 && (
+        <div className="sb-age21" title="Customer must be born on or before this date to purchase 21+ items">
+          <ShieldCheck size={12} />
+          <span>21+: {legacy21Date}</span>
+        </div>
+      )}
 
       {/* Clock */}
       <div className="sb-clock">

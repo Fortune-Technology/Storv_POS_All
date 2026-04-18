@@ -197,6 +197,23 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
+// ── @desc    Verify the current user's password (used by InactivityLock unlock)
+// ── @route   POST /api/auth/verify-password
+// ── @access  Private (JWT required)
+export const verifyPassword = async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Password required' });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: 'Incorrect password' });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ── @desc    Lookup account by phone number
 // ── @route   POST /api/auth/phone-lookup
 // ── @access  Public

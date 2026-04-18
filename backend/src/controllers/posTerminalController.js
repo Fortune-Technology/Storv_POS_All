@@ -94,6 +94,12 @@ async function _processLoyaltyPoints({ orgId, storeId, customerId, lineItems, su
 // ── GET /api/pos-terminal/catalog/snapshot ─────────────────────────────────
 // Returns flat denormalised product list for IndexedDB seeding.
 // Supports ?updatedSince=ISO for incremental sync.
+//
+// Tombstones: when `since` is supplied (incremental sync), the response also
+// includes deleted/inactive products updated since that timestamp, marked with
+// `_deleted: true`. The cashier-app uses these to purge stale rows from the
+// local IndexedDB cache. Without this, soft-deleted products would persist
+// forever in the local cache.
 export const getCatalogSnapshot = async (req, res) => {
   try {
     const orgId      = getOrgId(req);
@@ -106,10 +112,11 @@ export const getCatalogSnapshot = async (req, res) => {
     const where = {
       orgId,
       active: true,
+      deleted: false,
       ...(since && { updatedAt: { gte: since } }),
     };
 
-    const [total, products] = await Promise.all([
+    const [total, products, tombstones] = await Promise.all([
       prisma.masterProduct.count({ where }),
       prisma.masterProduct.findMany({
         where,
@@ -126,6 +133,18 @@ export const getCatalogSnapshot = async (req, res) => {
           } : false,
         },
       }),
+      // Only fetch tombstones on incremental syncs (since != null) AND on the
+      // FIRST page. They're sent once at the head of the paginated stream.
+      since && page === 1
+        ? prisma.masterProduct.findMany({
+            where: {
+              orgId,
+              updatedAt: { gte: since },
+              OR: [{ deleted: true }, { active: false }],
+            },
+            select: { id: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     // Flatten into the shape the POS app caches in IndexedDB
@@ -163,8 +182,13 @@ export const getCatalogSnapshot = async (req, res) => {
       };
     });
 
+    // Tombstones — IDs of products to remove from the local cache.
+    // Only present on the first page of an incremental sync.
+    const deleted = (tombstones || []).map(t => t.id);
+
     res.json({
       data:  flat,
+      deleted,
       total,
       page,
       pages: Math.ceil(total / limit),
@@ -209,7 +233,7 @@ export const createTransaction = async (req, res) => {
     const orgId = getOrgId(req);
     const {
       storeId, stationId,
-      lineItems, lotteryItems, tenderLines, ageVerifications, notes,
+      lineItems, lotteryItems, fuelItems, tenderLines, ageVerifications, notes,
       subtotal, taxTotal, depositTotal, ebtTotal, grandTotal, changeGiven,
       offlineCreatedAt, status,
       shiftId,
@@ -218,8 +242,8 @@ export const createTransaction = async (req, res) => {
 
     if (!storeId) return res.status(400).json({ error: 'storeId required' });
     // Allow lottery-only transactions (no regular lineItems)
-    if (!lineItems?.length && !lotteryItems?.length) {
-      return res.status(400).json({ error: 'lineItems or lotteryItems required' });
+    if (!lineItems?.length && !lotteryItems?.length && !fuelItems?.length) {
+      return res.status(400).json({ error: 'lineItems, lotteryItems, or fuelItems required' });
     }
 
     // Generate a human-readable transaction number
@@ -239,7 +263,11 @@ export const createTransaction = async (req, res) => {
         // Adding the column would require a Prisma migration; tracked as a
         // P3 backlog item for accurate per-shift filtering.
         txNumber,
-        status:          status || 'complete',
+        // Force 'complete' — the cashier-app's offline txQueue marks rows as
+        // 'pending' (a LOCAL sync flag, not a real tx state). Honoring it
+        // would hide cash sales from EoD/Daily reports. Voids and refunds
+        // use their own dedicated endpoints (voidTransaction / createRefund).
+        status:          'complete',
         lineItems:       lineItems || [],
         subtotal:        parseFloat(subtotal)     || 0,
         taxTotal:        parseFloat(taxTotal)     || 0,
@@ -284,11 +312,34 @@ export const createTransaction = async (req, res) => {
       });
     }
 
+    // ── Save fuel transactions if present ─────────────────────────────────
+    if (Array.isArray(fuelItems) && fuelItems.length) {
+      await prisma.fuelTransaction.createMany({
+        data: fuelItems.map(fi => ({
+          orgId,
+          storeId,
+          shiftId:          shiftId || null,
+          cashierId:        req.user.id,
+          stationId:        stationId || null,
+          type:             fi.type === 'refund' ? 'refund' : 'sale',
+          fuelTypeId:       fi.fuelTypeId || null,
+          fuelTypeName:     fi.fuelTypeName || 'Fuel',
+          gallons:          Math.abs(parseFloat(fi.gallons) || 0),
+          pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
+          amount:           Math.abs(parseFloat(fi.amount) || 0),
+          entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
+          taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
+          notes:            fi.notes || null,
+          posTransactionId: tx.id,
+        })),
+      });
+    }
+
     // ── Deduct stock for each sold line item (fire-and-forget) ────────────
     // Only deduct for real products (skip lottery, bottle-return, price-override lines without productId)
     if (Array.isArray(lineItems) && lineItems.length) {
       const stockUpdates = lineItems
-        .filter(li => li.productId && !li.isLottery && !li.isBottleReturn && li.qty > 0)
+        .filter(li => li.productId && !li.isLottery && !li.isFuel && !li.isBottleReturn && li.qty > 0)
         .map(li =>
           prisma.storeProduct.updateMany({
             where: { storeId, masterProductId: li.productId, orgId },
@@ -338,7 +389,12 @@ export const batchCreateTransactions = async (req, res) => {
             cashierId:        req.user.id,
             stationId:        tx.stationId || null,
             txNumber,
-            status:           tx.status || 'complete',
+            // Force 'complete' — see comment in createTransaction. The
+            // cashier-app's local txQueue marks rows as 'pending' which is
+            // a sync state, not a real tx state. Honoring it would hide
+            // cash sales (which often go through this batch path on a brief
+            // network blip) from EoD/Daily reports.
+            status:           'complete',
             lineItems:        tx.lineItems || [],
             subtotal:         parseFloat(tx.subtotal)     || 0,
             taxTotal:         parseFloat(tx.taxTotal)     || 0,
@@ -355,10 +411,51 @@ export const batchCreateTransactions = async (req, res) => {
         });
         results.push({ localId: tx.localId, id: saved.id, txNumber: saved.txNumber });
 
+        // ── Save lottery transactions if present ──────────────────────────
+        if (Array.isArray(tx.lotteryItems) && tx.lotteryItems.length) {
+          await prisma.lotteryTransaction.createMany({
+            data: tx.lotteryItems.map(li => ({
+              orgId,
+              storeId:         tx.storeId,
+              shiftId:         tx.shiftId || null,
+              cashierId:       req.user.id,
+              stationId:       tx.stationId || null,
+              type:            li.type === 'payout' ? 'payout' : 'sale',
+              amount:          Math.abs(parseFloat(li.amount) || 0),
+              gameId:          li.gameId || null,
+              notes:           li.notes || null,
+              posTransactionId: saved.id,
+            })),
+          });
+        }
+
+        // ── Save fuel transactions if present ─────────────────────────────
+        if (Array.isArray(tx.fuelItems) && tx.fuelItems.length) {
+          await prisma.fuelTransaction.createMany({
+            data: tx.fuelItems.map(fi => ({
+              orgId,
+              storeId:          tx.storeId,
+              shiftId:          tx.shiftId || null,
+              cashierId:        req.user.id,
+              stationId:        tx.stationId || null,
+              type:             fi.type === 'refund' ? 'refund' : 'sale',
+              fuelTypeId:       fi.fuelTypeId || null,
+              fuelTypeName:     fi.fuelTypeName || 'Fuel',
+              gallons:          Math.abs(parseFloat(fi.gallons) || 0),
+              pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
+              amount:           Math.abs(parseFloat(fi.amount) || 0),
+              entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
+              taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
+              notes:            fi.notes || null,
+              posTransactionId: saved.id,
+            })),
+          });
+        }
+
         // Deduct stock for this offline transaction
         if (Array.isArray(tx.lineItems) && tx.lineItems.length) {
           const updates = tx.lineItems
-            .filter(li => li.productId && !li.isLottery && !li.isBottleReturn && li.qty > 0)
+            .filter(li => li.productId && !li.isLottery && !li.isFuel && !li.isBottleReturn && li.qty > 0)
             .map(li =>
               prisma.storeProduct.updateMany({
                 where: { storeId: tx.storeId, masterProductId: li.productId, orgId },
@@ -540,7 +637,17 @@ export const listTransactions = async (req, res) => {
     if (storeId)   where.storeId   = storeId;
     if (cashierId) where.cashierId = cashierId;
     if (stationId) where.stationId = stationId;
-    if (status)    where.status    = status;
+    // Default: include sales + refunds, exclude voids (matches EoD report
+    // semantics so the back-office Transactions page agrees with EoD).
+    // Caller can pass `?status=all` to include everything, or any specific
+    // status string to filter to that one.
+    if (status === 'all') {
+      // no filter
+    } else if (status) {
+      where.status = status;
+    } else {
+      where.status = { in: ['complete', 'refund'] };
+    }
 
     // Amount range filter on grandTotal
     if (amountMin || amountMax) {
@@ -831,88 +938,14 @@ export const createOpenRefund = async (req, res) => {
   }
 };
 
-// ── GET /api/pos-terminal/reports/end-of-day ──────────────────────────────
-export const getEndOfDayReport = async (req, res) => {
-  try {
-    const orgId   = getOrgId(req);
-    const storeId = req.query.storeId;
-    const date    = req.query.date ? new Date(req.query.date) : new Date();
-
-    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
-    const end   = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-
-    const where = { orgId, ...(storeId && { storeId }), createdAt: { gte: start, lte: end } };
-
-    const [allTxs, voidedCount, clockEvents] = await Promise.all([
-      prisma.transaction.findMany({
-        where,
-        select: { grandTotal: true, subtotal: true, taxTotal: true, tenderLines: true, status: true, cashierId: true },
-      }),
-      prisma.transaction.count({ where: { ...where, status: 'voided' } }),
-      prisma.clockEvent.findMany({
-        where: { orgId, ...(storeId && { storeId }), createdAt: { gte: start, lte: end } },
-        orderBy: { createdAt: 'asc' },
-      }),
-    ]);
-
-    const saleTxs = allTxs.filter(t => t.status !== 'voided');
-
-    // Tender breakdown
-    const tenderTotals = {};
-    let totalSales = 0, totalTax = 0, totalRefunds = 0;
-
-    saleTxs.forEach(tx => {
-      const amt = Number(tx.grandTotal);
-      if (tx.status === 'refund') { totalRefunds += Math.abs(amt); return; }
-      totalSales += amt;
-      totalTax   += Number(tx.taxTotal);
-      (tx.tenderLines || []).forEach(line => {
-        tenderTotals[line.method] = (tenderTotals[line.method] || 0) + Number(line.amount);
-      });
-    });
-
-    // Per-cashier stats
-    const cashierIds = [...new Set(saleTxs.map(t => t.cashierId).filter(Boolean))];
-    const users = cashierIds.length ? await prisma.user.findMany({
-      where: { id: { in: cashierIds } }, select: { id: true, name: true },
-    }) : [];
-    const userMap = Object.fromEntries(users.map(u => [u.id, u.name]));
-
-    const byCashier = {};
-    saleTxs.filter(t => t.status !== 'refund').forEach(tx => {
-      const cid  = tx.cashierId;
-      if (!byCashier[cid]) byCashier[cid] = { name: userMap[cid] || 'Unknown', count: 0, total: 0 };
-      byCashier[cid].count++;
-      byCashier[cid].total += Number(tx.grandTotal);
-    });
-
-    // Resolve user names for clock events
-    const clockUserIds = [...new Set(clockEvents.map(e => e.userId))];
-    const clockUsers = clockUserIds.length ? await prisma.user.findMany({
-      where: { id: { in: clockUserIds } }, select: { id: true, name: true },
-    }) : [];
-    const clockUserMap = Object.fromEntries(clockUsers.map(u => [u.id, u.name]));
-
-    res.json({
-      date:             date.toISOString().split('T')[0],
-      transactionCount: saleTxs.filter(t => t.status !== 'refund').length,
-      refundCount:      saleTxs.filter(t => t.status === 'refund').length,
-      voidedCount,
-      totalSales:       Math.round(totalSales * 100) / 100,
-      totalTax:         Math.round(totalTax * 100) / 100,
-      totalRefunds:     Math.round(totalRefunds * 100) / 100,
-      netSales:         Math.round((totalSales - totalRefunds) * 100) / 100,
-      tenderBreakdown:  tenderTotals,
-      cashierBreakdown: Object.values(byCashier).sort((a, b) => b.total - a.total),
-      clockEvents: clockEvents.map(e => ({
-        type: e.type, userName: clockUserMap[e.userId] || 'Unknown',
-        userId: e.userId, createdAt: e.createdAt,
-      })),
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+// NOTE: A legacy `getEndOfDayReport` controller used to live here. It has
+// been removed in favour of the comprehensive controller in
+// `endOfDayReportController.js` (returns header / payouts[] / tenders[] /
+// transactions[] / fuel / reconciliation / totals). The cashier-app and
+// back-office both consume the new shape via:
+//   - GET /api/reports/end-of-day  (registered in reportsRoutes.js)
+//   - GET /api/pos-terminal/end-of-day  (cashier-app alternate path,
+//     registered in posTerminalRoutes.js, points at the new controller)
 
 // ── POST /api/pos-terminal/clock ──────────────────────────────────────────
 // Clock in or out identified by PIN (no JWT needed — uses station token)

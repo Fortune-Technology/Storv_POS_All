@@ -103,6 +103,16 @@ export default function EndOfDayReport() {
     rows.push({ Section: '', Type: '', Count: '', Amount: '' });
     header('TRANSACTIONS');
     report.transactions.forEach(tx => rows.push({ Section: '', Type: tx.label, Count: tx.count, Amount: tx.amount.toFixed(2) }));
+    if (report.fuel?.rows?.length) {
+      rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+      header('FUEL SALES');
+      report.fuel.rows.forEach(r => rows.push({
+        Section: '',
+        Type:    `${r.name}${r.gradeLabel ? ' · ' + r.gradeLabel : ''} (net gal ${Number(r.netGallons).toFixed(3)})`,
+        Count:   r.salesCount + r.refundCount,
+        Amount:  Number(r.netAmount).toFixed(2),
+      }));
+    }
     downloadCSV(rows, [
       { key: 'Section', label: 'Section' },
       { key: 'Type',    label: 'Type'    },
@@ -119,6 +129,14 @@ export default function EndOfDayReport() {
     report.payouts.forEach(p => push('Payout', p));
     report.tenders.forEach(t => push('Tender', t));
     report.transactions.forEach(tx => push('Transaction', tx));
+    if (report.fuel?.rows?.length) {
+      report.fuel.rows.forEach(r => rows.push({
+        Section: 'Fuel',
+        Type:    `${r.name}${r.gradeLabel ? ' · ' + r.gradeLabel : ''} — ${Number(r.netGallons).toFixed(3)} gal`,
+        Count:   r.salesCount + r.refundCount,
+        Amount:  `$${Number(r.netAmount).toFixed(2)}`,
+      }));
+    }
     downloadPDF({
       title:    'End of Day Report',
       subtitle: `${report.header.storeName || ''}  ${useRange ? `${dateFrom} → ${dateTo}` : date}`,
@@ -250,6 +268,48 @@ export default function EndOfDayReport() {
             totalLabel={null}
           />
 
+          {/* Section 4: Fuel (only when fuel sales exist) */}
+          {report.fuel && (report.fuel.rows?.length > 0) && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">FUEL SALES</h3>
+              <table className="eod-table eod-fuel-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th className="eod-num">Sales Gal</th>
+                    <th className="eod-num">Sales $</th>
+                    <th className="eod-num">Refund Gal</th>
+                    <th className="eod-num">Refund $</th>
+                    <th className="eod-num">Net Gal</th>
+                    <th className="eod-num">Net $</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.fuel.rows.map((r) => (
+                    <tr key={r.fuelTypeId || r.name}>
+                      <td>{r.name}{r.gradeLabel ? ` · ${r.gradeLabel}` : ''}</td>
+                      <td className="eod-num">{Number(r.salesGallons).toFixed(3)}</td>
+                      <td className="eod-num">{fmt$(r.salesAmount)}</td>
+                      <td className="eod-num">{Number(r.refundGallons).toFixed(3)}</td>
+                      <td className="eod-num">{fmt$(r.refundAmount)}</td>
+                      <td className="eod-num"><strong>{Number(r.netGallons).toFixed(3)}</strong></td>
+                      <td className="eod-num"><strong>{fmt$(r.netAmount)}</strong></td>
+                    </tr>
+                  ))}
+                  <tr className="eod-row-strong">
+                    <td>Total</td>
+                    <td className="eod-num">{Number(report.fuel.totals.salesGallons).toFixed(3)}</td>
+                    <td className="eod-num">{fmt$(report.fuel.totals.salesAmount)}</td>
+                    <td className="eod-num">{Number(report.fuel.totals.refundGallons).toFixed(3)}</td>
+                    <td className="eod-num">{fmt$(report.fuel.totals.refundAmount)}</td>
+                    <td className="eod-num">{Number(report.fuel.totals.gallons).toFixed(3)}</td>
+                    <td className="eod-num">{fmt$(report.fuel.totals.amount)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* Reconciliation (shift mode only) */}
           {report.reconciliation && (
             <div className="eod-section">
@@ -258,8 +318,11 @@ export default function EndOfDayReport() {
                 <tbody>
                   <tr><td>Opening Amount</td><td className="eod-num">{fmt$(report.reconciliation.openingAmount)}</td></tr>
                   <tr><td>+ Cash Collected</td><td className="eod-num">{fmt$(report.reconciliation.cashCollected)}</td></tr>
+                  {report.reconciliation.cashIn != null && report.reconciliation.cashIn > 0 && (
+                    <tr><td>+ Cash In (Paid-in / Received on Acct)</td><td className="eod-num">{fmt$(report.reconciliation.cashIn)}</td></tr>
+                  )}
                   <tr><td>− Cash Drops (Pickups)</td><td className="eod-num">{fmt$(report.reconciliation.cashDropsTotal)}</td></tr>
-                  <tr><td>− Cash Payouts</td><td className="eod-num">{fmt$(report.reconciliation.cashPayoutsTotal)}</td></tr>
+                  <tr><td>− Cash Out (Paid-out / Loans)</td><td className="eod-num">{fmt$(report.reconciliation.cashOut ?? report.reconciliation.cashPayoutsTotal)}</td></tr>
                   <tr className="eod-row-strong"><td>= Expected in Drawer</td><td className="eod-num">{fmt$(report.reconciliation.expectedInDrawer)}</td></tr>
                   {report.reconciliation.closingAmount != null && (
                     <>

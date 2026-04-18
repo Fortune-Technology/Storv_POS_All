@@ -8,6 +8,44 @@ export default function CartItem({ item, selected, onSelect, onEdit }) {
   const updateQty  = useCartStore(s => s.updateQty);
   const removeItem = useCartStore(s => s.removeItem);
 
+  // ── Fuel items — show gallons + price + amount, no qty controls ───────────
+  if (item.isFuel) {
+    const isSale = item.fuelType === 'sale';
+    const selClass = selected
+      ? (isSale ? 'ci-fuel--selected-sale' : 'ci-fuel--selected-refund')
+      : '';
+    const galAbs   = Math.abs(Number(item.gallons) || 0);
+    const ppgAbs   = Number(item.pricePerGallon) || 0;
+    return (
+      <div onClick={() => onSelect(item.lineId)} className={`ci-fuel ${selClass}`}>
+        <div className="ci-fuel-inner">
+          <span className="ci-fuel-emoji">⛽</span>
+          <div className="ci-fuel-info">
+            <div className="ci-fuel-name">{item.name}</div>
+            <div className="ci-fuel-sub">
+              {galAbs.toFixed(3)} gal &times; ${ppgAbs.toFixed(3)}/gal
+              {item.entryMode === 'gallons' ? ' · entered as gallons' : ' · entered as amount'}
+            </div>
+          </div>
+        </div>
+        <div className="ci-fuel-right">
+          <div className={isSale ? 'ci-fuel-total--sale' : 'ci-fuel-total--refund'}>
+            {isSale ? '+' : ''}{fmt$(item.lineTotal)}
+          </div>
+          {selected && (
+            <button
+              onClick={e => { e.stopPropagation(); removeItem(item.lineId); }}
+              title="Remove"
+              className="ci-remove-btn"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Lottery items — special render (no qty controls) ──────────────────────
   if (item.isLottery) {
     const isSale = item.lotteryType === 'sale';

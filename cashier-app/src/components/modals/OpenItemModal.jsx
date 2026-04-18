@@ -25,42 +25,48 @@ const TAX_CLASSES = [
 
 const QUICK_AMOUNTS = [1, 2, 5, 10, 20];
 
+const MAX_DIGITS = 7;
+
+// Cent-based digit buffer (matches TenderModal / LotteryModal / FuelModal):
+// ""  → $0.00, "5" → $0.05, "587" → $5.87
+const digitsToValue = (d) => (d ? Number(d) / 100 : 0);
+
 export default function OpenItemModal({ onClose }) {
   const addOpenItem = useCartStore(s => s.addOpenItem);
 
   const [name,     setName]     = useState('');
-  const [amount,   setAmount]   = useState('0.00');
+  const [digits,   setDigits]   = useState('');     // raw digit buffer
   const [taxClass, setTaxClass] = useState('standard');
   const [taxable,  setTaxable]  = useState(true);
   const nameRef = useRef(null);
 
   useEffect(() => { nameRef.current?.focus(); }, []);
 
-  const displayVal = parseFloat(amount) || 0;
-  const canAdd = name.trim().length > 0 && displayVal > 0;
+  const displayVal = digitsToValue(digits);
+  // Name now optional: empty → use the tax-class label as the cart line name.
+  const canAdd = displayVal > 0;
 
-  // Numpad handler
+  // Numpad handler — cent-based, identical to other cashier modals.
   const handleKey = (key) => {
-    setAmount(prev => {
-      if (key === '⌫') {
-        if (prev.length <= 1) return '0';
-        return prev.slice(0, -1);
-      }
-      if (key === '.') {
-        return prev.includes('.') ? prev : prev + '.';
-      }
-      if (prev === '0') return key;
-      if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+    setDigits(prev => {
+      if (key === 'C')  return '';
+      if (key === '⌫') return prev.slice(0, -1);
+      if (key === '.') return prev;                    // legacy no-op
+      if (prev.length >= MAX_DIGITS) return prev;
+      if (prev === '' && key === '0') return '';       // ignore leading zero
       return prev + key;
     });
   };
 
-  const handleClear = () => setAmount('0.00');
+  const handleClear = () => setDigits('');
 
   const handleAdd = () => {
     if (!canAdd) return;
+    // Fall back to the tax class label when the cashier left the name blank.
+    const fallback = TAX_CLASSES.find(t => t.value === taxClass)?.label || 'Manual Item';
+    const finalName = name.trim() || fallback;
     addOpenItem({
-      name: name.trim(),
+      name: finalName,
       price: displayVal,
       taxClass,
       taxable,
@@ -68,7 +74,10 @@ export default function OpenItemModal({ onClose }) {
     onClose();
   };
 
-  const NUMPAD = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'];
+  // Quick-amount sets the buffer to N dollars (= N×100 cents).
+  const setAmountTo = (n) => setDigits(String(Math.round(Number(n) * 100)));
+
+  const NUMPAD = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', '⌫'];
 
   return (
     <div className="oim-overlay" onClick={onClose}>
@@ -83,15 +92,17 @@ export default function OpenItemModal({ onClose }) {
 
         {/* Body */}
         <div className="oim-body">
-          {/* Name */}
+          {/* Name (optional) */}
           <div className="oim-field">
-            <label className="oim-label">Item Name</label>
+            <label className="oim-label">
+              Item Name <span className="oim-optional">— optional, defaults to category</span>
+            </label>
             <input
               ref={nameRef}
               className="oim-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Coffee, Deli Sandwich, Service Fee"
+              placeholder={(TAX_CLASSES.find(t => t.value === taxClass)?.label) || 'Manual Item'}
               onKeyDown={(e) => { if (e.key === 'Enter') nameRef.current?.blur(); }}
             />
           </div>
@@ -108,7 +119,7 @@ export default function OpenItemModal({ onClose }) {
           {/* Quick amounts */}
           <div className="oim-quick-row">
             {QUICK_AMOUNTS.map(n => (
-              <button key={n} className="oim-quick-btn" onClick={() => setAmount(String(n))}>
+              <button key={n} className="oim-quick-btn" onClick={() => setAmountTo(n)}>
                 ${n}
               </button>
             ))}

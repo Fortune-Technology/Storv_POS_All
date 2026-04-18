@@ -195,6 +195,47 @@ export const useCartStore = create((set, get) => ({
     set(s => ({ items: [...s.items, item] }));
   },
 
+  addFuelItem: ({ fuelType, type = 'sale', gallons, pricePerGallon, amount, entryMode = 'amount', taxAmount = 0, notes }) => {
+    // type: 'sale' (positive) | 'refund' (negative)
+    // gallons + pricePerGallon + amount must all be set; the modal computes whichever is missing
+    const sign = type === 'refund' ? -1 : 1;
+    const gal  = Math.abs(Number(gallons) || 0);
+    const ppg  = Math.abs(Number(pricePerGallon) || 0);
+    const amt  = sign * Math.abs(Number(amount) || (gal * ppg));
+    const tax  = sign * Math.abs(Number(taxAmount) || 0);
+    const item = {
+      lineId:           nanoid(8),
+      isFuel:           true,
+      fuelType:         type,                      // 'sale' | 'refund'
+      fuelTypeId:       fuelType?.id || null,
+      fuelTypeName:     fuelType?.name || 'Fuel',
+      fuelGradeLabel:   fuelType?.gradeLabel || null,
+      gallons:          sign * gal,
+      pricePerGallon:   ppg,
+      entryMode,
+      name:             type === 'refund'
+                          ? `⛽ Fuel Refund — ${fuelType?.name || 'Fuel'}`
+                          : `⛽ ${fuelType?.name || 'Fuel'}${fuelType?.gradeLabel ? ' (' + fuelType.gradeLabel + ')' : ''}`,
+      qty:              1,
+      unitPrice:        amt,
+      effectivePrice:   amt,
+      lineTotal:        amt,
+      // Fuel tax is recorded on the FuelTransaction record, not via cart-level tax engine
+      // (jurisdictions vary; most fuel taxes are pump-price-inclusive)
+      taxable:          false,
+      taxAmount:        tax,
+      ebtEligible:      false,
+      depositAmount:    null,
+      depositTotal:     0,
+      discountEligible: false,
+      discountType:     null,
+      discountValue:    null,
+      promoAdjustment:  null,
+      notes:            notes || null,
+    };
+    set(s => ({ items: [...s.items, item] }));
+  },
+
   addBottleReturnItems: (lines) => {
     // lines: [{ rule: {id, name, depositAmount}, qty: number, lineTotal: number }]
     const items = lines.map(l => ({

@@ -16,12 +16,14 @@ import {
   bulkToggleActive,
   bulkUpdateCatalogProducts,
   deleteAllCatalogProducts,
+  getPOSConfig,
+  updatePOSConfig,
 } from '../services/api';
 import { toast } from 'react-toastify';
 import {
   Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight,
   Package, Loader, RefreshCw, Copy, CheckSquare, Square,
-  XCircle, Tag, ToggleLeft, DollarSign, Layers, AlertTriangle,
+  XCircle, Tag, ToggleLeft, DollarSign, Layers, AlertTriangle, Settings, X,
 } from 'lucide-react';
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { SetupGuide } from '../components/SetupGuide';
@@ -41,7 +43,7 @@ const calcMargin = (cost, retail) => {
 
 const TAX_CLASSES = [
   { value: 'grocery',     label: 'Grocery',     color: '#10b981' },
-  { value: 'alcohol',     label: 'Alcohol',     color: '#6366f1' },
+  { value: 'alcohol',     label: 'Alcohol',     color: 'var(--accent-primary)' },
   { value: 'tobacco',     label: 'Tobacco',     color: '#64748b' },
   { value: 'hot_food',    label: 'Hot Food',    color: '#f97316' },
   { value: 'standard',    label: 'Standard',    color: '#3b82f6' },
@@ -58,6 +60,22 @@ const packSummary = (p) => {
   if (cp > 1) return `${cp} singles`;
   return 'Single';
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalog Columns — store-configurable.  "Product", "Flags", "Actions" are
+// always-on. The rest can be toggled by manager+ via the gear icon and saved
+// per-store in store.pos.catalogColumns.
+// ─────────────────────────────────────────────────────────────────────────────
+const CATALOG_COLUMNS = [
+  { key: 'pack',       label: 'Pack',       defaultOn: false },
+  { key: 'cost',       label: 'Cost',       defaultOn: false },
+  { key: 'retail',     label: 'Retail',     defaultOn: true  },
+  { key: 'margin',     label: 'Margin',     defaultOn: false },
+  { key: 'department', label: 'Department', defaultOn: true  },
+  { key: 'onHand',     label: 'On Hand',    defaultOn: true  },
+  { key: 'vendor',     label: 'Vendor',     defaultOn: false },
+];
+const DEFAULT_VISIBLE_COLS = CATALOG_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main page
@@ -89,7 +107,61 @@ export default function ProductCatalog() {
   const [deleteAllPermanent, setDeleteAllPermanent] = useState(false);
   const [deleteAllSaving,  setDeleteAllSaving]  = useState(false);
 
+  // Active store ID (for On Hand lookup) and per-store column config
+  const [activeStoreId,    setActiveStoreId]    = useState(localStorage.getItem('activeStoreId') || '');
+  const [visibleCols,      setVisibleCols]      = useState(DEFAULT_VISIBLE_COLS);
+  const [posConfigCache,   setPosConfigCache]   = useState(null);
+  const [showColsModal,    setShowColsModal]    = useState(false);
+  const [colsSaving,       setColsSaving]       = useState(false);
+
   const debounceRef = useRef(null);
+
+  // Load catalogColumns from store.pos when store changes
+  useEffect(() => {
+    if (!activeStoreId) return;
+    let mounted = true;
+    getPOSConfig(activeStoreId)
+      .then(cfg => {
+        if (!mounted) return;
+        setPosConfigCache(cfg);
+        const cols = Array.isArray(cfg?.catalogColumns) ? cfg.catalogColumns : null;
+        setVisibleCols(cols && cols.length ? cols : DEFAULT_VISIBLE_COLS);
+      })
+      .catch(() => { /* fall back to defaults */ });
+    return () => { mounted = false; };
+  }, [activeStoreId]);
+
+  // Re-read activeStoreId on storage change (StoreSwitcher updates it)
+  useEffect(() => {
+    const onStorage = () => setActiveStoreId(localStorage.getItem('activeStoreId') || '');
+    window.addEventListener('storage', onStorage);
+    // Also poll every 2s in same-tab StoreSwitcher case
+    const id = setInterval(() => {
+      const cur = localStorage.getItem('activeStoreId') || '';
+      setActiveStoreId(prev => prev === cur ? prev : cur);
+    }, 2000);
+    return () => { window.removeEventListener('storage', onStorage); clearInterval(id); };
+  }, []);
+
+  const saveColumns = async (newCols) => {
+    if (!activeStoreId) {
+      toast.error('Select an active store to save column preferences');
+      return;
+    }
+    setColsSaving(true);
+    try {
+      const merged = { ...(posConfigCache || {}), catalogColumns: newCols };
+      await updatePOSConfig({ storeId: activeStoreId, config: merged });
+      setVisibleCols(newCols);
+      setPosConfigCache(merged);
+      setShowColsModal(false);
+      toast.success('Column preferences saved');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to save columns');
+    } finally {
+      setColsSaving(false);
+    }
+  };
 
   const toggleSelect = (id) => setSelectedIds(prev => {
     const next = new Set(prev);
@@ -187,6 +259,8 @@ export default function ProductCatalog() {
     setLoading(true);
     try {
       const params = { page:pg, limit:50, ...filt };
+      // When an active store is set, ask the backend for that store's QOH.
+      if (activeStoreId) params.storeId = activeStoreId;
       const res = search?.trim()
         ? await searchCatalogProducts(search, params)
         : await getCatalogProducts(params);
@@ -215,7 +289,7 @@ export default function ProductCatalog() {
       toast.error('Failed to load products');
     }
     finally { setLoading(false); }
-  }, []);
+  }, [activeStoreId]);
 
   useEffect(() => { loadSupport(); }, []);
 
@@ -223,7 +297,7 @@ export default function ProductCatalog() {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => loadProducts(q, page, filters), 350);
     return () => clearTimeout(debounceRef.current);
-  }, [q, page, filters]);
+  }, [q, page, filters, activeStoreId]);
 
   const handleDelete = async (product) => {
     if (!window.confirm(`Delete "${product.name}"?`)) return;
@@ -261,6 +335,13 @@ export default function ProductCatalog() {
           <div className="p-header-actions">
             <button onClick={() => { loadProducts(q, page, filters); loadSupport(); }} className="pc-refresh-btn">
               <RefreshCw size={14} />
+            </button>
+            <button
+              onClick={() => setShowColsModal(true)}
+              className="pc-refresh-btn"
+              title="Customize columns for this store"
+            >
+              <Settings size={14} />
             </button>
             <button
               onClick={() => setShowDeleteAll(true)}
@@ -442,9 +523,16 @@ export default function ProductCatalog() {
                       {selectedIds.size === products.length && products.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                     </button>
                   </th>
-                  {['Product','Pack','Cost','Retail','Margin','Department','Tax','Flags',''].map(h => (
-                    <th key={h}>{h}</th>
-                  ))}
+                  <th>Product</th>
+                  {visibleCols.includes('pack')       && <th>Pack</th>}
+                  {visibleCols.includes('cost')       && <th>Cost</th>}
+                  {visibleCols.includes('retail')     && <th>Retail</th>}
+                  {visibleCols.includes('margin')     && <th>Margin</th>}
+                  {visibleCols.includes('department') && <th>Department</th>}
+                  {visibleCols.includes('onHand')     && <th>On Hand</th>}
+                  {visibleCols.includes('vendor')     && <th>Vendor</th>}
+                  <th>Flags</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -476,45 +564,60 @@ export default function ProductCatalog() {
                         )}
                       </td>
 
-                      {/* Pack */}
-                      <td className="pc-td-nowrap"
-                        onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        <span className={`pc-pack-text ${(p.pack||0)>1 ? 'pc-pack-active' : 'pc-pack-muted'}`}>
-                          {packSummary(p)}
-                        </span>
-                      </td>
-
-                      {/* Cost */}
-                      <td className="pc-td-mono"
-                        onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        {fmt$(p.defaultCostPrice)}
-                      </td>
-
-                      {/* Retail */}
-                      <td className="pc-td-bold"
-                        onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        {fmt$(p.defaultRetailPrice)}
-                      </td>
-
-                      {/* Margin */}
-                      <td className="pc-td-nowrap"
-                        onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        <MarginBadge cost={p.defaultCostPrice} retail={p.defaultRetailPrice} />
-                      </td>
-
-                      {/* Dept */}
-                      <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        {dept ? (
-                          <span className="pc-dept-badge" style={{ background:(dept.color||'#6366f1')+'20', color:dept.color||'#6366f1' }}>
-                            {dept.name}
+                      {visibleCols.includes('pack') && (
+                        <td className="pc-td-nowrap"
+                          onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          <span className={`pc-pack-text ${(p.pack||0)>1 ? 'pc-pack-active' : 'pc-pack-muted'}`}>
+                            {packSummary(p)}
                           </span>
-                        ) : <span className="pc-pack-muted">—</span>}
-                      </td>
+                        </td>
+                      )}
 
-                      {/* Tax */}
-                      <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
-                        <TaxBadge tc={p.taxClass} />
-                      </td>
+                      {visibleCols.includes('cost') && (
+                        <td className="pc-td-mono"
+                          onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          {fmt$(p.defaultCostPrice)}
+                        </td>
+                      )}
+
+                      {visibleCols.includes('retail') && (
+                        <td className="pc-td-bold"
+                          onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          {fmt$(p.defaultRetailPrice)}
+                        </td>
+                      )}
+
+                      {visibleCols.includes('margin') && (
+                        <td className="pc-td-nowrap"
+                          onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          <MarginBadge cost={p.defaultCostPrice} retail={p.defaultRetailPrice} />
+                        </td>
+                      )}
+
+                      {visibleCols.includes('department') && (
+                        <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          {dept ? (
+                            <span className="pc-dept-badge" style={{ background:(dept.color||'var(--accent-primary)')+'20', color:dept.color||'var(--accent-primary)' }}>
+                              {dept.name}
+                            </span>
+                          ) : <span className="pc-pack-muted">—</span>}
+                        </td>
+                      )}
+
+                      {visibleCols.includes('onHand') && (
+                        <td className="pc-td-nowrap"
+                          onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          <OnHandCell qty={p.quantityOnHand} hasStore={!!activeStoreId} />
+                        </td>
+                      )}
+
+                      {visibleCols.includes('vendor') && (
+                        <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
+                          {p.vendor ? (
+                            <span className="pc-pack-text">{p.vendor.name}</span>
+                          ) : <span className="pc-pack-muted">—</span>}
+                        </td>
+                      )}
 
                       {/* Flags */}
                       <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
@@ -729,6 +832,68 @@ export default function ProductCatalog() {
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Column Config Modal ── */}
+      {showColsModal && (
+        <ColumnsModal
+          allCols={CATALOG_COLUMNS}
+          selected={visibleCols}
+          onClose={() => setShowColsModal(false)}
+          onSave={saveColumns}
+          saving={colsSaving}
+          hasStore={!!activeStoreId}
+        />
+      )}
+    </div>
+  );
+}
+
+function ColumnsModal({ allCols, selected, onClose, onSave, saving, hasStore }) {
+  const [draft, setDraft] = useState(selected);
+  const toggle = (key) => setDraft(d => d.includes(key) ? d.filter(k => k !== key) : [...d, key]);
+  return (
+    <div className="pc-cols-backdrop" onClick={onClose}>
+      <div className="pc-cols-modal" onClick={e => e.stopPropagation()}>
+        <div className="pc-cols-head">
+          <div>
+            <h3 className="pc-cols-title">Customize Columns</h3>
+            <p className="pc-cols-sub">Choose which columns appear in the product list. Saved per store.</p>
+          </div>
+          <button onClick={onClose} className="pc-cols-close" title="Close"><X size={16} /></button>
+        </div>
+        {!hasStore && (
+          <div className="pc-cols-warn">
+            Select an active store from the store switcher to save preferences.
+          </div>
+        )}
+        <div className="pc-cols-list">
+          <div className="pc-cols-item pc-cols-item--locked">
+            <span><CheckSquare size={16} style={{ color: '#94a3b8' }} /></span>
+            <span>Product, Flags, Actions <span className="pc-cols-lock">(always shown)</span></span>
+          </div>
+          {allCols.map(c => {
+            const on = draft.includes(c.key);
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => toggle(c.key)}
+                className={`pc-cols-item ${on ? 'pc-cols-item--on' : ''}`}
+              >
+                <span>{on ? <CheckSquare size={16} /> : <Square size={16} />}</span>
+                <span>{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="pc-cols-foot">
+          <button onClick={() => setDraft(DEFAULT_VISIBLE_COLS)} className="pc-cols-reset">Reset to default</button>
+          <button onClick={onClose} className="pc-cols-cancel">Cancel</button>
+          <button onClick={() => onSave(draft)} className="pc-cols-save" disabled={saving || !hasStore}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -759,6 +924,24 @@ const TaxBadge = ({ tc }) => {
   return (
     <span className="pc-tax-badge" style={{ background:t.color+'18', color:t.color }}>
       {t.label}
+    </span>
+  );
+};
+
+const OnHandCell = ({ qty, hasStore }) => {
+  if (!hasStore) {
+    return <span className="pc-pack-muted" title="Select a store to see stock">—</span>;
+  }
+  if (qty == null) {
+    return <span className="pc-pack-muted" title="Not yet stocked at this store">—</span>;
+  }
+  const n = Number(qty);
+  let color = '#10b981'; // green
+  if (n <= 0)      color = '#ef4444'; // red
+  else if (n <= 5) color = '#f59e0b'; // amber
+  return (
+    <span className="pc-onhand-badge" style={{ background: color + '18', color, fontWeight: 700 }}>
+      {n}
     </span>
   );
 };

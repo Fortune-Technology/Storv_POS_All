@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams, useN
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import EcomOrderNotifier from './components/EcomOrderNotifier';
+import InactivityLock from './components/InactivityLock';
 
 // Marketing Pages
 import Home from './pages/marketing/Home';
@@ -72,6 +73,7 @@ import EcomDomain        from './pages/EcomDomain';
 import EcomAnalytics     from './pages/EcomAnalytics';
 import EcomCustomers     from './pages/EcomCustomers';
 import Lottery from './pages/Lottery';
+import Fuel from './pages/Fuel';
 import ReportsHub from './pages/ReportsHub';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
@@ -162,6 +164,7 @@ function App() {
       <StoreProvider>
       <ToastContainer theme="dark" position="top-right" />
       <EcomOrderNotifier />
+      <InactivityLock />
       <Routes>
         {/* ── Equipment Shop (Public) ─────────────────────────────────── */}
         <Route path="/shop"          element={<ShopPage />} />
@@ -256,6 +259,9 @@ function App() {
 
           {/* ── Lottery ───────────────────────────────────────────────── */}
           <Route path="/portal/lottery"          element={<Lottery />} />
+
+          {/* ── Fuel ──────────────────────────────────────────────────── */}
+          <Route path="/portal/fuel"             element={<Fuel />} />
           <Route path="/portal/reports"          element={<ReportsHub />} />
           <Route path="/portal/support-tickets"  element={<SupportTickets />} />
 

@@ -163,6 +163,7 @@ const FIELD_DESCRIPTIONS = {
   getQty:             { desc: 'BOGO: quantity customer gets free/discounted',                           example: '1' },
   productIds:         { desc: 'Product UPCs for this promotion (pipe-separated)',                       example: '012345|067890' },
   badgeLabel:         { desc: 'Badge text shown on POS for this promo',                                 example: 'SALE, 2 FOR $5' },
+  imageUrl:           { desc: 'URL to a product image (https://...)',                                  example: 'https://cdn.example.com/product.png' },
   depositAmount:      { desc: 'Deposit rule dollar amount',                                             example: '0.05, 0.10' },
   minVolumeOz:        { desc: 'Minimum container volume for this deposit rule (oz)',                    example: '0, 8' },
   maxVolumeOz:        { desc: 'Maximum container volume for this deposit rule (oz)',                    example: '24, 64' },
@@ -195,6 +196,8 @@ const FIELD_LABELS = {
   certCode: 'Certification', sectionId: 'Section ID', sectionName: 'Section Name',
   expirationDate: 'Expiration Date', labelFormatId: 'Label Format', byWeight: 'Sold by Weight',
   foodstamp: 'Food Stamp / SNAP',
+  // Image
+  imageUrl: 'Product Image URL',
   // E-commerce
   hideFromEcom: 'Hide from E-Commerce', ecomExternalId: 'E-Commerce ID',
   ecomPackWeight: 'E-Commerce Pack Weight', ecomPrice: 'E-Commerce Price',
@@ -237,6 +240,8 @@ const TYPE_FIELDS = {
     // Grocery / Scale
     'wicEligible','tareWeight','scaleByCount','scalePluType','ingredients','nutritionFacts',
     'certCode','sectionId','sectionName','expirationDate','labelFormatId','byWeight','foodstamp',
+    // Image
+    'imageUrl',
     // E-commerce
     'hideFromEcom','ecomExternalId','ecomPackWeight','ecomPrice','ecomSalePrice','ecomOnSale','ecomDescription','ecomSummary',
     // Sale Promotions

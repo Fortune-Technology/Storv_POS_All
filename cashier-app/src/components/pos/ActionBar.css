@@ -63,8 +63,31 @@
   font-weight: 600;
 }
 
-/* ── Spacer ── */
-.ab-spacer { flex: 1; }
+/* ── Scrollable wrapper for action buttons ── */
+/* Manager button stays fixed on the left; everything else can scroll
+   horizontally on small screens so no button is clipped. */
+.ab-scroll {
+  flex: 1;
+  min-width: 0;            /* allow this flex child to shrink below content width */
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;   /* Firefox */
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+/* Webkit / Blink — thin transparent track + subtle thumb */
+.ab-scroll::-webkit-scrollbar          { height: 6px; }
+.ab-scroll::-webkit-scrollbar-track    { background: transparent; }
+.ab-scroll::-webkit-scrollbar-thumb    { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+.ab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* ── Spacer ──
+   On wide screens: pushes buttons toward the right edge (legacy behavior).
+   When the scroll wrapper overflows, basis:0 + grow:1 collapses naturally. */
+.ab-spacer { flex: 1 1 0; min-width: 0; }
 
 /* ── Divider ── */
 .ab-divider {
@@ -84,6 +107,7 @@
   padding: 0 14px;
   height: 100%;
   min-width: 64px;
+  flex-shrink: 0;          /* don't compress when scroll-wrapper overflows */
   background: none;
   border: none;
   cursor: pointer;
@@ -129,6 +153,7 @@
   padding: 0 14px;
   height: 100%;
   min-width: 64px;
+  flex-shrink: 0;
   background: none;
   border: none;
   cursor: pointer;

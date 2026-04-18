@@ -554,12 +554,12 @@ export default function RealTimeDashboard({ embedded = false }) {
 
             {/* Net */}
             <div className="rtd-lottery-stat">
-              <div className="rtd-lottery-stat-icon" style={{ background: 'rgba(99,102,241,0.12)', color: '#6366f1' }}>
+              <div className="rtd-lottery-stat-icon" style={{ background: 'var(--brand-12)', color: 'var(--accent-primary)' }}>
                 <DollarSign size={18} />
               </div>
               <div>
                 <div className="rtd-lottery-stat-label">Net Lottery</div>
-                <div className="rtd-lottery-stat-value" style={{ color: lt.net >= 0 ? '#6366f1' : '#ef4444' }}>{fmt(lt.net)}</div>
+                <div className="rtd-lottery-stat-value" style={{ color: lt.net >= 0 ? 'var(--accent-primary)' : 'var(--error)' }}>{fmt(lt.net)}</div>
                 <div className="rtd-lottery-stat-sub">Sales - Payouts</div>
               </div>
             </div>

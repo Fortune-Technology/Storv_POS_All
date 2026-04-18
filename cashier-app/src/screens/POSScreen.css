@@ -39,6 +39,43 @@
   flex-shrink: 0;
 }
 
+/* ── Age policy chip strip (store-level Tobacco / Alcohol limits) ── */
+.pos-age-policy {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.35rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.pos-age-policy-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.pos-age-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.pos-age-chip--tobacco {
+  background: rgba(100, 116, 139, 0.20);
+  color: #cbd5e1;
+}
+.pos-age-chip--alcohol {
+  background: rgba(99, 102, 241, 0.20);
+  color: #a5b4fc;
+}
+
 /* ── Scan error toast ── */
 .pos-scan-error {
   position: fixed;

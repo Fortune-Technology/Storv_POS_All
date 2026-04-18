@@ -1,137 +1,102 @@
 /**
- * EndOfDayModal — Manager summary of the day's sales, tenders, and clock events.
+ * EndOfDayModal — Manager-only end-of-day summary on the cashier app.
+ *
+ * Renders the SAME response shape as the back-office /portal/end-of-day page
+ * (header / payouts / tenders / transactions / fuel / reconciliation / totals)
+ * so what the cashier prints from the register matches what the manager sees
+ * in the back office.
+ *
+ * Print path: thermal receipt printer via `printEoDReport(config, report)`
+ * — formatted by `buildEoDReceiptString` in printerService.js (also includes
+ * the fuel section).
+ *
+ * Gated behind manager PIN at the ActionBar level (mgr('End of Day', ...)).
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, BarChart2, Printer, RefreshCw, Clock, DollarSign, CreditCard, Leaf } from 'lucide-react';
-import { getEndOfDayReport, dejavooSettle, dejavooMerchantStatus } from '../../api/pos.js';
+import { X, BarChart2, Printer, RefreshCw, CreditCard, AlertCircle } from 'lucide-react';
+import {
+  getEndOfDayReport,
+  dejavooSettle,
+  dejavooMerchantStatus,
+} from '../../api/pos.js';
 import { fmt$ } from '../../utils/formatters.js';
-import { useAuthStore } from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { useHardware } from '../../hooks/useHardware.js';
-import { ESCPOS } from '../../services/printerService.js';
+import { usePOSConfig } from '../../hooks/usePOSConfig.js';
+import { printEoDReport } from '../../services/printerService.js';
 import './EndOfDayModal.css';
 
-// ── Build ESC/POS EOD report string ─────────────────────────────────────────
-function buildEODString(report, today) {
-  const W   = 42;
-  const LF  = '\x0A';
-  const line = (left, right) => {
-    const r = String(right || '');
-    const l = String(left  || '').substring(0, W - r.length).padEnd(W - r.length);
-    return l + r + LF;
-  };
-  const centre = (text) => {
-    const t = String(text || '');
-    const pad = Math.max(0, Math.floor((W - t.length) / 2));
-    return ' '.repeat(pad) + t + LF;
-  };
-  const dashes = () => '-'.repeat(W) + LF;
+// Local-day "YYYY-MM-DD" string for the API
+const todayLocal = () => {
+  const d = new Date();
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
-  let r = '';
-  r += ESCPOS.INIT;
-  r += ESCPOS.ALIGN_CENTER;
-  r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE;
-  r += 'END OF DAY REPORT' + LF;
-  r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
-  r += today + LF;
-  r += LF;
-  r += ESCPOS.ALIGN_LEFT;
-  r += dashes();
-  r += ESCPOS.BOLD_ON;
-  r += line('NET SALES', fmt$(report.netSales));
-  r += ESCPOS.BOLD_OFF;
-  r += line('Gross Sales',  fmt$(report.totalSales));
-  r += line('Tax Collected', fmt$(report.totalTax));
-  r += line('Refunds',       fmt$(report.totalRefunds || 0));
-  r += dashes();
-  r += line('Transactions', String(report.transactionCount || 0));
-  r += line('Refunds',      String(report.refundCount      || 0));
-  r += line('Voided',       String(report.voidedCount      || 0));
-  r += dashes();
-  r += ESCPOS.BOLD_ON + 'TENDER BREAKDOWN' + LF + ESCPOS.BOLD_OFF;
-  const tenders = report.tenderBreakdown || {};
-  Object.entries(tenders).forEach(([method, amount]) => {
-    r += line('  ' + method.replace(/_/g, ' ').toUpperCase(), fmt$(amount));
-  });
-  r += dashes();
-  if (report.cashierBreakdown?.length > 0) {
-    r += ESCPOS.BOLD_ON + 'BY CASHIER' + LF + ESCPOS.BOLD_OFF;
-    report.cashierBreakdown.forEach(c => {
-      r += line('  ' + (c.name || ''), `${c.count} txns  ${fmt$(c.total)}`);
-    });
-    r += dashes();
-  }
-  if (report.clockEvents?.length > 0) {
-    r += ESCPOS.BOLD_ON + 'CLOCK EVENTS' + LF + ESCPOS.BOLD_OFF;
-    report.clockEvents.forEach(e => {
-      const d   = new Date(e.createdAt);
-      const h   = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
-      const t   = `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
-      const lbl = e.type === 'in' ? 'IN ' : 'OUT';
-      r += line(`  ${lbl}  ${e.userName || ''}`, t);
-    });
-    r += dashes();
-  }
-  r += ESCPOS.ALIGN_CENTER;
-  r += centre('*** END OF REPORT ***');
-  r += ESCPOS.FEED_3;
-  r += ESCPOS.CUT_PARTIAL;
-  return r;
-}
-
-const TENDER_ICON  = { cash: DollarSign, card: CreditCard, ebt: Leaf, manual_card: CreditCard, manual_ebt: Leaf };
-const TENDER_COLOR = { cash:'var(--green)', card:'var(--blue)', ebt:'#34d399', manual_card:'var(--blue)', manual_ebt:'#34d399' };
-
-function fmt12(ts) {
-  const d = new Date(ts);
-  const h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
-  return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`;
-}
+const fmtNum3 = (n) => Number(n || 0).toFixed(3);
 
 export default function EndOfDayModal({ onClose }) {
-  const cashier = useAuthStore(s => s.cashier);
-  const storeId = cashier?.storeId;
-  const today   = new Date().toISOString().split('T')[0];
+  const station   = useStationStore(s => s.station);
+  const storeId   = station?.storeId;
+  const posConfig = usePOSConfig();
 
-  const station = useStationStore(s => s.station);
-  const [report,   setReport]   = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [printing, setPrinting] = useState(false);
-  const [settling, setSettling] = useState(false);
-  const [settleResult, setSettleResult] = useState(null); // { success, message } | null
-  const [hasDejavoo, setHasDejavoo]     = useState(false);
+  const [date,         setDate]         = useState(todayLocal());
+  const [report,       setReport]       = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [printing,     setPrinting]     = useState(false);
+  const [settling,     setSettling]     = useState(false);
+  const [settleResult, setSettleResult] = useState(null);
+  const [hasDejavoo,   setHasDejavoo]   = useState(false);
 
-  const { hasReceiptPrinter, hw, isElectron: isElec } = useHardware();
+  const { hasReceiptPrinter } = useHardware();
 
+  // ── Load report ───────────────────────────────────────────────────────────
   const load = useCallback(async () => {
+    if (!storeId) return;
     setLoading(true);
-    try { setReport(await getEndOfDayReport(storeId, today)); }
-    catch { setReport(null); }
-    finally { setLoading(false); }
-  }, [storeId, today]);
+    setError(null);
+    try {
+      const r = await getEndOfDayReport(null, { storeId, date });
+      setReport(r);
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.message || 'Failed to load report');
+      setReport(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [storeId, date]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Check whether this store is on Dejavoo so we can show/hide the Close Batch button
+  // Detect Dejavoo (for Close Batch button)
   useEffect(() => {
     dejavooMerchantStatus()
       .then(s => setHasDejavoo(!!(s?.configured && s?.provider === 'dejavoo' && s?.hasTpn)))
       .catch(() => setHasDejavoo(false));
   }, []);
 
-  // ── Close Batch ────────────────────────────────────────────────────────────
-  // Settles the current day's transactions on the Dejavoo terminal. Typically
-  // done once per day (Dejavoo also auto-settles overnight, but manual close
-  // gives the manager a clean EOD boundary).
+  // ── Print thermal receipt ─────────────────────────────────────────────────
+  const handlePrint = useCallback(async () => {
+    if (!report) return;
+    setPrinting(true);
+    try {
+      await printEoDReport(posConfig, report);
+    } catch (err) {
+      console.warn('EoD print failed:', err.message);
+    } finally {
+      setPrinting(false);
+    }
+  }, [report, posConfig]);
+
+  // ── Close Batch (Dejavoo) ─────────────────────────────────────────────────
   const handleCloseBatch = useCallback(async () => {
     if (settling) return;
     if (!station?.id) {
       setSettleResult({ success: false, message: 'No station — cannot settle' });
       return;
     }
-    if (!window.confirm('Close today\'s batch on the terminal? This will settle all card transactions with the processor.')) {
-      return;
-    }
+    if (!window.confirm("Close today's batch on the terminal? This will settle all card transactions with the processor.")) return;
     setSettling(true);
     setSettleResult(null);
     try {
@@ -143,56 +108,35 @@ export default function EndOfDayModal({ onClose }) {
           : (r?.result?.message || r?.error || 'Settle failed'),
       });
     } catch (err) {
-      setSettleResult({
-        success: false,
-        message: err?.response?.data?.error || err.message || 'Settle failed',
-      });
+      setSettleResult({ success: false, message: err?.response?.data?.error || err.message || 'Settle failed' });
     } finally {
       setSettling(false);
     }
   }, [settling, station]);
 
-  const handlePrint = useCallback(async () => {
-    if (!report) return;
-    if (!hasReceiptPrinter || !hw?.receiptPrinter) return;
-    setPrinting(true);
-    try {
-      const escpos  = buildEODString(report, today);
-      const printer = hw.receiptPrinter;
-      if (isElec) {
-        if (printer.type === 'network') {
-          await window.electronAPI.printNetwork(printer.ip, printer.port || 9100, escpos);
-        } else {
-          await window.electronAPI.printUSB(printer.name, escpos);
-        }
-      } else if (printer.type === 'network') {
-        const api = (await import('../../api/client.js')).default;
-        await api.post('/pos-terminal/print-network', {
-          ip: printer.ip, port: printer.port || 9100,
-          data: btoa(unescape(encodeURIComponent(escpos))),
-        });
-      }
-    } catch (err) {
-      console.warn('EOD print failed:', err.message);
-    } finally {
-      setPrinting(false);
-    }
-  }, [report, hasReceiptPrinter, hw, isElec, today]);
-
   return (
     <div className="eod-backdrop">
       <div className="eod-modal">
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="eod-header">
           <div className="eod-header-left">
             <BarChart2 size={16} color="var(--green)" />
             <div>
               <div className="eod-header-title">End of Day Report</div>
-              <div className="eod-header-date">{today}</div>
+              <div className="eod-header-date">{date}</div>
             </div>
           </div>
           <div className="eod-header-actions">
-            <button className="eod-icon-btn" onClick={load} title="Refresh"><RefreshCw size={15} /></button>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="eod-date-input"
+              max={todayLocal()}
+            />
+            <button className="eod-icon-btn" onClick={load} disabled={loading} title="Refresh">
+              <RefreshCw size={15} className={loading ? 'eod-spin' : ''} />
+            </button>
             {hasReceiptPrinter && (
               <button
                 className={`eod-icon-btn${printing ? ' eod-icon-btn--printing' : ''}${!report ? ' eod-icon-btn--disabled' : ''}`}
@@ -207,15 +151,8 @@ export default function EndOfDayModal({ onClose }) {
               <button
                 onClick={handleCloseBatch}
                 disabled={settling}
-                title="Close the terminal's card batch — settles with the processor"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: 6,
-                  background: settling ? 'rgba(122,193,67,.10)' : 'rgba(122,193,67,.15)',
-                  border: '1px solid rgba(122,193,67,.35)',
-                  color: 'var(--green)',
-                  fontSize: '0.72rem', fontWeight: 700, cursor: settling ? 'wait' : 'pointer',
-                }}
+                title="Settle today's card batch with the processor"
+                className="eod-batch-btn"
               >
                 <CreditCard size={13} />
                 {settling ? 'Closing…' : 'Close Batch'}
@@ -225,107 +162,25 @@ export default function EndOfDayModal({ onClose }) {
           </div>
         </div>
 
-        {/* Settle result banner */}
+        {/* ── Settle result banner ── */}
         {settleResult && (
-          <div style={{
-            padding: '10px 16px',
-            background: settleResult.success ? 'rgba(122,193,67,.08)' : 'rgba(224,63,63,.08)',
-            borderBottom: `1px solid ${settleResult.success ? 'rgba(122,193,67,.25)' : 'rgba(224,63,63,.25)'}`,
-            color: settleResult.success ? 'var(--green)' : 'var(--red)',
-            fontSize: '0.78rem', fontWeight: 600,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>
+          <div className={`eod-settle-banner ${settleResult.success ? 'eod-settle-banner--ok' : 'eod-settle-banner--err'}`}>
             <span>{settleResult.success ? '✓' : '✗'} {settleResult.message}</span>
-            <button onClick={() => setSettleResult(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}>
+            <button onClick={() => setSettleResult(null)} className="eod-settle-banner-x">
               <X size={13} />
             </button>
           </div>
         )}
 
+        {/* ── Body ── */}
         <div className="eod-body">
-          {loading ? (
-            <div className="eod-loading">Loading...</div>
-          ) : !report ? (
-            <div className="eod-error">Unable to load report</div>
-          ) : (
-            <div className="eod-content">
-              {/* Net sales */}
-              <div className="eod-net-card">
-                <div className="eod-net-label">NET SALES</div>
-                <div className="eod-net-value">{fmt$(report.netSales)}</div>
-                <div className="eod-net-stats">
-                  <span>{report.transactionCount} sales</span>
-                  <span className="eod-net-stats-sep">-</span>
-                  <span>{report.refundCount} refunds</span>
-                  <span className="eod-net-stats-sep">-</span>
-                  <span>{report.voidedCount} voided</span>
-                </div>
-              </div>
-
-              {/* Key metrics */}
-              <div className="eod-metrics">
-                {[
-                  { label:'Gross Sales', value:fmt$(report.totalSales),   color:'var(--text-primary)' },
-                  { label:'Tax',         value:fmt$(report.totalTax),     color:'var(--text-secondary)' },
-                  { label:'Refunds',     value:fmt$(report.totalRefunds), color:'var(--amber)' },
-                ].map(m => (
-                  <div key={m.label} className="eod-metric">
-                    <div className="eod-metric-label">{m.label}</div>
-                    <div className="eod-metric-value" style={{ color: m.color }}>{m.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Tender breakdown */}
-              <div className="eod-section">
-                <div className="eod-section-header">TENDER BREAKDOWN</div>
-                {Object.entries(report.tenderBreakdown || {}).map(([method, amount]) => {
-                  const Icon  = TENDER_ICON[method] || DollarSign;
-                  const color = TENDER_COLOR[method] || 'var(--text-secondary)';
-                  return (
-                    <div key={method} className="eod-section-row">
-                      <Icon size={14} color={color} />
-                      <span className="eod-section-row-label">{method.replace('_',' ')}</span>
-                      <span className="eod-section-row-value" style={{ color }}>{fmt$(amount)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Cashier breakdown */}
-              {report.cashierBreakdown?.length > 0 && (
-                <div className="eod-section">
-                  <div className="eod-section-header">BY CASHIER</div>
-                  {report.cashierBreakdown.map((c, i) => (
-                    <div key={i} className="eod-cashier-row">
-                      <span className="eod-cashier-name">{c.name}</span>
-                      <span className="eod-cashier-count">{c.count} txns</span>
-                      <span className="eod-cashier-total">{fmt$(c.total)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Clock events */}
-              {report.clockEvents?.length > 0 && (
-                <div className="eod-section">
-                  <div className="eod-section-header">
-                    <Clock size={13} color="var(--text-muted)" />
-                    CLOCK EVENTS
-                  </div>
-                  {report.clockEvents.map((e, i) => (
-                    <div key={i} className="eod-clock-row">
-                      <span className={`eod-clock-badge${e.type === 'in' ? ' eod-clock-badge--in' : ' eod-clock-badge--out'}`}>
-                        {e.type.toUpperCase()}
-                      </span>
-                      <span className="eod-clock-name">{e.userName}</span>
-                      <span className="eod-clock-time">{fmt12(e.createdAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {loading && <div className="eod-loading">Loading…</div>}
+          {!loading && error && (
+            <div className="eod-error">
+              <AlertCircle size={14} /> {error}
             </div>
           )}
+          {!loading && !error && report && <ReportBody report={report} />}
         </div>
 
         <div className="eod-footer">
@@ -334,4 +189,157 @@ export default function EndOfDayModal({ onClose }) {
       </div>
     </div>
   );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REPORT BODY — mirrors the back-office /portal/end-of-day layout exactly
+// ════════════════════════════════════════════════════════════════════════════
+function ReportBody({ report }) {
+  const h         = report.header || {};
+  const totals    = report.totals || {};
+  const recon     = report.reconciliation;
+  const fuel      = report.fuel;
+  const fuelHas   = fuel?.rows?.length > 0;
+
+  return (
+    <div className="eod-body-content">
+
+      {/* Header strip */}
+      <div className="eod-rb-header">
+        {h.storeName && <div><span className="eod-rb-label">Store:</span> {h.storeName}</div>}
+        {h.cashierName && <div><span className="eod-rb-label">Cashier:</span> {h.cashierName}</div>}
+        {h.stationName && <div><span className="eod-rb-label">Register:</span> {h.stationName}</div>}
+        <div><span className="eod-rb-label">Period:</span> {fmtRange(h.from, h.to)}</div>
+      </div>
+
+      {/* Big numbers */}
+      <div className="eod-rb-bignum-row">
+        <div className="eod-rb-bignum">
+          <div className="eod-rb-bignum-label">Net Sales</div>
+          <div className="eod-rb-bignum-value">{fmt$(totals.netSales)}</div>
+        </div>
+        <div className="eod-rb-bignum">
+          <div className="eod-rb-bignum-label">Gross Sales</div>
+          <div className="eod-rb-bignum-value">{fmt$(totals.grossSales)}</div>
+        </div>
+        <div className="eod-rb-bignum">
+          <div className="eod-rb-bignum-label">Cash Collected</div>
+          <div className="eod-rb-bignum-value">{fmt$(totals.cashCollected)}</div>
+        </div>
+      </div>
+
+      {/* Section 1: Payouts */}
+      <ThreeColSection title="PAYOUTS" rows={report.payouts} />
+
+      {/* Section 2: Tender Details */}
+      <ThreeColSection title="TENDER DETAILS" rows={report.tenders} />
+
+      {/* Section 3: Transactions */}
+      <ThreeColSection title="TRANSACTIONS" rows={report.transactions} hideZero={false} />
+
+      {/* Section 4: Fuel (optional) */}
+      {fuelHas && (
+        <div className="eod-rb-section">
+          <div className="eod-rb-section-title">FUEL SALES</div>
+          <table className="eod-rb-table eod-rb-fuel-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th className="eod-rb-num">Net Gal</th>
+                <th className="eod-rb-num">Net $</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fuel.rows.map(f => (
+                <tr key={f.fuelTypeId || f.name}>
+                  <td>{f.name}{f.gradeLabel ? ` · ${f.gradeLabel}` : ''}</td>
+                  <td className="eod-rb-num">{fmtNum3(f.netGallons)}</td>
+                  <td className="eod-rb-num">{fmt$(f.netAmount)}</td>
+                </tr>
+              ))}
+              <tr className="eod-rb-strong">
+                <td>Total</td>
+                <td className="eod-rb-num">{fmtNum3(fuel.totals.gallons)}</td>
+                <td className="eod-rb-num">{fmt$(fuel.totals.amount)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Reconciliation (shift only) */}
+      {recon && (
+        <div className="eod-rb-section">
+          <div className="eod-rb-section-title">CASH DRAWER RECONCILIATION</div>
+          <table className="eod-rb-table">
+            <tbody>
+              <tr><td>Opening Amount</td><td className="eod-rb-num">{fmt$(recon.openingAmount)}</td></tr>
+              <tr><td>+ Cash Collected</td><td className="eod-rb-num">{fmt$(recon.cashCollected)}</td></tr>
+              {recon.cashIn > 0 && (
+                <tr><td>+ Cash In (Paid-in / Received on Acct)</td><td className="eod-rb-num">{fmt$(recon.cashIn)}</td></tr>
+              )}
+              <tr><td>− Cash Drops (Pickups)</td><td className="eod-rb-num">{fmt$(recon.cashDropsTotal)}</td></tr>
+              <tr><td>− Cash Out (Paid-out / Loans)</td><td className="eod-rb-num">{fmt$(recon.cashOut ?? recon.cashPayoutsTotal)}</td></tr>
+              <tr className="eod-rb-strong">
+                <td>= Expected in Drawer</td>
+                <td className="eod-rb-num">{fmt$(recon.expectedInDrawer)}</td>
+              </tr>
+              {recon.closingAmount != null && (
+                <>
+                  <tr><td>Closing (Counted)</td><td className="eod-rb-num">{fmt$(recon.closingAmount)}</td></tr>
+                  <tr className={`eod-rb-strong ${
+                    Math.abs(recon.variance || 0) <= 0.01 ? '' :
+                    recon.variance < 0 ? 'eod-rb-warn' : 'eod-rb-ok'
+                  }`}>
+                    <td>Variance</td>
+                    <td className="eod-rb-num">{fmt$(recon.variance)}</td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Generic 3-col section (Type / Count / Amount) ──────────────────────────
+function ThreeColSection({ title, rows = [], hideZero = true }) {
+  const visible = hideZero ? rows.filter(r => r.amount !== 0 || r.count !== 0) : rows;
+  return (
+    <div className="eod-rb-section">
+      <div className="eod-rb-section-title">{title}</div>
+      <table className="eod-rb-table">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th className="eod-rb-num">Count</th>
+            <th className="eod-rb-num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.length === 0 ? (
+            <tr><td colSpan={3} className="eod-rb-empty">— None —</td></tr>
+          ) : (
+            visible.map(r => (
+              <tr key={r.key}>
+                <td>{r.label}</td>
+                <td className="eod-rb-num">{r.count}</td>
+                <td className="eod-rb-num">{fmt$(r.amount)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function fmtRange(from, to) {
+  if (!from || !to) return '';
+  const f = new Date(from), t = new Date(to);
+  const sameDay = f.toDateString() === t.toDateString();
+  const fmt = (d) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return sameDay ? `${fmt(f)} → ${t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : `${fmt(f)} → ${fmt(t)}`;
 }

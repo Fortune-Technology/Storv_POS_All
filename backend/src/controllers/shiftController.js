@@ -400,7 +400,8 @@ export const listPayouts = async (req, res) => {
     const { storeId, dateFrom, dateTo, payoutType, vendorId, limit = 100 } = req.query;
 
     const where = { orgId };
-    if (storeId)    where.storeId    = storeId;
+    // CashPayout has no direct storeId column — scope via the parent Shift
+    if (storeId)    where.shift      = { storeId };
     if (payoutType) where.payoutType = payoutType;
     if (vendorId)   where.vendorId   = parseInt(vendorId);
     if (dateFrom || dateTo) {
@@ -460,7 +461,8 @@ export const listCashDrops = async (req, res) => {
     const { storeId, dateFrom, dateTo, limit = 100 } = req.query;
 
     const where = { orgId };
-    if (storeId) where.storeId = storeId;
+    // CashDrop has no direct storeId column — scope via the parent Shift
+    if (storeId) where.shift = { storeId };
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) { const d = new Date(dateFrom); where.createdAt.gte = new Date(d.getFullYear(), d.getMonth(), d.getDate()); }

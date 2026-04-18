@@ -263,8 +263,8 @@ function RuleCard({ rule, onEdit, onDeactivate }) {
             <span style={{
               marginLeft: 8, fontSize: '0.65rem', fontWeight: 700,
               padding: '0.15rem 0.5rem', borderRadius: 10,
-              background: 'rgba(99,102,241,.15)', color: '#818cf8',
-              border: '1px solid rgba(99,102,241,.25)',
+              background: 'var(--brand-15)', color: 'var(--accent-secondary)',
+              border: '1px solid var(--brand-25)',
             }}>{rule.state}</span>
           )}
         </div>

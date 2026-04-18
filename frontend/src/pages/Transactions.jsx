@@ -508,24 +508,34 @@ export default function Transactions({ embedded }) {
   }, [txs, search, fTimeFrom, fTimeTo, fTender, fDept, fProduct]);
 
   // ── Summary stats ────────────────────────────────────────────────────────────
+  // Revenue convention (matches End-of-Day report):
+  //   • Completed sales add their grandTotal
+  //   • Refunds subtract their absolute grandTotal (money back to customer)
+  //   • Voids are excluded entirely
+  // Tender breakdown: cash refund tender lines subtract from net cash collected.
   const stats = useMemo(() => {
-    const sales = filtered.filter(t => t.status !== 'voided');
-    const rev   = sales.reduce((s, t) => s + Math.abs(t.grandTotal || 0), 0);
-    const cash  = sales.reduce((s, t) =>
-      s + (t.tenderLines || []).filter(l => l.method === 'cash')
-           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
-    const card  = sales.reduce((s, t) =>
-      s + (t.tenderLines || []).filter(l => l.method === 'card' || l.method === 'manual_card')
-           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
-    const ebt   = sales.reduce((s, t) =>
-      s + (t.tenderLines || []).filter(l => l.method === 'ebt' || l.method === 'manual_ebt')
-           .reduce((ss, l) => ss + (l.amount || 0), 0), 0);
+    const sales       = filtered.filter(t => t.status !== 'voided');
+    const completes   = sales.filter(t => t.status !== 'refund');
+    const refunds     = sales.filter(t => t.status === 'refund');
+    const grossSales  = completes.reduce((s, t) => s + Number(t.grandTotal || 0), 0);
+    const refundTotal = refunds.reduce((s, t) => s + Math.abs(Number(t.grandTotal || 0)), 0);
+    const netRevenue  = grossSales - refundTotal;
+    // Sum tenders, treating refund-tx tender lines as negative (cash going OUT)
+    const tenderSum = (matcher) => sales.reduce((s, t) => {
+      const sign = t.status === 'refund' ? -1 : 1;
+      return s + (t.tenderLines || [])
+        .filter(matcher)
+        .reduce((ss, l) => ss + sign * Math.abs(Number(l.amount) || 0), 0);
+    }, 0);
+    const cash = tenderSum(l => l.method === 'cash');
+    const card = tenderSum(l => l.method === 'card' || l.method === 'manual_card' || l.method === 'credit' || l.method === 'debit');
+    const ebt  = tenderSum(l => l.method === 'ebt' || l.method === 'manual_ebt' || l.method === 'efs');
     return {
       count:    filtered.length,
-      revenue:  rev,
-      avg:      sales.length ? rev / sales.length : 0,
+      revenue:  netRevenue,
+      avg:      completes.length ? grossSales / completes.length : 0,
       cash, card, ebt,
-      refunds:  filtered.filter(t => t.status === 'refund').length,
+      refunds:  refunds.length,
       voided:   filtered.filter(t => t.status === 'voided').length,
     };
   }, [filtered]);

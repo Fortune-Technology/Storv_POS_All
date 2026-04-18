@@ -84,6 +84,7 @@ import {
 } from '../controllers/adminController.js';
 
 import { downloadBackup } from '../controllers/backupController.js';
+import { rehostBatch, getRehostStatus } from '../services/imageRehostService.js';
 
 const router = Router();
 
@@ -197,5 +198,19 @@ router.put('/billing/equipment/orders/:id',       adminUpdateEquipmentOrder);
 
 // ── Database Backup ───────────────────────────────────────────────────────
 router.get('/backup/:target',                    downloadBackup);
+
+// ── Image Re-hosting ──────────────────────────────────────────────────────
+router.get('/images/rehost-status', async (req, res) => {
+  try { res.json(await getRehostStatus()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/images/rehost', async (req, res) => {
+  try {
+    const batchSize = parseInt(req.body?.batchSize) || 100;
+    const result = await rehostBatch(batchSize);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 export default router;

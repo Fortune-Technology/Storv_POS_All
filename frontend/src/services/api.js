@@ -437,6 +437,18 @@ export const reviewLotteryTicketRequest = (id, d)  => api.put(`/lottery/ticket-r
 // ── Receive from Catalog ──────────────────────────────────────────────────────
 export const receiveFromLotteryCatalog  = (data)   => api.post('/lottery/boxes/receive-catalog', data).then(lotteryUnwrap);
 
+// ── Fuel Module ──────────────────────────────────────────────────────────────
+const fuelUnwrap = (r) => r.data?.data ?? r.data;
+export const getFuelTypes        = (params)    => api.get('/fuel/types',  { params }).then(fuelUnwrap);
+export const createFuelType      = (data)      => api.post('/fuel/types', data).then(fuelUnwrap);
+export const updateFuelType      = (id, data)  => api.put(`/fuel/types/${id}`, data).then(fuelUnwrap);
+export const deleteFuelType      = (id)        => api.delete(`/fuel/types/${id}`).then(fuelUnwrap);
+export const getFuelSettings     = (storeId)   => api.get('/fuel/settings', { params: { storeId } }).then(fuelUnwrap);
+export const updateFuelSettings  = (data)      => api.put('/fuel/settings', data).then(fuelUnwrap);
+export const listFuelTransactions = (params)   => api.get('/fuel/transactions', { params }).then(fuelUnwrap);
+export const getFuelReport       = (params)    => api.get('/fuel/report',  { params }).then(fuelUnwrap);
+export const getFuelDashboard    = (params)    => api.get('/fuel/dashboard', { params }).then(fuelUnwrap);
+
 // ── POS Terminal Config ───────────────────────────────────────────────────────
 export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
 export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data).then(r => r.data);
@@ -461,6 +473,13 @@ export const createPublicTicket         = (data)           => api.post('/public/
 export const getProductUpcs    = (id)       => api.get(`/catalog/products/${id}/upcs`).then(r => r.data);
 export const addProductUpc     = (id, data) => api.post(`/catalog/products/${id}/upcs`, data).then(r => r.data);
 export const deleteProductUpc  = (id, upcId)=> api.delete(`/catalog/products/${id}/upcs/${upcId}`).then(r => r.data);
+
+// ── Product Image Upload ─────────────────────────────────────────────────
+export const uploadProductImage = (id, file) => {
+  const fd = new FormData();
+  fd.append('image', file);
+  return api.post(`/catalog/products/${id}/image`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
 
 // ── Product Pack Sizes ────────────────────────────────────────────────────
 export const getProductPackSizes       = (id)           => api.get(`/catalog/products/${id}/pack-sizes`).then(r => r.data);

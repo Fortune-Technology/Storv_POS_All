@@ -1,0 +1,126 @@
+/* InactivityLock.css — prefix: il- */
+
+.il-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(8, 11, 22, 0.96);
+  /* backdrop-filter intentionally removed — caused render stalls + click
+     interception on some GPUs/browsers. A near-opaque backdrop is enough. */
+  z-index: 2147483646;          /* just below the absolute max */
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: auto;
+  animation: il-fade 0.18s ease;
+}
+@keyframes il-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.il-card {
+  position: relative;
+  background: #ffffff; color: #0f172a;
+  border-radius: 14px;
+  padding: 2.2rem 2rem 1.6rem;
+  width: 92%; max-width: 380px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 0.7rem;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.il-icon {
+  width: 64px; height: 64px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+  border-radius: 50%;
+  margin-bottom: 0.2rem;
+}
+
+.il-title { margin: 0; font-size: 1.35rem; color: #0f172a; }
+.il-sub   { margin: 0; font-size: 0.85rem; color: #475569; line-height: 1.4; }
+
+.il-user {
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: 0.4rem;
+}
+
+.il-form {
+  width: 100%;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.il-pw-wrap {
+  position: relative;
+  display: flex; align-items: center;
+  width: 100%;
+}
+.il-pw-input {
+  flex: 1;
+  padding: 0.7rem 2.4rem 0.7rem 0.85rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.il-pw-input:focus { border-color: #7c3aed; }
+.il-pw-eye {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+.il-pw-eye:hover { background: #f1f5f9; color: #0f172a; }
+
+.il-error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.il-unlock-btn {
+  background: #7c3aed; color: #fff;
+  border: none; border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem; font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.il-unlock-btn:hover:not(:disabled) { background: #6d28d9; }
+.il-unlock-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.il-signout {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 0.78rem;
+  cursor: pointer;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 5px;
+}
+.il-signout:hover { color: #dc2626; background: rgba(220, 38, 38, 0.06); }
+
+@media (max-width: 480px) {
+  .il-card { padding: 1.6rem 1.2rem 1.2rem; }
+  .il-title { font-size: 1.15rem; }
+}

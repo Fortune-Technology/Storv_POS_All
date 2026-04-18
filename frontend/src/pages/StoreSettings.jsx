@@ -47,6 +47,14 @@ export default function StoreSettings({ embedded }) {
   });
   const setGC = (k, v) => { setGroceryConfig(prev => ({ ...prev, [k]: v })); markDirty(); };
 
+  // Age verification limits — store-level overrides for tobacco + alcohol items.
+  // State/province laws differ (US: tobacco 21, alcohol 21; Canada Ontario: 19).
+  const [ageLimits, setAgeLimits] = useState({ tobacco: 21, alcohol: 21 });
+  const setAge = (k, v) => {
+    setAgeLimits(prev => ({ ...prev, [k]: v === '' ? '' : Math.max(0, Math.min(99, parseInt(v, 10) || 0)) }));
+    markDirty();
+  };
+
   // Load stores
   useEffect(() => {
     getStores().then(r => {
@@ -67,6 +75,7 @@ export default function StoreSettings({ embedded }) {
       setGroceryEnabled(cfg.groceryEnabled ?? false);
       setEcomEnabled(cfg.ecomEnabled ?? false);
       if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
+      if (cfg.ageLimits) setAgeLimits(prev => ({ ...prev, ...cfg.ageLimits }));
       setDirty(false);
     } catch {
       setTenderMethods(DEFAULT_TENDER_METHODS);
@@ -102,7 +111,7 @@ export default function StoreSettings({ embedded }) {
     try {
       await updatePOSConfig({
         storeId,
-        config: { ...rawConfig, vendorTenderMethods: tenderMethods, groceryEnabled, ecomEnabled, groceryConfig },
+        config: { ...rawConfig, vendorTenderMethods: tenderMethods, groceryEnabled, ecomEnabled, groceryConfig, ageLimits },
       });
       setDirty(false);
       setSaved(true);
@@ -279,6 +288,57 @@ export default function StoreSettings({ embedded }) {
                   <input type="checkbox" checked={ecomEnabled} onChange={() => { setEcomEnabled(!ecomEnabled); markDirty(); }} />
                   <span className="ss-toggle-slider" />
                 </label>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Section: Age Verification Policy (Tobacco / Alcohol) ── */}
+          <div className="ss-section">
+            <div className="ss-section-title">Age Verification Policy</div>
+            <div className="ss-section-desc">
+              Set the minimum age required to purchase tobacco and alcohol items at this store.
+              Laws differ by state/province (US: tobacco 21, alcohol 21; ON: 19; AB/QC/MB: 18).
+              These overrides apply to any product with the matching tax class — overriding
+              per-product age settings — so cashiers always enforce the store-wide policy.
+            </div>
+
+            <div className="ss-age-grid">
+              <div className="ss-age-card">
+                <div className="ss-age-label">
+                  <span className="ss-age-tag ss-age-tag--tobacco">TOBACCO</span>
+                  <span>Minimum Age</span>
+                </div>
+                <div className="ss-age-input-wrap">
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={ageLimits.tobacco}
+                    onChange={e => setAge('tobacco', e.target.value)}
+                    className="ss-age-input"
+                  />
+                  <span className="ss-age-suffix">+</span>
+                </div>
+                <div className="ss-age-hint">Common: 18, 19, or 21</div>
+              </div>
+
+              <div className="ss-age-card">
+                <div className="ss-age-label">
+                  <span className="ss-age-tag ss-age-tag--alcohol">ALCOHOL</span>
+                  <span>Minimum Age</span>
+                </div>
+                <div className="ss-age-input-wrap">
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={ageLimits.alcohol}
+                    onChange={e => setAge('alcohol', e.target.value)}
+                    className="ss-age-input"
+                  />
+                  <span className="ss-age-suffix">+</span>
+                </div>
+                <div className="ss-age-hint">Common: 18, 19, or 21</div>
               </div>
             </div>
           </div>

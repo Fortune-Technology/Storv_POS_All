@@ -136,9 +136,9 @@ function FolderCard({ folder, onUpdate, onDelete }) {
               <button
                 style={{
                   height: 34, padding: '0 1rem',
-                  background: 'rgba(99,102,241,0.15)',
-                  border: '1px solid rgba(99,102,241,0.35)',
-                  borderRadius: 7, color: 'var(--accent-primary, #6366f1)',
+                  background: 'var(--brand-15)',
+                  border: '1px solid var(--brand-30)',
+                  borderRadius: 7, color: 'var(--accent-primary)',
                   fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 5,
                 }}
@@ -328,7 +328,7 @@ export default function QuickAccess({ embedded }) {
 
         {/* Info */}
         <div className="qa-info">
-          <Info size={14} color="var(--accent-primary, #6366f1)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <Info size={14} color="var(--accent-primary)" style={{ flexShrink: 0, marginTop: 1 }} />
           <span>
             Folders appear as large buttons on the POS screen. Cashiers can tap a folder to see its products and
             add them to cart in one tap. Examples: Fruits, Vegetables, Limes &amp; Lemons, Ice (for liquor stores), Daily Specials.

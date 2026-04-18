@@ -8,7 +8,12 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { getCatalogSnapshot, getDepositRules, getTaxRules, getDepartmentsForPOS, getActivePromotionsForPOS } from '../api/pos.js';
-import { db, getLastSync, setLastSync, upsertProducts, upsertDepartments, upsertPromotions } from '../db/dexie.js';
+import {
+  db, getLastSync, setLastSync,
+  upsertProducts, deleteProducts,
+  upsertDepartments, replaceDepartments,
+  upsertPromotions, replacePromotions,
+} from '../db/dexie.js';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useSyncStore } from '../stores/useSyncStore.js';
 
@@ -38,23 +43,35 @@ export function useCatalogSync() {
         const res = await getCatalogSnapshot(storeId, since, page);
         total = res.total;
         if (res.data?.length) await upsertProducts(res.data);
+        // Tombstones — only present on the FIRST page of an incremental sync.
+        // Apply once to purge soft-deleted/deactivated rows from local cache.
+        if (res.deleted?.length) await deleteProducts(res.deleted);
         if (res.page >= res.pages) break;
         page++;
       }
 
-      // Sync deposit rules, tax rules, and departments (always full refresh)
+      // Sync deposit rules, tax rules, and departments — these are small lists
+      // (typically <50 rows) so we use REPLACE semantics. Wipe + bulkPut
+      // ensures back-office deletions are reflected without needing tombstones.
       const [deposits, taxes, depts] = await Promise.all([
         getDepositRules(),
         getTaxRules(),
         getDepartmentsForPOS(),
       ]);
-      if (deposits?.length) await db.depositRules.bulkPut(deposits);
-      if (taxes?.length)    await db.taxRules.bulkPut(taxes);
-      if (depts?.length)    await upsertDepartments(depts);
+      // Deposit + tax rule tables are wiped + replaced so deleted rules vanish.
+      await db.transaction('rw', db.depositRules, async () => {
+        await db.depositRules.clear();
+        if (deposits?.length) await db.depositRules.bulkPut(deposits);
+      });
+      await db.transaction('rw', db.taxRules, async () => {
+        await db.taxRules.clear();
+        if (taxes?.length) await db.taxRules.bulkPut(taxes);
+      });
+      await replaceDepartments(depts || []);
 
-      // Sync promotions
+      // Sync promotions — also REPLACE semantics so deactivated promos clear.
       const promos = await getActivePromotionsForPOS().catch(() => []);
-      if (promos?.length) await upsertPromotions(promos);
+      await replacePromotions(promos || []);
 
       const now = new Date().toISOString();
       await setLastSync('productsLastSync', now);

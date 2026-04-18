@@ -286,15 +286,38 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     r += pad(tx.label, W - 18) + rpad(String(tx.count), 6) + rpad(money(tx.amount), 12) + LF;
   }
 
+  // ── Section 4: Fuel Sales (only when fuel sales exist) ────────────────
+  if (report.fuel?.rows?.length) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'FUEL SALES' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    r += pad('Type', W - 22) + rpad('Gal', 9) + rpad('Amount', 13) + LF;
+    r += divider;
+    for (const f of report.fuel.rows) {
+      const label = (f.name || 'Fuel') + (f.gradeLabel ? ' ' + f.gradeLabel : '');
+      r += pad(label, W - 22) + rpad(Number(f.netGallons).toFixed(3), 9) + rpad(money(f.netAmount), 13) + LF;
+    }
+    r += divider;
+    r += ESCPOS.BOLD_ON
+      + pad('Total', W - 22)
+      + rpad(Number(report.fuel.totals.gallons).toFixed(3), 9)
+      + rpad(money(report.fuel.totals.amount), 13)
+      + LF
+      + ESCPOS.BOLD_OFF;
+  }
+
   // ── Reconciliation (shift only) ───────────────────────────────────────
   if (report.reconciliation) {
     r += LF + hr;
     r += ESCPOS.BOLD_ON + 'CASH RECONCILIATION' + LF + ESCPOS.BOLD_OFF;
     r += divider;
     r += row('Opening',     money(report.reconciliation.openingAmount));
-    r += row('+ Cash In',   money(report.reconciliation.cashCollected));
+    r += row('+ Cash Sales',money(report.reconciliation.cashCollected));
+    if (report.reconciliation.cashIn != null && report.reconciliation.cashIn > 0) {
+      r += row('+ Cash In',  money(report.reconciliation.cashIn));
+    }
     r += row('- Drops',     money(report.reconciliation.cashDropsTotal));
-    r += row('- Payouts',   money(report.reconciliation.cashPayoutsTotal));
+    r += row('- Cash Out',  money(report.reconciliation.cashOut ?? report.reconciliation.cashPayoutsTotal));
     r += divider;
     r += ESCPOS.BOLD_ON + row('Expected',   money(report.reconciliation.expectedInDrawer)) + ESCPOS.BOLD_OFF;
     if (report.reconciliation.closingAmount != null) {

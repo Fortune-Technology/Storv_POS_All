@@ -1,7 +1,7 @@
 /* ── DepositRules — dr- prefix ────────────────────────────────────────────── */
 
 .dr-page {
-  max-width: 900px;
+  /* max-width: 900px; */
   margin: 0 auto;
 }
 
@@ -23,7 +23,7 @@
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: rgba(52, 211, 153, 0.12);
+  background: var(--success-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -46,10 +46,10 @@
 .dr-add-btn {
   height: 38px;
   padding: 0 1.25rem;
-  background: rgba(52, 211, 153, 0.9);
+  background: var(--accent-gradient);
+  color: #fff;
   border: none;
   border-radius: 8px;
-  color: #0f1117;
   font-weight: 800;
   font-size: 0.875rem;
   cursor: pointer;
@@ -175,4 +175,23 @@
   padding: 3rem;
   color: var(--text-muted, #6b7280);
   font-size: 0.875rem;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .dr-page {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .dr-page {
+    padding: 0;
+  }
+
+  .dr-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
 }

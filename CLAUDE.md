@@ -3417,3 +3417,615 @@ Backend syntax: all 7 modified controllers/routes clean. All 8 frontend/cashier 
 - [x] **B11** 52-week avg divisor fixed
 - [x] **End-of-Day report** — back-office + cashier-app thermal print
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 23)
+
+### Fuel Module — Complete (mirrors Lottery pattern)
+
+Full gas-station fuel sale + refund system. Like Lottery, it's optional per store and gated by a `FuelSettings.enabled` flag managed in the back-office portal. Cashier sees Fuel Sale + Fuel Refund buttons in the action bar only when the store has fuel enabled.
+
+#### Schema (`backend/prisma/schema.prisma`) — 3 new models
+- **`FuelType`** — per-store fuel grade with `pricePerGallon Decimal(10,3)` (3-decimal precision for "$3.999/gallon"), `isDefault`, `isTaxable`, `taxRate`, `color`, `gradeLabel` ("87 Octane")
+- **`FuelSettings`** — store-level: `enabled`, `cashOnly`, `allowRefunds`, `defaultEntryMode` ('amount'|'gallons'), `defaultFuelTypeId`
+- **`FuelTransaction`** — per-sale record: `fuelTypeId`, `gallons Decimal(10,3)`, `pricePerGallon Decimal(10,3)`, `amount Decimal(10,2)`, `entryMode`, `taxAmount`, `posTransactionId` link
+
+#### Backend
+- **[`fuelController.js`](backend/src/controllers/fuelController.js)** — 9 endpoints: types CRUD, settings GET/PUT, list transactions, date-range report (by-type aggregation with sales/refunds/net/avgPrice), dashboard (today + month KPIs)
+- **[`fuelRoutes.js`](backend/src/routes/fuelRoutes.js)** — mounted at `/api/fuel/*`, manager+ writes, cashier+ reads
+- **`posTerminalController.createTransaction`** + **`batchCreateTransactions`** both accept `fuelItems[]` and create `FuelTransaction` records linked by `posTransactionId` (mirrors lottery handling)
+- **`endOfDayReportController`** — new `aggregateFuel(scope)` adds a `fuel` section to the EoD report with rows per type (sales gallons + amount, refunds, net, avg $/gal)
+
+#### Portal (`frontend/`)
+- **[`Fuel.jsx`](frontend/src/pages/Fuel.jsx)** + **[`Fuel.css`](frontend/src/pages/Fuel.css)** — 4-tab page (`fuel-` prefix):
+  - **Overview** — today/month KPIs (gallons + sales) + by-type breakdown
+  - **Fuel Types** — grid of cards per type, modal CRUD with 3-decimal price input, color picker, default toggle, taxable toggle
+  - **Sales Report** — date-range KPI strip + by-type table with sales/refunds/net/avg-price
+  - **Settings** — enable toggle, cash-only, allow refunds, default entry mode (Amount/Gallons), default fuel type dropdown
+- Sidebar group "Fuel" with `Fuel` lucide icon + `/portal/fuel` route
+- 9 new API helpers in [`api.js`](frontend/src/services/api.js) using shared `fuelUnwrap`
+
+#### Cashier App (`cashier-app/`)
+- **[`useFuelSettings.js`](cashier-app/src/hooks/useFuelSettings.js)** — fetches FuelSettings + FuelTypes for the active station's store; polls every 5 min + on visibility change (mirrors `usePOSConfig`)
+- **[`FuelModal.jsx`](cashier-app/src/components/modals/FuelModal.jsx)** + **[`FuelModal.css`](cashier-app/src/components/modals/FuelModal.css)** (`fm-` prefix):
+  - LEFT: fuel-type chip selector (default pre-selected per settings) → Amount/Gallons mode toggle → live preview showing entered + computed (the other side) + price-per-gallon → "Add to Cart" + pump-set instruction note → session list
+  - RIGHT: cent-based digit display + 3×4 numpad + Done button
+  - Refund mode (`mode='refund'`) flips accent to amber and labels button "Add Refund to Cart"
+  - Cashier cannot override price — it's locked to the type's `pricePerGallon` configured in portal
+- **[`useCartStore.addFuelItem`](cashier-app/src/stores/useCartStore.js)** — creates `isFuel: true` cart line with both gallons + amount + entryMode; sale = positive `lineTotal`, refund = negative
+- **[`CartItem.jsx`](cashier-app/src/components/cart/CartItem.jsx)** — new fuel render branch shows `⛽ Regular (87 Octane)` with sub-text `10.003 gal × $3.999/gal · entered as amount` and `+$40.00` total (sale = red, refund = amber)
+- **[`ActionBar.jsx`](cashier-app/src/components/pos/ActionBar.jsx)** — two new buttons "Fuel Sale" (red `#dc2626`) and "Fuel Refund" (amber `#f59e0b`), only visible when `fuelEnabled && shiftOpen`. Refund button hidden when `fuelRefundsEnabled === false`
+- **[`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx)** — new `fuelModalMode` state, mounts FuelModal, both quickCashSubmit and TenderModal paths now extract `fuelItems[]` and exclude fuel items from `txLineItems`
+- **[`TenderModal.jsx`](cashier-app/src/components/tender/TenderModal.jsx)** — new `fuelCashOnly` prop forces cash-only when cart has fuel items; new amber "⛽ Fuel items — cash only" banner
+
+#### End-to-End Verified Flow
+1. Portal: enable Fuel module, create 3 types ("Regular 87" $3.999, "Premium 91" $4.499, "Diesel" $4.299)
+2. Cashier sees "Fuel Sale" + "Fuel Refund" in action bar
+3. Tap Fuel Sale → modal opens with Regular pre-selected, Amount mode active
+4. Enter $15.00 → preview shows `3.751 gal × $3.999/gal` instantly. Or toggle to Gallons mode and enter `5.000 gal` → preview shows `$20.00`
+5. Add to Cart → cart row shows `⛽ Regular (87 Octane) · 3.751 gal × $3.999/gal · entered as amount · +$15.00`
+6. Quick Cash $50 → completes transaction → DB persists `Transaction` row + linked `FuelTransaction` row with snapshot of `fuelTypeName`, `gallons`, `pricePerGallon`, `amount`, `entryMode`
+7. Portal Sales Report shows aggregated rows per fuel type with avg $/gallon
+8. End-of-Day report `fuel` section shows by-type breakdown with sales/refunds/net gallons + amount
+
+#### Pre-existing EoD Bugs Fixed (Drive-by, Required for Fuel Verification)
+- `prisma.station.findUnique` was selecting non-existent `stationNumber` field → removed
+- `prisma.store.findUnique` was selecting non-existent `address`/`phone`/`timezone` fields → removed
+- `prisma.cashDrop.findMany` / `cashPayout.findMany` were filtering by non-existent `storeId` column → switched to relational `shift: { storeId }` filter
+
+#### Files Changed
+| File | Change |
+|------|--------|
+| `backend/prisma/schema.prisma` | NEW models: FuelType, FuelSettings, FuelTransaction |
+| `backend/src/controllers/fuelController.js` | NEW — full controller |
+| `backend/src/routes/fuelRoutes.js` | NEW — `/api/fuel/*` |
+| `backend/src/server.js` | Mount fuelRoutes |
+| `backend/src/controllers/posTerminalController.js` | Accept fuelItems in createTransaction + batchCreateTransactions; skip fuel in stock-deduct filter |
+| `backend/src/controllers/endOfDayReportController.js` | Add `aggregateFuel()` + fuel section in response; fix 4 pre-existing schema-mismatch bugs |
+| `frontend/src/pages/Fuel.jsx` + `Fuel.css` | NEW — 4-tab portal page (`fuel-` prefix) |
+| `frontend/src/components/Sidebar.jsx` | Added Fuel group + Fuel icon import |
+| `frontend/src/App.jsx` | Added `/portal/fuel` route |
+| `frontend/src/services/api.js` | 9 fuel API helpers + `fuelUnwrap` |
+| `cashier-app/src/hooks/useFuelSettings.js` | NEW |
+| `cashier-app/src/api/pos.js` | Added `getFuelTypes`, `getFuelSettings` |
+| `cashier-app/src/stores/useCartStore.js` | Added `addFuelItem` |
+| `cashier-app/src/components/cart/CartItem.jsx` + `.css` | Render fuel item card (`ci-fuel`) |
+| `cashier-app/src/components/modals/FuelModal.jsx` + `.css` | NEW — full modal (`fm-` prefix) |
+| `cashier-app/src/components/pos/ActionBar.jsx` | Two new fuel buttons |
+| `cashier-app/src/screens/POSScreen.jsx` | Mount FuelModal + extract fuelItems in payloads |
+| `cashier-app/src/components/tender/TenderModal.jsx` | `fuelCashOnly` prop + cash-only enforcement + fuelItems extraction |
+
+---
+
+*Last updated: April 2026 — Session 23: Fuel Module (Sale + Refund + Reports + EoD Section)*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 24)
+
+### A. Cashier "Back Office" Action — Open Portal in New Tab
+
+New button in [`ActionBar.jsx`](cashier-app/src/components/pos/ActionBar.jsx) with `ExternalLink` icon (purple `#7c3aed`):
+- Always visible in the cashier action bar (not gated on manager session)
+- Triggers `mgr('Back Office', onAdminPortal)` — prompts for manager PIN if no active session, otherwise calls handler directly
+- [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) handler: `window.open(VITE_PORTAL_URL || 'http://localhost:5173' + '/portal/realtime', '_blank', 'noopener,noreferrer')`
+- New tab opens — if the user already has a portal session in the browser, they go straight to Live Dashboard; otherwise the portal's normal login flow takes over
+
+### B. 1-Minute Inactivity Lock-Screen on Portal
+
+New global component [`InactivityLock.jsx`](frontend/src/components/InactivityLock.jsx) + [`InactivityLock.css`](frontend/src/components/InactivityLock.css) (`il-` prefix) mounted in [`App.jsx`](frontend/src/App.jsx):
+- After **60 s** of no `mousemove` / `mousedown` / `keydown` / `touchstart` / `scroll` / `wheel` events, shows a full-screen lock overlay
+- Activity events throttled to once-per-second so they don't spam timer resets
+- Lock skips public/auth pages — only triggers on routes starting with `/portal`, and only when not on `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/impersonate`
+- Lock-screen overlay shows the user's name + a password input (Eye/EyeOff toggle) + "Unlock" + "Sign out instead"
+- Unlock calls new `POST /api/auth/verify-password` endpoint (JWT-protected, rate-limited via `loginLimiter`) that bcrypt-compares the supplied password against the user's stored hash. **Session and current page are preserved** — the overlay just blocks interaction
+- "Sign out instead" clears `user` + `activeStoreId` from localStorage and redirects to `/login`
+
+#### New backend endpoint
+[`authController.js`](backend/src/controllers/authController.js) `verifyPassword`:
+- `POST /api/auth/verify-password` (JWT required)
+- Body: `{ password }`
+- Validates current user exists + bcrypt-compares password → returns `{ success: true }` or 401
+
+[`authRoutes.js`](backend/src/routes/authRoutes.js) registers the route with `protect` + `loginLimiter`.
+
+### C. Product Catalog — On Hand Column + Tax Column Removed
+
+[`ProductCatalog.jsx`](frontend/src/pages/ProductCatalog.jsx) and [`ProductCatalog.css`](frontend/src/pages/ProductCatalog.css):
+- **Tax column removed** from the table
+- **On Hand column added** — shows the active store's `quantityOnHand` from `StoreProduct`
+  - **Green** badge for stock > 5
+  - **Amber** badge for stock 1-5
+  - **Red** badge for stock ≤ 0
+  - **"—"** when no active store, or product not stocked at this store
+- New `OnHandCell` component renders the badge
+
+#### Backend wiring
+[`catalogController.js`](backend/src/controllers/catalogController.js) `getMasterProducts`:
+- Reads `storeId` from `?storeId=`, `X-Store-Id` header, or `req.storeId`
+- When supplied, includes `storeProducts: { where: { storeId }, take: 1 }` in the Prisma query
+- Flattens `quantityOnHand`, `storeRetailPrice`, `storeCostPrice`, `inStock` onto each product before returning
+- Frontend `loadProducts` now passes `storeId: activeStoreId` in the params
+
+### D. Per-Store Catalog Column Configuration
+
+Store admins can customize which catalog columns appear via a gear-icon button in the page header:
+
+#### Column schema
+```js
+const CATALOG_COLUMNS = [
+  { key: 'pack',       label: 'Pack',       defaultOn: false },
+  { key: 'cost',       label: 'Cost',       defaultOn: false },
+  { key: 'retail',     label: 'Retail',     defaultOn: true  },
+  { key: 'margin',     label: 'Margin',     defaultOn: false },
+  { key: 'department', label: 'Department', defaultOn: true  },
+  { key: 'onHand',     label: 'On Hand',    defaultOn: true  },
+  { key: 'vendor',     label: 'Vendor',     defaultOn: false },
+];
+```
+**Always-on columns** (cannot be hidden): Product (name + UPC + brand + promo badge), Flags (EBT/Age/DEP/LB), Actions (edit/delete)
+
+#### Storage
+- Saved per-store in `store.pos.catalogColumns` as an array of column keys
+- Loaded via `GET /pos-terminal/config?storeId=...`
+- Saved via `PUT /pos-terminal/config` with the merged config object
+- **Shared across all users at that store** — manager+ can change it
+- Default falls back to `['retail', 'department', 'onHand']` when no store is selected or no preference is saved
+
+#### UI
+- Gear icon (Settings) next to the Refresh button in the page header
+- Opens [`ColumnsModal`](frontend/src/pages/ProductCatalog.jsx) — list of toggleable columns with checkmark icons
+- Locked row at the top showing the always-on columns
+- "Reset to default" button restores `DEFAULT_VISIBLE_COLS`
+- "Save" persists to backend; warning banner if no active store selected
+
+#### Verified end-to-end
+1. Default columns: Product, Retail, Department, On Hand, Flags
+2. Open gear → toggle Cost + Vendor on → Save → DB row shows `catalogColumns: ['retail', 'department', 'onHand', 'cost', 'vendor']`
+3. Page re-renders with: PRODUCT, COST, RETAIL, DEPARTMENT, ON HAND, VENDOR, FLAGS
+4. On Hand badges render with correct color tiers (green/amber/red)
+
+### Files Changed (Session 24)
+| File | Change |
+|------|--------|
+| `cashier-app/src/components/pos/ActionBar.jsx` | Added `ExternalLink` import, `onAdminPortal` prop, "Back Office" button |
+| `cashier-app/src/screens/POSScreen.jsx` | Wired `onAdminPortal` to open `${VITE_PORTAL_URL}/portal/realtime` in new tab |
+| `frontend/src/components/InactivityLock.jsx` | NEW — global lock-screen overlay |
+| `frontend/src/components/InactivityLock.css` | NEW — `il-` prefix |
+| `frontend/src/App.jsx` | Mount `<InactivityLock />` |
+| `backend/src/controllers/authController.js` | NEW `verifyPassword` controller |
+| `backend/src/routes/authRoutes.js` | Added `POST /verify-password` (protect + loginLimiter) |
+| `backend/src/controllers/catalogController.js` | `getMasterProducts` now returns store-scoped `quantityOnHand` when storeId is passed |
+| `frontend/src/pages/ProductCatalog.jsx` | Removed Tax column, added On Hand column, added per-store column config + gear button + ColumnsModal + OnHandCell |
+| `frontend/src/pages/ProductCatalog.css` | New `pc-onhand-badge` + `pc-cols-*` modal styles |
+
+### Deferred to Future Session
+The multi-organization user model (one email → many orgs → many stores → per-store role) — see proposed plan in chat. Requires schema migration, JWT structure change, every backend route's `req.orgId` scoping touched, login + StoreSwitcher rework. Estimated 1 dedicated session of similar size to the Fuel module.
+
+---
+
+*Last updated: April 2026 — Session 24: Cashier→Portal Shortcut, 1-min Inactivity Lock, Per-Store Catalog Columns, On-Hand Column*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 25)
+
+### A. Fuel Module (live verified) — Done in Session 23, smoke-confirmed here.
+### B. Manual Item bug fixes
+[`OpenItemModal.jsx`](cashier-app/src/components/modals/OpenItemModal.jsx) — Two issues fixed:
+- **Numpad rejected all digits** because the initial amount state was `'0.00'` (already 2 decimals) which tripped the `>= 2 decimal places` reject. Rewrote to cent-based digit buffer matching TenderModal/LotteryModal/FuelModal — typing `5 8 7` → `$5.87`.
+- **Item name optional** — placeholder shows the selected category label; cart line falls back to category name when blank. New `.oim-optional` hint next to the label.
+
+### C. Inactivity Lock — fix click + render stalls
+[`InactivityLock.css`](frontend/src/components/InactivityLock.css) and [`InactivityLock.jsx`](frontend/src/components/InactivityLock.jsx):
+- Removed `backdrop-filter: blur(8px)` (caused GPU stalls + unresponsive clicks on some Chromium/Edge/Electron builds — the same render issue that made screenshots time out)
+- Bumped `z-index` to `2147483646`, added explicit `pointer-events: auto` on backdrop and card, `position: relative; z-index: 1` on card
+- Extracted `LockOverlay` sub-component with `useRef` + `requestAnimationFrame` retry-loop for `inputRef.current.focus({ preventScroll: true })` — handles cases where `autoFocus` prop is silently dropped
+- Added `onMouseDown / onClick / onTouchStart` swallow handlers on the backdrop so clicks can't leak through to the page below
+
+### D. Cashier ActionBar — horizontally scrollable
+[`ActionBar.jsx`](cashier-app/src/components/pos/ActionBar.jsx) + [`ActionBar.css`](cashier-app/src/components/pos/ActionBar.css):
+- Wrapped everything after the (left-pinned) Manager button in a new `.ab-scroll` container (`overflow-x: auto; min-width: 0; scrollbar-width: thin`)
+- Set `flex-shrink: 0` on `.ab-action` and `.ab-hold-btn` so buttons keep their natural width and trigger horizontal scrolling instead of being squished
+- Spacer changed to `flex: 1 1 0` so it collapses naturally when the wrapper overflows
+- Touch swipe + thin 6px scrollbar both functional; verified all 13 buttons reachable
+
+### E. Store-level Age Verification Policy (Tobacco / Alcohol)
+**Back office** ([`StoreSettings.jsx`](frontend/src/pages/StoreSettings.jsx) + [`StoreSettings.css`](frontend/src/pages/StoreSettings.css)):
+- New "Age Verification Policy" section with two number inputs (Tobacco / Alcohol)
+- Saved per-store in `store.pos.ageLimits = { tobacco, alcohol }` — defaults `{21, 21}` (US); admins can set `{21, 19}` for Ontario etc.
+- Two coloured tags (slate=tobacco, indigo=alcohol) match the chips shown in the cashier app
+
+**Cashier app**:
+- [`usePOSConfig.js`](cashier-app/src/hooks/usePOSConfig.js) merges `ageLimits` from the server config (5-min poll + visibility-change refresh)
+- [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) `addWithAgeCheck` overrides the per-product `ageRequired` with the store-level value when `taxClass === 'tobacco'` or `'alcohol'` — so the AgeVerificationModal always uses the correct store policy
+- New `.pos-age-policy` strip below the StatusBar shows the configured limits as Tobacco/Alcohol coloured chips
+- [`StatusBar.jsx`](cashier-app/src/components/layout/StatusBar.jsx) now shows two date chips side by side: `Tobacco 21+: Apr 18, 2005` and `Alcohol 19+: Apr 18, 2007` (born-on-or-before, recomputed each clock tick). Falls back to a single `21+` chip when neither store-level limit is set.
+
+### F. Catalog Sync — Tombstones for deleted products + replace-semantics for small lists
+**Bug**: Soft-deleted products lingered in the cashier-app IndexedDB cache forever. Sync used upsert-only (`bulkPut`) and the snapshot endpoint just stopped returning deleted rows — there was no "remove this" signal. Same issue affected Departments, Promotions, Tax Rules, Deposit Rules.
+
+**Fix backend** ([`posTerminalController.js`](backend/src/controllers/posTerminalController.js) `getCatalogSnapshot`):
+- Added explicit `deleted: false` to the active-products WHERE clause
+- When `?updatedSince=` is supplied AND `page === 1`, also fetches IDs of products with `(deleted=true OR active=false) AND updatedAt >= since`
+- Returns them in a new `deleted: number[]` field on the response (sent once at the head of the paginated stream, not per page)
+
+**Fix frontend** ([`useCatalogSync.js`](cashier-app/src/hooks/useCatalogSync.js) + [`dexie.js`](cashier-app/src/db/dexie.js)):
+- New `deleteProducts(ids)` Dexie helper does a `bulkDelete` on the products table
+- Sync loop calls it whenever `res.deleted?.length > 0`
+- Departments + Promotions + Tax Rules + Deposit Rules now use **REPLACE semantics** — wipe + bulkPut inside a single Dexie transaction. Simpler than tombstones since these tables are small (typically <50 rows each), and guarantees deletions reflect immediately.
+
+**Verified**: soft-deleted product 41479 correctly returned in `deleted: [41499]` array, NOT in `data`. Restored after test.
+
+**Sync cadence reminder**: 15 min auto + on login + manual button. Constant `SYNC_INTERVAL_MS = 15 * 60 * 1000` in [`useCatalogSync.js:15`](cashier-app/src/hooks/useCatalogSync.js:15).
+
+#### Files Changed (Session 25)
+| File | Change |
+|------|--------|
+| `cashier-app/src/components/modals/OpenItemModal.jsx` + `.css` | Cent-based numpad, optional name, category-fallback placeholder |
+| `frontend/src/components/InactivityLock.jsx` + `.css` | Removed backdrop-filter, hardened pointer-events, force-focus retry loop |
+| `cashier-app/src/components/pos/ActionBar.jsx` + `.css` | New `.ab-scroll` wrapper for horizontally-scrollable action buttons |
+| `frontend/src/pages/StoreSettings.jsx` + `.css` | Age Verification Policy section, two coloured number inputs |
+| `cashier-app/src/hooks/usePOSConfig.js` | `ageLimits` merged from server config |
+| `cashier-app/src/screens/POSScreen.jsx` + `.css` | Age policy chip strip below StatusBar; `addWithAgeCheck` applies store-level override |
+| `cashier-app/src/components/layout/StatusBar.jsx` + `.css` | Two age-check date chips (Tobacco/Alcohol) side-by-side; legacy 21+ fallback |
+| `backend/src/controllers/posTerminalController.js` | `getCatalogSnapshot` returns `deleted[]` tombstones |
+| `cashier-app/src/db/dexie.js` | New `deleteProducts`, `replaceDepartments`, `replacePromotions` helpers |
+| `cashier-app/src/hooks/useCatalogSync.js` | Apply tombstones; replace-semantics for departments/promotions/tax/deposit rules |
+| `backend/src/controllers/authController.js` | NEW `verifyPassword` endpoint (used by InactivityLock unlock) |
+| `backend/src/routes/authRoutes.js` | `POST /verify-password` route (protect + loginLimiter) |
+
+---
+
+*Last updated: April 2026 — Session 25: Manual Item fix, Inactivity Lock hardening, Scrollable ActionBar, Age Policy (Tobacco/Alcohol), Catalog Sync Tombstones*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 26)
+
+### End-of-Day Report — full audit + parity between cashier-app and back-office
+
+Triggered by user request to confirm EoD correctness, print feature, and end-of-shift report; and to make the cashier-app EoD show the same details as the portal page (manager-PIN gated).
+
+#### Bugs found and fixed
+
+1. **Reconciliation math** — `received_on_acct` was being **subtracted** from drawer expectation but it's money INTO the drawer. Rewrote in [`endOfDayReportController.js`](backend/src/controllers/endOfDayReportController.js):
+   ```
+   expected = opening + cashCollected + (paid_in + received_on_acct) − pickups − (paid_out + loans)
+   ```
+   Response now includes both `cashIn` and `cashOut` keys; `cashPayoutsTotal` kept for back-compat.
+
+2. **Average-tx denominator** — `grossSales / completeCount` was skewed (gross had refunds subtracted but count didn't). Now uses **`(grossSales + refundAmount) / (completeCount + refundCount)`** — pre-refund gross over total tickets including refunds.
+
+3. **`shiftController.listPayouts` + `listCashDrops` storeId bug** — both were filtering by a non-existent `storeId` column on `CashPayout` / `CashDrop`. Threw `column "storeId" does not exist` whenever `?storeId=` was supplied. Fixed to use the relational filter `where.shift = { storeId }` (same pattern used in EoD controller).
+
+4. **Duplicate legacy `getEndOfDayReport` controller** — `posTerminalController.js` had a 78-line legacy controller returning the old `netSales/tenderBreakdown/cashierBreakdown/clockEvents` shape. Removed entirely. Both `/api/pos-terminal/reports/end-of-day` and `/api/pos-terminal/end-of-day` now point at the unified controller in `endOfDayReportController.js`.
+
+5. **Fuel section silently dropped** — the response carried `fuel: { rows[], totals }` (added in Session 23) but neither the back-office page nor the cashier print template rendered it. Added in both surfaces.
+
+6. **Cashier-app `EndOfDayModal` reading old shape** — rendered blanks for tenders/payouts/totals because it was reading legacy keys (`report.netSales`, `report.tenderBreakdown`, `report.cashierBreakdown`, `report.clockEvents`) that don't exist in the new response. Modal completely rewritten.
+
+#### Cashier-app EoD Modal rewrite
+
+[`EndOfDayModal.jsx`](cashier-app/src/components/modals/EndOfDayModal.jsx) replaced — now mirrors the back-office page layout exactly:
+- **Header** — store, cashier, register, period
+- **Big-number row** — Net Sales / Gross Sales / Cash Collected (3-up grid, collapses to 1 col under 640px)
+- **Section 1 — Payouts** (9-category table, hides zero-rows by default)
+- **Section 2 — Tender Details** (9-category table)
+- **Section 3 — Transactions** (avg / net / gross / tax / cash collected)
+- **Section 4 — Fuel Sales** (only when fuel exists; per-type net gallons + amount)
+- **Reconciliation** (shift-scope only) — Opening / + Cash Collected / + Cash In / − Drops / − Cash Out / = Expected / Counted / Variance
+- Date picker in header to view any past day
+- Refresh + Print + Close Batch (Dejavoo) actions
+- Print routes through `printEoDReport(posConfig, report)` → `buildEoDReceiptString` (now includes fuel section + corrected reconciliation rows) → QZ-Tray (USB) or `/print-network` (TCP)
+- Removed obsolete in-file `buildEODString` legacy function (~67 lines)
+
+#### Manager PIN gate
+
+The cashier-app "End of Day" button was already manager-gated via `mgr('End of Day', onEndOfDay)` in [`ActionBar.jsx`](cashier-app/src/components/pos/ActionBar.jsx). Confirmed working in test: clicking "End of Day" prompts the Manager Required modal first when no manager session is active. With a valid manager session, it opens the modal directly.
+
+#### Back-office page additions
+
+[`EndOfDayReport.jsx`](frontend/src/pages/EndOfDayReport.jsx) + [`.css`](frontend/src/pages/EndOfDayReport.css):
+- New "FUEL SALES" section between Transactions and Reconciliation (only shown when fuel rows exist)
+- Reconciliation now shows the new Cash In / Cash Out lines correctly
+- CSV export includes fuel rows
+- PDF export includes fuel rows
+- Responsive: added 1024px and 480px breakpoints (was only 768px before)
+
+#### Print template additions
+
+[`printerService.js`](cashier-app/src/services/printerService.js) `buildEoDReceiptString`:
+- New "FUEL SALES" block between TRANSACTIONS and CASH RECONCILIATION (only when `report.fuel.rows.length > 0`); includes per-type net gallons + amount and a Total row
+- Reconciliation lines updated to print `+ Cash Sales`, optional `+ Cash In`, `− Drops`, `− Cash Out` (matching the corrected math)
+- Backwards-compatible — falls back to legacy `cashPayoutsTotal` key when new `cashOut` not present
+
+#### Verified end-to-end
+- API: `GET /api/reports/end-of-day?date=2026-04-17&storeId=...` returns all 7 keys including `fuel: { rows: [{ name: 'Regular', netGallons: 3.751, netAmount: 15 }, ...], totals: { gallons, amount, ... } }`
+- Legacy alias `GET /api/pos-terminal/reports/end-of-day` now returns the same new shape
+- Back-office page: 4 section titles render — `PAYOUTS / TENDER DETAILS / TRANSACTIONS / FUEL SALES`, `eod-fuel-table` element renders with 2 tbody rows (1 type + 1 total)
+- Cashier-app modal: 3 section titles render — `PAYOUTS / TENDER DETAILS / TRANSACTIONS`, big-number row shows `Net Sales / Gross Sales / Cash Collected` with non-zero values from today; fuel section correctly hidden when no fuel sales for the selected date
+
+#### Files Changed (Session 26)
+| File | Change |
+|------|--------|
+| `backend/src/controllers/endOfDayReportController.js` | Reconciliation math fix; avg-tx denominator fix; new `cashIn`/`cashOut` keys |
+| `backend/src/controllers/posTerminalController.js` | Removed legacy 78-line `getEndOfDayReport` (replaced with comment pointer to new controller) |
+| `backend/src/controllers/shiftController.js` | `listPayouts` + `listCashDrops`: storeId filter via `shift: { storeId }` relation |
+| `backend/src/routes/posTerminalRoutes.js` | Both `/end-of-day` and `/reports/end-of-day` now point to `endOfDayReportController.getEndOfDayReport` |
+| `frontend/src/pages/EndOfDayReport.jsx` + `.css` | Fuel section render + CSV/PDF export; reconciliation Cash In/Out rows; 1024/480 responsive |
+| `cashier-app/src/services/printerService.js` | Fuel section in print template; corrected reconciliation lines |
+| `cashier-app/src/components/modals/EndOfDayModal.jsx` + `.css` | Full rewrite to match back-office layout (header / bignums / 3 sections / fuel / reconciliation) |
+
+---
+
+*Last updated: April 2026 — Session 26: EoD Report Audit & Fixes — math corrections, dead-code removal, fuel section rendering, cashier-app/back-office parity*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 27)
+
+### Sales-summary surfaces unified with End-of-Day report
+
+User reported "sales data not matching from the Report (Summary) and End of Day report is different" + suspicion that "cash tender is not calculating".
+
+**Cash tender was actually calculating correctly** — every cashier-app code path writes lowercase `'cash'` and EoD's `mapTenderMethod` normalizes via `.toLowerCase().trim()`. No string-mismatch bug. The real cause was that the summary surfaces and the EoD report used **different status filters**, and one of them silently ignored refunds entirely.
+
+#### Root cause
+
+| Surface | Old status filter | Problem |
+|---------|------------------|---------|
+| Sales Analytics (Daily/Weekly/Monthly) | `status: 'complete'` only | Refund TXs invisible — Gross only counted sales |
+| Live Dashboard | `status: 'complete'` only | Same |
+| Department / Top Products / Products Grouped | `status: 'complete'` only | Same |
+| Back-office Transactions tab | NO server-side filter | Mixed completes + refunds + voids; `Math.abs(grandTotal)` made refunds **add** to revenue |
+| End-of-Day report | `status: { in: ['complete', 'refund', 'voided'] }` | Refunds correctly netted out of Gross/Net |
+
+Net effect on a day with $40 sale + $10 refund:
+- SalesAnalytics → Gross **$40** (refund tx invisible)
+- EoD → Gross **$30** (refund netted out)
+- Transactions tab → Revenue **$50** (refund's `Math.abs(-10) = +10`)
+
+#### Fix — single status convention across the codebase
+
+All sales-aggregation paths now use `status: { in: ['complete', 'refund'] }` and apply this **sign convention** when summing values (matching EoD's `aggregateTransactions`):
+
+```
+isRefund = tx.status === 'refund'
+
+// Refund: stored as POSITIVE refund amount → subtract via -Math.abs()
+// Complete: use raw signed value (allows negative-total bottle-return carts to subtract)
+value = isRefund ? -Math.abs(tx.field) : tx.field
+```
+
+This **matters for completes with negative `grandTotal`** (net-negative carts where bottle returns exceed sales) — earlier `Math.abs` would have flipped them to positive and double-counted. Caught and fixed during verification (TXN-58 had `grandTotal: -69`, was contributing `+69` to gross).
+
+#### Specific fixes shipped
+
+| File | Change |
+|------|--------|
+| [`backend/src/services/salesService.js`](backend/src/services/salesService.js) | `buildWhere` now `status: { in: ['complete','refund'] }`. `getDailySales`, `getDepartmentSales`, `getTopProducts`, `getProductsGrouped` apply the refund-subtract sign convention. `TotalRefunds` populated from refund txs (was previously only from `li.isRefund` per-line flag — distinct from a refund-status tx) |
+| [`backend/src/controllers/salesController.js`](backend/src/controllers/salesController.js) | `realtimeSales` (Live Dashboard) — refunds netted; new `refundCount` on response; refund tx lineItems excluded from "top products" but still counted in totals |
+| [`backend/src/controllers/posTerminalController.js`](backend/src/controllers/posTerminalController.js) | `listTransactions` — when `?status=` not supplied, defaults to `{ in: ['complete','refund'] }` so the back-office Transactions page agrees with EoD. Pass `?status=all` to include voids |
+| [`frontend/src/pages/Transactions.jsx`](frontend/src/pages/Transactions.jsx) | Stats summary rewritten — refunds subtract from revenue; tender breakdown subtracts cash refunded from net-cash collected; `avg` divides by completed-sale count only |
+
+#### Verified with live data
+
+Same store, same date (Apr 6 — has 15 completes + 3 refunds):
+```
+EoD:    gross=$242.40  net=$210.69  tax=$8.91  refunds=$11.25
+Daily:  gross=$242.40  net=$210.69  tax=$8.91  refunds=$11.25  ✓
+Live:   gross=$242.40  net=$210.69  ✓
+```
+
+Apr 18 (today, 3 sales, no refunds):
+```
+EoD:    gross=$58.38  net=$58.38
+Daily:  gross=$58.38  net=$58.38  ✓
+Live:   gross=$58.38  net=$58.38  ✓
+```
+
+#### Cash tender confirmation
+
+Confirmed via DB inspection: every writer (`TenderModal.complete`, `quickCashSubmit`, `RefundModal`, seed script, Cashier UI quick-cash buttons) uses lowercase `'cash'`. `mapTenderMethod` lowercases + trims input before matching. Cash tender IS being calculated correctly in EoD; the perceived discrepancy was downstream of the Gross/Net mismatch above.
+
+#### Remaining known gap (deferred)
+
+`Transaction` table still has no `shiftId` column (Open Bug A from Session 20). EoD `?shiftId=` scope falls back to `createdAt: { gte: shift.openedAt, lte: closedAt || now }` window filtering. If two shifts overlap (e.g. handover with open shift), txs would appear in both shifts' EoDs. Migration to add `shiftId` to Transaction model is queued for a future session.
+
+---
+
+*Last updated: April 2026 — Session 27: Sales-summary surfaces unified with EoD; cash tender confirmed correct; refund-status sign convention enforced everywhere*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 28)
+
+### Critical: cash sales were saving as `status: 'pending'` and silently excluded from EoD/Daily
+
+User reported "cash checkout sale is not getting reflected in EoD report" + "nothing is calculating in back-office for cash sales".
+
+#### Root cause
+
+The cashier-app's offline transaction queue marks pending uploads with a LOCAL sync flag `status: 'pending'` ([dexie.js:138](cashier-app/src/db/dexie.js:138) `enqueueTransaction`). When the queue is later replayed via `POST /pos-terminal/transactions/batch`, the backend was honoring that local flag:
+
+```js
+status: tx.status || 'complete',  // ← would store 'pending' if queue sent 'pending'
+```
+
+Cash sales tend to fall through to the offline-queue path more often than card sales (a single network blip during the cashier's quick-cash submit triggers the catch fallback to `enqueueTx`). Card sales typically wait for a successful HTTP response, so they make it through the live `createTransaction` path which generates its own sequential txNumber and saves as 'complete'.
+
+DB inspection confirmed: every cash tx in the past several days had `status: 'pending'` (with a frontend-generated `TXN-MO3xxxxx` txNumber); every card tx had `status: 'complete'` (with a backend-generated `TXN-YYYYMMDD-NNNNNN` txNumber). After Session 27's status filter unification, both EoD and Daily/Live filtered `{ in: ['complete', 'refund'] }` — so every cash sale was invisible to both.
+
+#### Fix
+
+Both `createTransaction` and `batchCreateTransactions` in [`posTerminalController.js`](backend/src/controllers/posTerminalController.js) now **force `status: 'complete'`** regardless of what the client sends. Voids and refunds use their own dedicated endpoints (`voidTransaction`, `createRefund`), so `createTransaction` and `batchCreateTransactions` legitimately only ever produce completed sales.
+
+Defensive against any future client bug that might send a non-complete status to the wrong endpoint.
+
+#### One-time backfill
+
+```js
+prisma.transaction.updateMany({
+  where: { status: 'pending' },
+  data:  { status: 'complete' },
+});
+// → 21 stuck cash transactions corrected
+```
+
+#### Verified live
+
+Apr 18 EoD before fix → 3 txns, $58.38 (card-only, cash hidden).
+Apr 18 EoD after fix → **12 txns, $384.55** with tender breakdown:
+- Cash: 9 × $528.97
+- Credit Card: 3 × $58.38
+- Cash Collected: $326.17 (cash tendered − change given)
+
+Daily, Live Dashboard, and EoD all agree across Gross / Net / TxCount.
+
+#### Files Changed (Session 28)
+| File | Change |
+|------|--------|
+| `backend/src/controllers/posTerminalController.js` | `createTransaction` + `batchCreateTransactions` now force `status: 'complete'` instead of honoring the client's `tx.status` |
+| (data) | One-time `UPDATE transactions SET status='complete' WHERE status='pending'` — 21 rows |
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 29)
+
+### Admin Panel UI Consistency Fixes
+
+**Table header background fix** — `AdminOrgAnalytics.jsx` was misusing `.admin-header-icon` (44×44 colored box) as a `<span>` inside `<th>` elements, causing green background boxes on table headers. Replaced with `.aoa-sort-label`. Same fix applied to `AdminOrganizations.jsx`, `AdminStores.jsx` (name column → `admin-name-cell` + `admin-name-icon`), `AdminCmsPages.jsx`, `AdminCareers.jsx` (card headers → `admin-card-header-row`). Global `th { background }` removed from `frontend/src/index.css`.
+
+**Button & spacing standardization** — Added `.admin-header-actions` (gap between header buttons), `.admin-row-actions` (consistent action icon spacing), `.admin-name-cell`/`.admin-name-icon` (table name column). Applied across Users, Organizations, Stores pages.
+
+**Payment Management UI** — Fixed Terminal tab search bar (proper `.admin-search` wrapper), History tab date inputs (styled `.aps-history-date` with focus state), removed `admin-input` ghost class.
+
+**Chat page** — Header aligned with standard `admin-header` pattern (icon in `admin-header-icon` box, matching font sizes/gaps).
+
+**Color variable consistency** — Replaced all `#6366f1` (14 instances) in `AdminTickets.css` with `var(--accent-primary)`. Replaced `#3b82f6` in `AdminPaymentSettings.css` and `AdminBilling.css` toggle/tab/checkbox accent colors with `var(--accent-primary)`.
+
+**Filter tab shape consistency** — Changed `.admin-tab` from `border-radius: 999px` (pill) to `8px` (rectangle). Fixed `EcomOrders`, `InvoiceImport`, `POSSettings`, `Promotions` filter buttons to `8px`.
+
+### Button Hover Contrast Fixes
+
+Fixed invisible-text-on-hover bug across 11 files. Every active filter tab/button with white text on colored background now has an explicit `.active:hover` rule keeping `color: #fff` and darkening background to `var(--brand-dark)`:
+
+`EcomOrders.css`, `Lottery.css` (×2), `Transactions.css`, `InvoiceImport.css`, `InventoryCount.css`, `ProductForm.css` (×3), `ShopPage.css`, `admin.css`, `AdminTickets.css`
+
+### CSS Variable Centralization (`max-width`)
+
+| App | Variable | Value | File |
+|-----|----------|-------|------|
+| Admin | `--content-max-width` | `1400px` | `admin-app/src/styles/global.css` |
+| Portal | `--content-max-width` | `1400px` | `frontend/src/index.css` |
+| Portal | `--mkt-max-width` | `1200px` | `frontend/src/index.css` |
+
+Replaced hardcoded `max-width` in 22 CSS files with these variables.
+
+### Horizontal Scroll Prevention
+
+Added `overflow-x: hidden` + `min-width: 0` to `.main-content` in both `frontend/src/index.css` and `admin-app/src/styles/global.css`. Tables scroll horizontally via `.p-table-wrap` / `.admin-table-wrap`; page never scrolls.
+
+### Database Backup Feature (Admin Panel)
+
+Manual database backup from Admin → System Config (`/config`):
+
+**Backend:** `backupController.js` — spawns `pg_dump`, streams SQL directly to HTTP response. Auto-discovers `pg_dump.exe` on Windows (`C:\Program Files\PostgreSQL\{version}\bin\`). Supports both main DB (`DATABASE_URL`) and ecom DB (`ECOM_DATABASE_URL`).
+
+**Frontend:** Two download cards (Main Database / E-Commerce Database). Filename format: `main-backup-DD-MM-YYYY.sql`.
+
+**Route:** `GET /api/admin/backup/:target` (superadmin only).
+
+### Product Image System (Phase 1–3)
+
+#### Phase 1: Import Image URLs
+- Added `imageUrl` to bulk import field mapping (aliases: `image`, `images`, `imagelink`, `photourl`, etc.)
+- `importService.js` maps the "Images" CSV column → `MasterProduct.imageUrl`
+
+#### Phase 2: Global UPC Image Cache
+- New `GlobalProductImage` table keyed by `strippedUpc` (all leading zeros removed)
+- `stripUpc()` utility added to `backend/src/utils/upc.js`
+- `globalImageService.js` — `upsertGlobalImage`, `batchUpsertGlobalImages`, `batchResolveProductImages`
+- Auto-populates during bulk import, product create, product update
+- Image fallback: `product.imageUrl` → `GlobalProductImage.rehostedUrl` → `GlobalProductImage.imageUrl` → null
+
+#### Phase 3: Image Re-hosting
+- `imageRehostService.js` — downloads external images to `backend/uploads/product-images/`, updates `rehostedUrl`
+- Static serving: `GET /uploads/product-images/*` (30-day cache, immutable)
+- Admin UI: stats cards (Total / Re-hosted / Pending / Disk Used) + "Re-host Next 200" button
+- Routes: `GET /api/admin/images/rehost-status`, `POST /api/admin/images/rehost`
+
+#### Product Form Image Upload
+- New "Product Image" card at top of ProductForm with preview, URL input, file upload, remove
+- Upload endpoint: `POST /api/catalog/products/:id/image` (multer, 5MB, images only)
+- `uploadProductImage(id, file)` API function in frontend
+
+### Dashboard Showcase (Marketing Home Page)
+
+New "See It in Action" section on `/` with 6 tabbed screenshots in a PC monitor mockup:
+- Tabs: Live Dashboard, Analytics, Products, Transactions, Employees, Vendor Orders
+- Side-by-side layout: vertical tabs + description (left), monitor frame + screenshot (right)
+- Fade + scale transition on tab switch, gentle floating micro-interaction on active screenshot
+- Responsive: stacks vertically on mobile, icon-only tabs on small screens
+
+### Mobile Responsiveness Improvements
+
+- Added `@media (max-width: 480px)` to `index.css` — `.main-content` padding reduced to `0.625rem`
+- Portal 480px breakpoint: compact header, 1-column stat grid, tighter table cells/buttons
+- `StoreSettings.css`: 640px breakpoint for full-width + compact sections
+- `DepositRules.css`: 768px + 480px responsive breakpoints added
+- `TaxRules.css`: replaced 15 hardcoded indigo `rgba()` with CSS variables
+- `DepositRules.css`: replaced hardcoded emerald colors with CSS variables
+
+### Transaction Seeder
+
+New `backend/prisma/seedToday.js` — generates 35-50 realistic transactions for today (6am → current hour) with proper hourly distribution, payment mix, line items. Run: `node prisma/seedToday.js`
+
+### JWT TTL Change
+
+Changed default `JWT_ACCESS_TTL` from `2h` to `8h` in `.env` and `.env.example`. Prevents premature session lockouts during normal workday use.
+
+### Permanent Product Delete Fix
+
+`catalogController.js` `deleteAllProducts` — no longer blocks on PurchaseOrder FK references. Now cleans up `PurchaseOrderItem` → empty `PurchaseOrder` → `VendorProductMap` before deleting products.
+
+---
+
+### New Files Created (Session 29)
+
+| File | Purpose |
+|------|---------|
+| `backend/src/controllers/backupController.js` | Database backup via pg_dump streaming |
+| `backend/src/services/globalImageService.js` | Cross-org image cache by UPC |
+| `backend/src/services/imageRehostService.js` | Download external images to local storage |
+| `backend/prisma/seedToday.js` | Seed today's transactions for dashboard testing |
+
+### Key Files Modified (Session 29)
+
+| File | Change |
+|------|--------|
+| `backend/prisma/schema.prisma` | Added `GlobalProductImage` model |
+| `backend/src/utils/upc.js` | Added `stripUpc()` function |
+| `backend/src/services/importService.js` | Image URL import + global cache population |
+| `backend/src/controllers/catalogController.js` | Image fallback in getMasterProducts/search/get, global cache on create/update, permanent delete fix |
+| `backend/src/routes/adminRoutes.js` | Backup + image rehost endpoints |
+| `backend/src/routes/catalogRoutes.js` | Product image upload endpoint (multer) |
+| `backend/src/server.js` | Static serving for `/uploads/product-images/` |
+| `frontend/src/pages/ProductForm.jsx` | Image card (preview + URL input + upload + remove) |
+| `frontend/src/pages/ProductForm.css` | `pf-image-*` styles |
+| `frontend/src/pages/BulkImport.jsx` | `imageUrl` field mapping |
+| `frontend/src/pages/marketing/Home.jsx` | Dashboard showcase section |
+| `frontend/src/pages/marketing/Home.css` | `dsh-*` / `hm-dsh-*` styles |
+| `admin-app/src/pages/AdminSystemConfig.jsx` | Backup + image rehost UI |
+| `admin-app/src/pages/AdminSystemConfig.css` | Backup + rehost styles |
+| `frontend/src/index.css` | 480px breakpoint, `--content-max-width`/`--mkt-max-width` vars, `overflow-x: hidden` |
+| `frontend/src/styles/portal.css` | Mobile responsive improvements |
+| `admin-app/src/styles/admin.css` | Header actions, name cell, row actions, tab radius, active hover |
+| `admin-app/src/styles/global.css` | `--content-max-width` var, `overflow-x: hidden` |
+| `backend/.env.example` | Added `ECOM_DATABASE_URL`, `BACKEND_URL`, updated `JWT_ACCESS_TTL` to 8h |
+
+---
+
+*Last updated: April 2026 — Session 29: Admin UI consistency, button hover fixes, database backup, product image system (Phase 1-3), dashboard showcase, mobile responsiveness, CSS variable centralization*
+

@@ -16,6 +16,7 @@
 
 import XLSX from 'xlsx';
 import prisma from '../config/postgres.js';
+import { batchUpsertGlobalImages } from './globalImageService.js';
 
 // Marker so you can tell from logs which version of the mapping code is loaded.
 // Bump IMPORT_SERVICE_VERSION whenever you change ALIASES or detectColumns.
@@ -129,6 +130,9 @@ const ALIASES = {
   sectionName:        ['sectionname','section_name','subsectionname'],
   expirationDate:     ['expirationdate','expiration','expiry','bestby','usebydate','expdate'],
   labelFormatId:      ['labelformatid','eplumlabelformatno','eplumformat','labelformat'],
+
+  // ── Product Image ──
+  imageUrl:           ['imageurl','image','images','imagelink','productimage','photourl','photo','pictureurl','picture','thumbnailurl','thumbnail','imgurl','img'],
 
   // ── E-commerce extended ──
   ecomExternalId:     ['ecommerceid','ecomid','ecomexternalid','externalid','shopifyid'],
@@ -651,6 +655,9 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
       ecomOnSale:         parseBool(get('ecomOnSale')),
       ecomDescription:    get('ecomDescription') || null,
       ecomSummary:        get('ecomSummary') || null,
+
+      // ── Product Image ──
+      imageUrl:           get('imageUrl') || null,
 
       // ── For linked UPC (processed in importProductRows) ──
       _linkedUpc:         get('linkedUpc') || null,
@@ -1231,7 +1238,23 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
   if (linkedCreated > 0) console.log(`🔗 Created ${linkedCreated} linked UPC entries`);
   if (promosCreated > 0) console.log(`🏷️ Created ${promosCreated} promotion entries from import`);
 
-  return { created, updated, skipped, errors, linkedUPCs: linkedCreated, promotions: promosCreated };
+  // ── Post-import: populate global image cache ────────────────────────────────
+  const imageItems = validRows
+    .filter(r => r.cleaned.upc && r.cleaned.imageUrl)
+    .map(r => ({ upc: r.cleaned.upc, imageUrl: r.cleaned.imageUrl, name: r.cleaned.name, brand: r.cleaned.brand }));
+
+  let globalImagesInserted = 0;
+  if (imageItems.length > 0) {
+    try {
+      const imgResult = await batchUpsertGlobalImages(imageItems);
+      globalImagesInserted = imgResult.inserted;
+      if (globalImagesInserted > 0) console.log(`🖼️ Added ${globalImagesInserted} images to global cache (${imgResult.skipped} already existed)`);
+    } catch (err) {
+      console.warn('[importProductRows] global image cache population failed:', err.message);
+    }
+  }
+
+  return { created, updated, skipped, errors, linkedUPCs: linkedCreated, promotions: promosCreated, globalImages: globalImagesInserted };
 }
 
 async function importDepartmentRows(validRows, orgId, duplicateStrategy) {

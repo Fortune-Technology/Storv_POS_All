@@ -18,7 +18,6 @@ import {
   voidTransaction,
   createRefund,
   createOpenRefund,
-  getEndOfDayReport,
   clockEvent,
   getClockStatus,
   getPosBranding,
@@ -67,8 +66,9 @@ router.get('/transactions/:id',              ...guard, getTransaction);
 router.post('/transactions/:id/void',        ...guard, voidTransaction);
 router.post('/transactions/:id/refund',      ...guard, createRefund);
 
-// Reports
-router.get('/reports/end-of-day',        ...guard, getEndOfDayReport);
+// Reports — both `/reports/end-of-day` and `/end-of-day` point at the same
+// comprehensive controller (header / payouts / tenders / transactions / fuel
+// / reconciliation / totals).
 
 // Clock in / out (no JWT — uses station token + PIN, rate-limited to block brute force)
 router.post('/clock',                    pinLimiter, clockEvent);
@@ -114,6 +114,8 @@ router.get('/shift/:id/eod-report', ...guard, (req, res) => {
 });
 // Alternative: /pos-terminal/end-of-day?shiftId=… / ?date=… etc.
 router.get('/end-of-day',         ...guard, _eodReport);
+// Legacy path kept for old clients — now points at the same controller.
+router.get('/reports/end-of-day', ...guard, _eodReport);
 
 // Payout & Cash Drop reporting (back-office)
 router.get('/payouts',           ...guard, listPayouts);

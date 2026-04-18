@@ -180,3 +180,20 @@ export function extractSizeFromDescription(desc) {
   if (!packSize && !size) return null;
   return { packSize, size, unit };
 }
+
+/**
+ * Strip ALL leading zeros from a UPC string.
+ * Used as the match key for GlobalProductImage (cross-org image sharing).
+ *
+ * Examples:
+ *   '0745687273797'  → '745687273797'
+ *   '00745687273797' → '745687273797'
+ *   '745687273797'   → '745687273797'
+ *   '0000123'        → '123'
+ */
+export function stripUpc(raw) {
+  if (!raw) return null;
+  const digits = String(raw).replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  return digits.replace(/^0+/, '') || '0'; // preserve single '0' edge case
+}

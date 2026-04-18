@@ -29,6 +29,7 @@ import {
   Tag,
   Upload,
   Ticket,
+  Fuel,
   Star,
   ArrowUpCircle,
   Recycle,
@@ -61,6 +62,12 @@ const menuGroups = [
     label: 'Lottery',
     items: [
       { name: 'Lottery', icon: <Ticket size={13} />, path: '/portal/lottery' },
+    ],
+  },
+  {
+    label: 'Fuel',
+    items: [
+      { name: 'Fuel', icon: <Fuel size={13} />, path: '/portal/fuel' },
     ],
   },
   {

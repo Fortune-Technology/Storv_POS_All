@@ -252,10 +252,32 @@
   .eod-header-label { color: #555; }
 }
 
+/* ── Fuel section table ── */
+.eod-fuel-table thead th {
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.eod-fuel-table thead th.eod-num { text-align: right; }
+
 /* ── Responsive ── */
+@media (max-width: 1024px) {
+  .eod-fuel-table { font-size: 0.78rem; }
+  .eod-fuel-table th, .eod-fuel-table td { padding: 0.35rem 0.4rem; }
+}
 @media (max-width: 768px) {
   .eod-filters { flex-direction: column; align-items: stretch; }
   .eod-filter-group { min-width: 100%; }
   .eod-toolbar { flex-direction: column; align-items: stretch; }
   .eod-toolbar-right { justify-content: flex-end; }
+  .eod-fuel-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+@media (max-width: 480px) {
+  .eod-section { padding: 0.5rem; }
+  .eod-fuel-table { font-size: 0.7rem; }
 }

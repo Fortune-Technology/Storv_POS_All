@@ -133,7 +133,8 @@
   opacity: 0.8;
 }
 
-/* 21+ age-check date — always visible for quick ID verification */
+/* 21+ age-check date — legacy single chip, used when neither tobacco nor
+   alcohol limits are configured at the store level. */
 .sb-age21 {
   display: flex;
   align-items: center;
@@ -147,6 +148,32 @@
   padding: 2px 8px;
   border-radius: 4px;
   margin-right: 8px;
+}
+
+/* Per-category age-check chips (Tobacco / Alcohol) — match the colours used
+   on the in-app age-policy strip and the back-office Store Settings tags. */
+.sb-age-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-right: 6px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.sb-age-chip--tobacco {
+  color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.18);
+  border-color: rgba(148, 163, 184, 0.28);
+}
+.sb-age-chip--alcohol {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(129, 140, 248, 0.30);
 }
 
 /* Clock */

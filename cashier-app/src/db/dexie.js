@@ -124,6 +124,16 @@ export async function upsertProducts(products) {
   await db.products.bulkPut(products);
 }
 
+// Remove products from the local cache by id. Used to apply tombstones from
+// the snapshot endpoint when products are soft-deleted or deactivated in the
+// back office. Without this, deleted products linger in the local cache forever
+// because the snapshot just stops returning them — there's no implicit "delete"
+// signal in upsert-only sync.
+export async function deleteProducts(ids) {
+  if (!ids?.length) return;
+  await db.products.bulkDelete(ids);
+}
+
 export async function enqueueTransaction(tx) {
   return db.txQueue.add({ ...tx, status: 'pending', createdAt: new Date().toISOString() });
 }
@@ -167,6 +177,16 @@ export async function upsertDepartments(depts) {
   await db.departments.bulkPut(depts);
 }
 
+// Replace the entire departments table with the supplied list. Used by the
+// catalog sync to handle deletions — since departments come back as a small
+// full list (not paginated), the simplest correctness fix is wipe + replace.
+export async function replaceDepartments(depts) {
+  await db.transaction('rw', db.departments, async () => {
+    await db.departments.clear();
+    if (depts?.length) await db.departments.bulkPut(depts);
+  });
+}
+
 export async function getDepartments() {
   // Prefer the dedicated departments table (includes showInPOS, sortOrder, active)
   const stored = await db.departments
@@ -195,6 +215,14 @@ export async function getProductsByDepartment(departmentId, limit = 60) {
 
 export async function upsertPromotions(promos) {
   await db.promotions.bulkPut(promos);
+}
+
+// Replace the entire promotions table — same rationale as replaceDepartments.
+export async function replacePromotions(promos) {
+  await db.transaction('rw', db.promotions, async () => {
+    await db.promotions.clear();
+    if (promos?.length) await db.promotions.bulkPut(promos);
+  });
 }
 
 export async function getActivePromotions() {

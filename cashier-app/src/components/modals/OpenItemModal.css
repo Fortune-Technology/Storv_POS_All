@@ -70,6 +70,14 @@
   margin-bottom: 5px;
 }
 
+.oim-optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
 .oim-input {
   width: 100%;
   box-sizing: border-box;
