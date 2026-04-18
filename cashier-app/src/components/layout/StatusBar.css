@@ -142,7 +142,7 @@
   flex-shrink: 0;
   font-size: 0.68rem;
   font-weight: 600;
-  color: #f59e0b;
+  color: #d16302;
   background: rgba(245, 158, 11, 0.10);
   border: 1px solid rgba(245, 158, 11, 0.25);
   padding: 2px 8px;
@@ -166,12 +166,12 @@
   white-space: nowrap;
 }
 .sb-age-chip--tobacco {
-  color: #cbd5e1;
+  color: #e80000;
   background: rgba(100, 116, 139, 0.18);
   border-color: rgba(148, 163, 184, 0.28);
 }
 .sb-age-chip--alcohol {
-  color: #a5b4fc;
+  color: #c00600;
   background: rgba(99, 102, 241, 0.18);
   border-color: rgba(129, 140, 248, 0.30);
 }
