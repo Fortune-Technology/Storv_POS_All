@@ -1,0 +1,54 @@
+/* ModuleDisabled.css — prefix: md- */
+
+.md-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 24px;
+}
+
+.md-card {
+  max-width: 460px;
+  padding: 32px 28px;
+  text-align: center;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+}
+
+.md-icon {
+  color: var(--text-muted, #94a3b8);
+  opacity: 0.85;
+  margin-bottom: 10px;
+}
+
+.md-title {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.md-desc {
+  margin: 0 0 20px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary, #475569);
+}
+
+.md-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  background: var(--brand-primary, #3d56b5);
+  color: #ffffff;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.88rem;
+  transition: background 0.15s;
+}
+.md-cta:hover { background: var(--brand-primary-hover, #2d418a); }

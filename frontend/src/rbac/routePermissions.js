@@ -72,6 +72,7 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   // Account
   '/portal/account':           'organization.view',
   '/portal/roles':             'roles.view',
+  '/portal/invitations':       'users.view',
 };
 
 /**

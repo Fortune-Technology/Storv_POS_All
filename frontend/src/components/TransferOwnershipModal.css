@@ -1,0 +1,290 @@
+/* TransferOwnershipModal.css — prefix: tom- */
+
+.tom-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.tom-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Header ────────────────────────────────────────────── */
+.tom-header {
+  position: relative;
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ffffff;
+}
+.tom-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.tom-header--danger {
+  background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);
+}
+.tom-header--success {
+  background: linear-gradient(135deg, #065f46 0%, #10b981 100%);
+}
+.tom-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tom-close:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* ── Body ───────────────────────────────────────────────── */
+.tom-body { padding: 20px 22px 22px; }
+
+.tom-lead {
+  margin: 0 0 14px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: #334155;
+}
+
+/* ── Store summary row ─────────────────────────────────── */
+.tom-store-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+.tom-store-row > div:first-child { flex: 1; }
+.tom-arrow { color: #94a3b8; flex-shrink: 0; }
+
+.tom-store-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.tom-store-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+.tom-store-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+/* ── Warning block ─────────────────────────────────────── */
+.tom-warning {
+  padding: 12px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 0.86rem;
+  color: #7f1d1d;
+  line-height: 1.55;
+}
+.tom-warning strong { color: #991b1b; }
+.tom-warning ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.tom-warning li { margin-bottom: 4px; }
+
+/* ── Fields ────────────────────────────────────────────── */
+.tom-field { margin-bottom: 14px; }
+.tom-field label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tom-field label code {
+  display: inline-block;
+  padding: 1px 6px;
+  background: #1e293b;
+  color: #f8fafc;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.tom-field input[type="email"],
+.tom-field input[type="tel"],
+.tom-field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #ffffff;
+  color: #0f172a;
+}
+.tom-field input:focus {
+  outline: none;
+  border-color: #3d56b5;
+  box-shadow: 0 0 0 3px rgba(61, 86, 181, 0.12);
+}
+
+.tom-input-wrap { position: relative; }
+.tom-input-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+.tom-input-wrap input { padding-left: 30px; }
+
+.tom-hint {
+  margin: 4px 0 0;
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.tom-field--confirm input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+/* ── Success body ──────────────────────────────────────── */
+.tom-hint-box {
+  padding: 12px 14px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 0.84rem;
+  color: #0c4a6e;
+  line-height: 1.55;
+}
+.tom-hint-box strong { color: #075985; }
+.tom-hint-box ul { margin: 6px 0 0; padding-left: 20px; }
+.tom-hint-box li { margin-bottom: 4px; }
+
+.tom-copy-row { margin-bottom: 14px; }
+.tom-copy-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tom-copy-wrap {
+  display: flex;
+  gap: 6px;
+}
+.tom-copy-wrap input {
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+.tom-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #3d56b5;
+  cursor: pointer;
+}
+.tom-copy-btn:hover { background: #f1f5f9; }
+
+/* ── Buttons ───────────────────────────────────────────── */
+.tom-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 8px;
+}
+.tom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.tom-btn:hover { background: #f1f5f9; }
+.tom-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.tom-btn--primary {
+  background: #3d56b5;
+  border-color: #3d56b5;
+  color: #ffffff;
+}
+.tom-btn--primary:hover:not(:disabled) { background: #2d418a; }
+.tom-btn--danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+.tom-btn--danger:hover:not(:disabled) { background: #b91c1c; }
+.tom-btn--danger:disabled { background: #fca5a5; border-color: #fca5a5; }
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 480px) {
+  .tom-modal { max-width: 100%; }
+  .tom-header { padding: 14px 18px; }
+  .tom-body   { padding: 16px 18px 18px; }
+  .tom-store-row { flex-direction: column; align-items: stretch; }
+  .tom-arrow { display: none; }
+  .tom-copy-wrap { flex-direction: column; }
+  .tom-copy-btn { padding: 8px; }
+  .tom-footer { flex-direction: column-reverse; }
+  .tom-btn { width: 100%; }
+}

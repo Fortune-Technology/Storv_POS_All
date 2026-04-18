@@ -146,3 +146,74 @@ export async function sendPasswordChanged(to, name) {
   `);
   return sendMail(to, 'Your password was changed Storeveu', html);
 }
+
+// ─── Invitation templates ────────────────────────────────────────────────────
+
+/**
+ * Invitation to join an organisation (new user OR existing user).
+ * `role` is shown as the human-readable role the invitee will get on accept.
+ */
+export async function sendInvitation(to, { inviterName, orgName, role, acceptUrl, existingAccount }) {
+  const html = wrap(`You're invited to ${orgName}`, `
+    <h2>Hi there,</h2>
+    <p><strong>${escapeHtml(inviterName || 'Someone')}</strong> has invited you to join <strong>${escapeHtml(orgName)}</strong> on Storeveu as <strong>${escapeHtml(role)}</strong>.</p>
+    <p style="text-align:center"><a class="btn" href="${acceptUrl}">Accept Invitation</a></p>
+    ${existingAccount
+      ? `<p class="muted">You already have a Storeveu account with this email. Just sign in and the new organisation will appear in your store switcher.</p>`
+      : `<p class="muted">Create your account in under a minute and you'll be signed in automatically.</p>`}
+    <p class="muted">This invitation expires in 7 days. If you didn't expect this email, you can safely ignore it.</p>
+    <p class="muted" style="word-break:break-all;">Or copy this link: ${acceptUrl}</p>
+  `);
+  return sendMail(to, `You're invited to ${orgName} on Storeveu`, html);
+}
+
+/**
+ * Store transfer (org ownership handover). Makes the destructive nature
+ * of the action clear.
+ */
+export async function sendTransferInvitation(to, { inviterName, orgName, acceptUrl }) {
+  const html = wrap(`Ownership transfer: ${orgName}`, `
+    <h2>Hi there,</h2>
+    <p><strong>${escapeHtml(inviterName || 'The current owner')}</strong> is transferring ownership of <strong>${escapeHtml(orgName)}</strong> to you on Storeveu.</p>
+    <p>Accepting this invitation will make you the new owner. The current owner will lose access to this organisation.</p>
+    <p style="text-align:center"><a class="btn" href="${acceptUrl}">Review &amp; Accept Transfer</a></p>
+    <p class="muted">This invitation expires in 7 days. Only accept if you've agreed to take over this business account.</p>
+    <p class="muted" style="word-break:break-all;">Or copy this link: ${acceptUrl}</p>
+  `);
+  return sendMail(to, `Ownership transfer pending: ${orgName}`, html);
+}
+
+/**
+ * Notify the inviter that their invitation was accepted.
+ */
+export async function sendInvitationAccepted(to, { inviterName, inviteeName, orgName, role }) {
+  const html = wrap('Invitation accepted', `
+    <h2>Hi ${escapeHtml(inviterName || 'there')},</h2>
+    <p><strong>${escapeHtml(inviteeName)}</strong> has accepted your invitation to join <strong>${escapeHtml(orgName)}</strong> as <strong>${escapeHtml(role)}</strong>.</p>
+    <p class="muted">They now have access to the organisation and will appear in your user list.</p>
+  `);
+  return sendMail(to, `${inviteeName} joined ${orgName}`, html);
+}
+
+/**
+ * Notify the outgoing owner that their store transfer completed.
+ */
+export async function sendTransferCompleted(to, { formerOwnerName, newOwnerName, orgName }) {
+  const html = wrap(`Transfer complete: ${orgName}`, `
+    <h2>Hi ${escapeHtml(formerOwnerName || 'there')},</h2>
+    <p><strong>${escapeHtml(newOwnerName)}</strong> has accepted the ownership transfer of <strong>${escapeHtml(orgName)}</strong>.</p>
+    <p>Your access to this organisation has been revoked as part of the transfer. If you believe this is a mistake, please contact support right away.</p>
+  `);
+  return sendMail(to, `Ownership transfer complete: ${orgName}`, html);
+}
+
+// Minimal HTML escape for template interpolation
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}

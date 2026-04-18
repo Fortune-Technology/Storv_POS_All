@@ -11,6 +11,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import PriceInput from '../components/PriceInput';
+import ModuleDisabled from '../components/ModuleDisabled';
+import { useStoreModules } from '../hooks/useStoreModules';
 import {
   Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw,
   Package, BarChart2, Search, MapPin, AlertCircle,
@@ -929,7 +931,24 @@ function TicketCatalogTab() {
 /* ══════════════════════════════════════════════════════════════════════════
    MAIN PAGE
 ══════════════════════════════════════════════════════════════════════════ */
+// Default export is a thin gate — hooks-rule-safe. Only the gate hook runs
+// until we decide whether to mount the full page body.
 export default function Lottery() {
+  const { modules, loading } = useStoreModules();
+  if (loading) return null;
+  if (!modules.lottery) {
+    return (
+      <ModuleDisabled
+        icon={Ticket}
+        title="Lottery module is disabled for this store"
+        description="Enable the Lottery module in Store Settings to manage ticket sales, inventory, shift reconciliation, and commission reports."
+      />
+    );
+  }
+  return <LotteryBody />;
+}
+
+function LotteryBody() {
   // Role check for admin-only tabs
   const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
   const isAdmin = ['superadmin', 'admin'].includes(user.role);

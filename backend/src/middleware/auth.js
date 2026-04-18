@@ -22,8 +22,18 @@ export const protect = async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       include: {
+        // Stores the user has direct access to; store.orgId is needed so
+        // scopeToTenant can derive the active org from the active store.
         stores: {
-          select: { storeId: true },
+          select: {
+            storeId: true,
+            store: { select: { orgId: true } },
+          },
+        },
+        // All organisations the user has access to (multi-org support).
+        // Each row carries the effective role for that specific org.
+        orgs: {
+          select: { orgId: true, role: true, isPrimary: true },
         },
       },
     });
@@ -52,9 +62,12 @@ export const protect = async (req, res, next) => {
 
 export const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    // Prefer the per-active-org effective role (set by scopeToTenant from
+    // UserOrg) over the legacy home-org role stored on the User row.
+    const effectiveRole = req.role || req.user?.role;
+    if (!req.user || !roles.includes(effectiveRole)) {
       return res.status(403).json({
-        error: `User role ${req.user?.role} is not authorized to access this route`,
+        error: `User role ${effectiveRole} is not authorized to access this route`,
       });
     }
     next();

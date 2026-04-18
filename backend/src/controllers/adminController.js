@@ -255,6 +255,16 @@ export const createUser = async (req, res, next) => {
         role:   role || 'staff',
         orgId,
         status: status || 'active',
+        // Multi-org: seed the UserOrg membership row so the new user shows
+        // up in the portal's user list immediately (portal filters by UserOrg).
+        orgs: {
+          create: {
+            orgId,
+            role:        role || 'staff',
+            isPrimary:   true,
+            invitedById: req.user?.id ?? null,
+          },
+        },
       },
       select: { id: true, name: true, email: true, role: true, status: true, orgId: true, createdAt: true },
     });
@@ -291,6 +301,20 @@ export const updateUser = async (req, res, next) => {
       data,
       select: { id: true, name: true, email: true, role: true, status: true, orgId: true },
     });
+
+    // Keep the primary UserOrg row in sync with admin-made changes.
+    // Covers three cases: orgId change (transfer), role change, or both.
+    if (orgId !== undefined || role !== undefined) {
+      const effectiveRole = role !== undefined ? role : user.role;
+      const effectiveOrg  = orgId !== undefined ? orgId : user.orgId;
+      if (effectiveOrg) {
+        await prisma.userOrg.upsert({
+          where:  { userId_orgId: { userId: user.id, orgId: effectiveOrg } },
+          create: { userId: user.id, orgId: effectiveOrg, role: effectiveRole, isPrimary: true, invitedById: req.user?.id ?? null },
+          update: { role: effectiveRole, isPrimary: true },
+        });
+      }
+    }
 
     if (role !== undefined) {
       await syncUserDefaultRole(user.id).catch(err => console.warn('syncUserDefaultRole:', err.message));

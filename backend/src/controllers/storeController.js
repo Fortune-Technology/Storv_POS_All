@@ -98,29 +98,59 @@ export const createStore = async (req, res, next) => {
 /* ── GET /api/stores ─────────────────────────────────────────────────────── */
 export const getStores = async (req, res, next) => {
   try {
-    const where = req.orgId
-      ? { orgId: req.orgId, isActive: true }
-      : { ownerId: req.user.id, isActive: true };
+    // Superadmin with X-Tenant-Id override → just that one org.
+    if (req.user?.role === 'superadmin' && req.headers['x-tenant-id']) {
+      const stores = await prisma.store.findMany({
+        where: { orgId: req.orgId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+        include: { organization: { select: { id: true, name: true, slug: true } } },
+      });
+      return res.json(stores.map(toResponseStore));
+    }
+
+    // Regular user: union of (a) all orgs they have UserOrg membership in,
+    // and (b) stores they have direct UserStore access to. The frontend's
+    // StoreSwitcher uses this single response to show stores from every
+    // organisation the user belongs to — single login, multi-org access.
+    const membershipOrgIds = (req.orgIds && req.orgIds.length > 0)
+      ? req.orgIds
+      : (req.user?.orgId ? [req.user.orgId] : []); // legacy fallback
+
+    const directStoreIds = req.storeIds ?? [];
+
+    // If the user has neither memberships nor direct stores, fall back to
+    // the stores they own (for the onboarding window where the org exists
+    // but UserOrg hasn't been written yet).
+    const orConditions = [];
+    if (membershipOrgIds.length) orConditions.push({ orgId:    { in: membershipOrgIds } });
+    if (directStoreIds.length)   orConditions.push({ id:       { in: directStoreIds  } });
+    if (!orConditions.length)    orConditions.push({ ownerId:  req.user.id });
 
     const stores = await prisma.store.findMany({
-      where,
-      orderBy: { createdAt: 'asc' },
+      where: { OR: orConditions, isActive: true },
+      orderBy: [{ orgId: 'asc' }, { createdAt: 'asc' }],
+      include: { organization: { select: { id: true, name: true, slug: true } } },
     });
 
-    const withBilling = stores.map((s) => {
-      const monthly = calcStoreMonthly(s.stationCount ?? 1);
-      return {
-        ...stripCredentials(s),
-        monthlyTotal:          monthly,
-        monthlyRatePerStation: monthly, // keep field name for frontend compat
-      };
-    });
-
-    res.json(withBilling);
+    res.json(stores.map(toResponseStore));
   } catch (err) {
     next(err);
   }
 };
+
+// Shape a Store row for the response: strip POS credentials, add legacy
+// `_id` alias, compute monthly fee, surface the org name for the switcher.
+function toResponseStore(s) {
+  const monthly = calcStoreMonthly(s.stationCount ?? 1);
+  const stripped = stripCredentials(s);
+  return {
+    ...stripped,
+    orgName:               s.organization?.name ?? null,
+    orgSlug:               s.organization?.slug ?? null,
+    monthlyTotal:          monthly,
+    monthlyRatePerStation: monthly,
+  };
+}
 
 /* ── GET /api/stores/:id ─────────────────────────────────────────────────── */
 export const getStoreById = async (req, res, next) => {

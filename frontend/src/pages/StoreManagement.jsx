@@ -4,11 +4,12 @@ import './StoreManagement.css';
 import {
   Store, Plus, X, Loader, AlertCircle, RefreshCw,
   MapPin, Clock, Pencil, PowerOff, Eye, EyeOff, Save,
-  Monitor, DollarSign, Zap, CheckCircle2, Radio,
+  Monitor, DollarSign, Zap, CheckCircle2, Radio, ShieldAlert,
 } from 'lucide-react';
 import { getStores, createStore, updateStore, deactivateStore } from '../services/api';
 import { useStore } from '../contexts/StoreContext';
 import { toast } from 'react-toastify';
+import TransferOwnershipModal from '../components/TransferOwnershipModal';
 
 /* ── Constants ───────────────────────────────────────────────────────────── */
 const TIMEZONES = [
@@ -391,8 +392,16 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
 /* ── Store card ──────────────────────────────────────────────────────────── */
 function StoreCard({ store, onEdit, onDeactivate }) {
   const [removing, setRemoving] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
   const { activeStoreId, switchStore } = useStore();
   const isActive = store.id === activeStoreId;
+
+  // Only owners (and superadmins) may initiate a transfer. The backend also
+  // enforces this, but we hide the button from non-owners for a clean UX.
+  const currentUser = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
+  })();
+  const canTransfer = ['owner', 'superadmin'].includes(currentUser?.role);
 
   const tzLabel = TIMEZONES.find(t => t.value === store.timezone)?.label || store.timezone;
   const monthly = calcMonthly(store.stationCount ?? 1);
@@ -450,6 +459,12 @@ function StoreCard({ store, onEdit, onDeactivate }) {
             style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.45rem', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
             <Pencil size={13} />
           </button>
+          {canTransfer && (
+            <button onClick={() => setShowTransfer(true)} title="Transfer ownership"
+              style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.45rem', cursor: 'pointer', color: '#b45309', display: 'flex', alignItems: 'center' }}>
+              <ShieldAlert size={13} />
+            </button>
+          )}
           <button onClick={handleDeactivate} title="Deactivate" disabled={removing}
             style={{ background: 'none', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.3rem 0.45rem', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
             {removing ? <Loader size={13} className="animate-spin" /> : <PowerOff size={13} />}
@@ -501,6 +516,17 @@ function StoreCard({ store, onEdit, onDeactivate }) {
         </div>
       ) : (
         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No POS connected</div>
+      )}
+
+      {/* Transfer ownership modal (lazy — only rendered when opened) */}
+      {showTransfer && (
+        <div onClick={e => e.stopPropagation()}>
+          <TransferOwnershipModal
+            store={store}
+            onClose={() => setShowTransfer(false)}
+            onSent={() => { /* keeps modal open on success to show the copy link */ }}
+          />
+        </div>
       )}
     </div>
   );

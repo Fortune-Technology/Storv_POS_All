@@ -11,24 +11,44 @@
 import prisma from '../config/postgres.js';
 
 /**
- * Return a de-duplicated array of permission keys the user effectively holds.
+ * Return a de-duplicated array of permission keys the user effectively holds
+ * in the given active org. When `activeOrgId` is null, falls back to the
+ * user's home org (User.orgId) for backward compatibility.
+ *
+ * Multi-org semantics: a user who belongs to Org A and Org B may have
+ * different roles (and therefore different permissions) in each. Permissions
+ * are always resolved against the *active* org — never unioned across orgs.
  */
-export async function computeUserPermissions(user) {
+export async function computeUserPermissions(user, activeOrgId = null) {
   if (!user) return [];
+
+  const orgId = activeOrgId || user.orgId || null;
+
+  // The effective role key for permission resolution:
+  //   1. UserOrg row for the active org (per-org role)
+  //   2. Fallback: user.role (legacy home-org role)
+  let effectiveRoleKey = user.role;
+  if (orgId) {
+    const membership = await prisma.userOrg.findUnique({
+      where: { userId_orgId: { userId: user.id, orgId } },
+      select: { role: true },
+    });
+    if (membership?.role) effectiveRoleKey = membership.role;
+  }
 
   const roleIds = new Set();
 
-  // 1. Legacy `User.role` column → find the matching role.
+  // 1. Legacy `User.role` + UserOrg role → find the matching role row.
   //    Could be a built-in system role (orgId=null) OR a custom role in the
-  //    user's org (orgId = user.orgId).
-  if (user.role) {
+  //    active org (orgId = activeOrgId).
+  if (effectiveRoleKey) {
     const match = await prisma.role.findFirst({
       where: {
-        key: user.role,
+        key: effectiveRoleKey,
         status: 'active',
         OR: [
           { orgId: null, isSystem: true },
-          ...(user.orgId ? [{ orgId: user.orgId }] : []),
+          ...(orgId ? [{ orgId }] : []),
         ],
       },
       select: { id: true },
@@ -36,9 +56,21 @@ export async function computeUserPermissions(user) {
     if (match) roleIds.add(match.id);
   }
 
-  // 2. Explicit UserRole assignments (multi-role stacking)
+  // 2. Explicit UserRole assignments (multi-role stacking).
+  //    A UserRole only applies when its Role is either a system role
+  //    (orgId=null) OR lives in the currently active org — otherwise a
+  //    custom "Store Manager" role in Org A would leak permissions when
+  //    the user switches to Org B.
   const userRoles = await prisma.userRole.findMany({
-    where: { userId: user.id },
+    where: {
+      userId: user.id,
+      role: {
+        OR: [
+          { orgId: null },
+          ...(orgId ? [{ orgId }] : []),
+        ],
+      },
+    },
     select: { roleId: true },
   });
   userRoles.forEach(ur => roleIds.add(ur.roleId));
@@ -70,7 +102,9 @@ export function requirePermission(...keys) {
       if (req.user.role === 'superadmin') return next();
 
       if (!req._perms) {
-        req._perms = await computeUserPermissions(req.user);
+        // scopeToTenant sets req.orgId to the active org (derived from the
+        // active store). Permissions are always evaluated against that org.
+        req._perms = await computeUserPermissions(req.user, req.orgId);
       }
       const has = keys.some(k => req._perms.includes(k));
       if (!has) {
@@ -88,7 +122,7 @@ export function requirePermission(...keys) {
 export async function userHasPermission(req, key) {
   if (!req.user) return false;
   if (req.user.role === 'superadmin') return true;
-  if (!req._perms) req._perms = await computeUserPermissions(req.user);
+  if (!req._perms) req._perms = await computeUserPermissions(req.user, req.orgId);
   return req._perms.includes(key);
 }
 

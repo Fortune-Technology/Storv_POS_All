@@ -473,16 +473,16 @@ model ProductPackSize {
 // fall back to this table using stripped UPC.
 // ─────────────────────────────────────────────────
 model GlobalProductImage {
-  id            String    @id @default(cuid())
-  strippedUpc   String    @unique         // UPC with ALL leading zeros removed (match key)
-  originalUpc   String?                   // original UPC for audit / display
-  imageUrl      String                    // external or re-hosted image URL
-  rehostedUrl   String?                   // our CDN URL after re-hosting (Phase 3)
-  source        String    @default("import") // "import" | "manual" | "api"
-  productName   String?                   // denormalized name for admin display
-  brand         String?                   // denormalized brand
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  strippedUpc String   @unique // UPC with ALL leading zeros removed (match key)
+  originalUpc String? // original UPC for audit / display
+  imageUrl    String // external or re-hosted image URL
+  rehostedUrl String? // our CDN URL after re-hosting (Phase 3)
+  source      String   @default("import") // "import" | "manual" | "api"
+  productName String? // denormalized name for admin display
+  brand       String? // denormalized brand
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([strippedUpc])
   @@map("global_product_images")
@@ -681,6 +681,8 @@ model Organization {
   vendorReturns  VendorReturn[]
   productGroups  ProductGroup[]
   roles          Role[]
+  members        UserOrg[]
+  invitations    Invitation[]
 
   @@map("organizations")
 }
@@ -691,9 +693,13 @@ model Organization {
 // May have access to multiple stores via UserStore.
 // ─────────────────────────────────────────────────
 model User {
-  id           String       @id @default(cuid())
-  orgId        String
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id           String        @id @default(cuid())
+  // Home organisation — default org on login. Nullable because a user may
+  // exist without a home org (e.g. after a full ownership transfer, or
+  // mid-onboarding before they accept their first invitation). Access
+  // decisions go through the UserOrg junction, not this column.
+  orgId        String?
+  organization Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
   name     String
   email    String  @unique
@@ -722,10 +728,67 @@ model User {
   documents Document[]
   posToken  PosToken?
   userRoles UserRole[]
+  orgs      UserOrg[]
 
   @@index([orgId, role])
   @@index([orgId, email])
   @@map("users")
+}
+
+// ─────────────────────────────────────────────────
+// USER ORG  (junction: User ↔ Organization, multi-org access)
+// A user's active org is derived from the active Store's orgId;
+// `role` here is the effective role within that org.
+// ─────────────────────────────────────────────────
+model UserOrg {
+  userId      String
+  orgId       String
+  role        String // "owner" | "admin" | "manager" | "cashier" | custom role key
+  isPrimary   Boolean  @default(false) // default org on login, one per user
+  invitedById String?
+  invitedAt   DateTime @default(now())
+  acceptedAt  DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([userId, orgId])
+  @@index([orgId, role])
+  @@index([userId, isPrimary])
+  @@map("user_orgs")
+}
+
+// ─────────────────────────────────────────────────
+// INVITATION
+// Drives onboarding (new user → org access) AND store transfer
+// (org ownership handed to a new owner). One table, one flow.
+// ─────────────────────────────────────────────────
+model Invitation {
+  id           String       @id @default(cuid())
+  token        String       @unique // opaque, sent in URL
+  email        String
+  phone        String?
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  // Empty array = grant access to all stores in org (typical for owner/admin/manager).
+  // Non-empty = cashier-style scoped access.
+  storeIds String[] @default([])
+  role     String // role key to grant on acceptance
+
+  invitedById       String // User.id of the inviter
+  transferOwnership Boolean   @default(false) // true for store-sale flow
+  status            String    @default("pending") // pending | accepted | revoked | expired
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  acceptedByUserId  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([email, status])
+  @@index([orgId, status])
+  @@index([token])
+  @@map("invitations")
 }
 
 // ─────────────────────────────────────────────────
@@ -734,12 +797,12 @@ model User {
 // ─────────────────────────────────────────────────
 model Permission {
   id          Int      @id @default(autoincrement())
-  key         String   @unique           // e.g. "products.edit"
-  module      String                     // e.g. "products"
-  action      String                     // view | create | edit | delete | manage
-  label       String                     // Human-readable ("Edit Products")
+  key         String   @unique // e.g. "products.edit"
+  module      String // e.g. "products"
+  action      String // view | create | edit | delete | manage
+  label       String // Human-readable ("Edit Products")
   description String?
-  scope       String   @default("org")   // "org" | "admin" — admin = superadmin-only
+  scope       String   @default("org") // "org" | "admin" — admin = superadmin-only
   createdAt   DateTime @default(now())
 
   rolePermissions RolePermission[]
@@ -754,17 +817,17 @@ model Permission {
 // per-org custom roles are created by org admins.
 // ─────────────────────────────────────────────────
 model Role {
-  id          String   @id @default(cuid())
-  orgId       String?                    // null for built-in system roles
+  id           String        @id @default(cuid())
+  orgId        String? // null for built-in system roles
   organization Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  key         String                     // unique identifier within scope (e.g. "cashier", "custom_foo")
-  name        String                     // display name
-  description String?
-  status      String   @default("active") // "active" | "inactive"
-  isSystem    Boolean  @default(false)   // true = built-in, cannot be deleted (but can be edited)
-  isCustomized Boolean @default(false)   // true once a system role has been edited — seeder will skip perm resync
-  scope       String   @default("org")   // "org" | "admin"
+  key          String // unique identifier within scope (e.g. "cashier", "custom_foo")
+  name         String // display name
+  description  String?
+  status       String  @default("active") // "active" | "inactive"
+  isSystem     Boolean @default(false) // true = built-in, cannot be deleted (but can be edited)
+  isCustomized Boolean @default(false) // true once a system role has been edited — seeder will skip perm resync
+  scope        String  @default("org") // "org" | "admin"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -784,10 +847,10 @@ model Role {
 model RolePermission {
   roleId       String
   permissionId Int
-  role         Role       @relation(fields: [roleId],       references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@id([roleId, permissionId])
   @@index([permissionId])

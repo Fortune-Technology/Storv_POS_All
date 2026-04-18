@@ -18,6 +18,8 @@ import {
   getFuelSettings, updateFuelSettings,
   getFuelDashboard, getFuelReport,
 } from '../services/api';
+import ModuleDisabled from '../components/ModuleDisabled';
+import { useStoreModules } from '../hooks/useStoreModules';
 import './Fuel.css';
 
 const fmtMoney = (n) => n == null ? '—' : `$${Number(n).toFixed(2)}`;
@@ -30,7 +32,24 @@ const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); re
 
 const COLOR_SWATCHES = ['#16a34a', '#dc2626', '#2563eb', '#f59e0b', '#7c3aed', '#0891b2', '#475569'];
 
+// Default export is a thin gate — hooks-rule-safe. Only the gate hook runs
+// until we decide whether to mount the full page body.
 export default function Fuel() {
+  const { modules, loading } = useStoreModules();
+  if (loading) return null;
+  if (!modules.fuel) {
+    return (
+      <ModuleDisabled
+        icon={FuelIcon}
+        title="Fuel module is disabled for this store"
+        description="Enable the Fuel module in Store Settings to configure fuel grades, pump pricing, pre-authorised pump sales, and end-of-day fuel reports."
+      />
+    );
+  }
+  return <FuelBody />;
+}
+
+function FuelBody() {
   const [tab, setTab]               = useState('overview');
   const [storeId, setStoreId]       = useState(localStorage.getItem('activeStoreId') || '');
   const [loading, setLoading]       = useState(false);

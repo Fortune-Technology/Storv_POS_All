@@ -43,14 +43,30 @@ export const getTenantUsers = async (req, res, next) => {
       return res.status(403).json({ error: 'No organisation context.' });
     }
 
-    const users = await prisma.user.findMany({
+    // Multi-org: a user is "in this org" if they have a UserOrg row pointing
+    // at req.orgId. The legacy `users.orgId` column (home org) is also
+    // included so owners who haven't been backfilled yet still show up.
+    const memberships = await prisma.userOrg.findMany({
       where: { orgId: req.orgId },
+      select: { userId: true, role: true },
+    });
+    const memberIds = memberships.map(m => m.userId);
+    const memberRoleByUserId = Object.fromEntries(memberships.map(m => [m.userId, m.role]));
+
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { id:    { in: memberIds } },          // explicit UserOrg membership
+          { orgId: req.orgId },                   // legacy home-org users
+        ],
+      },
       select: {
         id: true,
         name: true,
         email: true,
         phone: true,
-        role: true,
+        role: true,        // legacy home-org role (kept for back-compat)
+        orgId: true,       // legacy home-org id
         posPin: true,
         createdAt: true,
         stores: {
@@ -62,12 +78,14 @@ export const getTenantUsers = async (req, res, next) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Flatten store list + add _id alias for frontend compat + hasPIN flag
+    // Effective role in *this* org: UserOrg.role if present, else legacy role.
     const result = users.map(u => ({
       ...u,
       _id:    u.id,
       hasPIN: !!u.posPin,
-      posPin: undefined, // never expose the hash
+      posPin: undefined,
+      role:   memberRoleByUserId[u.id] || u.role,   // per-org effective role
+      homeRole: u.role,                              // original legacy role, for admin visibility
       stores: u.stores.map(us => ({ ...us.store, _id: us.store.id })),
     }));
 
@@ -158,6 +176,14 @@ export const inviteUser = async (req, res, next) => {
         stores:   storeList.length > 0
           ? { create: storeList.map(sid => ({ storeId: sid })) }
           : undefined,
+        orgs: {
+          create: {
+            orgId:       req.orgId,
+            role:        effectiveRole,
+            isPrimary:   true,
+            invitedById: req.user?.id ?? null,
+          },
+        },
       },
     });
 
@@ -234,7 +260,14 @@ export const updateUserRole = async (req, res, next) => {
       },
     });
 
+    // Keep the UserOrg row in sync with the new role for this org. Only
+    // affects the current org — roles in other orgs (if any) are untouched.
     if (role) {
+      await prisma.userOrg.upsert({
+        where:  { userId_orgId: { userId: req.params.id, orgId: req.orgId } },
+        create: { userId: req.params.id, orgId: req.orgId, role, isPrimary: true },
+        update: { role },
+      });
       await syncUserDefaultRole(updated.id).catch(err => console.warn('syncUserDefaultRole:', err.message));
     }
 
@@ -244,31 +277,57 @@ export const updateUserRole = async (req, res, next) => {
   }
 };
 
-/* ── DELETE /api/users/:id  — remove user from org ─────────────────────── */
+/* ── DELETE /api/users/:id  — revoke access to this org ────────────────── */
+// Multi-org: we only revoke access to the *current* org, not the user
+// account itself. If the user is a member of other orgs they keep those.
+// If this was their last membership they become access-less (but the account
+// is retained so history and any in-flight tokens are preserved).
 export const removeUser = async (req, res, next) => {
   try {
     if (req.params.id === req.user.id) {
       return res.status(400).json({ error: 'You cannot remove yourself.' });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { id: req.params.id, orgId: req.orgId },
+    // Find the target user's membership in THIS org.
+    const membership = await prisma.userOrg.findUnique({
+      where: { userId_orgId: { userId: req.params.id, orgId: req.orgId } },
+      include: { user: { select: { name: true, orgId: true } } },
     });
-    if (!user) return res.status(404).json({ error: 'User not found in your organisation.' });
-    if (user.role === 'owner') {
+
+    if (!membership) {
+      // Fallback: older accounts whose home-org matches but have no UserOrg row.
+      const legacy = await prisma.user.findFirst({
+        where: { id: req.params.id, orgId: req.orgId },
+        select: { id: true, name: true, role: true },
+      });
+      if (!legacy) {
+        return res.status(404).json({ error: 'User not found in your organisation.' });
+      }
+      if (legacy.role === 'owner') {
+        return res.status(403).json({ error: 'Cannot remove the organisation owner.' });
+      }
+      // Nothing to delete from UserOrg; just strip UserStore rows for this org.
+      await prisma.userStore.deleteMany({
+        where: { userId: req.params.id, store: { orgId: req.orgId } },
+      });
+      return res.json({ message: `${legacy.name} has been removed from the organisation.` });
+    }
+
+    if (membership.role === 'owner') {
       return res.status(403).json({ error: 'Cannot remove the organisation owner.' });
     }
 
-    // Detach from org + remove store assignments
+    // Revoke access: UserOrg row + any UserStore rows whose store lives in this org.
     await prisma.$transaction([
-      prisma.userStore.deleteMany({ where: { userId: req.params.id } }),
-      prisma.user.update({
-        where: { id: req.params.id },
-        data: { orgId: 'detached' },
+      prisma.userOrg.delete({
+        where: { userId_orgId: { userId: req.params.id, orgId: req.orgId } },
+      }),
+      prisma.userStore.deleteMany({
+        where: { userId: req.params.id, store: { orgId: req.orgId } },
       }),
     ]);
 
-    res.json({ message: `${user.name} has been removed from the organisation.` });
+    res.json({ message: `${membership.user.name} has been removed from the organisation.` });
   } catch (err) {
     next(err);
   }

@@ -31,11 +31,21 @@ router.post('/', protect, async (req, res, next) => {
       },
     });
 
-    // Bind the creating user to this new org as owner
-    await prisma.user.update({
-      where: { id: req.user.id },
-      data:  { orgId: org.id, role: 'owner' },
-    });
+    // Bind the creating user to this new org as owner.
+    // Two writes:
+    //   • user.orgId / user.role — legacy "home org" fields (back-compat)
+    //   • UserOrg row             — multi-org access record (source of truth)
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: req.user.id },
+        data:  { orgId: org.id, role: 'owner' },
+      }),
+      prisma.userOrg.upsert({
+        where:  { userId_orgId: { userId: req.user.id, orgId: org.id } },
+        create: { userId: req.user.id, orgId: org.id, role: 'owner', isPrimary: true },
+        update: { role: 'owner', isPrimary: true },
+      }),
+    ]);
 
     // Re-sync their default system role (staff → owner)
     await syncUserDefaultRole(req.user.id).catch(err => console.warn('syncUserDefaultRole:', err.message));

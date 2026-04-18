@@ -37,12 +37,14 @@ import {
   LayoutGrid,
   Settings2,
   MessageSquare,
+  Mail,
   CreditCard,
   CheckSquare,
   Shield,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
+import { useStoreModules } from '../hooks/useStoreModules';
 import { getRoutePermission } from '../rbac/routePermissions';
 
 const menuGroups = [
@@ -139,6 +141,7 @@ const menuGroups = [
     items: [
       { name: 'Account Settings', icon: <Building2 size={13} />, path: '/portal/account' },
       { name: 'Roles & Permissions', icon: <Shield size={13} />, path: '/portal/roles' },
+      { name: 'Invitations', icon: <Mail size={13} />, path: '/portal/invitations' },
     ],
   },
 ];
@@ -149,21 +152,29 @@ const Sidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
   const { can } = usePermissions();
+  const { modules } = useStoreModules();
 
-  // Filter menu items against the user's effective permissions. Items without
-  // a mapped required permission ("chat", etc.) are always visible to any
-  // authenticated user.
-  const visibleMenuGroups = React.useMemo(() => (
-    menuGroups
+  // Filter menu items against (a) the user's effective permissions and (b)
+  // the active store's enabled modules. Items without a mapped permission
+  // ("chat", etc.) are visible to any authenticated user. Items whose path
+  // belongs to a module the current store has disabled are hidden.
+  const visibleMenuGroups = React.useMemo(() => {
+    const moduleRoutes = {
+      '/portal/lottery': modules.lottery,
+      '/portal/fuel':    modules.fuel,
+    };
+    return menuGroups
       .map(g => ({
         ...g,
         items: g.items.filter(i => {
           const perm = getRoutePermission(i.path);
-          return !perm || can(perm);
+          if (perm && !can(perm)) return false;
+          if (i.path in moduleRoutes && !moduleRoutes[i.path]) return false;
+          return true;
         }),
       }))
-      .filter(g => g.items.length > 0)
-  ), [can]);
+      .filter(g => g.items.length > 0);
+  }, [can, modules.lottery, modules.fuel]);
 
   // ── Poll chat unread count every 15 s ────────────────────────────────────
   const fetchUnread = useCallback(() => {

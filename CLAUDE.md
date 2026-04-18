@@ -4322,3 +4322,568 @@ Builds verified clean: portal 18.31s, admin 11.21s. Live verification with cashi
 
 *Last updated: April 2026 — Session 31: Production RBAC enforcement — sidebar filter, route guard, API gates, per-button CRUD gating, 15 backend route files migrated*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 32)
+
+### Phase 1 of Multi-Org Access: Foundations
+
+Groundwork for a single login that accesses stores across multiple organisations, with cross-org switching via the existing StoreSwitcher. The ownership transfer flow (Phase 3) and invitation-driven onboarding (Phase 2) build on this foundation.
+
+#### Design
+- **1 Store = 1 Org (going forward)** — enforced socially via onboarding copy. All tenant-scoped data (144 `orgId` references in schema) stays inside its Organisation, so transferring a store = transferring the Org = swapping UserOrg rows. Zero data migration at transfer time.
+- **`User.orgId` kept for back-compat** — now the user's "home org" (login affinity, billing emails, fallback). All access decisions go through the new `UserOrg` junction.
+- **`req.orgId` derived from the active store** — the frontend already sends `X-Store-Id` on every request. `scopeToTenant` now reads that store's `orgId` and sets `req.orgId` from it. ~30 controllers and 133 `req.orgId` callsites needed zero changes.
+- **`req.role` is per-org** — resolved from the user's `UserOrg.role` for the active org. Falls back to legacy `User.role` when no membership exists.
+- **Permissions scoped per-org** — `computeUserPermissions(user, activeOrgId)` now unions (a) the role matching `UserOrg.role` for active org and (b) any `UserRole` whose `Role.orgId` is `null` (system) or matches the active org. Custom roles in Org A can't leak into Org B.
+
+#### New Tables (additive-only migration)
+
+```prisma
+model UserOrg {
+  userId       String
+  orgId        String
+  role         String       // owner | admin | manager | cashier | custom role key
+  isPrimary    Boolean      @default(false)
+  invitedById  String?
+  invitedAt    DateTime     @default(now())
+  acceptedAt   DateTime     @default(now())
+
+  @@id([userId, orgId])
+  @@index([orgId, role])
+  @@index([userId, isPrimary])
+}
+
+model Invitation {
+  id                String    @id @default(cuid())
+  token             String    @unique
+  email             String
+  phone             String?
+  orgId             String
+  storeIds          String[]  @default([])
+  role              String
+  invitedById       String
+  transferOwnership Boolean   @default(false)   // true for store-sale flow
+  status            String    @default("pending")  // pending | accepted | revoked | expired
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  acceptedByUserId  String?
+
+  @@index([email, status])
+  @@index([orgId, status])
+  @@index([token])
+}
+```
+
+Migration: [`backend/prisma/migrations/add_user_orgs_and_invitations.sql`](backend/prisma/migrations/add_user_orgs_and_invitations.sql) — creates both tables and backfills one `UserOrg` row per existing non-placeholder user, preserving their home-org role and marking it `isPrimary`. Idempotent (`IF NOT EXISTS` + `ON CONFLICT DO NOTHING`).
+
+#### Auth middleware changes
+
+**[`backend/src/middleware/auth.js`](backend/src/middleware/auth.js) — `protect`:**
+- Includes `orgs: { select: { orgId: true, role: true, isPrimary: true } }` on the user lookup
+- Includes `stores: { select: { storeId: true, store: { select: { orgId: true } } } }` so `scopeToTenant` can derive org from store without a second query
+- `authorize(...roles)` now prefers `req.role` (per-org effective) and falls back to `req.user.role`
+
+**[`backend/src/middleware/scopeToTenant.js`](backend/src/middleware/scopeToTenant.js) — rewritten:**
+- Async (the org-wide role branch does one store lookup when the header store isn't in `UserStore`)
+- Derives `activeStoreOrgId` from `X-Store-Id` → falls back to UserOrg `isPrimary` → `User.orgId`
+- Sets `req.orgId`, `req.tenantId`, `req.tenantFilter`, `req.role`, and new `req.orgIds` (all UserOrg memberships)
+- Superadmin `X-Tenant-Id` override is consolidated here; the separate `allowTenantOverride` middleware is kept for explicit opt-in routes
+
+#### Controller changes
+
+**[`backend/src/controllers/storeController.js`](backend/src/controllers/storeController.js):**
+- `getStores` returns stores across **all** `UserOrg` memberships + direct `UserStore` access, ordered by `orgId` then `createdAt`
+- Response includes `orgName` + `orgSlug` so the StoreSwitcher can group stores by organisation
+- Superadmin with `X-Tenant-Id` override still returns just that one org's stores
+
+**[`backend/src/controllers/userManagementController.js`](backend/src/controllers/userManagementController.js):**
+- `getTenantUsers` queries users via `UserOrg` for the active org + legacy `users.orgId` fallback. Returns per-org `role` (effective) + `homeRole` (the legacy value) for admin visibility
+- `inviteUser` now writes a `UserOrg` row alongside the User creation so new users are multi-org-ready
+- `updateUserRole` upserts the `UserOrg` row for the active org whenever `role` changes
+- `removeUser` **fully replaced the `orgId: 'detached'` hack** — now deletes the `UserOrg` row + any `UserStore` rows whose store belongs to the active org. Users keep memberships in other orgs and keep their account
+
+**[`backend/src/controllers/adminController.js`](backend/src/controllers/adminController.js):**
+- `createUser` seeds a `UserOrg` row so superadmin-created users show up in portal user lists immediately
+- `updateUser` keeps the primary `UserOrg` row in sync when an admin changes a user's `orgId` and/or `role`
+
+**[`backend/src/routes/tenantRoutes.js`](backend/src/routes/tenantRoutes.js):**
+- `POST /api/tenants` (create new org from onboarding) writes a `UserOrg(role='owner', isPrimary=true)` row in the same transaction as the legacy `users.orgId / role` update
+
+**[`backend/src/rbac/permissionService.js`](backend/src/rbac/permissionService.js):**
+- `computeUserPermissions(user, activeOrgId)` — second parameter added
+- Resolves effective role key from `UserOrg` for the active org; falls back to `User.role`
+- Filters `UserRole` rows by `role.orgId ∈ {null, activeOrgId}` so custom roles only apply in their own org
+- `requirePermission(...keys)` and `userHasPermission(req, key)` pass `req.orgId` through
+
+#### Frontend changes
+
+**[`frontend/src/components/StoreSwitcher.jsx`](frontend/src/components/StoreSwitcher.jsx) + [`.css`](frontend/src/components/StoreSwitcher.css):**
+- Stores grouped by `orgName` when the user has stores in multiple orgs
+- Single-org users see zero visual change (group header collapses when only one org is present)
+- New `.sw-group-header` class (prefix: `sw-`) for the org heading
+
+#### Verification
+
+Smoke tested against a live dev DB:
+
+| Scenario | Result |
+|---|---|
+| Backfill: 4 existing users → 4 UserOrg rows with correct role + isPrimary | ✅ |
+| Legacy single-org user hitting `/api/users`, `/api/stores`, `/api/sales/realtime`, `/api/tenants/me` | No regression; same shapes |
+| Cross-org membership (admin granted manager role in Org B) + `X-Store-Id` pointed at Org-B store | `/api/tenants/me` returns Org B |
+| Switch `X-Store-Id` back to an Org-A store | `/api/tenants/me` returns Org A (same JWT, same login) |
+| `GET /api/stores` with multi-org membership | Returns all 3 stores across 2 orgs with `orgName`/`orgSlug` |
+| StoreSwitcher dropdown with multi-org memberships | Shows "Future Foods" + "Test Org B" group headers with correct stores under each |
+| `permissionService.computeUserPermissions` with per-org activeOrgId | Returns 90 permissions for admin role |
+
+#### Known follow-ups (Phase 2/3)
+
+- **Phase 2:** Invitation flow — `invitationController` + routes + email templates + SMS stubs (env vars `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` wired but no-op until filled), portal `Invitations` page + public `/invite/:token` acceptance page
+- **Phase 3:** Store transfer UI — "Sell/Transfer Store" button in StoreManagement, `transferOwnership: true` branch in invitation-accept handler, type-"TRANSFER" confirmation
+- A very small number of non-`getStores` store endpoints (`updateStore`, `getStoreById`, `deleteStore`) still filter by `orgId: req.orgId` — fine because `req.orgId` now follows the active store, but editing an Org-A store while active in Org B requires a store-switch first. No regression, but may want a user-initiated "act in this store" explicit action in the future
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `backend/prisma/schema.prisma` | +UserOrg, +Invitation models, +2 Organization relations, +1 User relation |
+| `backend/prisma/migrations/add_user_orgs_and_invitations.sql` | NEW — idempotent migration + backfill |
+| `backend/src/middleware/auth.js` | `protect` include expanded; `authorize` prefers `req.role` |
+| `backend/src/middleware/scopeToTenant.js` | REWRITTEN — async, derives orgId from active store |
+| `backend/src/controllers/storeController.js` | `getStores` unions UserOrg + UserStore; returns orgName/orgSlug |
+| `backend/src/controllers/userManagementController.js` | UserOrg-based list/invite/update/remove; `'detached'` hack removed |
+| `backend/src/controllers/adminController.js` | `createUser` + `updateUser` keep UserOrg in sync |
+| `backend/src/routes/tenantRoutes.js` | Org creation writes UserOrg(owner) in same transaction |
+| `backend/src/rbac/permissionService.js` | Active-org-scoped permission resolution |
+| `frontend/src/components/StoreSwitcher.jsx` | Org group headers in dropdown |
+| `frontend/src/components/StoreSwitcher.css` | `.sw-group-header` styles |
+
+---
+
+*Last updated: April 2026 — Session 32: Phase 1 Multi-Org Access — UserOrg/Invitation schema, active-store-derived req.orgId, per-org role resolution, StoreSwitcher org grouping*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 33)
+
+### Phase 2 of Multi-Org Access: Invitation Flow
+
+Single-login-multi-org onboarding via email invitation. An owner/admin invites a teammate by email; the recipient opens a link on any device, either signs in (existing account) or creates an account inline, and the new org appears in their StoreSwitcher. Store transfer (Phase 3) reuses the same invitation machinery with a `transferOwnership` flag.
+
+#### Backend
+
+**[`backend/src/services/smsService.js`](backend/src/services/smsService.js) (NEW)** — Twilio-ready stub:
+- `sendSms(to, body)` — core send. Returns `{ sent, reason }`, never throws.
+- `sendInvitationSms(to, inviter, orgName, url)` + `sendTransferSms(...)` — templated senders.
+- Dynamic `import('twilio')` so the stub works without the dependency installed.
+- When `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` are filled in and `npm i twilio` is run, SMS activates — zero callsite changes needed.
+- Until then, every call logs a `[SMS stub] Would send to …` line for dev visibility.
+
+**[`backend/src/services/emailService.js`](backend/src/services/emailService.js)** — 4 new templates:
+- `sendInvitation(to, { inviterName, orgName, role, acceptUrl, existingAccount })` — different body copy depending on whether the email already has an account.
+- `sendTransferInvitation(to, { inviterName, orgName, acceptUrl })` — high-contrast warning for store sale.
+- `sendInvitationAccepted(to, { inviterName, inviteeName, orgName, role })` — notifies the inviter after accept.
+- `sendTransferCompleted(to, { formerOwnerName, newOwnerName, orgName })` — notifies outgoing owner after transfer.
+- Added `escapeHtml()` helper so user-supplied inviter/org names can't inject HTML.
+
+**[`backend/src/controllers/invitationController.js`](backend/src/controllers/invitationController.js) (NEW)** — six handlers:
+
+| Handler | Route | Purpose |
+|---|---|---|
+| `createInvitation` | `POST /api/invitations` | Org admin creates invite. Auto-revokes any pending invites for same (email, org). Fires email + SMS (if phone provided). Returns the `acceptUrl` so the admin can copy/share manually. |
+| `listInvitations` | `GET /api/invitations` | Lists invitations for active org. Accepts `?status=` filter. Lazily flips `pending → expired` for overdue records on read. |
+| `getInvitationByToken` | `GET /api/invitations/:token` | **Public** — used by the accept page. Returns only the fields the page needs + `existingAccount: bool`. Non-pending invitations return 410 with `status` for the UI. |
+| `acceptInvitation` | `POST /api/invitations/:token/accept` | **Public**. Three branches: (1) JWT matches invitation email → one-click accept; (2) existing user by email → attach UserOrg; (3) new user → create account from `{ name, password }` + attach UserOrg. Transactional — all DB writes go through one `prisma.$transaction`. |
+| `resendInvitation` | `POST /api/invitations/:id/resend` | Bumps expiry to 7 days out and re-sends email/SMS. |
+| `revokeInvitation` | `DELETE /api/invitations/:id` | Marks pending invitation as `revoked`. Non-pending invites return 400. |
+
+Key logic:
+- Pending invites are opaque; the 32-byte urlsafe base64 token is the only thing needed to accept. Org admins see tokens in their list (so they can copy links), but the public `/:token` lookup never surfaces them.
+- **Store transfer branch** (`transferOwnership: true`) is authorised only for `owner` or `superadmin`. On accept it (a) deletes every other `UserOrg` for the org, (b) removes every `UserStore` belonging to other users within that org, (c) updates `User.role = 'owner'` + `User.orgId = orgId` for the new owner, (d) re-points `Store.ownerId` to the new owner, and (e) emails the former owners.
+- Calls `syncUserDefaultRole(user.id)` after transfer or new-user creation to keep the RBAC `UserRole` junction aligned.
+
+**[`backend/src/routes/invitationRoutes.js`](backend/src/routes/invitationRoutes.js) (NEW)** — split public/protected:
+- Public: `GET /:token`, `POST /:token/accept`
+- Protected (manager+ via `users.view`/`users.create`/`users.delete`): list, create, resend, revoke.
+
+**[`backend/src/server.js`](backend/src/server.js)** — mounted at `/api/invitations`.
+
+**[`backend/.env.example`](backend/.env.example)** — added `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` placeholders with instructions to `npm i twilio` when filling in.
+
+#### Frontend
+
+**[`frontend/src/services/api.js`](frontend/src/services/api.js)** — 6 new exports:
+`getInvitations`, `createInvitation`, `resendInvitation`, `revokeInvitation` (protected), plus `getInvitationByToken` + `acceptInvitation` (public, token-based).
+
+**[`frontend/src/pages/Invitations.jsx`](frontend/src/pages/Invitations.jsx) + [`.css`](frontend/src/pages/Invitations.css) (NEW)** — prefix `inv-`:
+- Tabs: All / Pending / Accepted / Revoked / Expired with live counts.
+- Table with email, role chip, status badge, sent date, expiry countdown (`3 days`, `today`).
+- Per-row actions on pending invites: **copy accept link** (✓ feedback), **resend** (extends expiry + re-emails + copies new URL), **revoke** (with confirm).
+- **Create modal** — email, phone (optional), role (dynamic — pulls active roles via `listRoles()` with fallback), multi-store checkbox / single-store radio for cashier role.
+- On success, the accept URL is auto-copied to the clipboard so the admin can paste it into chat/Slack immediately.
+- Mobile responsive: hides "Sent" column < 768px, modal goes full-width.
+
+**[`frontend/src/pages/AcceptInvitation.jsx`](frontend/src/pages/AcceptInvitation.jsx) + [`.css`](frontend/src/pages/AcceptInvitation.css) (NEW)** — prefix `ai-`:
+- **Public** route — no auth guard. Loads invitation by `:token` param.
+- Three UX branches handled by one component:
+  1. **Already logged in as invitee** → `CheckCircle2` icon + one-click "Accept Invitation" / "Accept Transfer" button.
+  2. **Existing account, not logged in** → "Sign in to accept" CTA that `returnTo`-s back here.
+  3. **New user** → inline form (full name + password + confirm), with show/hide eye toggle, client-side validation mirroring the backend policy.
+- **Transfer variant** swaps the hero to amber (`ai-hero--transfer`) and adds an explicit warning banner: *"accepting this transfer makes you the new owner. The current owner will lose access."*
+- On successful accept, the JWT + user blob are written to localStorage, `activeStoreId` is set if the invitation scoped to a store, and the browser navigates to `/portal/realtime`.
+- Error states (invalid/expired/revoked token) render a friendly screen with a link back to `/login`.
+- Responsive down to 360px.
+
+**[`frontend/src/App.jsx`](frontend/src/App.jsx)** — two new routes:
+- Public: `<Route path="/invite/:token" element={<AcceptInvitation />} />`
+- Gated: `<Route path="/portal/invitations" element={gated(<Invitations />)} />`
+
+**[`frontend/src/components/Sidebar.jsx`](frontend/src/components/Sidebar.jsx)** — Added "Invitations" under **Account** group (below "Roles & Permissions") with `Mail` icon.
+
+**[`frontend/src/rbac/routePermissions.js`](frontend/src/rbac/routePermissions.js)** — `'/portal/invitations': 'users.view'` so the page is gated by the same permission as the Users tab.
+
+#### Design decisions worth remembering
+
+- **Legacy `inviteUser` kept.** The existing "admin creates account with temp password shown once" flow is a legitimate parallel UX to the new invitation flow. It was already upgraded in Phase 1 to write `UserOrg` rows, so no deprecation is needed. Both coexist: invitation flow is self-serve (invitee sets their own password), `inviteUser` is admin-driven (admin hands out a temp password out-of-band).
+- **Lazy expiry** avoids a cron. Any read of an invitation past its TTL flips it to `expired`. Survives server restarts with no scheduled task.
+- **Token-only auth for accept/lookup** means the invitation link works from any device the email was received on, with no prior session.
+- **Auto-revoke duplicates** on create — if an admin re-invites the same email in the same org, the previous pending invite is flipped to `revoked` so the old link stops working and only the latest token is live.
+- **Tokens visible to org admins in list response** — they can already revoke, and they need it to copy the accept URL. Public `/:token` response never surfaces it.
+- **`isPrimary` preserved on existing users** — accepting a new org invite as an existing user keeps their current home-org primary. Only brand-new accounts get `isPrimary: true` on their first UserOrg row.
+
+#### Verification
+
+Smoke-tested end-to-end against the live dev stack:
+
+| Scenario | Result |
+|---|---|
+| `POST /api/invitations` as admin → 201 with token, acceptUrl, orgName, expiresAt | ✅ |
+| `GET /api/invitations/:token` (public) for pending invite → returns email/orgName/role/`existingAccount` | ✅ |
+| `POST /api/invitations/:token/accept` with `{name, password}` → creates User + UserOrg + marks invitation accepted + returns JWT | ✅ |
+| Accept as **already-logged-in user** whose JWT email matches → one-click, UserOrg added with `isPrimary: false`, primary stays intact | ✅ |
+| Admin now has 3 UserOrg rows (Future Foods + Test Org B + Test Org C) with different roles per org | ✅ |
+| `GET /api/invitations` filtered by status (pending/accepted/revoked/expired) returns correct tabs with counts | ✅ |
+| `POST /api/invitations/:id/resend` bumps `expiresAt` + re-sends | ✅ |
+| `DELETE /api/invitations/:id` marks revoked | ✅ |
+| `POST /api/invitations/:token/accept` on revoked token returns `{ error: "Invitation revoked.", status: "revoked" }` with 410 | ✅ |
+| Portal `/portal/invitations` page renders tabs, table, badges, action buttons | ✅ |
+| Public `/invite/:token` page: new-user branch shows signup form; existing-user branch shows "Sign in to accept" | ✅ |
+| Transfer variant shows amber hero + warning banner | ✅ (code-path verified; flow executed in Phase 3 smoke test) |
+
+#### Files Changed (Phase 2)
+
+| File | Change |
+|------|--------|
+| `backend/src/services/smsService.js` | NEW — Twilio-ready stub with lazy dynamic import |
+| `backend/src/services/emailService.js` | +4 invitation templates, +`escapeHtml()` |
+| `backend/src/controllers/invitationController.js` | NEW — 6 handlers (create/list/get/accept/resend/revoke) |
+| `backend/src/routes/invitationRoutes.js` | NEW — public + protected routes |
+| `backend/src/server.js` | Mount `/api/invitations` |
+| `backend/.env.example` | Added Twilio placeholders |
+| `frontend/src/services/api.js` | +6 invitation API helpers |
+| `frontend/src/pages/Invitations.jsx` + `.css` | NEW — portal list + create modal |
+| `frontend/src/pages/AcceptInvitation.jsx` + `.css` | NEW — public accept page, 3 UX branches |
+| `frontend/src/App.jsx` | +2 routes (`/invite/:token`, `/portal/invitations`) |
+| `frontend/src/components/Sidebar.jsx` | +"Invitations" link under Account group |
+| `frontend/src/rbac/routePermissions.js` | `/portal/invitations` → `users.view` |
+
+Ready for Phase 3: store transfer UI (the "Sell / Transfer Store" button in StoreManagement) and the type-"TRANSFER" confirmation modal. The backend is already done in this phase (`transferOwnership: true` branch in createInvitation + acceptInvitation) — Phase 3 is just UI plumbing.
+
+---
+
+*Last updated: April 2026 — Session 33: Phase 2 Invitation Flow — 7-day email invitations, public /invite/:token accept page, portal Invitations admin page, SMS stubs ready for Twilio keys*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 34)
+
+### Phase 3 of Multi-Org Access: Store Ownership Transfer (UI)
+
+Closes the loop on the store-sale workflow. The backend plumbing shipped in Phase 2 (`transferOwnership: true` on the invitation); Phase 3 adds the UI that sets the flag, the seller-side gating (type "TRANSFER" to confirm), and the edge-case handling that the first smoke test surfaced.
+
+#### New UI
+
+**[`frontend/src/components/TransferOwnershipModal.jsx`](frontend/src/components/TransferOwnershipModal.jsx) + [`.css`](frontend/src/components/TransferOwnershipModal.css) (NEW)** — prefix `tom-`:
+- **Form screen** — red warning hero, destination summary ("You are about to transfer *<Org Name>*"), bullet list of what the new owner gets and what the seller loses, email field, optional phone, and a `Type TRANSFER to confirm` input that unlocks the submit button only on exact-case match.
+- **Success screen** — green confirmation hero, "nothing changes until they accept" reassurance, and a copy-to-clipboard row with the raw accept URL for when the email takes its time.
+- Submit is double-gated: (a) valid email format, (b) confirmation text === `TRANSFER` (case-sensitive). Case variants like `transfer` or `Transfer` keep the button disabled.
+- Calls `createInvitation(..., { 'X-Store-Id': store.id })` so the backend derives `req.orgId` from the store being transferred, not the seller's currently-active store (important when the seller owns multiple orgs).
+- Responsive down to 360px.
+
+**[`frontend/src/pages/StoreManagement.jsx`](frontend/src/pages/StoreManagement.jsx)** — adds a third action icon on every store card:
+- New `ShieldAlert` lucide button between "Edit" and "Deactivate", amber-coloured (`#b45309`), tooltip *"Transfer ownership"*.
+- Only rendered for `owner` and `superadmin` roles. Other roles don't see it. (Backend enforces the same rule, this is pure UX cleanup.)
+- Opens the `TransferOwnershipModal` on click. Modal-owned lifecycle — card doesn't need to know about success/failure.
+
+#### Backend adjustments (discovered during smoke test)
+
+**Schema: [`User.orgId`](backend/prisma/schema.prisma) is now nullable** (`String?` + `Organization?` relation + `onDelete: SetNull`).
+
+Why: after a full transfer the seller has zero `UserOrg` rows for that org, but their legacy `User.orgId` still pointed at it. `scopeToTenant`'s home-org fallback was resolving `req.orgId` to the transferred org, letting the seller continue to see stores they no longer owned. Making the column nullable is semantically correct — a user can exist between organisations (mid-onboarding, post-transfer, etc.).
+
+Migration applied via `npx prisma db push`. No data loss; existing `orgId` values unchanged. The `scopeToTenant` + `storeController.getStores` fallback chains already handled `null` gracefully — they return no orgId / no stores, which is exactly the desired post-transfer state.
+
+**[`backend/src/controllers/invitationController.js`](backend/src/controllers/invitationController.js) — transfer branch:**
+Added logic inside `acceptInvitation` that, after deleting the seller's `UserOrg` rows for the transferred org, finds any users whose `User.orgId` still points at the transferred org and re-points it:
+- To one of their remaining `UserOrg` memberships (preferring `isPrimary`) if they have any
+- To `null` if they have none — they become orgless but their account stays live for sign-in and future invitations
+
+**[`frontend/src/services/api.js`](frontend/src/services/api.js) — request interceptor:**
+The global interceptor unconditionally overwrote `X-Store-Id` from localStorage, which clobbered explicit headers that the transfer flow needs to pass. Flipped to "respect caller-provided header, only fill in default when absent":
+
+```js
+if (!config.headers['X-Store-Id'] && !config.headers['x-store-id']) {
+  const activeStoreId = localStorage.getItem('activeStoreId');
+  if (activeStoreId) config.headers['X-Store-Id'] = activeStoreId;
+}
+```
+
+`createInvitation(data, headers?)` gained a second parameter so the transfer modal can pin `X-Store-Id` to the store being transferred regardless of which store is currently active.
+
+#### Verification
+
+Smoke-tested end-to-end with two seeded scenarios:
+
+| Scenario | Result |
+|---|---|
+| Seller (owner) creates transfer invite for new buyer → 201, token, `transferOwnership: true` | ✅ |
+| Buyer accepts (creates account, sets password) → 200 with JWT | ✅ |
+| Post-accept DB state: buyer is sole UserOrg member of org (role=owner, isPrimary=true); seller has 0 UserOrg rows for that org | ✅ |
+| `Store.ownerId` flipped from seller to buyer | ✅ |
+| Buyer's `User.role='owner'` + `User.orgId` set to transferred org | ✅ |
+| Seller's `User.orgId` re-pointed to null (no remaining memberships) | ✅ |
+| Invitation marked accepted with `acceptedByUserId=buyerId` | ✅ |
+| Seller's JWT → `GET /api/stores` → returns 0 stores | ✅ |
+| Seller's JWT → `GET /api/tenants/me` → 403 "requires an organization account" | ✅ |
+| Buyer's JWT → `GET /api/stores` → sees the transferred store with `ownerId: buyer.id` | ✅ |
+| Buyer's JWT → `GET /api/tenants/me` → returns transferred org | ✅ |
+| Transfer button visible only for `role ∈ {owner, superadmin}` (hidden for admin/manager/cashier) | ✅ |
+| Modal submit button: disabled until email + *exact* `TRANSFER` typed. Lowercase `transfer` or mixed case stays disabled | ✅ |
+
+#### Design decisions worth remembering
+
+- **Type "TRANSFER" only, no password re-entry.** Per the user: *"Just TRANSFER, while accepting the invitation user can set password, or if they already have account just hit accept while logged in."* The cost of lost work if someone clicks accidentally is the same as `rm -rf`, and a permanent data-transfer action deserves friction equivalent to a typed confirmation. Password re-entry on top of that was overkill.
+- **Seller keeps account, just loses this org.** Their login continues working. They keep access to any other orgs they still have `UserOrg` rows in. If the transferred org was their only one, they're orgless but signed-in.
+- **Nullable `User.orgId` is the right semantic.** Rather than inventing a "detached" placeholder or cascade-deleting the user, we acknowledge that "a user between organisations" is a legitimate state. Matches how other multi-tenant SaaS platforms behave.
+- **Backend is the source of truth for the "owner" gate.** The `if (req.role !== 'owner' && req.user?.role !== 'superadmin')` check in `createInvitation` rejects non-owners even if they somehow hit the endpoint directly; the UI-level role check is just visual polish.
+
+#### Files Changed (Phase 3)
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/TransferOwnershipModal.jsx` + `.css` | NEW — warning-styled form with success screen + copy-link |
+| `frontend/src/pages/StoreManagement.jsx` | +`ShieldAlert` button on store cards (owner/superadmin only), +modal render |
+| `frontend/src/services/api.js` | Interceptor respects caller-set `X-Store-Id`; `createInvitation(data, headers?)` signature |
+| `backend/prisma/schema.prisma` | `User.orgId` → nullable (`String?`); relation → `onDelete: SetNull` |
+| `backend/src/controllers/invitationController.js` | Transfer branch re-points seller's `User.orgId` to remaining UserOrg or null |
+
+---
+
+### Phase 1 + 2 + 3 Summary: Multi-Org Access is Complete
+
+Single email = single login = access to stores across any number of organisations. Stores can be transferred to new owners via invitation. The implementation touched ~20 files over three phases with zero breaking changes for existing single-org users:
+
+- **Phase 1** — schema (`UserOrg`, `Invitation`), auth middleware (active-store-derived `req.orgId`), RBAC scoping, StoreSwitcher grouping
+- **Phase 2** — invitation flow (create, list, accept, revoke, resend), email templates, SMS stubs, public `/invite/:token` page, portal Invitations admin page
+- **Phase 3** — transfer ownership UI on store cards, typed "TRANSFER" confirmation, post-transfer access revocation (+nullable `User.orgId`)
+
+Still deferred (optional, no customer asking yet):
+- **Phase 4** — `Group` / `Brand` entity for cross-org rollup reporting in multi-store chains
+- **SMS activation** — `npm i twilio` + fill in `TWILIO_*` env vars; code paths already wired via the stub
+
+---
+
+*Last updated: April 2026 — Session 34: Phase 3 Store Ownership Transfer — TransferOwnershipModal with typed-TRANSFER confirmation, nullable User.orgId, seller access fully revoked on accept*
+
+---
+
+## 📦 Session 35 — Multi-Org Migration: Final Hardening & Full QA Pass
+
+Closing session across Phases 1–3. Added rate limiting to public invitation endpoints, cleaned up the DB, and ran a comprehensive 17-test suite against every flow.
+
+### Security hardening
+
+**Rate limiting on public invitation endpoints** ([`backend/src/middleware/rateLimit.js`](backend/src/middleware/rateLimit.js) + [`backend/src/routes/invitationRoutes.js`](backend/src/routes/invitationRoutes.js)):
+- `invitationLookupLimiter` — 20 requests / 10 min per IP on `GET /api/invitations/:token`. The token is 32 bytes of crypto entropy (practically unguessable), but a rate cap blunts a DoS-by-probing-missing-tokens attack against the DB.
+- `invitationAcceptLimiter` — 10 requests / 10 min per IP on `POST /api/invitations/:token/accept`. Blocks credential stuffing / throttles account-creation abuse.
+- Both honour the existing dev-bypass (`NODE_ENV=development` or `DISABLE_RATE_LIMIT=true`). Production always on.
+
+### Comprehensive QA pass (17 tests, all green)
+
+**Baseline (Phase 1):** existing single-org admin runs `/api/stores` (2 own-org stores, no leaks), `/api/tenants/me` (correct org), `/api/users` (3 org members with effective roles), `/api/sales/realtime` (HTTP 200, RBAC passes).
+
+**Invitation lifecycle (Phase 2):**
+- Create invitation with phone → 201 with token + acceptUrl + `existingAccount: false`
+- Public lookup by token → correct org/role/email payload
+- Accept as new user with password → account created, UserOrg row written, JWT returned, invitation flipped to `accepted`
+- Create + immediately revoke → subsequent accept returns 410 `Invitation revoked`
+- Create + resend → `expiresAt` bumped out another 7 days
+- Accept as existing user (admin accepts invite to a different org while holding their session) → UserOrg added as **non-primary** so home org stays intact; admin now has 2 UserOrg rows, new org visible in `/api/stores`
+
+**Ownership transfer (Phase 3):**
+- Seller (owner) creates `transferOwnership: true` invite → 201, role auto-set to `owner`
+- Buyer accepts as new account → all post-conditions hold:
+  - Transferred org: sole UserOrg row is the buyer, role=owner, isPrimary=true
+  - `Store.ownerId` → buyer
+  - `Seller.orgId` → null (auto-cleared, since they had no other memberships)
+  - Invitation marked accepted with `acceptedByUserId`
+  - Business data (vendors, departments) untouched — buyer sees them via `/api/catalog/vendors` + `/api/catalog/departments`
+  - Seller's JWT → 0 stores returned, `/api/tenants/me` returns 403 "requires organization account", catalog endpoints 403
+
+**Edge cases:**
+- Non-owner (admin role) attempting transfer → 403 `Only the organisation owner can transfer ownership`
+- Pre-expired invitation (artificially past `expiresAt`) → 410 on first lookup, `status: "expired"` — lazy-expiry flips DB row
+- Random/unknown token → 404
+- Re-inviting the same email in the same org → old pending invitation auto-flipped to `revoked`, original link now returns 410
+
+**UI verification via browser preview:**
+- `/portal/invitations` — 4 status tabs with live counts, 6-row table rendering all statuses with correct badges (PENDING×2, ACCEPTED, REVOKED×2, EXPIRED×1)
+- `/invite/:token` — new-user branch renders hero with inviter attribution, org name, role, and the 3-field signup form (full name + password + confirm)
+- Previously verified this session: existing-user branch, StoreSwitcher multi-org grouping, TransferOwnershipModal gated submit button
+
+### Final baseline state
+
+DB restored to the clean 4-user / 3-org baseline. No test fixtures remain:
+
+| Entity | Count |
+|---|---|
+| users        | 4 |
+| organizations| 3 |
+| stores       | 3 |
+| user_orgs    | 4 (all primary) |
+| invitations  | 0 |
+
+### Files touched across Phases 1 + 2 + 3 + 35
+
+**New:**
+- `backend/prisma/migrations/add_user_orgs_and_invitations.sql`
+- `backend/src/controllers/invitationController.js`
+- `backend/src/routes/invitationRoutes.js`
+- `backend/src/services/smsService.js`
+- `frontend/src/components/TransferOwnershipModal.jsx` + `.css`
+- `frontend/src/pages/AcceptInvitation.jsx` + `.css`
+- `frontend/src/pages/Invitations.jsx` + `.css`
+
+**Modified:**
+- `backend/prisma/schema.prisma` (UserOrg + Invitation models, nullable User.orgId)
+- `backend/src/middleware/auth.js` (protect includes orgs + stores.orgId; authorize prefers req.role)
+- `backend/src/middleware/scopeToTenant.js` (active-store-derived req.orgId, async)
+- `backend/src/middleware/rateLimit.js` (+2 limiters)
+- `backend/src/rbac/permissionService.js` (activeOrgId-scoped perms)
+- `backend/src/controllers/userManagementController.js` (UserOrg-based list/invite/update/remove)
+- `backend/src/controllers/adminController.js` (createUser + updateUser sync UserOrg)
+- `backend/src/controllers/storeController.js` (cross-org getStores with orgName)
+- `backend/src/routes/tenantRoutes.js` (org-create writes UserOrg)
+- `backend/src/services/emailService.js` (+4 invitation templates + escapeHtml)
+- `backend/src/server.js` (mount /api/invitations)
+- `backend/.env.example` (Twilio placeholders)
+- `frontend/src/App.jsx` (/invite/:token, /portal/invitations routes)
+- `frontend/src/components/Sidebar.jsx` (Invitations nav link)
+- `frontend/src/components/StoreSwitcher.jsx` + `.css` (org group headers)
+- `frontend/src/pages/StoreManagement.jsx` (Transfer button + modal render)
+- `frontend/src/rbac/routePermissions.js` (/portal/invitations → users.view)
+- `frontend/src/services/api.js` (invitation helpers; interceptor respects caller X-Store-Id)
+
+### Known activation steps for production
+
+1. **Email (already works)** — ensure SMTP credentials are set in `.env` so invitation emails send.
+2. **SMS (optional, wire is ready)** — `npm i twilio` in backend + fill in `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` in `.env`. `smsService.js` auto-activates via dynamic import.
+3. **Run migration** — `npx prisma db execute --file prisma/migrations/add_user_orgs_and_invitations.sql --schema prisma/schema.prisma` then `npx prisma db push` for the nullable `User.orgId` change.
+4. **Restart backend + frontend** — both pick up the new client + routes on reload.
+5. Existing single-org users see zero functional change. Multi-org + invitation + transfer flows are additive.
+
+### Deferred (optional, no customer ask yet)
+
+- **Phase 4** — `Group`/`Brand` entity for multi-store-chain rollup reporting.
+- **Multi-instance rate limiter** — in-memory limiter is fine for single-instance deployments; swap for `express-rate-limit` + Redis store if scaling horizontally.
+
+---
+
+*Last updated: April 2026 — Session 35: Final multi-org hardening — rate limits on public invitation endpoints, DB cleanup, full 17-test QA pass across Phases 1/2/3*
+
+---
+
+## 🗓 Deferred Work (Multi-Org Migration — Phase 4)
+
+### Phase 4 — Group / Brand entity for multi-store-chain rollup reporting
+
+**Status:** NOT STARTED. Explicitly deferred during Sessions 32–35. Park until a customer asks.
+
+**Why it exists:** one operator running several *separate organisations* (e.g. a franchisee with multiple LLCs for legal/tax isolation) today has to switch stores to see each org independently. Phase 4 would add a `Group` (or `Brand`) wrapper that unifies reporting across those orgs so they can see *"total sales across all 5 businesses this week"* in a single view.
+
+**What's already in place (done by Phases 1–3):**
+- Multi-org access via `UserOrg` junction ✅
+- `req.orgId` derived from active store ✅
+- Per-org role resolution via `UserOrg.role` + `UserRole` ✅
+
+**What Phase 4 adds:**
+
+Schema (3 new models):
+```prisma
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  ownerId     String   // User.id of the group owner (usually the franchisee)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orgs   OrgGroup[]
+  users  UserGroup[]
+
+  @@map("groups")
+}
+
+model OrgGroup {
+  orgId   String
+  groupId String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  group        Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, groupId])
+  @@map("org_groups")
+}
+
+model UserGroup {
+  userId  String
+  groupId String
+  role    String    // "group_admin" | "group_viewer"
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@map("user_groups")
+}
+```
+
+Backend work (the expensive part — every analytics endpoint needs a rewrite):
+- New `groupController.js` for Group CRUD + `addOrgToGroup` / `removeOrgFromGroup` handlers
+- New `/api/groups` routes
+- **Rollup query pattern** — every analytics query changes from `orgId = ?` to `orgId IN (orgIds of active group)`. Touches: `salesController`, `reportsHubController`, `employeeReportsController`, `lotteryController` dashboard/reports, `loyaltyController`, Live Dashboard endpoint, ecom analytics.
+- New middleware `scopeToGroup` that reads `X-Group-Id` header and, when present + user has `UserGroup` membership, sets `req.groupOrgIds` to the array of org ids in that group
+- Analytics controllers use `req.groupOrgIds || [req.orgId]` as their filter
+- RBAC: new permissions `groups.view`, `groups.manage`, `groups.reports`
+
+Frontend work:
+- New portal page `/portal/groups` — create/manage groups, assign orgs to groups, invite group admins
+- **GroupSwitcher** component — sits above (or replaces) StoreSwitcher when user has `UserGroup` memberships. Shows "Viewing: *Acme Brands* (5 orgs, 12 stores)" with ability to toggle between group-scoped and single-store views
+- Dashboard / Analytics / Reports pages honour group scope automatically (via `X-Group-Id` header) — existing queries return aggregated data
+- New invitation type in `Invitation` model or dedicated `GroupInvitation` for inviting users into a group
+
+Estimated size: ~15-20 files, comparable to Phases 1 + 2 combined.
+
+**Open design questions to resolve before starting:**
+1. Can a group contain orgs owned by different users, or only orgs the group-creator owns? (Multi-owner groups open up partnership scenarios but complicate permissions.)
+2. Do group admins get implicit access to every store in every org in the group, or only read-only analytics access? (Read-only is safer to ship first.)
+3. Rollup performance — some analytics queries are already slow (~30 DB queries per Live Dashboard load). Multiplying that by 5-10 orgs without query optimisation would be a regression. Likely needs materialised views or a denormalised `DailyOrgStats` table.
+4. Pricing — is group-scoped reporting a paid-tier feature (Pro/Enterprise) or included everywhere?
+
+**Reference docs / context for whoever picks this up:**
+- See Session 32 notes for the `UserOrg` + `scopeToTenant` architecture the group scope will compose with
+- The `X-Tenant-Id` superadmin override pattern in [`backend/src/middleware/scopeToTenant.js`](backend/src/middleware/scopeToTenant.js) is a template for how `X-Group-Id` would work
+- The invitation flow in Phase 2 can be extended (or cloned) for group invitations
+
+---
+

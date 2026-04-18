@@ -70,7 +70,8 @@
       "Bash(sed -i 's/padding: 0.4rem 0.85rem; border-radius: 20px;/padding: 0.4rem 0.85rem; border-radius: 8px;/' frontend/src/pages/POSSettings.css)",
       "Bash(awk -F'\",\"' '{print $21}')",
       "Bash(python3 -c ' *)",
-      "Bash(grep -E \"\\\\.\\(js|jsx\\)$\")"
+      "Bash(grep -E \"\\\\.\\(js|jsx\\)$\")",
+      "Bash(netstat -ano)"
     ]
   }
 }

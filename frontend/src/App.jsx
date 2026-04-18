@@ -17,6 +17,8 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import AcceptInvitation from './pages/AcceptInvitation';
+import Invitations from './pages/Invitations';
 import PhoneLookup from './pages/PhoneLookup';
 import Onboarding from './pages/Onboarding';
 
@@ -198,6 +200,7 @@ function App() {
         <Route path="/signup"         element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/invite/:token"  element={<AcceptInvitation />} />
         <Route path="/phone-lookup"   element={<PhoneLookup />} />
 
         {/* ── Admin Impersonation Landing ────────────────────────────── */}
@@ -235,6 +238,7 @@ function App() {
           {/* ── Account Hub (tabbed) ──────────────────────────────────── */}
           <Route path="/portal/account"         element={gated(<AccountHub />)} />
           <Route path="/portal/roles"           element={gated(<Roles />)} />
+          <Route path="/portal/invitations"     element={gated(<Invitations />)} />
           <Route path="/portal/branding"        element={gated(<StoreBranding />)} />
 
           {/* ── POS Configuration Hub (tabbed) ────────────────────────── */}

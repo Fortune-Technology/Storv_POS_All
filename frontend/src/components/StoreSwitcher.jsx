@@ -107,16 +107,48 @@ export default function StoreSwitcher() {
             </span>
           </div>
 
-          {stores.map(store => (
-            <StoreOption
-              key={store.id}
-              store={store}
-              isActive={store.id === activeStore.id}
-              onSelect={() => { switchStore(store.id); setOpen(false); }}
-            />
+          {/* Group stores by organisation. When the user belongs to a single
+              org (most cases) the org header collapses to nothing — so the UX
+              is identical to the pre-multi-org flat list. When they belong
+              to multiple orgs, each group gets its own heading. */}
+          {groupByOrg(stores).map(group => (
+            <div key={group.orgId || 'legacy'}>
+              {group.showHeader && (
+                <div className="sw-group-header">{group.orgName}</div>
+              )}
+              {group.stores.map(store => (
+                <StoreOption
+                  key={store.id}
+                  store={store}
+                  isActive={store.id === activeStore.id}
+                  onSelect={() => { switchStore(store.id); setOpen(false); }}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+// Returns an array of { orgId, orgName, showHeader, stores }, grouped by orgId.
+// showHeader is true only when the user has stores in more than one org, so
+// single-org users see no group headings (zero visual change from before).
+function groupByOrg(stores) {
+  const buckets = new Map();
+  for (const store of stores) {
+    const key = store.orgId || 'legacy';
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        orgId:   store.orgId ?? null,
+        orgName: store.orgName || 'Organisation',
+        stores:  [],
+      });
+    }
+    buckets.get(key).stores.push(store);
+  }
+  const groups = Array.from(buckets.values());
+  const showHeader = groups.length > 1;
+  return groups.map(g => ({ ...g, showHeader }));
 }

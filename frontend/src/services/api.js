@@ -14,10 +14,14 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${user.token}`;
       }
     } catch { /* malformed user blob — ignore */ }
-    // Attach active store so the backend scopes data correctly
-    const activeStoreId = localStorage.getItem('activeStoreId');
-    if (activeStoreId) {
-      config.headers['X-Store-Id'] = activeStoreId;
+    // Attach active store so the backend scopes data correctly.
+    // If a caller already set X-Store-Id explicitly (e.g. the ownership
+    // transfer flow pinning to a non-active store), respect it.
+    if (!config.headers['X-Store-Id'] && !config.headers['x-store-id']) {
+      const activeStoreId = localStorage.getItem('activeStoreId');
+      if (activeStoreId) {
+        config.headers['X-Store-Id'] = activeStoreId;
+      }
     }
     return config;
   },
@@ -299,6 +303,20 @@ export const updateUserRole  = (id, data)   => api.put(`/users/${id}/role`, data
 export const removeUser      = (id)         => api.delete(`/users/${id}`).then(r => r.data);
 export const setCashierPin    = (userId, pin) => api.put(`/users/${userId}/pin`, { pin }).then(r => r.data);
 export const removeCashierPin = (userId)      => api.delete(`/users/${userId}/pin`).then(r => r.data);
+
+// ── Invitations ────────────────────────────────────────────────────────────
+// Portal endpoints (auth-scoped to active org):
+export const getInvitations      = (params)   => api.get('/invitations', { params }).then(r => r.data);
+// `headers` lets transfer-ownership callers pin the X-Store-Id header to
+// the store being transferred (so the backend derives req.orgId from the
+// target, not the user's currently-active store).
+export const createInvitation    = (data, headers) =>
+  api.post('/invitations', data, headers ? { headers } : undefined).then(r => r.data);
+export const resendInvitation    = (id)       => api.post(`/invitations/${id}/resend`).then(r => r.data);
+export const revokeInvitation    = (id)       => api.delete(`/invitations/${id}`).then(r => r.data);
+// Public endpoints (token is the auth):
+export const getInvitationByToken = (token)   => api.get(`/invitations/${token}`).then(r => r.data);
+export const acceptInvitation     = (token, body = {}) => api.post(`/invitations/${token}/accept`, body).then(r => r.data);
 
 // ── Catalog — Departments ─────────────────────────────────────────────────
 export const getCatalogDepartments  = (params) => api.get('/catalog/departments', { params }).then(r => r.data);

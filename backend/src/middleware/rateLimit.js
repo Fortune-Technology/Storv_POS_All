@@ -98,3 +98,23 @@ export const pinLimiter = createLimiter({
   max: 15,
   message: 'Too many PIN attempts. Please wait a few minutes.',
 });
+
+// 20 lookups / 10 min — invitation token lookup (public).
+// The token is 32 bytes of crypto-random entropy (2^256 space) so it's
+// practically unguessable, but a rate cap limits a DoS-by-fetching-missing-
+// tokens attack from cheaply probing our DB.
+export const invitationLookupLimiter = createLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: 'Too many invitation lookups. Please wait a few minutes.',
+});
+
+// 10 accept attempts / 10 min — invitation accept (public).
+// Blocks credential stuffing against the accept endpoint (which creates a
+// new account when password is supplied). Higher than login because each
+// accept is for a specific invitation, not a mass target.
+export const invitationAcceptLimiter = createLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  message: 'Too many accept attempts. Please wait a few minutes.',
+});

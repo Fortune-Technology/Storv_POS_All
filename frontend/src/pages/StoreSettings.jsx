@@ -4,9 +4,9 @@
  * Stores config in store's POS JSON via /api/pos-terminal/config.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings2, Plus, Trash2, Save, Check, ChevronDown } from 'lucide-react';
+import { Settings2, Plus, Trash2, Save, Check, ChevronDown, Ticket, Fuel } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { getStores, getPOSConfig, updatePOSConfig } from '../services/api.js';
+import { getStores, getPOSConfig, updatePOSConfig, getFuelSettings, updateFuelSettings } from '../services/api.js';
 
 import './StoreSettings.css';
 
@@ -35,6 +35,8 @@ export default function StoreSettings({ embedded }) {
   // Feature toggles
   const [groceryEnabled, setGroceryEnabled] = useState(false);
   const [ecomEnabled,    setEcomEnabled]    = useState(false);
+  const [lotteryEnabled, setLotteryEnabled] = useState(true);
+  const [fuelEnabled,    setFuelEnabled]    = useState(false);
 
   // Grocery settings (only relevant when groceryEnabled)
   const [groceryConfig, setGroceryConfig] = useState({
@@ -64,16 +66,24 @@ export default function StoreSettings({ embedded }) {
     }).catch(() => {});
   }, []);
 
-  // Load config when storeId changes
+  // Load config when storeId changes.
+  // Lottery enablement lives in the POS config (store.pos JSON) alongside the
+  // rest of the store-level toggles. Fuel enablement lives on its own row in
+  // the FuelSettings table — so we load both in parallel.
   const loadConfig = useCallback(async () => {
     if (!storeId) return;
     setLoading(true);
     try {
-      const cfg = await getPOSConfig(storeId);
+      const [cfg, fuelCfg] = await Promise.all([
+        getPOSConfig(storeId),
+        getFuelSettings(storeId).catch(() => null),
+      ]);
       setRawConfig(cfg);
       setTenderMethods(cfg.vendorTenderMethods || DEFAULT_TENDER_METHODS);
       setGroceryEnabled(cfg.groceryEnabled ?? false);
       setEcomEnabled(cfg.ecomEnabled ?? false);
+      setLotteryEnabled(cfg.lottery?.enabled ?? true);
+      setFuelEnabled(fuelCfg?.enabled ?? false);
       if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
       if (cfg.ageLimits) setAgeLimits(prev => ({ ...prev, ...cfg.ageLimits }));
       setDirty(false);
@@ -109,10 +119,28 @@ export default function StoreSettings({ embedded }) {
     if (!storeId) { toast.error('Select a store first'); return; }
     setSaving(true);
     try {
-      await updatePOSConfig({
+      // POS-config write: carries lottery.enabled alongside the rest of
+      // the store-scoped JSON. Spread `rawConfig.lottery` first so we keep
+      // sibling keys (cashOnly, scanRequiredAtShiftEnd) intact.
+      const posSave = updatePOSConfig({
         storeId,
-        config: { ...rawConfig, vendorTenderMethods: tenderMethods, groceryEnabled, ecomEnabled, groceryConfig, ageLimits },
+        config: {
+          ...rawConfig,
+          vendorTenderMethods: tenderMethods,
+          groceryEnabled,
+          ecomEnabled,
+          groceryConfig,
+          ageLimits,
+          lottery: { ...(rawConfig.lottery || {}), enabled: lotteryEnabled },
+        },
       });
+      // Fuel-settings write: dedicated FuelSettings table row.
+      const fuelSave = updateFuelSettings({ storeId, enabled: fuelEnabled }).catch(err => {
+        // Don't block the rest of the save if fuel is first-time — worker
+        // upserts on write so the first save always succeeds.
+        console.warn('updateFuelSettings:', err?.response?.data?.error || err.message);
+      });
+      await Promise.all([posSave, fuelSave]);
       setDirty(false);
       setSaved(true);
       toast.success('Store settings saved');
@@ -286,6 +314,40 @@ export default function StoreSettings({ embedded }) {
                 </div>
                 <label className="ss-toggle">
                   <input type="checkbox" checked={ecomEnabled} onChange={() => { setEcomEnabled(!ecomEnabled); markDirty(); }} />
+                  <span className="ss-toggle-slider" />
+                </label>
+              </div>
+
+              {/* Lottery */}
+              <div className="ss-tender-item">
+                <div className="ss-tender-info">
+                  <span className="ss-tender-label">
+                    <Ticket size={13} style={{ marginRight: 6, verticalAlign: -2 }} />
+                    Enable Lottery Module
+                  </span>
+                  <span className="ss-tender-sub">
+                    Ticket sales & payouts at the POS, inventory management, shift reconciliation, and commission reports. When disabled, the Lottery button in the cashier app and the Lottery page in the portal are hidden.
+                  </span>
+                </div>
+                <label className="ss-toggle">
+                  <input type="checkbox" checked={lotteryEnabled} onChange={() => { setLotteryEnabled(!lotteryEnabled); markDirty(); }} />
+                  <span className="ss-toggle-slider" />
+                </label>
+              </div>
+
+              {/* Fuel */}
+              <div className="ss-tender-item">
+                <div className="ss-tender-info">
+                  <span className="ss-tender-label">
+                    <Fuel size={13} style={{ marginRight: 6, verticalAlign: -2 }} />
+                    Enable Fuel Module
+                  </span>
+                  <span className="ss-tender-sub">
+                    Fuel grades, pump pricing, pre-authorised pump sales, and end-of-day fuel reports. When disabled, the Fuel button in the cashier app and the Fuel page in the portal are hidden.
+                  </span>
+                </div>
+                <label className="ss-toggle">
+                  <input type="checkbox" checked={fuelEnabled} onChange={() => { setFuelEnabled(!fuelEnabled); markDirty(); }} />
                   <span className="ss-toggle-slider" />
                 </label>
               </div>
