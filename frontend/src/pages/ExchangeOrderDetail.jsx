@@ -338,13 +338,47 @@ function BuilderMode({
   const [results, setResults] = useState([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Keep latest props in a ref so the debounced callback doesn't capture stale values
+  const addLineRef = useRef(addLine);
+  const linesRef   = useRef(lines);
+  useEffect(() => { addLineRef.current = addLine; linesRef.current = lines; }, [addLine, lines]);
+
+  // Heuristic: a "barcode-like" query is all digits (6-14) after stripping spaces/dashes/dots
+  const isUpcLike = (q) => {
+    const digits = q.replace(/[\s\-\.]/g, '');
+    return /^\d{6,14}$/.test(digits);
+  };
 
   const runSearch = useCallback(async (q) => {
     if (!q || q.length < 2) { setResults([]); return; }
     setSearchBusy(true);
     try {
       const r = await searchCatalogProducts(q, { limit: 20 });
-      setResults(r.data || r || []);
+      const data = r.data || r || [];
+
+      // Barcode auto-add: exact UPC match → add and clear, no dropdown
+      if (isUpcLike(q) && data.length === 1) {
+        const hit = data[0];
+        const qDigits = q.replace(/\D/g, '');
+        const hitUpc  = (hit.upc || '').replace(/\D/g, '');
+        if (hitUpc && (hitUpc === qDigits || hitUpc.endsWith(qDigits) || qDigits.endsWith(hitUpc))) {
+          const already = linesRef.current.find(l => l.senderProductId === hit.id);
+          if (already) {
+            toast.info(`${hit.name} is already on this order.`);
+          } else {
+            addLineRef.current(hit);
+            toast.success(`Added ${hit.name}`);
+          }
+          setResults([]);
+          setSearch('');
+          searchInputRef.current?.focus();
+          return;
+        }
+      }
+
+      setResults(data);
     } catch { setResults([]); }
     finally { setSearchBusy(false); }
   }, []);
@@ -406,9 +440,20 @@ function BuilderMode({
           <div className="ex-search ex-search--lg">
             <Search size={14} />
             <input
-              placeholder="Search name, UPC, SKU, brand… (e.g. 'coca' or '04900004954')"
+              ref={searchInputRef}
+              placeholder="Scan or type name / UPC / SKU / brand…"
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => {
+                // Barcode scanners typically end with Enter. If there's exactly 1
+                // result visible, adding it on Enter gives the cashier-app feel.
+                if (e.key === 'Enter' && results.length === 1) {
+                  const hit = results[0];
+                  const already = lines.find(l => l.senderProductId === hit.id);
+                  if (!already) addLine(hit);
+                  setResults([]); setSearch('');
+                }
+              }}
               autoFocus
             />
             {searchBusy && <span className="ex-muted ex-muted--small">searching…</span>}
