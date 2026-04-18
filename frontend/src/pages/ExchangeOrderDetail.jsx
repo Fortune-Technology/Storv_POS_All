@@ -225,7 +225,7 @@ export default function ExchangeOrderDetail() {
   return (
     <div className="p-page eod-page">
       <header className="eod-header">
-        <button className="p-btn-ghost" onClick={() => navigate('/portal/exchange')}>
+        <button className="p-btn p-btn-ghost" onClick={() => navigate('/portal/exchange')}>
           <ArrowLeft size={15} /> Back to Exchange
         </button>
         <div className="eod-head-title">
@@ -399,32 +399,50 @@ function BuilderMode({
 
         {/* Product search */}
         <div className="p-card">
-          <div className="p-card-head"><h3>Add Products</h3></div>
+          <div className="p-card-head">
+            <h3><Plus size={14} /> Add Products</h3>
+            <span className="ex-muted ex-muted--small">Type to search your catalog</span>
+          </div>
           <div className="ex-search ex-search--lg">
             <Search size={14} />
             <input
-              placeholder="Search your catalog — name, UPC, SKU…"
+              placeholder="Search name, UPC, SKU, brand… (e.g. 'coca' or '04900004954')"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              autoFocus={!isNew}
+              autoFocus
             />
-            {searchBusy && <span className="ex-muted ex-muted--small">…</span>}
+            {searchBusy && <span className="ex-muted ex-muted--small">searching…</span>}
           </div>
+          {search.length > 0 && search.length < 2 && (
+            <div className="ex-muted ex-muted--small" style={{ marginTop: 6 }}>Keep typing — at least 2 characters…</div>
+          )}
+          {search.length >= 2 && !searchBusy && results.length === 0 && (
+            <div className="p-empty" style={{ marginTop: 10 }}>
+              No products match "<strong>{search}</strong>". Try a different term or UPC.
+            </div>
+          )}
           {results.length > 0 && search.length >= 2 && (
             <div className="eod-search-results">
               {results.map(p => {
                 const added = !!lines.find(l => l.senderProductId === p.id);
                 return (
-                  <div key={p.id} className={`eod-sr-row ${added ? 'eod-sr-added' : ''}`}>
+                  <div
+                    key={p.id}
+                    className={`eod-sr-row ${added ? 'eod-sr-added' : 'eod-sr-clickable'}`}
+                    onClick={() => !added && addLine(p)}
+                    role="button"
+                    tabIndex={added ? -1 : 0}
+                    onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && !added && addLine(p)}
+                  >
                     <div className="eod-sr-info">
                       <strong>{p.name}</strong>
                       <div className="ex-muted ex-muted--small">
-                        {p.upc || 'no UPC'} · {p.department?.name || ''} · cost {money(p.defaultCostPrice)}
+                        {p.upc || 'no UPC'} · {p.department?.name || '—'} · cost {money(p.defaultCostPrice)}
                       </div>
                     </div>
                     <button
-                      className="p-btn-ghost"
-                      onClick={() => addLine(p)}
+                      className="p-btn p-btn-ghost"
+                      onClick={(e) => { e.stopPropagation(); addLine(p); }}
                       disabled={added}
                     >
                       {added ? <>Added <Check size={13} /></> : <><Plus size={13} /> Add</>}
@@ -562,14 +580,14 @@ function BuilderMode({
           </div>
 
           <div className="eod-actions">
-            <button className="p-btn-primary eod-btn-send" disabled={!canSend || saving} onClick={onSend}>
+            <button className="p-btn p-btn-primary eod-btn-send" disabled={!canSend || saving} onClick={onSend}>
               <Send size={14} /> {saving ? 'Sending…' : 'Save & Send'}
             </button>
-            <button className="p-btn-ghost" disabled={saving || !partnerId || !lines.length} onClick={onSaveDraft}>
+            <button className="p-btn p-btn-ghost" disabled={saving || !partnerId || !lines.length} onClick={onSaveDraft}>
               <Save size={14} /> Save Draft
             </button>
             {onDelete && (
-              <button className="p-btn-ghost eod-btn-delete" onClick={onDelete}>
+              <button className="p-btn p-btn-ghost eod-btn-delete" onClick={onDelete}>
                 <Trash2 size={14} /> Delete Draft
               </button>
             )}
@@ -619,7 +637,7 @@ function SenderView({ order, onCancel }) {
           <h3>Order Summary</h3>
           <SummaryRows order={order} />
           <div className="eod-actions">
-            <button className="p-btn-ghost eod-btn-delete" onClick={onCancel}>
+            <button className="p-btn p-btn-ghost eod-btn-delete" onClick={onCancel}>
               <X size={14} /> Cancel This Order
             </button>
           </div>
@@ -761,7 +779,7 @@ function ReceiverConfirmMode({ order, onRefresh }) {
           <div>
             <h4>Confirm what you actually received</h4>
             <p>Adjust quantities down if some items are missing or damaged. Unknown products can be created in your catalog.</p>
-            <button className="p-btn-ghost" onClick={acceptAll}>
+            <button className="p-btn p-btn-ghost" onClick={acceptAll}>
               <Check size={14} /> Accept all as sent
             </button>
           </div>
@@ -806,8 +824,8 @@ function ReceiverConfirmMode({ order, onRefresh }) {
               rows={3}
             />
             <div className="eod-actions">
-              <button className="p-btn-ghost" onClick={() => setRejectMode(false)}>Cancel</button>
-              <button className="p-btn-primary eod-btn-reject" onClick={reject} disabled={saving || !rejectReason.trim()}>
+              <button className="p-btn p-btn-ghost" onClick={() => setRejectMode(false)}>Cancel</button>
+              <button className="p-btn p-btn-primary eod-btn-reject" onClick={reject} disabled={saving || !rejectReason.trim()}>
                 Reject Order
               </button>
             </div>
@@ -845,14 +863,14 @@ function ReceiverConfirmMode({ order, onRefresh }) {
 
           <div className="eod-actions">
             <button
-              className="p-btn-primary eod-btn-confirm"
+              className="p-btn p-btn-primary eod-btn-confirm"
               disabled={saving || !hasReceived || unmatched > 0}
               onClick={confirm}
             >
               <Check size={14} /> {saving ? 'Confirming…' : 'Confirm & Move Inventory'}
             </button>
             {!rejectMode && (
-              <button className="p-btn-ghost eod-btn-delete" onClick={() => setRejectMode(true)}>
+              <button className="p-btn p-btn-ghost eod-btn-delete" onClick={() => setRejectMode(true)}>
                 <X size={14} /> Reject Full Order
               </button>
             )}
@@ -958,7 +976,7 @@ function ConfirmRow({ row, item, update, taxEnabled }) {
                 onChange={e => setQuery(e.target.value)}
                 autoFocus
               />
-              <button className="p-btn-ghost" onClick={() => setPickerOpen(false)}><X size={13} /></button>
+              <button className="p-btn p-btn-ghost" onClick={() => setPickerOpen(false)}><X size={13} /></button>
             </div>
             {results.length > 0 && (
               <div className="eod-picker-results">

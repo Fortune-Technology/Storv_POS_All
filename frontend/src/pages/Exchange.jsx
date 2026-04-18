@@ -120,11 +120,11 @@ export default function Exchange() {
           <p>B2B wholesale between trading partners — orders, balances, and settlement.</p>
         </div>
         <div className="p-header-actions">
-          <button className="p-btn-ghost" onClick={refreshAll} disabled={loading}>
+          <button className="p-btn p-btn-ghost" onClick={refreshAll} disabled={loading}>
             <RefreshCw size={15} className={loading ? 'ex-spin' : ''} /> Refresh
           </button>
           {can('exchange.create') && (
-            <button className="p-btn-primary" onClick={() => navigate('/portal/exchange/new')}>
+            <button className="p-btn p-btn-primary" onClick={() => navigate('/portal/exchange/new')}>
               <Plus size={15} /> New Wholesale Order
             </button>
           )}
@@ -149,7 +149,7 @@ export default function Exchange() {
         ))}
       </div>
 
-      {tab === 'dashboard' && <DashboardTab kpi={kpi} orders={orders} balances={balances} navigate={navigate} />}
+      {tab === 'dashboard' && <DashboardTab kpi={kpi} orders={orders} balances={balances} navigate={navigate} myCode={myCode} onClaimCode={() => changeTab('settings')} />}
       {tab === 'orders'    && <OrdersTab orders={orders} loading={loading} onRefresh={refreshAll} navigate={navigate} />}
       {tab === 'balances'  && <BalancesTab balances={balances} summary={balanceSummary} partners={partners} onRefresh={refreshAll} />}
       {tab === 'partners'  && <PartnersTab partners={partners} pendingIn={pendingIn} onRefresh={refreshAll} can={can} />}
@@ -162,12 +162,35 @@ export default function Exchange() {
 // DASHBOARD TAB
 // ═══════════════════════════════════════════════════════════════
 
-function DashboardTab({ kpi, orders, balances, navigate }) {
+function DashboardTab({ kpi, orders, balances, navigate, myCode, onClaimCode }) {
   const recent = orders.slice(0, 8);
   const topBalances = balances.filter(b => Math.abs(b.netBalance) > 0.005).slice(0, 5);
+  const needsCode = !myCode?.storeCode;
 
   return (
     <div className="ex-dashboard">
+      {needsCode && (
+        <div className="ex-claim-banner">
+          <div className="ex-claim-banner-icon"><Settings2 size={22} /></div>
+          <div className="ex-claim-banner-text">
+            <h3>Claim your Store Code to get started</h3>
+            <p>Trading partners find you by a unique store code (like a username). Claim one now — you can share it with stores you want to trade with.</p>
+          </div>
+          <button className="p-btn p-btn-primary" onClick={onClaimCode}>
+            Claim Store Code →
+          </button>
+        </div>
+      )}
+      {!needsCode && (
+        <div className="ex-code-pill-row">
+          <span className="ex-muted ex-muted--small">Your Store Code:</span>
+          <code className="ex-code-pill">{myCode.storeCode}</code>
+          <button className="ex-link" onClick={() => { navigator.clipboard.writeText(myCode.storeCode); toast.success('Copied'); }}>
+            <Copy size={11} /> copy
+          </button>
+          <span className="ex-muted ex-muted--small">— share with partners so they can find you</span>
+        </div>
+      )}
       <div className="ex-kpi-grid">
         <KpiCard
           icon={<Inbox size={18} />}
@@ -469,7 +492,7 @@ function BalancesTab({ balances, summary, partners, onRefresh }) {
               </div>
               <div className="ex-balance-card-actions">
                 <button
-                  className="p-btn-primary"
+                  className="p-btn p-btn-primary"
                   disabled={b.direction === 'settled'}
                   onClick={() => setSettleModal({
                     partner: { id: b.partnerStoreId, name: b.partnerName },
@@ -491,7 +514,7 @@ function BalancesTab({ balances, summary, partners, onRefresh }) {
           <p>Want to record a pre-payment? Pick a partner:</p>
           <div className="ex-bal-prepay-list">
             {acceptedPartners.map(p => (
-              <button key={p.id} className="p-btn-ghost"
+              <button key={p.id} className="p-btn p-btn-ghost"
                 onClick={() => setSettleModal({ partner: { id: p.partner.id, name: p.partner.name }, direction: 'settled', amount: 0 })}>
                 {p.partner.name}
               </button>
@@ -585,8 +608,8 @@ function SettlementModal({ partner, direction, amount, onClose, onSaved }) {
           </div>
         </div>
         <div className="p-modal-foot">
-          <button className="p-btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="p-btn-primary" onClick={submit} disabled={saving}>
+          <button className="p-btn p-btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="p-btn p-btn-primary" onClick={submit} disabled={saving}>
             {saving ? 'Saving…' : 'Record Settlement'}
           </button>
         </div>
@@ -676,7 +699,7 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
                 onKeyDown={e => e.key === 'Enter' && doLookup()}
               />
             </div>
-            <button className="p-btn-primary" onClick={doLookup} disabled={lookupBusy || !lookupCode.trim()}>
+            <button className="p-btn p-btn-primary" onClick={doLookup} disabled={lookupBusy || !lookupCode.trim()}>
               {lookupBusy ? 'Looking up…' : 'Look up'}
             </button>
           </div>
@@ -703,7 +726,7 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
                     value={noteDraft}
                     onChange={e => setNoteDraft(e.target.value)}
                   />
-                  <button className="p-btn-primary" onClick={sendRequest}>
+                  <button className="p-btn p-btn-primary" onClick={sendRequest}>
                     <Handshake size={14} /> Send Partner Request
                   </button>
                 </div>
@@ -730,10 +753,10 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
                   {p.requestNote && <div className="ex-req-note">"{p.requestNote}"</div>}
                 </div>
                 <div className="ex-partner-actions">
-                  <button className="p-btn-primary" onClick={() => accept(p.id)}>
+                  <button className="p-btn p-btn-primary" onClick={() => accept(p.id)}>
                     <Check size={14} /> Accept
                   </button>
-                  <button className="p-btn-ghost" onClick={() => reject(p.id)}>
+                  <button className="p-btn p-btn-ghost" onClick={() => reject(p.id)}>
                     <X size={14} /> Decline
                   </button>
                 </div>
@@ -765,7 +788,7 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
                 </div>
                 <div className="ex-partner-actions">
                   {can('exchange.manage') && (
-                    <button className="p-btn-ghost ex-danger-btn" onClick={() => revoke(p.id)}>
+                    <button className="p-btn p-btn-ghost ex-danger-btn" onClick={() => revoke(p.id)}>
                       End Partnership
                     </button>
                   )}
@@ -792,7 +815,7 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
                   </div>
                 </div>
                 <div className="ex-partner-actions">
-                  <button className="p-btn-ghost" onClick={() => revoke(p.id)}>Cancel Request</button>
+                  <button className="p-btn p-btn-ghost" onClick={() => revoke(p.id)}>Cancel Request</button>
                 </div>
               </div>
             ))}
@@ -865,7 +888,7 @@ function SettingsTab({ myCode, onSaved, can }) {
               <span className="ex-muted ex-muted--small">Share with trading partners:</span>
               <div className="ex-code-display">
                 <span>{myCode.storeCode}</span>
-                <button className="p-btn-ghost" onClick={copyCode}><Copy size={14} /></button>
+                <button className="p-btn p-btn-ghost" onClick={copyCode}><Copy size={14} /></button>
               </div>
             </div>
             {isLocked && (
@@ -889,7 +912,7 @@ function SettingsTab({ myCode, onSaved, can }) {
                 maxLength={24}
               />
               <button
-                className="p-btn-primary"
+                className="p-btn p-btn-primary"
                 disabled={saving || checking || !check?.available || !isDirty}
                 onClick={save}
               >

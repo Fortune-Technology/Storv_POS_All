@@ -124,8 +124,9 @@
   gap: 12px;
 }
 .eod-sr-row:last-child { border-bottom: none; }
-.eod-sr-row:hover { background: var(--bg-hover, #f8fafc); }
-.eod-sr-added { opacity: 0.6; background: rgba(22, 163, 74, 0.04); }
+.eod-sr-clickable { cursor: pointer; }
+.eod-sr-clickable:hover { background: var(--brand-08, rgba(124,58,237,0.08)); }
+.eod-sr-added { opacity: 0.6; background: rgba(22, 163, 74, 0.04); cursor: not-allowed; }
 .eod-sr-info { flex: 1 1 auto; min-width: 0; }
 
 .eod-tax-toggle {

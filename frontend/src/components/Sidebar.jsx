@@ -120,9 +120,8 @@ const menuGroups = [
   {
     label: 'Storv Exchange',
     items: [
-      { name: 'Exchange Hub',     icon: <Repeat size={13} />,    path: '/portal/exchange' },
-      { name: 'Trading Partners', icon: <Handshake size={13} />, path: '/portal/exchange?tab=partners' },
-      { name: 'Partner Ledger',   icon: <FileText size={13} />,  path: '/portal/exchange?tab=balances' },
+      { name: 'Exchange',          icon: <Repeat size={13} />,    path: '/portal/exchange' },
+      { name: 'New Wholesale Order', icon: <Handshake size={13} />, path: '/portal/exchange/new' },
     ],
   },
   {

@@ -2,6 +2,53 @@
 
 .ex-page { }
 
+/* ── Claim Store Code banner (dashboard, unclaimed) ────────── */
+.ex-claim-banner {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 22px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(79, 70, 229, 0.08));
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-left: 4px solid #7c3aed;
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.ex-claim-banner-icon {
+  display: inline-flex;
+  width: 44px; height: 44px;
+  align-items: center; justify-content: center;
+  background: rgba(124, 58, 237, 0.18);
+  color: #7c3aed;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.ex-claim-banner-text { flex: 1 1 300px; min-width: 0; }
+.ex-claim-banner-text h3 { margin: 0 0 4px; font-size: 16px; color: var(--text-primary, #0f172a); }
+.ex-claim-banner-text p {
+  margin: 0; font-size: 13px; color: var(--text-secondary, #475569);
+}
+
+/* ── Code pill (dashboard, claimed) ───────────────────────── */
+.ex-code-pill-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 16px;
+  background: rgba(124, 58, 237, 0.04);
+  border: 1px dashed rgba(124, 58, 237, 0.25);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.ex-code-pill {
+  padding: 3px 10px;
+  background: #7c3aed;
+  color: #fff;
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  border-radius: 6px;
+}
+
 /* ── Tab badges ─────────────────────────────────────────────── */
 .ex-tab-badge {
   display: inline-flex;
