@@ -75,7 +75,22 @@ export async function computeUserPermissions(user, activeOrgId = null) {
   });
   userRoles.forEach(ur => roleIds.add(ur.roleId));
 
-  if (roleIds.size === 0) return [];
+  if (roleIds.size === 0) {
+    // Defence-in-depth: if a user claims a known full-access role but the
+    // matching Role row doesn't exist (seedRbac.js never ran), grant '*' so
+    // org owners don't get locked out of their own account. The proper fix
+    // is still `node prisma/seedRbac.js` — this is just a soft failover.
+    if (['owner', 'admin', 'superadmin'].includes(effectiveRoleKey)) {
+      try {
+        const { ALL_PERMISSIONS } = await import('./permissionCatalog.js');
+        const scope = effectiveRoleKey === 'superadmin' ? null /* both scopes */ : 'org';
+        return ALL_PERMISSIONS
+          .filter(p => scope === null || p.scope === scope)
+          .map(p => p.key);
+      } catch { /* catalog import failed — return empty below */ }
+    }
+    return [];
+  }
 
   // 3. Collect all permission keys across those roles
   const rolePerms = await prisma.rolePermission.findMany({

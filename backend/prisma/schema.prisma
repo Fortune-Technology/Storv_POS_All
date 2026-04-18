@@ -912,6 +912,15 @@ model Store {
 
   isActive  Boolean  @default(true)
   branding  Json?    @default("{}")
+
+  // ── Storv Exchange (B2B wholesale between stores) ──
+  // Globally unique human-friendly code used by trading partners to find
+  // and invite this store, e.g. "NORTH-MAIN" or "STV-4F9K2A". Claimable at
+  // creation, editable until first accepted partnership or first sent PO —
+  // locked thereafter (see storeCodeLockedAt).
+  storeCode         String?   @unique
+  storeCodeLockedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -924,7 +933,16 @@ model Store {
   feeMappings       FeeMapping[]
   vendorProductMaps VendorProductMap[]
 
+  // Storv Exchange back-relations
+  partnershipsOutgoing TradingPartner[] @relation("RequesterPartnerships")
+  partnershipsIncoming TradingPartner[] @relation("PartnerPartnerships")
+  wholesaleSent        WholesaleOrder[] @relation("WholesaleSender")
+  wholesaleReceived    WholesaleOrder[] @relation("WholesaleReceiver")
+  partnerBalancesA     PartnerBalance[] @relation("PartnerBalanceA")
+  partnerBalancesB     PartnerBalance[] @relation("PartnerBalanceB")
+
   @@index([orgId, isActive])
+  @@index([storeCode])
   @@map("stores")
 }
 
@@ -2719,4 +2737,330 @@ model FuelTransaction {
   @@index([orgId, storeId, createdAt])
   @@index([fuelTypeId])
   @@map("fuel_transactions")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STORV EXCHANGE  (B2B wholesale between independent stores)
+//
+// Design:
+//   - Each Store has a globally unique human-readable storeCode.
+//   - TradingPartner = handshake between two stores. Required before
+//     POs can flow. Either side can initiate; the other must accept.
+//   - WholesaleOrder = a sender-created list of products + qtys + cost.
+//     States: draft → sent → (confirmed | partially_confirmed | rejected | cancelled | expired).
+//     Inventory only moves on 'confirmed' or 'partially_confirmed'.
+//     Ledger entries only created on confirmation.
+//   - WholesaleOrderItem = line in the order with full snapshot of the
+//     product (name/upc/pack/deposit/tax) at send-time, so history
+//     survives MasterProduct deletion.
+//   - WholesaleOrderEvent = immutable state-change log per order.
+//   - PartnerBalance = materialized net balance per pair of stores.
+//     Canonicalized (storeAId < storeBId alphabetically).
+//     Positive balance = storeB owes storeA.
+//   - LedgerEntry = immutable log of every balance-affecting event
+//     (orders confirmed + settlements recorded).
+//   - Settlement = a cash/cheque/transfer payment between two stores.
+//     7-day dispute window before it locks.
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// TRADING PARTNER
+// A handshake between two stores. Either can initiate. Once accepted,
+// POs can flow in either direction freely.
+// ─────────────────────────────────────────────────
+model TradingPartner {
+  id               String    @id @default(cuid())
+  // Store that sent the initial request
+  requesterStoreId String
+  requesterOrgId   String
+  // Store being invited
+  partnerStoreId   String
+  partnerOrgId     String
+
+  // pending | accepted | rejected | revoked
+  status String @default("pending")
+
+  // Optional note shown to the recipient on their pending-requests list
+  requestNote    String?
+  requestedById  String
+  respondedById  String?
+  respondedAt    DateTime?
+  revokedAt      DateTime?
+  revokedById    String?
+  revokeReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requesterStore Store @relation("RequesterPartnerships", fields: [requesterStoreId], references: [id], onDelete: Cascade)
+  partnerStore   Store @relation("PartnerPartnerships", fields: [partnerStoreId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterStoreId, partnerStoreId])
+  @@index([partnerStoreId, status])
+  @@index([requesterStoreId, status])
+  @@index([partnerOrgId, status])
+  @@index([requesterOrgId, status])
+  @@map("trading_partners")
+}
+
+// ─────────────────────────────────────────────────
+// WHOLESALE ORDER
+// A B2B purchase order sent from one store to another. Treated as an
+// independent wholesale sale between two merchants — NOT an intra-company
+// inventory transfer. Each merchant is solely responsible for their own
+// licensing / compliance (liquor, tobacco, etc).
+// ─────────────────────────────────────────────────
+model WholesaleOrder {
+  id          String @id @default(cuid())
+  orderNumber String @unique // "WO-YYYYMMDD-XXXXX"
+
+  // Two-sided
+  senderStoreId   String
+  senderOrgId     String
+  receiverStoreId String
+  receiverOrgId   String
+
+  // draft | sent | confirmed | partially_confirmed | rejected | cancelled | expired
+  status String @default("draft")
+
+  // Totals (snapshot at latest state; recomputed on any line change)
+  subtotal     Decimal @default(0) @db.Decimal(12, 4) // Σ qty × unitCost
+  depositTotal Decimal @default(0) @db.Decimal(12, 4) // Σ qty × depositPerUnit
+  taxTotal     Decimal @default(0) @db.Decimal(12, 4) // Σ line taxAmount
+  grandTotal   Decimal @default(0) @db.Decimal(12, 4) // subtotal + depositTotal + taxTotal
+  // Receiver-confirmed totals (after partial-accept adjustments)
+  confirmedSubtotal   Decimal? @db.Decimal(12, 4)
+  confirmedDeposit    Decimal? @db.Decimal(12, 4)
+  confirmedTax        Decimal? @db.Decimal(12, 4)
+  confirmedGrandTotal Decimal? @db.Decimal(12, 4)
+
+  // Tax options
+  taxEnabled Boolean @default(false)
+
+  // Flagging
+  isInternalTransfer Boolean @default(false) // true when sender and receiver share an org
+  hasRestrictedItems Boolean @default(false) // true if any line has taxClass ∈ {alcohol, tobacco}
+
+  // Notes
+  senderNotes  String?
+  cancelReason String?
+  rejectReason String?
+
+  // Lifecycle
+  createdById   String
+  sentAt        DateTime?
+  sentById      String?
+  expiresAt     DateTime? // default: sentAt + 15 days
+  respondedAt   DateTime?
+  respondedById String?
+  confirmedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelledById String?
+  editedAt      DateTime?
+  editedById    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  senderStore   Store @relation("WholesaleSender", fields: [senderStoreId], references: [id], onDelete: Restrict)
+  receiverStore Store @relation("WholesaleReceiver", fields: [receiverStoreId], references: [id], onDelete: Restrict)
+
+  items         WholesaleOrderItem[]
+  events        WholesaleOrderEvent[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([senderStoreId, status])
+  @@index([receiverStoreId, status])
+  @@index([senderOrgId, createdAt])
+  @@index([receiverOrgId, createdAt])
+  @@index([status, expiresAt]) // for auto-expiry scan
+  @@map("wholesale_orders")
+}
+
+// ─────────────────────────────────────────────────
+// WHOLESALE ORDER ITEM
+// Product line with full snapshot at send-time.
+// ─────────────────────────────────────────────────
+model WholesaleOrderItem {
+  id      String @id @default(cuid())
+  orderId String
+
+  // Product references (nullable — product may be deleted later)
+  // Source: MasterProduct in sender's catalog
+  senderProductId Int?
+  // Target: MasterProduct in receiver's catalog (resolved on confirmation)
+  receiverProductId Int?
+
+  // Snapshot at send-time (authoritative once PO is sent, survives product deletion).
+  // Shape: { name, upc, brand, size, taxClass, departmentName, packUnits, packInCase,
+  //          depositPerUnit, ebtEligible, ageRequired, imageUrl }
+  productSnapshot Json
+
+  // Quantities
+  qtySent     Int
+  qtyReceived Int? // null until receiver confirms; may be < qtySent
+
+  // Pricing (sender's wholesale cost — what receiver pays)
+  unitCost Decimal @db.Decimal(10, 4)
+  lineCost Decimal @db.Decimal(12, 4) // qtySent × unitCost at send-time
+
+  // Deposit pass-through (per unit)
+  depositPerUnit Decimal? @db.Decimal(10, 4)
+  lineDeposit    Decimal  @default(0) @db.Decimal(12, 4) // qtySent × depositPerUnit
+
+  // Tax (per-line — only if order.taxEnabled)
+  taxable   Boolean  @default(false)
+  taxRate   Decimal? @db.Decimal(6, 4) // decimal rate, e.g. 0.055 = 5.5%
+  taxAmount Decimal  @default(0) @db.Decimal(12, 4)
+
+  // Line total including deposit + tax
+  lineTotal Decimal @default(0) @db.Decimal(12, 4)
+
+  // Dispute log (only populated when qtyReceived < qtySent or disputed)
+  disputeNote String?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order WholesaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("wholesale_order_items")
+}
+
+// ─────────────────────────────────────────────────
+// WHOLESALE ORDER EVENT
+// Immutable audit trail of state changes per order.
+// ─────────────────────────────────────────────────
+model WholesaleOrderEvent {
+  id      String @id @default(cuid())
+  orderId String
+
+  // created | edited | sent | viewed | confirmed | partially_confirmed |
+  // rejected | cancelled | expired | disputed | inventory_moved | ledger_posted
+  eventType   String
+  description String?
+  actorId     String?
+  actorName   String?
+  // Event-specific data (e.g. { fromStatus, toStatus, deltaTotal })
+  payload     Json?
+
+  createdAt DateTime @default(now())
+
+  order WholesaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("wholesale_order_events")
+}
+
+// ─────────────────────────────────────────────────
+// PARTNER BALANCE
+// Materialized net balance per pair of stores. Canonicalized so there's
+// only one row per pair (storeAId < storeBId).
+// Convention: balance > 0 means storeB owes storeA. balance < 0 means
+// storeA owes storeB. Zero = settled.
+// This is a read cache; LedgerEntry is the source of truth.
+// ─────────────────────────────────────────────────
+model PartnerBalance {
+  id       String @id @default(cuid())
+  storeAId String
+  storeBId String
+
+  balance Decimal @default(0) @db.Decimal(14, 4)
+
+  lastActivityAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  storeA Store @relation("PartnerBalanceA", fields: [storeAId], references: [id], onDelete: Cascade)
+  storeB Store @relation("PartnerBalanceB", fields: [storeBId], references: [id], onDelete: Cascade)
+
+  @@unique([storeAId, storeBId])
+  @@index([storeAId])
+  @@index([storeBId])
+  @@map("partner_balances")
+}
+
+// ─────────────────────────────────────────────────
+// LEDGER ENTRY
+// Immutable entry for every balance-changing event between two stores.
+// Canonicalized to match PartnerBalance (storeAId < storeBId).
+// direction indicates which side the amount flows toward.
+// ─────────────────────────────────────────────────
+model LedgerEntry {
+  id       String @id @default(cuid())
+  storeAId String
+  storeBId String
+
+  // "A_OWES_B" means balance decreases (A paying/shipping goods to B on credit? no —
+  // when A receives goods, A owes the sender; so if A received from B, "A_OWES_B").
+  // More simply, we express as a signed delta applied to PartnerBalance.balance:
+  //   direction = "B_OWES_A"  →  balance += amount  (B owes A more)
+  //   direction = "A_OWES_B"  →  balance -= amount  (A owes B more; balance can go negative)
+  direction String
+
+  amount       Decimal @db.Decimal(14, 4)
+  balanceAfter Decimal @db.Decimal(14, 4) // snapshot for audit
+
+  // wholesale_order | settlement | adjustment | internal_transfer
+  entryType String
+
+  wholesaleOrderId String?
+  settlementId     String?
+  description      String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+
+  wholesaleOrder WholesaleOrder? @relation(fields: [wholesaleOrderId], references: [id], onDelete: SetNull)
+  settlement     Settlement?     @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([storeAId, storeBId, createdAt])
+  @@index([wholesaleOrderId])
+  @@index([settlementId])
+  @@map("partner_ledger_entries")
+}
+
+// ─────────────────────────────────────────────────
+// SETTLEMENT
+// A recorded payment between two stores. One-sided recording with a
+// 7-day silent-accept dispute window before it locks.
+// ─────────────────────────────────────────────────
+model Settlement {
+  id       String @id @default(cuid())
+  // Canonical pair (alphabetical)
+  storeAId String
+  storeBId String
+
+  // Directional (actual payer → payee)
+  payerStoreId String
+  payeeStoreId String
+
+  amount Decimal @db.Decimal(12, 4)
+
+  // cash | check | bank_transfer | zelle | venmo | other
+  method    String
+  methodRef String? // check #, transaction ID, last 4 etc.
+  note      String?
+
+  // pending (within dispute window) | accepted | disputed
+  status              String    @default("pending")
+  disputeWindowEndsAt DateTime
+
+  recordedById String
+  recordedAt   DateTime @default(now())
+
+  disputedAt     DateTime?
+  disputedById   String?
+  disputeReason  String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([storeAId, storeBId, recordedAt])
+  @@index([status, disputeWindowEndsAt]) // for auto-accept scan
+  @@map("partner_settlements")
 }

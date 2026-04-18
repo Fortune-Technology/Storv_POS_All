@@ -537,4 +537,45 @@ export const getUserRolesApi    = (userId)             => api.get(`/roles/users/
 export const setUserRolesApi    = (userId, roleIds)    => api.put(`/roles/users/${userId}/roles`, { roleIds }).then(r => r.data);
 export const getMyPermissions   = ()                   => api.get('/roles/me/permissions').then(r => r.data);
 
+// ─── Storv Exchange ──────────────────────────────────────────────────────────
+const exchangeUnwrap = (r) => r.data?.data ?? r.data;
+const exchangeFull   = (r) => r.data;
+
+// Store Code
+export const getMyStoreCode        = ()          => api.get('/exchange/store-code').then(exchangeUnwrap);
+export const checkStoreCode        = (code)      => api.get('/exchange/store-code/check', { params: { code } }).then(exchangeUnwrap);
+export const setMyStoreCode        = (code)      => api.put('/exchange/store-code', { code }).then(exchangeUnwrap);
+export const lookupStoreByCode     = (code)      => api.get(`/exchange/lookup/${encodeURIComponent(code)}`).then(exchangeUnwrap);
+
+// Trading Partners
+export const listTradingPartners        = ()                 => api.get('/exchange/partners').then(exchangeUnwrap);
+export const listAcceptedPartners       = ()                 => api.get('/exchange/partners/accepted').then(exchangeUnwrap);
+export const listPendingPartnerRequests = ()                 => api.get('/exchange/partners/pending-incoming').then(exchangeFull);
+export const sendPartnerRequest         = (data)             => api.post('/exchange/partners', data).then(exchangeUnwrap);
+export const acceptPartnerRequest       = (id)               => api.post(`/exchange/partners/${id}/accept`).then(exchangeUnwrap);
+export const rejectPartnerRequest       = (id, reason)       => api.post(`/exchange/partners/${id}/reject`, { reason }).then(exchangeUnwrap);
+export const revokePartnership          = (id, reason)       => api.post(`/exchange/partners/${id}/revoke`, { reason }).then(exchangeUnwrap);
+
+// Wholesale Orders
+export const listWholesaleOrders  = (params)          => api.get('/exchange/orders', { params }).then(exchangeFull);
+export const getWholesaleOrder    = (id)              => api.get(`/exchange/orders/${id}`).then(exchangeUnwrap);
+export const createWholesaleOrder = (data)            => api.post('/exchange/orders', data).then(exchangeUnwrap);
+export const updateWholesaleOrder = (id, data)        => api.put(`/exchange/orders/${id}`, data).then(exchangeUnwrap);
+export const deleteWholesaleDraft = (id)              => api.delete(`/exchange/orders/${id}`).then(exchangeUnwrap);
+export const sendWholesaleOrder   = (id)              => api.post(`/exchange/orders/${id}/send`).then(exchangeUnwrap);
+export const cancelWholesaleOrder = (id, reason)      => api.post(`/exchange/orders/${id}/cancel`, { reason }).then(exchangeUnwrap);
+export const rejectWholesaleOrder = (id, reason)      => api.post(`/exchange/orders/${id}/reject`, { reason }).then(exchangeUnwrap);
+export const confirmWholesaleOrder= (id, lines)       => api.post(`/exchange/orders/${id}/confirm`, { lines }).then(exchangeUnwrap);
+
+// Partner Ledger / Balances
+export const listPartnerBalances = ()                   => api.get('/exchange/balances').then(exchangeFull);
+export const getPartnerLedger    = (partnerStoreId)     => api.get(`/exchange/balances/${partnerStoreId}/ledger`).then(exchangeUnwrap);
+export const recordSettlement    = (data)               => api.post('/exchange/settlements', data).then(exchangeUnwrap);
+export const listSettlements     = (params)             => api.get('/exchange/settlements', { params }).then(exchangeUnwrap);
+export const disputeSettlement   = (id, reason)         => api.post(`/exchange/settlements/${id}/dispute`, { reason }).then(exchangeUnwrap);
+export const resolveSettlement   = (id)                 => api.post(`/exchange/settlements/${id}/resolve`).then(exchangeUnwrap);
+
+// Unified Report
+export const getExchangeReport = (params) => api.get('/exchange/report', { params }).then(exchangeFull);
+
 export default api;

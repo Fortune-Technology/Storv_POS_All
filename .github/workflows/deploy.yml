@@ -54,6 +54,13 @@ jobs:
             fi
           done
 
+          # Seed / refresh RBAC system roles + permission catalog.
+          # Idempotent — creates missing roles, adds missing permission rows,
+          # and syncs legacy `User.role` → UserRole assignments for every user.
+          # Must run AFTER migrations so the roles / permissions tables exist.
+          echo "→ Running RBAC seed (creates missing system roles + perms)"
+          node prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
+
           pm2 restart api-pos || pm2 restart storv-pos-backend || echo "PM2 restart attempted"
           pm2 save
 

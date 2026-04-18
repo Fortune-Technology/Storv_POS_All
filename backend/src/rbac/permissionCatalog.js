@@ -39,6 +39,7 @@ const ORG_MODULES = [
   { module: 'pos_config',      label: 'POS Configuration',   actions: ['view','edit'] },
   { module: 'rules_fees',      label: 'Rules & Fees',        actions: ['view','edit'] },
   { module: 'ecom',            label: 'Online Store / E-commerce', actions: ['view','edit','manage'] },
+  { module: 'exchange',        label: 'Storv Exchange (B2B)', actions: ['view','create','receive','settle','manage'], desc: 'Send wholesale POs to trading partners, confirm incoming orders, record settlements' },
   { module: 'support',         label: 'Support Tickets',     actions: ['view','create','edit'] },
   { module: 'billing',         label: 'Billing & Plan',      actions: ['view','edit'] },
   { module: 'audit',           label: 'Audit Log',           actions: ['view'] },
@@ -82,7 +83,10 @@ function expand(modules, scope) {
 }
 
 function actionLabel(a) {
-  return { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', manage: 'Manage' }[a] || a;
+  return {
+    view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete',
+    manage: 'Manage', receive: 'Receive / Confirm', settle: 'Record Settlement',
+  }[a] || a;
 }
 
 export const ALL_PERMISSIONS = [
@@ -146,6 +150,7 @@ export const SYSTEM_ROLES = [
       'audit.view',
       'tasks.view','tasks.create','tasks.edit','tasks.delete',
       'chat.view','chat.create',
+      'exchange.view','exchange.create','exchange.receive',
     ],
   },
   {

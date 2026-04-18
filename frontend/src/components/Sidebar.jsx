@@ -41,6 +41,8 @@ import {
   CreditCard,
   CheckSquare,
   Shield,
+  Handshake,
+  Repeat,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
@@ -113,6 +115,14 @@ const menuGroups = [
       { name: 'Store Setup',     icon: <Settings2 size={13} />,    path: '/portal/ecom/setup' },
       { name: 'Online Orders',   icon: <ShoppingCart size={13} />,  path: '/portal/ecom/orders' },
       { name: 'Analytics',       icon: <BarChart2 size={13} />,    path: '/portal/ecom/analytics' },
+    ],
+  },
+  {
+    label: 'Storv Exchange',
+    items: [
+      { name: 'Exchange Hub',     icon: <Repeat size={13} />,    path: '/portal/exchange' },
+      { name: 'Trading Partners', icon: <Handshake size={13} />, path: '/portal/exchange?tab=partners' },
+      { name: 'Partner Ledger',   icon: <FileText size={13} />,  path: '/portal/exchange?tab=balances' },
     ],
   },
   {

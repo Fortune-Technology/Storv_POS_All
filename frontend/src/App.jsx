@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams, useN
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import EcomOrderNotifier from './components/EcomOrderNotifier';
+import ExchangeNotifier from './components/ExchangeNotifier';
 import InactivityLock from './components/InactivityLock';
 
 // Marketing Pages
@@ -76,6 +77,8 @@ import EcomAnalytics     from './pages/EcomAnalytics';
 import EcomCustomers     from './pages/EcomCustomers';
 import Lottery from './pages/Lottery';
 import Fuel from './pages/Fuel';
+import Exchange from './pages/Exchange';
+import ExchangeOrderDetail from './pages/ExchangeOrderDetail';
 import ReportsHub from './pages/ReportsHub';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
@@ -173,6 +176,7 @@ function App() {
       <StoreProvider>
       <ToastContainer theme="dark" position="top-right" />
       <EcomOrderNotifier />
+      <ExchangeNotifier />
       <InactivityLock />
       <Routes>
         {/* ── Equipment Shop (Public) ─────────────────────────────────── */}
@@ -277,6 +281,12 @@ function App() {
 
           {/* ── Fuel ──────────────────────────────────────────────────── */}
           <Route path="/portal/fuel"             element={gated(<Fuel />)} />
+
+          {/* ── Storv Exchange (B2B wholesale) ────────────────────────── */}
+          <Route path="/portal/exchange"              element={gated(<Exchange />)} />
+          <Route path="/portal/exchange/new"          element={gated(<ExchangeOrderDetail />)} />
+          <Route path="/portal/exchange/orders/:id"   element={gated(<ExchangeOrderDetail />)} />
+
           <Route path="/portal/reports"          element={gated(<ReportsHub />)} />
           <Route path="/portal/support-tickets"  element={gated(<SupportTickets />)} />
 

@@ -207,6 +207,125 @@ export async function sendTransferCompleted(to, { formerOwnerName, newOwnerName,
   return sendMail(to, `Ownership transfer complete: ${orgName}`, html);
 }
 
+// ─── Storv Exchange templates ────────────────────────────────────────────────
+
+const PORTAL_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173';
+const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+
+export async function sendPartnerHandshakeRequest(to, { requesterName, requesterCode, partnerName, requestNote }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=partners`;
+  const html = wrap('New trading partner request', `
+    <h2>Hi there,</h2>
+    <p><strong>${escapeHtml(requesterName)}</strong> (${escapeHtml(requesterCode || '')}) has requested to trade with <strong>${escapeHtml(partnerName)}</strong> on Storv Exchange.</p>
+    ${requestNote ? `<p style="padding:12px;background:#f8fafc;border-radius:8px;font-style:italic">"${escapeHtml(requestNote)}"</p>` : ''}
+    <p>Once you accept, either store can send wholesale purchase orders to the other.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Review Request</a></p>
+    <p class="muted">Each merchant is solely responsible for their own licensing and compliance (liquor, tobacco, etc).</p>
+  `);
+  return sendMail(to, `New trading partner request from ${requesterName}`, html);
+}
+
+export async function sendPartnerHandshakeAccepted(to, { requesterName, partnerName, partnerCode }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=orders`;
+  const html = wrap('Partnership accepted!', `
+    <h2>Good news, ${escapeHtml(requesterName)}!</h2>
+    <p><strong>${escapeHtml(partnerName)}</strong> (${escapeHtml(partnerCode || '')}) has accepted your trading partner request.</p>
+    <p>You can now send wholesale purchase orders to each other.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Create a Wholesale Order</a></p>
+  `);
+  return sendMail(to, `${partnerName} accepted your trading request`, html);
+}
+
+export async function sendWholesaleOrderReceived(to, { orderNumber, senderName, senderCode, grandTotal, expiresAt }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=orders&direction=incoming`;
+  const expires = expiresAt ? new Date(expiresAt).toLocaleDateString() : null;
+  const html = wrap('New wholesale order received', `
+    <h2>Action required</h2>
+    <p>You've received a new wholesale purchase order from <strong>${escapeHtml(senderName)}</strong> (${escapeHtml(senderCode || '')}).</p>
+    <table style="width:100%;font-size:14px;margin:16px 0;border-collapse:collapse;">
+      <tr><td style="padding:8px 0;color:#94a3b8">Order #</td><td style="padding:8px 0"><strong>${escapeHtml(orderNumber)}</strong></td></tr>
+      <tr><td style="padding:8px 0;color:#94a3b8">Total</td><td style="padding:8px 0"><strong>${money(grandTotal)}</strong></td></tr>
+      ${expires ? `<tr><td style="padding:8px 0;color:#94a3b8">Expires</td><td style="padding:8px 0">${expires}</td></tr>` : ''}
+    </table>
+    <p>Review the order, adjust received quantities if needed, and confirm to move the inventory into your store.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Review Order</a></p>
+  `);
+  return sendMail(to, `[Exchange] New order ${orderNumber} from ${senderName}`, html);
+}
+
+export async function sendWholesaleOrderConfirmed(to, { orderNumber, receiverName, grandTotal, status }) {
+  const label = status === 'partially_confirmed' ? 'Partially confirmed' : 'Confirmed';
+  const url = `${PORTAL_URL()}/portal/exchange?tab=balances`;
+  const html = wrap(`Order ${label}`, `
+    <h2>Order ${escapeHtml(orderNumber)} — ${label}</h2>
+    <p><strong>${escapeHtml(receiverName)}</strong> has ${label.toLowerCase()} your wholesale order.</p>
+    <p style="font-size:20px;margin:16px 0"><strong>${money(grandTotal)}</strong> added to your partner ledger as a credit.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">View Partner Balances</a></p>
+  `);
+  return sendMail(to, `[Exchange] Order ${orderNumber} ${label.toLowerCase()}`, html);
+}
+
+export async function sendWholesaleOrderRejected(to, { orderNumber, receiverName, reason }) {
+  const html = wrap('Order rejected', `
+    <h2>Order ${escapeHtml(orderNumber)} — rejected</h2>
+    <p><strong>${escapeHtml(receiverName)}</strong> has declined your wholesale order.</p>
+    ${reason ? `<p style="padding:12px;background:#fef2f2;border-left:3px solid #ef4444;border-radius:4px">Reason: ${escapeHtml(reason)}</p>` : ''}
+    <p class="muted">No inventory moved. No ledger entry was created.</p>
+  `);
+  return sendMail(to, `[Exchange] Order ${orderNumber} rejected`, html);
+}
+
+export async function sendWholesaleOrderCancelled(to, { orderNumber, senderName, reason }) {
+  const html = wrap('Order cancelled', `
+    <h2>Order ${escapeHtml(orderNumber)} — cancelled</h2>
+    <p><strong>${escapeHtml(senderName)}</strong> has cancelled the wholesale order they sent you.</p>
+    ${reason ? `<p style="padding:12px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:4px">Reason: ${escapeHtml(reason)}</p>` : ''}
+    <p class="muted">No action required.</p>
+  `);
+  return sendMail(to, `[Exchange] Order ${orderNumber} cancelled`, html);
+}
+
+export async function sendWholesaleOrderEdited(to, { orderNumber, senderName, grandTotal }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=orders&direction=incoming`;
+  const html = wrap('Order updated — please re-review', `
+    <h2>Order ${escapeHtml(orderNumber)} was updated</h2>
+    <p><strong>${escapeHtml(senderName)}</strong> has updated the wholesale order they sent you.</p>
+    <p>New total: <strong>${money(grandTotal)}</strong></p>
+    <p>Please re-review the updated items and confirm or reject.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Re-review Order</a></p>
+  `);
+  return sendMail(to, `[Exchange] Order ${orderNumber} was updated`, html);
+}
+
+export async function sendSettlementRecorded(to, { method, amount, methodRef, note, disputeWindowEndsAt, paidByMe }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=balances`;
+  const windowEnds = new Date(disputeWindowEndsAt).toLocaleDateString();
+  const action = paidByMe ? 'You paid your trading partner' : 'Your trading partner recorded a payment from you';
+  const html = wrap('Settlement recorded', `
+    <h2>${escapeHtml(action)}</h2>
+    <table style="width:100%;font-size:14px;margin:16px 0;border-collapse:collapse;">
+      <tr><td style="padding:8px 0;color:#94a3b8">Amount</td><td style="padding:8px 0"><strong>${money(amount)}</strong></td></tr>
+      <tr><td style="padding:8px 0;color:#94a3b8">Method</td><td style="padding:8px 0">${escapeHtml(method)}${methodRef ? ' #' + escapeHtml(methodRef) : ''}</td></tr>
+      ${note ? `<tr><td style="padding:8px 0;color:#94a3b8">Note</td><td style="padding:8px 0">${escapeHtml(note)}</td></tr>` : ''}
+    </table>
+    <p>If this doesn't match your records, you can dispute it until <strong>${windowEnds}</strong> (7-day window). After that it locks in automatically.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">View Ledger</a></p>
+  `);
+  return sendMail(to, `[Exchange] Settlement ${money(amount)} recorded`, html);
+}
+
+export async function sendSettlementDisputed(to, { amount, method, reason }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=balances`;
+  const html = wrap('Settlement disputed', `
+    <h2>A settlement was disputed</h2>
+    <p>A ${money(amount)} settlement you recorded via <strong>${escapeHtml(method)}</strong> has been disputed by your trading partner.</p>
+    ${reason ? `<p style="padding:12px;background:#fef2f2;border-left:3px solid #ef4444;border-radius:4px">Reason: ${escapeHtml(reason)}</p>` : ''}
+    <p>Please contact your partner to reconcile, then one party can mark the settlement resolved.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">View Settlement</a></p>
+  `);
+  return sendMail(to, `[Exchange] Settlement disputed (${money(amount)})`, html);
+}
+
 // Minimal HTML escape for template interpolation
 function escapeHtml(s) {
   if (s == null) return '';
