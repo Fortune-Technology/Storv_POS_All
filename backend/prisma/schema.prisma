@@ -468,6 +468,27 @@ model ProductPackSize {
 }
 
 // ─────────────────────────────────────────────────
+// GLOBAL PRODUCT IMAGE  (cross-org image cache by UPC)
+// Shared image lookup: if a product has no imageUrl,
+// fall back to this table using stripped UPC.
+// ─────────────────────────────────────────────────
+model GlobalProductImage {
+  id            String    @id @default(cuid())
+  strippedUpc   String    @unique         // UPC with ALL leading zeros removed (match key)
+  originalUpc   String?                   // original UPC for audit / display
+  imageUrl      String                    // external or re-hosted image URL
+  rehostedUrl   String?                   // our CDN URL after re-hosting (Phase 3)
+  source        String    @default("import") // "import" | "manual" | "api"
+  productName   String?                   // denormalized name for admin display
+  brand         String?                   // denormalized brand
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([strippedUpc])
+  @@map("global_product_images")
+}
+
+// ─────────────────────────────────────────────────
 // STORE PRODUCT (Store-level inventory)
 // Price overrides, stock levels, and store-specific
 // settings for each product at each location.

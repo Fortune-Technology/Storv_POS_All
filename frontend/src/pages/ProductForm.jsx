@@ -27,7 +27,7 @@ import {
   getProductPackSizes, bulkReplaceProductPackSizes,
   getPOSConfig, getProduct52WeekStats,
   duplicateCatalogProduct, listProductGroups,
-  getCatalogTaxRules,
+  getCatalogTaxRules, uploadProductImage,
 } from '../services/api';
 import './ProductForm.css';
 import { toast } from 'react-toastify';
@@ -35,7 +35,7 @@ import {
   ChevronLeft, Save, Package, Building2, Truck, X, Plus,
   Trash2, Settings, DollarSign, Info, Check, Tag, Percent,
   Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle, Barcode, Layers,
-  Copy, Users as UsersIcon,
+  Copy, Users as UsersIcon, Upload, Image, Link2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -692,7 +692,7 @@ export default function ProductForm() {
   // ── Core form ────────────────────────────────────────────────────────────────
   const blank = {
     name: '', brand: '', upc: '', description: '',
-    productGroupId: '',
+    productGroupId: '', imageUrl: '',
     departmentId: '', vendorId: '', itemCode: '',
     taxClass: 'grocery', taxable: true,
     defaultCasePrice: '', defaultCostPrice: '', defaultRetailPrice: '',
@@ -769,6 +769,7 @@ export default function ProductForm() {
           upc:                p.upc               ?? '',
           description:        p.description       ?? '',
           productGroupId:     p.productGroupId != null ? String(p.productGroupId) : '',
+          imageUrl:           p.imageUrl           ?? '',
           departmentId:       p.departmentId      ?? '',
           vendorId:           p.vendorId          ?? '',
           itemCode:           p.itemCode          ?? '',
@@ -1120,6 +1121,7 @@ export default function ProductForm() {
         brand:              form.brand            || null,
         upc:                form.upc              || null,
         description:        form.description      || null,
+        imageUrl:           form.imageUrl         || null,
         productGroupId:     form.productGroupId   ? parseInt(form.productGroupId) : null,
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
@@ -1273,6 +1275,55 @@ export default function ProductForm() {
 
             {/* ══ LEFT COLUMN ══════════════════════════════════════════════════ */}
             <div>
+
+              {/* ── 0. Product Image ── */}
+              <div className="pf-card pf-image-card">
+                <div className="pf-section-title"><Image size={14} /> Product Image</div>
+                <div className="pf-image-body">
+                  <div className="pf-image-preview">
+                    {form.imageUrl ? (
+                      <img src={form.imageUrl} alt="Product" className="pf-image-thumb"
+                        onError={e => { e.target.style.display = 'none'; }} />
+                    ) : (
+                      <div className="pf-image-empty">
+                        <Image size={32} />
+                        <span>No image</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="pf-image-controls">
+                    <div className="pf-image-url-row">
+                      <Link2 size={14} />
+                      <input className="form-input pf-full" value={form.imageUrl}
+                        onChange={e => setF('imageUrl', e.target.value)}
+                        placeholder="https://example.com/product.jpg" />
+                    </div>
+                    {isEdit && (
+                      <label className="pf-image-upload-btn">
+                        <Upload size={14} /> Upload Image
+                        <input type="file" accept="image/*" hidden
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
+                            try {
+                              const res = await uploadProductImage(id, file);
+                              setF('imageUrl', res.imageUrl);
+                              toast.success('Image uploaded');
+                            } catch (err) {
+                              toast.error(err.response?.data?.error || 'Upload failed');
+                            }
+                          }} />
+                      </label>
+                    )}
+                    {form.imageUrl && (
+                      <button type="button" className="pf-image-remove" onClick={() => setF('imageUrl', '')}>
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* ── 1. Product Info (2-col: UPC+Name | Department+Tax) ── */}
               <div className="pf-card">

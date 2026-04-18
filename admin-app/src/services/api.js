@@ -136,4 +136,8 @@ export const adminUpdateEquipmentOrder   = (id, data) => api.put(`/admin/billing
 export const downloadDatabaseBackup = (target, format = 'sql') =>
   api.get(`/admin/backup/${target}`, { params: { format }, responseType: 'blob' });
 
+// ── Image Re-hosting ─────────────────────────────────────────────────────────
+export const getImageRehostStatus = ()           => api.get('/admin/images/rehost-status').then(r => r.data);
+export const triggerImageRehost   = (batchSize)  => api.post('/admin/images/rehost', { batchSize }).then(r => r.data);
+
 export default api;

@@ -474,6 +474,13 @@ export const getProductUpcs    = (id)       => api.get(`/catalog/products/${id}/
 export const addProductUpc     = (id, data) => api.post(`/catalog/products/${id}/upcs`, data).then(r => r.data);
 export const deleteProductUpc  = (id, upcId)=> api.delete(`/catalog/products/${id}/upcs/${upcId}`).then(r => r.data);
 
+// ── Product Image Upload ─────────────────────────────────────────────────
+export const uploadProductImage = (id, file) => {
+  const fd = new FormData();
+  fd.append('image', file);
+  return api.post(`/catalog/products/${id}/image`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
+
 // ── Product Pack Sizes ────────────────────────────────────────────────────
 export const getProductPackSizes       = (id)           => api.get(`/catalog/products/${id}/pack-sizes`).then(r => r.data);
 export const addProductPackSize        = (id, data)     => api.post(`/catalog/products/${id}/pack-sizes`, data).then(r => r.data);

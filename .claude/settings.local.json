@@ -65,7 +65,12 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('catalogColumns:', d.get\\('catalogColumns'\\)\\)\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('ageLimits:', d.get\\('ageLimits'\\)\\)\")",
       "Bash(python -c ' *)",
-      "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\)['todaySales']; print\\(f\\\\\"gross={t['grossSales']} net={t['netSales']}\\\\\"\\)\")"
+      "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\)['todaySales']; print\\(f\\\\\"gross={t['grossSales']} net={t['netSales']}\\\\\"\\)\")",
+      "Bash(sed -i 's/padding: 5px 14px; border-radius: 999px;/padding: 5px 14px; border-radius: 8px;/' frontend/src/pages/InvoiceImport.css)",
+      "Bash(sed -i 's/padding: 0.4rem 0.85rem; border-radius: 20px;/padding: 0.4rem 0.85rem; border-radius: 8px;/' frontend/src/pages/POSSettings.css)",
+      "Bash(awk -F'\",\"' '{print $21}')",
+      "Bash(python3 -c ' *)",
+      "Bash(grep -E \"\\\\.\\(js|jsx\\)$\")"
     ]
   }
 }

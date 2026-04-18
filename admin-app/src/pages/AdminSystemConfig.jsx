@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, Trash2, Loader, Settings, Database, Download, FileText, FileArchive } from 'lucide-react';
+import { Plus, Save, Trash2, Loader, Settings, Database, Download, FileText, FileArchive, Image, Play, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 
-import { getAdminSystemConfig, updateAdminSystemConfig, downloadDatabaseBackup } from '../services/api';
+import { getAdminSystemConfig, updateAdminSystemConfig, downloadDatabaseBackup, getImageRehostStatus, triggerImageRehost } from '../services/api';
 import '../styles/admin.css';
 import './AdminSystemConfig.css';
 
@@ -34,6 +34,32 @@ const AdminSystemConfig = () => {
     if (!newKey.trim() || !newValue.trim()) { toast.error('Key and value are required'); return; }
     await handleSave(newKey.trim(), newValue.trim(), newDesc.trim() || null);
     setNewKey(''); setNewValue(''); setNewDesc('');
+  };
+
+  /* ── Image Re-hosting logic ─────────────────────────────── */
+  const [rehostStatus, setRehostStatus] = useState(null);
+  const [rehostRunning, setRehostRunning] = useState(false);
+  const [rehostResult, setRehostResult] = useState(null);
+
+  const fetchRehostStatus = async () => {
+    try { setRehostStatus(await getImageRehostStatus()); }
+    catch { /* ignore — feature may not be deployed yet */ }
+  };
+  useEffect(() => { fetchRehostStatus(); }, []);
+
+  const handleRehost = async () => {
+    setRehostRunning(true);
+    setRehostResult(null);
+    try {
+      const res = await triggerImageRehost(200);
+      setRehostResult(res);
+      toast.success(`Re-hosted ${res.succeeded} images (${res.failed} failed, ${res.remaining} remaining)`);
+      fetchRehostStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Re-hosting failed');
+    } finally {
+      setRehostRunning(false);
+    }
   };
 
   /* ── Backup logic ──────────────────────────────────────── */
@@ -133,6 +159,65 @@ const AdminSystemConfig = () => {
             ))}
           </div>
         </div>
+
+        {/* ── Image Re-hosting ───────────────────────────────── */}
+        {rehostStatus && (
+          <div className="asc-backup-section">
+            <div className="asc-backup-header">
+              <Image size={18} />
+              <div>
+                <h3 className="asc-backup-title">Product Image Re-hosting</h3>
+                <p className="asc-backup-desc">Download external product images to local storage for permanent hosting</p>
+              </div>
+            </div>
+
+            <div className="asc-rehost-stats">
+              <div className="asc-rehost-stat">
+                <span className="asc-rehost-stat-value">{rehostStatus.total}</span>
+                <span className="asc-rehost-stat-label">Total Images</span>
+              </div>
+              <div className="asc-rehost-stat asc-rehost-stat--success">
+                <span className="asc-rehost-stat-value">{rehostStatus.rehosted}</span>
+                <span className="asc-rehost-stat-label">Re-hosted</span>
+              </div>
+              <div className="asc-rehost-stat asc-rehost-stat--pending">
+                <span className="asc-rehost-stat-value">{rehostStatus.pending}</span>
+                <span className="asc-rehost-stat-label">Pending</span>
+              </div>
+              <div className="asc-rehost-stat">
+                <span className="asc-rehost-stat-value">{rehostStatus.diskSizeMB} MB</span>
+                <span className="asc-rehost-stat-label">Disk Used</span>
+              </div>
+            </div>
+
+            {rehostStatus.pending > 0 && (
+              <div className="asc-rehost-actions">
+                <button
+                  className="admin-btn-primary"
+                  onClick={handleRehost}
+                  disabled={rehostRunning}
+                >
+                  {rehostRunning
+                    ? <><Loader size={14} className="asc-spin" /> Processing...</>
+                    : <><Play size={14} /> Re-host Next 200 Images</>}
+                </button>
+                {rehostResult && (
+                  <span className="asc-rehost-result">
+                    <CheckCircle size={14} />
+                    {rehostResult.succeeded} downloaded, {rehostResult.remaining} remaining
+                  </span>
+                )}
+              </div>
+            )}
+
+            {rehostStatus.pending === 0 && rehostStatus.total > 0 && (
+              <div className="asc-rehost-done">
+                <CheckCircle size={16} />
+                All images re-hosted successfully
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Add new config ────────────────────────────────── */}
         <div className="admin-add-form">

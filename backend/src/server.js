@@ -80,6 +80,12 @@ app.use(cors({
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
+// Static files — re-hosted product images
+app.use('/uploads/product-images', express.static(path.join(__dirname, '..', 'uploads', 'product-images'), {
+  maxAge: '30d',
+  immutable: true,
+}));
+
 // API routes
 app.use('/api/auth',         authRoutes);
 app.use('/api/tenants',      tenantRoutes);

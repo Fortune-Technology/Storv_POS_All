@@ -7,6 +7,10 @@
  */
 
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { protect, authorize } from '../middleware/auth.js';
 import { scopeToTenant } from '../middleware/scopeToTenant.js';
 import {
@@ -170,6 +174,53 @@ router.delete('/products/:id', authorize('superadmin', 'admin', 'owner'), delete
 router.get('/products/:id/upcs', authorize('superadmin', 'admin', 'owner', 'manager'), getProductUpcs);
 router.post('/products/:id/upcs', authorize('superadmin', 'admin', 'owner', 'manager'), addProductUpc);
 router.delete('/products/:id/upcs/:upcId', authorize('superadmin', 'admin', 'owner', 'manager'), deleteProductUpc);
+
+// ─── Product Image Upload ────────────────────────────
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const imgDir = path.join(__dirname, '..', '..', 'uploads', 'product-images');
+if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+
+const imgUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, imgDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `product-${req.params.id}-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i;
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
+router.post('/products/:id/image', authorize('superadmin', 'admin', 'owner', 'manager'), imgUpload.single('image'), async (req, res) => {
+  try {
+    const prisma = (await import('../config/postgres.js')).default;
+    const productId = parseInt(req.params.id);
+    const orgId = req.orgId || req.user?.orgId;
+
+    const product = await prisma.masterProduct.findFirst({ where: { id: productId, orgId } });
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const base = process.env.BACKEND_URL || process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const imageUrl = `${base}/uploads/product-images/${req.file.filename}`;
+
+    await prisma.masterProduct.update({ where: { id: productId }, data: { imageUrl } });
+
+    // Also populate global image cache
+    if (product.upc) {
+      const { upsertGlobalImage } = await import('../services/globalImageService.js');
+      await upsertGlobalImage({ upc: product.upc, imageUrl, source: 'upload', productName: product.name, brand: product.brand }).catch(() => {});
+    }
+
+    res.json({ success: true, imageUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─── Product Pack Sizes ───────────────────────────────
 router.get('/products/:id/pack-sizes', authorize('superadmin', 'admin', 'owner', 'manager', 'cashier', 'store'), getProductPackSizes);

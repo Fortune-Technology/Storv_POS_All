@@ -1,44 +1,232 @@
 /* EcomOrders — order management (prefix: eo-) */
 
-.eo-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-.eo-title { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.eo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
 
-.eo-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-.eo-filter-btn { padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-.eo-filter-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
-.eo-filter-btn--active { background: var(--brand-primary); color: #fff; border-color: var(--brand-primary); }
+.eo-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
 
-.eo-table { width: 100%; border-collapse: collapse; background: var(--bg-secondary); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); }
-.eo-table th { text-align: left; padding: 12px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); background: var(--bg-tertiary); border-bottom: 1px solid var(--border-color); }
-.eo-table td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid var(--border-light); color: var(--text-primary); }
-.eo-table tr:hover td { background: var(--bg-tertiary); }
-.eo-table tr { cursor: pointer; }
+.eo-filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
 
-.eo-badge { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
-.eo-badge--pending { background: #fef3c7; color: #b45309; }
-.eo-badge--confirmed { background: #dbeafe; color: #1d4ed8; }
-.eo-badge--preparing { background: #e0e7ff; color: #4338ca; }
-.eo-badge--ready { background: #dcfce7; color: #16a34a; }
-.eo-badge--completed { background: #d1fae5; color: #059669; }
-.eo-badge--cancelled { background: #fee2e2; color: #dc2626; }
+.eo-filter-btn {
+    padding: 7px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
 
-.eo-detail { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: var(--shadow-sm); }
-.eo-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.eo-detail-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
-.eo-detail-back { background: none; border: none; color: var(--brand-primary); cursor: pointer; font-size: 13px; font-weight: 500; }
-.eo-detail-back:hover { text-decoration: underline; }
+.eo-filter-btn:hover {
+    border-color: var(--brand-primary);
+    color: var(--brand-primary);
+}
 
-.eo-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-.eo-detail-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 3px; }
-.eo-detail-value { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+.eo-filter-btn--active {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+}
 
-.eo-items-list { margin: 16px 0; }
-.eo-item-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--border-light); color: var(--text-secondary); }
+.eo-filter-btn--active:hover {
+    background: var(--brand-dark);
+    color: #fff;
+    border-color: var(--brand-dark);
+}
 
-.eo-status-btns { display: flex; gap: 8px; margin-top: 20px; }
-.eo-status-btn { padding: 9px 18px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-.eo-status-btn:hover { background: var(--bg-tertiary); }
-.eo-status-btn--primary { background: var(--brand-primary); color: #fff; border-color: var(--brand-primary); box-shadow: var(--shadow-brand); }
-.eo-status-btn--primary:hover { opacity: 0.9; }
+.eo-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
 
-.eo-empty { text-align: center; padding: 60px; color: var(--text-muted); }
+.eo-table th {
+    text-align: left;
+    padding: 12px 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.eo-table td {
+    padding: 12px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-primary);
+}
+
+.eo-table tr:hover td {
+    background: var(--bg-tertiary);
+}
+
+.eo-table tr {
+    cursor: pointer;
+}
+
+.eo-badge {
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.eo-badge--pending {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.eo-badge--confirmed {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.eo-badge--preparing {
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+.eo-badge--ready {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.eo-badge--completed {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.eo-badge--cancelled {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.eo-detail {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+}
+
+.eo-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.eo-detail-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.eo-detail-back {
+    background: none;
+    border: none;
+    color: var(--brand-primary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.eo-detail-back:hover {
+    text-decoration: underline;
+}
+
+.eo-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.eo-detail-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+
+.eo-detail-value {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.eo-items-list {
+    margin: 16px 0;
+}
+
+.eo-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-secondary);
+}
+
+.eo-status-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.eo-status-btn {
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.eo-status-btn:hover {
+    background: var(--bg-tertiary);
+}
+
+.eo-status-btn--primary {
+    background: var(--brand-primary);
+    color: #fff;
+    border-color: var(--brand-primary);
+    box-shadow: var(--shadow-brand);
+}
+
+.eo-status-btn--primary:hover {
+    opacity: 0.9;
+    color: #fff;
+}
+
+.eo-empty {
+    text-align: center;
+    padding: 60px;
+    color: var(--text-muted);
+}

@@ -30,7 +30,8 @@ function toPrice(value, field) {
   }
   return r.value;
 }
-import { normalizeUPC, upcVariants } from '../utils/upc.js';
+import { normalizeUPC, upcVariants, stripUpc } from '../utils/upc.js';
+import { batchResolveProductImages } from '../services/globalImageService.js';
 import { queueLabelForPriceChange, queueLabelForNewProduct, queueLabelForSale } from '../services/labelQueueService.js';
 
 // E-commerce sync — optional. If Redis / @storv/queue is not installed, all emit
@@ -594,19 +595,23 @@ export const getMasterProducts = async (req, res) => {
       prisma.masterProduct.count({ where }),
     ]);
 
-    // Flatten the per-store fields onto the product object for easier consumption.
-    const enriched = storeId
-      ? products.map(p => {
-          const sp = p.storeProducts?.[0];
-          return {
-            ...p,
-            quantityOnHand: sp?.quantityOnHand != null ? Number(sp.quantityOnHand) : null,
-            storeRetailPrice: sp?.retailPrice != null ? Number(sp.retailPrice) : null,
-            storeCostPrice: sp?.costPrice != null ? Number(sp.costPrice) : null,
-            inStock: sp?.inStock ?? null,
-          };
-        })
-      : products;
+    // Resolve images from global cache for products missing imageUrl
+    const imageMap = await batchResolveProductImages(products);
+
+    // Flatten per-store fields + resolve images
+    const enriched = products.map(p => {
+      const sp = storeId ? p.storeProducts?.[0] : null;
+      return {
+        ...p,
+        imageUrl: p.imageUrl || imageMap.get(p.id) || null,
+        ...(sp ? {
+          quantityOnHand: sp.quantityOnHand != null ? Number(sp.quantityOnHand) : null,
+          storeRetailPrice: sp.retailPrice != null ? Number(sp.retailPrice) : null,
+          storeCostPrice: sp.costPrice != null ? Number(sp.costPrice) : null,
+          inStock: sp.inStock ?? null,
+        } : {}),
+      };
+    });
 
     res.json({
       success: true,
@@ -668,6 +673,11 @@ export const searchMasterProducts = async (req, res) => {
         if (storeId && exact.storeProducts?.[0]?.quantityOnHand != null) {
           exact.quantityOnHand = Number(exact.storeProducts[0].quantityOnHand);
         }
+        // Resolve image from global cache if missing
+        if (!exact.imageUrl && exact.upc) {
+          const imgMap = await batchResolveProductImages([exact]);
+          if (imgMap.has(exact.id)) exact.imageUrl = imgMap.get(exact.id);
+        }
         return res.json({ success: true, data: [exact], pagination: { page: 1, limit: 1, total: 1, pages: 1 } });
       }
     }
@@ -709,9 +719,16 @@ export const searchMasterProducts = async (req, res) => {
       prisma.masterProduct.count({ where }),
     ]);
 
+    // Resolve images from global cache for products missing imageUrl
+    const imageMap = await batchResolveProductImages(products);
+    const enriched = products.map(p => ({
+      ...p,
+      imageUrl: p.imageUrl || imageMap.get(p.id) || null,
+    }));
+
     res.json({
       success: true,
-      data: products,
+      data: enriched,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (err) {
@@ -737,6 +754,13 @@ export const getMasterProduct = async (req, res) => {
     });
 
     if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
+
+    // Resolve image from global cache if missing
+    if (!product.imageUrl && product.upc) {
+      const imgMap = await batchResolveProductImages([product]);
+      if (imgMap.has(product.id)) product.imageUrl = imgMap.get(product.id);
+    }
+
     res.json({ success: true, data: product });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -850,6 +874,12 @@ export const createMasterProduct = async (req, res) => {
 
     // Queue label for new product
     try { await queueLabelForNewProduct(orgId, product.id, product.defaultRetailPrice); } catch {}
+
+    // Populate global image cache if product has both UPC + image
+    if (product.upc && product.imageUrl) {
+      const { upsertGlobalImage } = await import('../services/globalImageService.js');
+      upsertGlobalImage({ upc: product.upc, imageUrl: product.imageUrl, source: 'manual', productName: product.name, brand: product.brand }).catch(() => {});
+    }
 
     res.status(201).json({ success: true, data: product });
   } catch (err) {
@@ -977,6 +1007,13 @@ export const updateMasterProduct = async (req, res) => {
       ecomTags: product.ecomTags, size: product.size, weight: product.weight,
       departmentName: product.department?.name,
     });
+
+    // Populate global image cache on update
+    if (product.upc && product.imageUrl) {
+      const { upsertGlobalImage } = await import('../services/globalImageService.js');
+      upsertGlobalImage({ upc: product.upc, imageUrl: product.imageUrl, source: 'manual', productName: product.name, brand: product.brand }).catch(() => {});
+    }
+
     res.json({ success: true, data: product });
   } catch (err) {
     if (err.status === 400) return res.status(400).json({ success: false, error: err.message });
@@ -1125,18 +1162,21 @@ export const deleteAllProducts = async (req, res) => {
       await prisma.inventoryAdjustment.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
       await prisma.labelQueue.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
 
-      // Prevent deletion if products are referenced by transactions/POs (would break history)
-      // Note: transactions use lineItems JSON, not FK, so they're safe.
-      // Purchase orders have FK — check for any referenced products
-      const poItemCount = await prisma.purchaseOrderItem.count({
-        where: { masterProductId: { in: idList } },
-      });
-      if (poItemCount > 0) {
-        return res.status(400).json({
-          success: false,
-          error: `Cannot permanently delete — ${poItemCount} products are referenced by purchase orders. Use soft delete instead.`,
-        });
+      // Clean up purchase order references (items first, then empty POs)
+      await prisma.purchaseOrderItem.deleteMany({ where: { masterProductId: { in: idList } } }).catch(() => {});
+      // Remove any POs that now have zero items
+      const emptyPOs = await prisma.purchaseOrder.findMany({
+        where: { orgId, items: { none: {} } },
+        select: { id: true },
+      }).catch(() => []);
+      if (emptyPOs.length > 0) {
+        await prisma.purchaseOrder.deleteMany({
+          where: { id: { in: emptyPOs.map(p => p.id) } },
+        }).catch(() => {});
       }
+
+      // Vendor product maps
+      await prisma.vendorProductMap.deleteMany({ where: { orgId } }).catch(() => {});
 
       const result = await prisma.masterProduct.deleteMany({ where: { orgId } });
       res.json({ success: true, deleted: result.count, type: 'permanent' });
