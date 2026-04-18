@@ -3891,5 +3891,141 @@ Daily, Live Dashboard, and EoD all agree across Gross / Net / TxCount.
 
 ---
 
-*Last updated: April 2026 — Session 28: Cash sales status='pending' regression — forced 'complete' in both transaction endpoints + backfilled 21 stuck txns*
+## 📦 Recent Feature Additions (April 2026 — Session 29)
+
+### Admin Panel UI Consistency Fixes
+
+**Table header background fix** — `AdminOrgAnalytics.jsx` was misusing `.admin-header-icon` (44×44 colored box) as a `<span>` inside `<th>` elements, causing green background boxes on table headers. Replaced with `.aoa-sort-label`. Same fix applied to `AdminOrganizations.jsx`, `AdminStores.jsx` (name column → `admin-name-cell` + `admin-name-icon`), `AdminCmsPages.jsx`, `AdminCareers.jsx` (card headers → `admin-card-header-row`). Global `th { background }` removed from `frontend/src/index.css`.
+
+**Button & spacing standardization** — Added `.admin-header-actions` (gap between header buttons), `.admin-row-actions` (consistent action icon spacing), `.admin-name-cell`/`.admin-name-icon` (table name column). Applied across Users, Organizations, Stores pages.
+
+**Payment Management UI** — Fixed Terminal tab search bar (proper `.admin-search` wrapper), History tab date inputs (styled `.aps-history-date` with focus state), removed `admin-input` ghost class.
+
+**Chat page** — Header aligned with standard `admin-header` pattern (icon in `admin-header-icon` box, matching font sizes/gaps).
+
+**Color variable consistency** — Replaced all `#6366f1` (14 instances) in `AdminTickets.css` with `var(--accent-primary)`. Replaced `#3b82f6` in `AdminPaymentSettings.css` and `AdminBilling.css` toggle/tab/checkbox accent colors with `var(--accent-primary)`.
+
+**Filter tab shape consistency** — Changed `.admin-tab` from `border-radius: 999px` (pill) to `8px` (rectangle). Fixed `EcomOrders`, `InvoiceImport`, `POSSettings`, `Promotions` filter buttons to `8px`.
+
+### Button Hover Contrast Fixes
+
+Fixed invisible-text-on-hover bug across 11 files. Every active filter tab/button with white text on colored background now has an explicit `.active:hover` rule keeping `color: #fff` and darkening background to `var(--brand-dark)`:
+
+`EcomOrders.css`, `Lottery.css` (×2), `Transactions.css`, `InvoiceImport.css`, `InventoryCount.css`, `ProductForm.css` (×3), `ShopPage.css`, `admin.css`, `AdminTickets.css`
+
+### CSS Variable Centralization (`max-width`)
+
+| App | Variable | Value | File |
+|-----|----------|-------|------|
+| Admin | `--content-max-width` | `1400px` | `admin-app/src/styles/global.css` |
+| Portal | `--content-max-width` | `1400px` | `frontend/src/index.css` |
+| Portal | `--mkt-max-width` | `1200px` | `frontend/src/index.css` |
+
+Replaced hardcoded `max-width` in 22 CSS files with these variables.
+
+### Horizontal Scroll Prevention
+
+Added `overflow-x: hidden` + `min-width: 0` to `.main-content` in both `frontend/src/index.css` and `admin-app/src/styles/global.css`. Tables scroll horizontally via `.p-table-wrap` / `.admin-table-wrap`; page never scrolls.
+
+### Database Backup Feature (Admin Panel)
+
+Manual database backup from Admin → System Config (`/config`):
+
+**Backend:** `backupController.js` — spawns `pg_dump`, streams SQL directly to HTTP response. Auto-discovers `pg_dump.exe` on Windows (`C:\Program Files\PostgreSQL\{version}\bin\`). Supports both main DB (`DATABASE_URL`) and ecom DB (`ECOM_DATABASE_URL`).
+
+**Frontend:** Two download cards (Main Database / E-Commerce Database). Filename format: `main-backup-DD-MM-YYYY.sql`.
+
+**Route:** `GET /api/admin/backup/:target` (superadmin only).
+
+### Product Image System (Phase 1–3)
+
+#### Phase 1: Import Image URLs
+- Added `imageUrl` to bulk import field mapping (aliases: `image`, `images`, `imagelink`, `photourl`, etc.)
+- `importService.js` maps the "Images" CSV column → `MasterProduct.imageUrl`
+
+#### Phase 2: Global UPC Image Cache
+- New `GlobalProductImage` table keyed by `strippedUpc` (all leading zeros removed)
+- `stripUpc()` utility added to `backend/src/utils/upc.js`
+- `globalImageService.js` — `upsertGlobalImage`, `batchUpsertGlobalImages`, `batchResolveProductImages`
+- Auto-populates during bulk import, product create, product update
+- Image fallback: `product.imageUrl` → `GlobalProductImage.rehostedUrl` → `GlobalProductImage.imageUrl` → null
+
+#### Phase 3: Image Re-hosting
+- `imageRehostService.js` — downloads external images to `backend/uploads/product-images/`, updates `rehostedUrl`
+- Static serving: `GET /uploads/product-images/*` (30-day cache, immutable)
+- Admin UI: stats cards (Total / Re-hosted / Pending / Disk Used) + "Re-host Next 200" button
+- Routes: `GET /api/admin/images/rehost-status`, `POST /api/admin/images/rehost`
+
+#### Product Form Image Upload
+- New "Product Image" card at top of ProductForm with preview, URL input, file upload, remove
+- Upload endpoint: `POST /api/catalog/products/:id/image` (multer, 5MB, images only)
+- `uploadProductImage(id, file)` API function in frontend
+
+### Dashboard Showcase (Marketing Home Page)
+
+New "See It in Action" section on `/` with 6 tabbed screenshots in a PC monitor mockup:
+- Tabs: Live Dashboard, Analytics, Products, Transactions, Employees, Vendor Orders
+- Side-by-side layout: vertical tabs + description (left), monitor frame + screenshot (right)
+- Fade + scale transition on tab switch, gentle floating micro-interaction on active screenshot
+- Responsive: stacks vertically on mobile, icon-only tabs on small screens
+
+### Mobile Responsiveness Improvements
+
+- Added `@media (max-width: 480px)` to `index.css` — `.main-content` padding reduced to `0.625rem`
+- Portal 480px breakpoint: compact header, 1-column stat grid, tighter table cells/buttons
+- `StoreSettings.css`: 640px breakpoint for full-width + compact sections
+- `DepositRules.css`: 768px + 480px responsive breakpoints added
+- `TaxRules.css`: replaced 15 hardcoded indigo `rgba()` with CSS variables
+- `DepositRules.css`: replaced hardcoded emerald colors with CSS variables
+
+### Transaction Seeder
+
+New `backend/prisma/seedToday.js` — generates 35-50 realistic transactions for today (6am → current hour) with proper hourly distribution, payment mix, line items. Run: `node prisma/seedToday.js`
+
+### JWT TTL Change
+
+Changed default `JWT_ACCESS_TTL` from `2h` to `8h` in `.env` and `.env.example`. Prevents premature session lockouts during normal workday use.
+
+### Permanent Product Delete Fix
+
+`catalogController.js` `deleteAllProducts` — no longer blocks on PurchaseOrder FK references. Now cleans up `PurchaseOrderItem` → empty `PurchaseOrder` → `VendorProductMap` before deleting products.
+
+---
+
+### New Files Created (Session 29)
+
+| File | Purpose |
+|------|---------|
+| `backend/src/controllers/backupController.js` | Database backup via pg_dump streaming |
+| `backend/src/services/globalImageService.js` | Cross-org image cache by UPC |
+| `backend/src/services/imageRehostService.js` | Download external images to local storage |
+| `backend/prisma/seedToday.js` | Seed today's transactions for dashboard testing |
+
+### Key Files Modified (Session 29)
+
+| File | Change |
+|------|--------|
+| `backend/prisma/schema.prisma` | Added `GlobalProductImage` model |
+| `backend/src/utils/upc.js` | Added `stripUpc()` function |
+| `backend/src/services/importService.js` | Image URL import + global cache population |
+| `backend/src/controllers/catalogController.js` | Image fallback in getMasterProducts/search/get, global cache on create/update, permanent delete fix |
+| `backend/src/routes/adminRoutes.js` | Backup + image rehost endpoints |
+| `backend/src/routes/catalogRoutes.js` | Product image upload endpoint (multer) |
+| `backend/src/server.js` | Static serving for `/uploads/product-images/` |
+| `frontend/src/pages/ProductForm.jsx` | Image card (preview + URL input + upload + remove) |
+| `frontend/src/pages/ProductForm.css` | `pf-image-*` styles |
+| `frontend/src/pages/BulkImport.jsx` | `imageUrl` field mapping |
+| `frontend/src/pages/marketing/Home.jsx` | Dashboard showcase section |
+| `frontend/src/pages/marketing/Home.css` | `dsh-*` / `hm-dsh-*` styles |
+| `admin-app/src/pages/AdminSystemConfig.jsx` | Backup + image rehost UI |
+| `admin-app/src/pages/AdminSystemConfig.css` | Backup + rehost styles |
+| `frontend/src/index.css` | 480px breakpoint, `--content-max-width`/`--mkt-max-width` vars, `overflow-x: hidden` |
+| `frontend/src/styles/portal.css` | Mobile responsive improvements |
+| `admin-app/src/styles/admin.css` | Header actions, name cell, row actions, tab radius, active hover |
+| `admin-app/src/styles/global.css` | `--content-max-width` var, `overflow-x: hidden` |
+| `backend/.env.example` | Added `ECOM_DATABASE_URL`, `BACKEND_URL`, updated `JWT_ACCESS_TTL` to 8h |
+
+---
+
+*Last updated: April 2026 — Session 29: Admin UI consistency, button hover fixes, database backup, product image system (Phase 1-3), dashboard showcase, mobile responsiveness, CSS variable centralization*
 

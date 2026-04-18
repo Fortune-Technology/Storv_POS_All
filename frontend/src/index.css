@@ -694,6 +694,13 @@ tr:last-child td { border-bottom: none; }
   body, .layout-container { overflow-x: hidden; }
 }
 
+@media (max-width: 480px) {
+  .main-content {
+    padding: 0.625rem;
+    padding-top: 56px;
+  }
+}
+
 /* ── SCROLLBAR ────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

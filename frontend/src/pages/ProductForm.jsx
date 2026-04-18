@@ -123,7 +123,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
     setEditing(d.id || 'new');
     setForm({ name: d.name ?? '', code: d.code ?? '', taxClass: d.taxClass ?? 'grocery',
       ageRequired: d.ageRequired ?? '', ebtEligible: d.ebtEligible ?? false,
-      bottleDeposit: d.bottleDeposit ?? false, color: d.color ?? '#6366f1',
+      bottleDeposit: d.bottleDeposit ?? false, color: d.color ?? 'var(--accent-primary)',
       sortOrder: d.sortOrder ?? 0, active: d.active ?? true });
   };
 
@@ -172,7 +172,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
             {list.map(d => (
               <div key={d.id} onClick={() => startEdit(d)}
                 className={`pf-mm-list-item${editing === d.id ? ' pf-mm-list-item--active' : ''}`}>
-                <div className="pf-mm-list-dot" style={{ background: d.color || '#6366f1' }} />
+                <div className="pf-mm-list-dot" style={{ background: d.color || 'var(--accent-primary)' }} />
                 <span className="pf-mm-list-label">{d.name}</span>
                 <button onClick={e => { e.stopPropagation(); del(d.id); }} className="pf-mm-list-del">
                   <Trash2 size={11} />

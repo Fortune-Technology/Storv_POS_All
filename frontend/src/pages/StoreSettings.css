@@ -207,4 +207,7 @@
 
 @media (max-width: 640px) {
   .ss-age-grid { grid-template-columns: 1fr; }
+  .ss-page { max-width: 100%; }
+  .ss-section { padding: 1rem; }
+  .ss-header { margin-bottom: 1rem; }
 }

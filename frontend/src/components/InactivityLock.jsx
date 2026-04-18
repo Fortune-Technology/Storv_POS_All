@@ -20,7 +20,7 @@ import './InactivityLock.css';
 
 /* eslint-disable jsx-a11y/no-autofocus */
 
-const IDLE_MS = 60 * 1000;          // 1 minute
+const IDLE_MS = 30 * 60 * 1000;     // 30 minutes
 const THROTTLE_MS = 1000;            // collapse activity events to 1/sec
 const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
 const SKIP_PATH_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/impersonate'];
@@ -161,7 +161,7 @@ function LockOverlay({ visible, pw, setPw, showPw, setShowPw, error, submitting,
         <div className="il-icon"><Lock size={36} /></div>
         <h2 className="il-title">Session Locked</h2>
         <p className="il-sub">
-          You were inactive for 1&nbsp;minute. Re-enter your password to continue.
+          You were inactive for 30&nbsp;minutes. Re-enter your password to continue.
         </p>
         {stored?.email && (
           <div className="il-user">{stored.name || stored.email}</div>

@@ -60,7 +60,7 @@ const TAX_CLASSES = [
 ];
 
 const TAX_COLORS = {
-  grocery: '#10b981', alcohol: '#6366f1', tobacco: '#64748b',
+  grocery: '#10b981', alcohol: 'var(--accent-primary)', tobacco: '#64748b',
   hot_food: '#f97316', standard: '#3b82f6', non_taxable: '#94a3b8', '': '#475569',
 };
 

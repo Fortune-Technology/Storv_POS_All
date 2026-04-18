@@ -188,7 +188,7 @@ export default function PayoutsReport({ embedded }) {
           disabled={loading}
           style={{
             height: 38, padding: '0 1.25rem',
-            background: 'var(--accent-primary, #6366f1)',
+            background: 'var(--accent-primary)',
             border: 'none', borderRadius: 8,
             color: '#fff', fontWeight: 700, fontSize: '0.875rem',
             cursor: loading ? 'not-allowed' : 'pointer',

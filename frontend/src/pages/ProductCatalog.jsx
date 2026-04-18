@@ -43,7 +43,7 @@ const calcMargin = (cost, retail) => {
 
 const TAX_CLASSES = [
   { value: 'grocery',     label: 'Grocery',     color: '#10b981' },
-  { value: 'alcohol',     label: 'Alcohol',     color: '#6366f1' },
+  { value: 'alcohol',     label: 'Alcohol',     color: 'var(--accent-primary)' },
   { value: 'tobacco',     label: 'Tobacco',     color: '#64748b' },
   { value: 'hot_food',    label: 'Hot Food',    color: '#f97316' },
   { value: 'standard',    label: 'Standard',    color: '#3b82f6' },
@@ -597,7 +597,7 @@ export default function ProductCatalog() {
                       {visibleCols.includes('department') && (
                         <td onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}>
                           {dept ? (
-                            <span className="pc-dept-badge" style={{ background:(dept.color||'#6366f1')+'20', color:dept.color||'#6366f1' }}>
+                            <span className="pc-dept-badge" style={{ background:(dept.color||'var(--accent-primary)')+'20', color:dept.color||'var(--accent-primary)' }}>
                               {dept.name}
                             </span>
                           ) : <span className="pc-pack-muted">—</span>}
