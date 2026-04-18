@@ -61,8 +61,29 @@ jobs:
           echo "→ Running RBAC seed (creates missing system roles + perms)"
           node prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
 
-          pm2 restart api-pos || pm2 restart storv-pos-backend || echo "PM2 restart attempted"
+          # PM2 restart — then VERIFY the process actually recycled. The old
+          # `|| echo` fallback silently swallowed failures; PM2 would print
+          # success messages even when the Node process hadn't truly
+          # restarted, and deploys would drift with stale in-memory code
+          # while the health check kept passing.
+          PM2_NAME="api-pos"
+          pm2 restart "$PM2_NAME" --update-env || pm2 restart storv-pos-backend --update-env || { echo "❌ PM2 restart failed"; exit 1; }
           pm2 save
+          sleep 2
+          # Uptime should be a small number now. If it's > 60s we didn't
+          # actually restart — bail loudly so the deploy fails visibly.
+          UPTIME_MS=$(pm2 jlist | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).find(p => p.name === '$PM2_NAME')?.pm2_env?.pm_uptime || 0")
+          UPTIME_SEC=$(( ($(date +%s%3N) - UPTIME_MS) / 1000 ))
+          echo "api-pos uptime after restart: ${UPTIME_SEC}s"
+          if [ "$UPTIME_SEC" -gt 60 ]; then
+            echo "❌ api-pos did NOT recycle (uptime > 60s). Backend is running stale code."
+            echo "   Falling back to full re-create..."
+            pm2 delete "$PM2_NAME" || true
+            cd /var/www/Storv_POS_All/backend
+            pm2 start npm --name "$PM2_NAME" -- start
+            pm2 save
+            sleep 3
+          fi
 
       - name: Verify backend is running
         shell: bash
