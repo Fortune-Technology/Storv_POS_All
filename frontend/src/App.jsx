@@ -118,6 +118,7 @@ import POSReports        from './pages/POSReports';
 import RulesAndFees      from './pages/RulesAndFees';
 import AnalyticsHub      from './pages/AnalyticsHub';
 import AccountHub        from './pages/AccountHub';
+import MyProfile         from './pages/MyProfile';
 import CustomersHub      from './pages/CustomersHub';
 import EndOfDayReport    from './pages/EndOfDayReport';
 import Roles             from './pages/Roles';
@@ -240,6 +241,11 @@ function App() {
 
           {/* ── Account Hub (tabbed) ──────────────────────────────────── */}
           <Route path="/portal/account"         element={gated(<AccountHub />)} />
+          {/* My Profile — available to every authenticated user regardless
+              of organization.view / users.view permissions. Staff/cashiers
+              need this to update their own name/phone/password without
+              needing admin access. */}
+          <Route path="/portal/my-profile"      element={gated(<MyProfile />)} />
           <Route path="/portal/roles"           element={gated(<Roles />)} />
           <Route path="/portal/invitations"     element={gated(<Invitations />)} />
           <Route path="/portal/branding"        element={gated(<StoreBranding />)} />

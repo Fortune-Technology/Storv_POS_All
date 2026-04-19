@@ -8,7 +8,7 @@
  */
 
 import { useCallback } from 'react';
-import { lookupByUPC, upsertProducts } from '../db/dexie.js';
+import { lookupByUPC, upsertProducts, decorateProductWithDeptTaxClass } from '../db/dexie.js';
 import { lookupProductByUPC } from '../api/pos.js';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useSyncStore } from '../stores/useSyncStore.js';
@@ -44,7 +44,11 @@ export function useProductLookup() {
             orgId:       remote.orgId,
             updatedAt:   remote.updatedAt || new Date().toISOString(),
           }]);
-          return { product: remote, source: 'api' };
+          // Apply Product → Department taxClass fallback so the first-scan
+          // API path gets the same tax inheritance as the cached-scan path.
+          // Subsequent scans hit Dexie and are decorated inside lookupByUPC.
+          const decorated = await decorateProductWithDeptTaxClass(remote);
+          return { product: decorated, source: 'api' };
         }
       } catch { /* network error — fall through */ }
     }

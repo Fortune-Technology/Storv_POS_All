@@ -8,6 +8,7 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
+import { validatePassword, validatePhone } from '../utils/validators.js';
 
 // Role keys that cannot be assigned via Invite / Role-change UI.
 // Owner is set only on org creation; superadmin is platform-level.
@@ -328,6 +329,135 @@ export const removeUser = async (req, res, next) => {
     ]);
 
     res.json({ message: `${membership.user.name} has been removed from the organisation.` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SELF-SERVICE PROFILE — any authenticated user can manage their OWN
+// identity (name, phone, password). Email and role changes are deliberately
+// excluded — those require admin action (email change has verification /
+// invitation implications; role change is an RBAC decision).
+//
+// Used by the portal's "My Profile" tab in AccountHub — accessible to
+// every logged-in user regardless of `users.view`, so staff/cashiers can
+// update their own details without needing admin to edit them.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── GET /api/users/me ───────────────────────────────────────────────────
+export const getMe = async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where:  { id: req.user.id },
+      select: {
+        id: true, name: true, email: true, phone: true,
+        role: true, status: true, orgId: true,
+        storeLatitude: true, storeLongitude: true, storeTimezone: true, storeAddress: true,
+        createdAt: true,
+        posPin: true,   // boolean indicator only — hashed value never returned
+      },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const orgs = await prisma.userOrg.findMany({
+      where: { userId: user.id },
+      select: {
+        role: true, isPrimary: true,
+        organization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+
+    res.json({
+      ...user,
+      posPin: undefined,               // never leak the hash
+      hasPin: !!user.posPin,           // just surface presence
+      orgs:   orgs.map(o => ({
+        orgId:   o.organization.id,
+        orgName: o.organization.name,
+        orgSlug: o.organization.slug,
+        role:    o.role,
+        isPrimary: o.isPrimary,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ── PUT /api/users/me ───────────────────────────────────────────────────
+// Body: { name?, phone? }
+// Deliberately narrow — email/role/orgId changes go through admin flows.
+export const updateMe = async (req, res, next) => {
+  try {
+    const { name, phone } = req.body;
+    const patch = {};
+
+    if (name !== undefined) {
+      const trimmed = String(name).trim();
+      if (trimmed.length < 2) return res.status(400).json({ error: 'Name must be at least 2 characters.' });
+      if (trimmed.length > 100) return res.status(400).json({ error: 'Name must be 100 characters or fewer.' });
+      patch.name = trimmed;
+    }
+
+    if (phone !== undefined) {
+      const cleaned = phone === null || phone === '' ? null : String(phone).trim();
+      // validatePhone returns null on success, an error string on failure.
+      // Empty/null passes through as "optional".
+      if (cleaned) {
+        const phoneErr = validatePhone(cleaned);
+        if (phoneErr) return res.status(400).json({ error: phoneErr });
+      }
+      patch.phone = cleaned;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update.' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data:  patch,
+      select: { id: true, name: true, email: true, phone: true, role: true, orgId: true },
+    });
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ── PUT /api/users/me/password ──────────────────────────────────────────
+// Body: { currentPassword, newPassword }
+// Requires current password — even a stolen session can't pivot to a
+// password rotation without knowing the current secret.
+export const changeMyPassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required.' });
+    }
+
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) return res.status(400).json({ error: pwErr });
+
+    const user = await prisma.user.findUnique({
+      where:  { id: req.user.id },
+      select: { id: true, password: true },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(400).json({ error: 'Current password is incorrect.' });
+
+    // Reject no-op rotations — blocks accidental "type same password twice"
+    // and nudges toward an actual rotation.
+    const sameAsOld = await bcrypt.compare(newPassword, user.password);
+    if (sameAsOld) return res.status(400).json({ error: 'New password must be different from current password.' });
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: user.id }, data: { password: newHash } });
+
+    res.json({ success: true, message: 'Password updated.' });
   } catch (err) {
     next(err);
   }

@@ -5,11 +5,14 @@ appId: com.storeveu.pos
 productName: StoreVeu POS
 copyright: Copyright © 2025 StoreVeu
 forceCodeSigning: false
+npmRebuild: true
 files:
   - filter:
       - dist/**/*
       - electron/**/*
       - public/icon.*
+      - node_modules/serialport/**/*
+      - node_modules/@serialport/**/*
 win:
   target:
     - target: nsis

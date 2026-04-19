@@ -94,21 +94,21 @@ export async function lookupByUPC(upc, storeId) {
       .where('upc').equals(v)
       .and(p => p.storeId === storeId && p.active !== false)
       .first();
-    if (hit) return hit;
+    if (hit) return decorateProductWithDeptTaxClass(hit);
   }
   for (const v of variants) {
     const hit = await db.products
       .where('upc').equals(v)
       .and(p => p.active !== false)
       .first();
-    if (hit) return hit;
+    if (hit) return decorateProductWithDeptTaxClass(hit);
   }
   return null;
 }
 
 export async function searchProducts(query, storeId, limit = 30) {
   const q = query.trim().toLowerCase();
-  return db.products
+  const results = await db.products
     .filter(p =>
       (p.storeId === storeId || !p.storeId) &&
       p.active !== false &&
@@ -118,6 +118,29 @@ export async function searchProducts(query, storeId, limit = 30) {
     )
     .limit(limit)
     .toArray();
+  return Promise.all(results.map(decorateProductWithDeptTaxClass));
+}
+
+// ── Product → Department taxClass fallback ──────────────────────────────
+// Tax precedence at the register (useCartStore.selectTotals):
+//   1. Product.taxClass (explicit override on the product)
+//   2. Department.taxClass (inherited — when product doesn't set one)
+//   3. null → no rule matches → no tax (unless an "all" rule exists)
+//
+// Applied at read time rather than stored on the product so that editing a
+// department's taxClass in the portal takes effect immediately on next scan
+// (no per-product re-resolution needed). Keeps the cached product row
+// untouched; the fallback is a derived view.
+export async function decorateProductWithDeptTaxClass(product) {
+  if (!product || product.taxClass) return product;
+  if (!product.departmentId) return product;
+  try {
+    const dept = await db.departments.get(product.departmentId);
+    if (dept?.taxClass) {
+      return { ...product, taxClass: dept.taxClass };
+    }
+  } catch { /* no-op — return raw product */ }
+  return product;
 }
 
 export async function upsertProducts(products) {

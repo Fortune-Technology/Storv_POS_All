@@ -12,6 +12,9 @@ import {
   inviteUser,
   updateUserRole,
   removeUser,
+  getMe,
+  updateMe,
+  changeMyPassword,
 } from '../controllers/userManagementController.js';
 import {
   setCashierPin,
@@ -25,6 +28,18 @@ const router = Router();
 
 router.use(protect);
 
+// ── Self-service profile (any authenticated user, NO permission gate) ──
+// Registered FIRST so `/me` doesn't get swallowed by the `/:id` routes.
+// Email and role changes are NOT exposed — those flow through admin paths.
+router.get('/me',          getMe);
+router.put('/me',          updateMe);
+router.put('/me/password', changeMyPassword);
+
+// Self-service per-store PIN (also no permission gate — handler auth-checks)
+router.get   ('/me/pins',               listMyPins);
+router.put   ('/me/pin',                setMyPin);
+router.delete('/me/pin/:storeId',       removeMyPin);
+
 // List — users.view
 router.get('/', requirePermission('users.view'), getTenantUsers);
 
@@ -32,12 +47,6 @@ router.get('/', requirePermission('users.view'), getTenantUsers);
 router.post('/invite',   requirePermission('users.create'), inviteUser);
 router.put('/:id/role',  requirePermission('users.edit'),   updateUserRole);
 router.delete('/:id',    requirePermission('users.delete'), removeUser);
-
-// Self-service per-store PIN (any authenticated user, no permission gate).
-// Authorisation is enforced inside each handler based on store access.
-router.get   ('/me/pins',               listMyPins);
-router.put   ('/me/pin',                setMyPin);
-router.delete('/me/pin/:storeId',       removeMyPin);
 
 // Admin PIN management on other users — users.edit (manager+)
 router.route('/:id/pin')

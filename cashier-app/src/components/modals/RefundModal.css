@@ -330,7 +330,6 @@
 
 .rfm-summary-card {
   background: var(--bg-card);
-  borderRadius: 12px;
   padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 12px;

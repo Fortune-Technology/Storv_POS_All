@@ -18,6 +18,11 @@ export const useManagerStore = create((set, get) => ({
   isActive:      false,
   managerId:     null,
   managerName:   null,
+  // Captured during PIN validation so features like Back Office SSO can
+  // open the portal as the authenticated manager without a second round
+  // trip. Shape: { token, id, name, email, role, orgId, storeId, ... }.
+  // Cleared on endSession().
+  managerAuth:   null,
   expiresAt:     null,
   pendingAction: null,   // { label: string, callback: () => void } | null
   _timer:        null,
@@ -35,7 +40,10 @@ export const useManagerStore = create((set, get) => ({
     set({ pendingAction: { label, callback } });
   },
 
-  onPinSuccess: (managerId, managerName) => {
+  // Third arg `auth` is the full response from /pos-terminal/pin-login
+  // (token + user). Optional for back-compat with any caller that only
+  // passes the two previous args — `managerAuth` simply stays null.
+  onPinSuccess: (managerId, managerName, auth = null) => {
     const { pendingAction, _timer } = get();
     if (_timer) clearTimeout(_timer);
 
@@ -46,6 +54,7 @@ export const useManagerStore = create((set, get) => ({
 
     set({
       isActive: true, managerId, managerName,
+      managerAuth: auth,
       expiresAt, _timer: timer,
       pendingAction: null,
     });
@@ -65,7 +74,7 @@ export const useManagerStore = create((set, get) => ({
   endSession: () => {
     const { _timer } = get();
     if (_timer) clearTimeout(_timer);
-    set({ isActive: false, managerId: null, managerName: null, expiresAt: null, _timer: null });
+    set({ isActive: false, managerId: null, managerName: null, managerAuth: null, expiresAt: null, _timer: null });
   },
 
   cancelPending: () => set({ pendingAction: null }),

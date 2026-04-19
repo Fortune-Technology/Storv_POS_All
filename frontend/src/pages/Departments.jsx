@@ -12,6 +12,7 @@ import {
   createCatalogDepartment,
   updateCatalogDepartment,
   deleteCatalogDepartment,
+  getCatalogTaxRules,
 } from '../services/api';
 import {
   Plus, Edit2, Trash2, RotateCcw, X, Check,
@@ -49,15 +50,57 @@ function IdChip({ id }) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TAX_CLASSES = [
+// Last-resort fallback ONLY when the store has zero TaxRules configured —
+// renders so the dropdown isn't empty during first-time setup. Once the
+// user creates TaxRules in Rules & Fees, the dropdown reads from those
+// and this list is ignored.
+const TAX_CLASS_FALLBACK = [
   { value: '',             label: 'None / Default' },
-  { value: 'grocery',     label: 'Grocery' },
-  { value: 'alcohol',     label: 'Alcohol' },
-  { value: 'tobacco',     label: 'Tobacco' },
-  { value: 'hot_food',    label: 'Hot Food' },
-  { value: 'standard',    label: 'Standard' },
-  { value: 'non_taxable', label: 'Non-Taxable' },
+  { value: 'grocery',      label: 'Grocery' },
+  { value: 'alcohol',      label: 'Alcohol' },
+  { value: 'tobacco',      label: 'Tobacco' },
+  { value: 'hot_food',     label: 'Hot Food' },
+  { value: 'standard',     label: 'Standard' },
+  { value: 'non_taxable',  label: 'Non-Taxable' },
 ];
+
+// Human label for a bare `appliesTo` category value. TaxRule.appliesTo can
+// be comma-separated ("grocery,alcohol"); we split and pretty-print each.
+const CATEGORY_LABEL = {
+  grocery: 'Grocery', alcohol: 'Alcohol', tobacco: 'Tobacco',
+  hot_food: 'Hot Food', standard: 'Standard', non_taxable: 'Non-Taxable',
+  all: 'All products',
+};
+const prettyCategory = (key) => CATEGORY_LABEL[key] || key.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+// Build the dropdown options from active TaxRules. Each category produced
+// by splitting comma-separated appliesTo values becomes one option with
+// its rate annotated ("Grocery — 5.50%"). Duplicate categories collapse.
+function buildTaxClassOptionsFromRules(rules) {
+  const active = (rules || []).filter(r => r.active !== false);
+  if (active.length === 0) return TAX_CLASS_FALLBACK;
+
+  const map = new Map();  // category → { rate, ruleName }
+  active.forEach(rule => {
+    const ratePct = Number(rule.rate || 0) * 100;
+    String(rule.appliesTo || '')
+      .split(',').map(s => s.trim()).filter(Boolean)
+      .forEach(cat => {
+        // First rule that mentions this category wins the label; if
+        // another rule adds the same category with a different rate,
+        // we keep the earlier one (usually there shouldn't be dupes).
+        if (!map.has(cat)) map.set(cat, { rate: ratePct, ruleName: rule.name });
+      });
+  });
+
+  return [
+    { value: '', label: 'None / Default' },
+    ...Array.from(map.entries()).map(([cat, info]) => ({
+      value: cat,
+      label: `${prettyCategory(cat)} — ${info.rate.toFixed(2)}%`,
+    })),
+  ];
+}
 
 const TAX_COLORS = {
   grocery: '#10b981', alcohol: 'var(--accent-primary)', tobacco: '#64748b',
@@ -81,7 +124,7 @@ const EMPTY_FORM = {
 
 function TaxBadge({ tc }) {
   const color = TAX_COLORS[tc] || TAX_COLORS[''];
-  const label = TAX_CLASSES.find(t => t.value === tc)?.label || '—';
+  const label = tc ? prettyCategory(tc) : '—';
   return (
     <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: color + '22', color }}>
       {label}
@@ -119,7 +162,7 @@ function Toggle({ checked, onChange, size = 'md' }) {
 
 // ─── Department Form ───────────────────────────────────────────────────────────
 
-function DeptForm({ dept, onSave, onClose, saving }) {
+function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
   const [form, setForm] = useState(dept ? {
     name:          dept.name || '',
     code:          dept.code || '',
@@ -227,12 +270,20 @@ function DeptForm({ dept, onSave, onClose, saving }) {
             </div>
           </div>
 
-          {/* Tax Class */}
+          {/* Tax Class — options come from the store's actual Tax Rules.
+              Each option's label is "Category — rate%" pulled from the
+              matching TaxRule. Falls back to a default category list when
+              no rules exist yet. */}
           <div style={{ marginBottom: '1rem' }}>
             <label style={labelStyle}>TAX CLASS</label>
             <select value={form.taxClass} onChange={e => set('taxClass', e.target.value)} style={inputStyle}>
-              {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {(taxClassOptions || TAX_CLASS_FALLBACK).map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
             </select>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Tax rates are managed in <em>Rules &amp; Fees → Tax</em>. Add a rule there and it appears here.
+            </div>
           </div>
 
           {/* Age */}
@@ -455,16 +506,31 @@ export default function Departments() {
   const [draggingIdx,  setDraggingIdx]  = useState(null);
   const [orderDirty,   setOrderDirty]   = useState(false);
   const [savingOrder,  setSavingOrder]  = useState(false);
+  // Tax-class dropdown options are derived from the store's actual TaxRules
+  // (Rules & Fees page → Tax tab). Falls back to TAX_CLASS_FALLBACK when
+  // the store has zero rules configured — same names the cashier-app uses
+  // as defaults so first-time setup doesn't break.
+  const [taxClassOptions, setTaxClassOptions] = useState(TAX_CLASS_FALLBACK);
   const dragOver = useRef(null);
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getCatalogDepartments({ includeInactive: showInactive ? 'true' : 'false' });
-      const list = res?.data || res || [];
+      // Load departments + tax rules in parallel. If tax rules fail (e.g.
+      // permission denied for this role) we silently keep the fallback
+      // list — user can still edit departments, they just won't see
+      // store-specific rates in the dropdown.
+      const [deptRes, rulesRes] = await Promise.all([
+        getCatalogDepartments({ includeInactive: showInactive ? 'true' : 'false' }),
+        getCatalogTaxRules().catch(() => null),
+      ]);
+      const list = deptRes?.data || deptRes || [];
       setDepts(Array.isArray(list) ? list : []);
       setOrderDirty(false);
+
+      const rules = Array.isArray(rulesRes) ? rulesRes : (rulesRes?.data || []);
+      setTaxClassOptions(buildTaxClassOptionsFromRules(rules));
     } catch {
       toast.error('Failed to load departments');
     } finally {
@@ -735,7 +801,7 @@ export default function Departments() {
         )}
         {/* Form panel */}
         {panelDept !== undefined && (
-          <DeptForm dept={panelDept} onSave={handleSave} onClose={() => setPanelDept(undefined)} saving={saving} />
+          <DeptForm dept={panelDept} onSave={handleSave} onClose={() => setPanelDept(undefined)} saving={saving} taxClassOptions={taxClassOptions} />
         )}
       </div>
   );

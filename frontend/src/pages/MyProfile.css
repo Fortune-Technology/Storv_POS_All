@@ -1,0 +1,314 @@
+/* MyProfile.css — prefix: mp-
+   Light-theme tokens: --bg-secondary (white cards), --bg-tertiary (input bg),
+   --text-primary, --text-muted, --border-color, --brand-primary (#3d56b5). */
+
+.mp-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: var(--text-primary);
+  max-width: 720px;
+}
+
+.mp-loading, .mp-error {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 2rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.mp-error {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.22);
+  flex-wrap: wrap;
+}
+.mp-error strong { color: #991b1b; }
+
+.mp-spin { animation: mp-spin 1s linear infinite; }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+
+/* ── Identity card ── */
+.mp-identity {
+  display: flex;
+  gap: 1.1rem;
+  align-items: center;
+  padding: 1.2rem 1.35rem;
+  background: linear-gradient(135deg, var(--brand-08), var(--brand-05));
+  border: 1px solid var(--brand-25);
+  border-radius: 12px;
+}
+
+.mp-avatar-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.mp-identity-meta {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.mp-identity-name {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.mp-identity-email {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.mp-identity-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ── Cards ── */
+.mp-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.15rem 1.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.mp-card-head {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.1rem;
+}
+
+.mp-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.mp-card-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ── Fields ── */
+.mp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mp-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mp-input {
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mp-input:focus {
+  border-color: var(--brand-primary);
+  background: var(--bg-secondary);
+}
+
+.mp-field--readonly .mp-readonly-value {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.mp-readonly-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* ── Password rules ── */
+.mp-pw-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mp-pw-row .mp-input {
+  flex: 1;
+  padding-right: 2.5rem;
+}
+
+.mp-pw-eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.mp-pw-eye:hover {
+  color: var(--brand-primary);
+  background: var(--brand-08);
+}
+
+.mp-pw-rules {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+}
+
+.mp-pw-rules li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+}
+
+.mp-pw-rule--ok { color: #15803d; }
+.mp-pw-rule--pending { color: var(--text-muted); }
+
+.mp-pw-dot {
+  width: 11px;
+  display: inline-flex;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.mp-pw-mismatch {
+  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #b91c1c;
+}
+
+/* ── Actions ── */
+.mp-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: 0.2rem;
+  padding-top: 0.85rem;
+}
+
+.mp-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 1.05rem;
+  background: var(--brand-primary);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.mp-btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+
+.mp-btn-primary:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.mp-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  margin-left: auto;
+}
+.mp-btn-secondary:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+
+.mp-dirty-note {
+  font-size: 0.75rem;
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .mp-identity { flex-direction: column; align-items: flex-start; text-align: left; }
+  .mp-pw-rules { grid-template-columns: 1fr; }
+}

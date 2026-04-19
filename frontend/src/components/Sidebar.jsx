@@ -238,6 +238,33 @@ const Sidebar = () => {
     navigate('/login');
   };
 
+  // Read current user from localStorage so the sidebar can show a "signed
+  // in as X" card. Lets users verify who they're acting as — especially
+  // important after a PIN-SSO from cashier-app Back Office (Session 37b).
+  const currentUser = React.useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
+
+  // Role → friendly label map. Keep short — the card is narrow.
+  const roleLabel = {
+    superadmin: 'Super Admin',
+    admin:      'Admin',
+    owner:      'Owner',
+    manager:    'Manager',
+    cashier:    'Cashier',
+    staff:      'Staff',
+  }[currentUser?.role] || currentUser?.role || '';
+
+  const initials = (currentUser?.name || currentUser?.email || '?')
+    .split(/[\s@]/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(s => s[0].toUpperCase())
+    .join('');
+
   return (
     <>
       {/* ── Hamburger button (mobile only, shown via CSS) ── */}
@@ -302,6 +329,32 @@ const Sidebar = () => {
               })}
             </div>
           ))}
+
+          {/* ── Signed-in-as card ──
+              Shown above Logout so users can see which account they're
+              acting as — especially important after PIN-SSO from the
+              cashier-app Back Office flow, where the session identity
+              can change without a visible cue elsewhere. Click to open
+              the My Profile page (available to every authenticated user,
+              so staff/cashiers can self-manage without org permissions). */}
+          {currentUser && (
+            <NavLink
+              to="/portal/my-profile"
+              className="sidebar-user-card"
+              title={`${currentUser.email || ''} — click to edit your profile`}
+            >
+              <div className="sidebar-user-avatar">{initials}</div>
+              <div className="sidebar-user-meta">
+                <div className="sidebar-user-name">{currentUser.name || currentUser.email || 'User'}</div>
+                <div className="sidebar-user-role">
+                  {roleLabel}
+                  {currentUser.email && (
+                    <span className="sidebar-user-email"> · {currentUser.email}</span>
+                  )}
+                </div>
+              </div>
+            </NavLink>
+          )}
 
           <button
             onClick={handleLogout}

@@ -315,6 +315,15 @@ export const listMyPins   = ()                => api.get ('/users/me/pins').then
 export const setMyPin     = (storeId, pin)    => api.put ('/users/me/pin', { storeId, pin }).then(r => r.data);
 export const removeMyPin  = (storeId)         => api.delete(`/users/me/pin/${storeId}`).then(r => r.data);
 
+// ── Self-service profile ──────────────────────────────────────────────────
+// Any authenticated user can view + edit their own profile. Email/role
+// changes deliberately go through admin flows — these helpers only cover
+// name, phone, and password rotation.
+export const getMyProfile     = ()                    => api.get ('/users/me').then(r => r.data);
+export const updateMyProfile  = (data)                => api.put ('/users/me', data).then(r => r.data);
+export const changeMyPassword = (currentPassword, newPassword) =>
+  api.put('/users/me/password', { currentPassword, newPassword }).then(r => r.data);
+
 // ── US State catalog (read-only for portal users; superadmin CRUD lives in admin-app) ──
 export const listStatesPublic        = ()            => api.get('/states/public').then(r => r.data);
 export const getStatePublic          = (code)        => api.get(`/states/${code}`).then(r => r.data);

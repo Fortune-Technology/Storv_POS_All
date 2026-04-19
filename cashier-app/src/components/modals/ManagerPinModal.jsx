@@ -51,7 +51,11 @@ export default function ManagerPinModal() {
         triggerShake();
         return;
       }
-      onPinSuccess(user.id, user.name);
+      // Pass the full response (token + user) so consumers like the
+      // "Back Office" handler can build a portal /impersonate URL without
+      // hitting the backend a second time. Existing callers still work —
+      // they ignore the third arg.
+      onPinSuccess(user.id, user.name, user);
     } catch {
       setError('Invalid PIN');
       triggerShake();

@@ -1905,8 +1905,35 @@ export default function POSScreen() {
         onBottleReturn={() => setShowBottleReturn(true)}
         onHardwareSettings={() => setShowHardwareSettings(true)}
         onAdminPortal={() => {
+          // PIN-SSO into portal — use the freshly-authenticated manager's
+          // token (captured by ManagerPinModal in useManagerStore) and
+          // open the portal's /impersonate landing page. This guarantees
+          // the user lands as themselves (their permissions, their stores)
+          // instead of inheriting whatever stale session existed in that
+          // browser's localStorage.
+          const auth = useManagerStore.getState().managerAuth;
           const portalUrl = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5173';
-          const url = `${portalUrl}/portal/realtime`;
+
+          let url;
+          if (auth?.token && auth?.id) {
+            const user = {
+              id:       auth.id,
+              name:     auth.name,
+              email:    auth.email,
+              role:     auth.role,
+              orgId:    auth.orgId,
+              storeIds: auth.storeId ? [auth.storeId] : [],
+            };
+            const userParam = encodeURIComponent(JSON.stringify(user));
+            url = `${portalUrl}/impersonate?token=${auth.token}&user=${userParam}`;
+          } else {
+            // Fallback — no captured auth (e.g. manager session valid via
+            // a stale flag but no auth object). Worst case: portal loads
+            // its existing localStorage session or bounces to /login.
+            console.warn('[BackOffice] no managerAuth — falling back to plain portal URL');
+            url = `${portalUrl}/portal/realtime`;
+          }
+
           // In Electron, open in the user's default browser so the portal
           // session works (cookies, localStorage, auto-refresh) and doesn't
           // render blank in a fresh BrowserWindow.
