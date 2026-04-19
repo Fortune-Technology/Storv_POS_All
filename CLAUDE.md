@@ -5217,3 +5217,177 @@ Both builds green (portal 15.20s, cashier-app 4.58s). Backend endpoints respond 
 
 *Last updated: April 2026 — Session 37: Quick Buttons WYSIWYG — freeform drag/resize tile builder, 1-level folders, image uploads, 19-action whitelist, read-only cashier-app renderer*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 37b)
+
+Polish + bug-fix pass on top of Session 37's Quick Buttons. Triggered by user smoke-testing the builder — uncovered several issues that had to be fixed before the feature was usable, plus a latent RBAC gap that was silently breaking managers across the whole portal.
+
+### 1. SSO impersonation bounce fix — `/admin/users` "Login As"
+
+Admin's "Login As" button was opening a new tab at `http://localhost:5175/impersonate?…` in dev (admin-app's own port) instead of the portal at :5173, so react-router's catch-all redirected logged-in admins back to `/dashboard`. Root cause: the URL-resolution fallback `window.location.origin.replace('admin.', '')` works in production (subdomain strip) but returns the string unchanged at `localhost:5175` since there's no `admin.` prefix.
+
+Fix in [`AdminUsers.jsx`](admin-app/src/pages/AdminUsers.jsx) — extracted `resolvePortalBase()` with a 3-tier fallback:
+1. `VITE_PORTAL_URL` env var (production override)
+2. Production subdomain pattern: `admin.x.com → x.com`
+3. Dev port swap: `:5175 → :5173`
+4. null → explicit toast "Portal URL not configured — set VITE_PORTAL_URL"
+
+Production path still uses the subdomain strip; dev gets the explicit port swap. The previous silent fallback to admin's own origin is gone.
+
+### 2. RBAC manager role — missing `stores.view`
+
+Discovered while diagnosing the empty store dropdown on Quick Buttons: the `manager` role in [`permissionCatalog.js`](backend/src/rbac/permissionCatalog.js) was missing `stores.view` and `organization.view`. This wasn't a Quick Buttons bug — it was a pre-existing RBAC gap from Session 31 that silently broke **every manager across the whole portal**: the StoreSwitcher, Store Settings, Reports filters, and any page calling `GET /api/stores` returned 403.
+
+No one hit it earlier because all prior testing was done as admin/superadmin/owner (who get `*` wildcard perms).
+
+Fix:
+- Added `stores.view` and `organization.view` to the manager role's permission list
+- Ran `node prisma/seedRbac.js` to sync the `role_permissions` table
+- Manager role went 65 → 67 permissions; create/edit/delete on stores remains owner-only
+
+**Deploy note**: every prod deploy from this point forward must include `node prisma/seedRbac.js` in the pipeline to pick up future catalog changes.
+
+### 3. Consolidated POS config entries — one Quick Buttons path
+
+The sidebar had TWO entry points for the same feature: `/portal/pos-config?tab=quick-keys` (legacy QuickAccess page embedded in POSConfig) AND `/portal/quick-buttons` (new WYSIWYG builder). Users hit both, got confused.
+
+Fix:
+- Removed the "Quick Keys" tab from [`POSConfig.jsx`](frontend/src/pages/POSConfig.jsx) — remaining tabs: Layout & Settings, Receipt Settings, Label Design
+- Legacy `/portal/quick-access` redirect in App.jsx now points at `/portal/quick-buttons` (was pointing at the dead POSConfig tab)
+- Legacy `store.pos.quickFolders` data still renders as a fallback in the cashier-app (no migration needed for existing stores)
+- `QuickAccess.jsx` file left on disk but unreferenced
+
+### 4. Light-theme CSS rewrites — dark artefacts eliminated
+
+Initial [`QuickButtonBuilder.css`](frontend/src/pages/QuickButtonBuilder.css) and [`MyPIN.css`](frontend/src/pages/MyPIN.css) used variable names that don't exist in the portal (`--bg-card`, `--bg-panel`, `--bg-input`, `--border`) with dark-theme rgba defaults, so cards rendered as near-invisible `rgba(255,255,255,0.03)` on white bg, palette buttons had unreadable text, and accents were green (`#7ac143`) instead of the portal's brand blue (`#3d56b5`).
+
+Full rewrite of both CSS files:
+- Cards → `var(--bg-secondary)` (#ffffff)
+- Inputs → `var(--bg-tertiary)` (#f1f5f9)
+- Text → `var(--text-primary)` (#0f172a)
+- Borders → `var(--border-color)`
+- Brand accents → `var(--brand-primary)` (#3d56b5) with `var(--brand-08)`/`--brand-25` tints
+- Modal overlays → `var(--modal-overlay)` + `var(--modal-shadow)`
+
+Verified via `getComputedStyle` — every element resolves to the correct light-theme value.
+
+### 5. react-grid-layout 2.x API migration
+
+Initial ship imported `{ GridLayout, WidthProvider }` from `react-grid-layout` — the 2.x main-entry export renamed/removed `WidthProvider`. I switched to `useContainerWidth` hook, but that returns `{ width, mounted, containerRef, measureWidth }` (object), not the tuple my code expected. First fix: `const { containerRef, width } = useContainerWidth()`.
+
+Then a deeper issue surfaced: **my `rowHeight={64}` prop was being silently ignored**. Inspection of the 2.x source revealed the API restructured individual props (`cols`, `rowHeight`, `margin`, `compactType`, `preventCollision`, `draggableCancel`) into a `gridConfig` object. Flat props defaulted to `{ cols: 12, rowHeight: 150, margin: [10,10] }` — which is why tiles rendered at 150px regardless of my prop value.
+
+Final fix: switched to the legacy adapter — `import GridLayout, { WidthProvider } from 'react-grid-layout/legacy'`. This restores the 1.x API (flat props work again) and keeps `WidthProvider`. All subsequent tile-sizing/gap work relies on this.
+
+### 6. Tile size + spacing UX polish
+
+Added user controls for tile height, wired proportional spacing:
+
+- **Default tile height**: 56px (was the erroneous 150px, then briefly 64 — landed at 56 after user testing, comfortably above iOS 44pt / Android 48dp touch-target minimums)
+- **Tile height input in palette** — 40–160px range, live-updates the grid
+- **Proportional gap** — `Math.max(6, Math.min(18, Math.round(rowHeight / 8)))`. At rowHeight 40 → gap 6, 64 → 8, 96 → 12, 128 → 16, 160 → 18. Small tiles stay tight, big tiles breathe.
+- **Schema** — new `QuickButtonLayout.rowHeight Int @default(56)` column. `gridCols` kept at default 6.
+- Cashier renderer in [`QuickButtonRenderer.jsx`](cashier-app/src/components/pos/QuickButtonRenderer.jsx) uses the same proportional gap formula so what the admin designs is pixel-accurate on the POS.
+
+### 7. Custom colour picker — rainbow swatch
+
+The inspector had 12 preset swatches + a "default" chip. Added a 13th slot — a **custom colour swatch** that wraps a hidden `<input type="color">` (native browser picker). Users can paint tiles any exact hex (brand colours, sponsored-product tints, etc.).
+
+- **Inactive state** — conic-gradient rainbow background with "+" glyph, signalling "pick any colour"
+- **Active state** — swatch fills with the chosen hex, shows active-border
+- Swatch uses `<label>` wrapping a hidden `type="color"` input — zero new deps, works on every browser including iOS Safari
+
+Applied to both Background Colour and Text Colour fields. CSS in `.qbb-swatch--custom` (new class in [QuickButtonBuilder.css](frontend/src/pages/QuickButtonBuilder.css)).
+
+### 8. onLayoutChange spurious dirty-flag bug
+
+react-grid-layout fires `onLayoutChange` once on mount with the same layout it just rendered. My handler was calling `updateCurrentTree` → `markDirty()` unconditionally, which set `dirty=true` on page load → the store `<select>` was `disabled={dirty}` → the user couldn't switch stores until they manually saved.
+
+Fixes in [QuickButtonBuilder.jsx](frontend/src/pages/QuickButtonBuilder.jsx):
+- `onLayoutChange` now early-returns when positions actually match existing tree (no state update, no dirty flag)
+- `updateCurrentTree(updater, opts)` gained `opts.markDirty = false` escape hatch
+- Removed `disabled={dirty}` on the store `<select>` — replaced with a `window.confirm('Discard unsaved changes?')` on change. Less intrusive, covers the same safety case.
+
+### 9. Silent catch on getStores → surfaced error
+
+Initial builder had `getStores().catch(() => {})` — if the fetch failed or returned empty, user saw a blank dropdown with no clue why. Fixed:
+- Added explicit `setStoresError(msg)` state + toast
+- Three empty-states now render in priority order:
+  1. Error loading stores → red card with the exact server error
+  2. 0 stores in org → instruction + link to `/portal/account?tab=stores`
+  3. Stores present but none selected → "Select a store above" prompt
+
+### Files touched (Session 37b)
+
+**Backend**:
+- `backend/prisma/schema.prisma` — `QuickButtonLayout.rowHeight Int @default(56)`
+- `backend/src/controllers/quickButtonController.js` — accept + persist rowHeight, clamp 40–160
+- `backend/src/rbac/permissionCatalog.js` — manager +2 perms
+
+**Portal**:
+- `frontend/src/pages/QuickButtonBuilder.jsx` — legacy-adapter import, rowHeight state + input, custom color swatch, onLayoutChange guard, error handling
+- `frontend/src/pages/QuickButtonBuilder.css` — full light-theme rewrite, `.qbb-swatch--custom`
+- `frontend/src/pages/MyPIN.css` — full light-theme rewrite
+- `frontend/src/pages/POSConfig.jsx` — removed Quick Keys tab + import
+- `frontend/src/App.jsx` — `/portal/quick-access` redirect updated
+
+**Cashier-app**:
+- `cashier-app/src/hooks/useQuickButtonLayout.js` — rowHeight in returned shape, default 56
+- `cashier-app/src/components/pos/QuickButtonRenderer.jsx` — honour per-store rowHeight + proportional gap
+
+**Admin-app**:
+- `admin-app/src/pages/AdminUsers.jsx` — `resolvePortalBase()` helper with 3-tier fallback
+
+---
+
+## 🗓 Next Session plan (queued)
+
+User confirmed: Sessions 36, 37, 37b done. Next session tackles a grab-bag of smaller UX items (batch together) followed by B2B Exchange settlement enhancements.
+
+### Wave 1 — Quick wins (~90 min)
+
+- [ ] Customer display screen bigger — bump font sizes in [`CustomerDisplayScreen.css`](cashier-app/src/screens/CustomerDisplayScreen.css), scale item rows + totals
+- [ ] "New Exchange update" voice rename — locate exchange notification text in [`ExchangeNotifier.jsx`](frontend/src/components/ExchangeNotifier.jsx), update phrase
+- [ ] Offline scan blinking fix — diagnose POSScreen re-render when offline (user reported: products load now, just screen blinks)
+- [ ] Product export CSV/XLSX — new `GET /api/catalog/products/export` + button in Products page, reuse [`exportUtils.js`](frontend/src/utils/exportUtils.js)
+- [ ] **Back Office button visibility** — button already exists at [ActionBar.jsx:189](cashier-app/src/components/pos/ActionBar.jsx:189), purple ExternalLink icon, gated on manager PIN. Session 37b user report suggests they couldn't find it. Next session: verify it's rebuilt + visible, consider removing the manager-PIN gate (it's just "open portal in new tab", not a privileged action), or pin it to the left of the scroll container so it doesn't get pushed off-screen at 1366×768
+
+### Wave 2 — Notification dots + Sante templates (~2h)
+
+- [ ] **Sidebar notification dots** — small red badges next to nav items when counts > 0: Chat (already has), Tickets, Tasks, Delivery Platforms, Audit Log, Online Orders. Needs a `useNotificationCounts()` hook polling each endpoint (15–30s)
+- [ ] **Sante product import template** — generate `.xlsx` with Sante column headers + example rows; "Download Sante Template" button on BulkImport page
+- [ ] **Sante groups import template** — same pattern, separate file
+- [ ] **Sante tags → Groups mapping** — parse "tags" column from Sante export, auto-create ProductGroup rows during import
+
+**Needs before Wave 2**: sample Sante export CSV/XLSX to confirm their exact column names.
+
+### Wave 3 — Storv Exchange settlement (own session, ~3h)
+
+- [ ] Partial-acceptance email + in-app notification to sender when receiver marks items short
+- [ ] Settlement log page — chronological credit/debit list between two stores, filter by date/partner/status, viewable by both parties
+- [ ] Two-party settlement confirmation — schema: `PartnerSettlement.status` transitions `pending → sender_confirmed → receiver_confirmed → finalized`. Receiver gets a "Confirm Receipt" button. Security: finalize only when both have confirmed.
+- [ ] Receiver notification text update (also in Wave 1)
+
+**Schema change needed**: [`PartnerSettlement`](backend/prisma/schema.prisma) — reuse existing `disputedAt` machinery for 2-party disputes, or add new `senderConfirmedAt`/`receiverConfirmedAt` timestamps.
+
+### Wave 4 — Capacitor mobile app MVP (own session)
+
+Unchanged from original scope — Capacitor wrapper around the portal, trimmed to manager-focused screens (Live Dashboard, Transactions, Chat, Online Orders), output Android + iOS installers.
+
+### Wave 5 — Transaction video POC (2–3 sessions)
+
+Unchanged — Reolink RTSP → ffmpeg rolling buffer → 15s clip on TX → Cloudflare R2 → portal modal player.
+
+### Clarifications to collect before starting Wave 1+2
+
+1. Sante export sample (CSV/XLSX) — column names vary by Sante version
+2. Which Sante column maps to "tags" → is that ProductGroups or Departments (or both)?
+3. For two-party settlement: is there a third/dispute state beyond sender_confirmed + receiver_confirmed? Existing `disputedAt` suggests yes — confirm semantics
+4. Confirm mobile app MVP scope — still manager-focused or include cashier features?
+
+---
+
+*Last updated: April 2026 — Session 37b: RBAC manager-role fix, SSO portal URL fallback, light-theme CSS rewrite, react-grid-layout legacy adapter, tile-size + custom-color UX polish, one-entry Quick Buttons consolidation*
+
+
