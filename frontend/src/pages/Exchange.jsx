@@ -22,7 +22,10 @@ import {
   listAcceptedPartners, listPendingPartnerRequests,
   getMyStoreCode, checkStoreCode, setMyStoreCode, lookupStoreByCode,
   sendPartnerRequest, acceptPartnerRequest, rejectPartnerRequest, revokePartnership,
-  recordSettlement, disputeSettlement,
+  recordSettlement,
+  listSettlements as listSettlementsApi,
+  confirmSettlement as confirmSettlementApi,
+  disputeSettlement as disputeSettlementApi,
 } from '../services/api';
 import { usePermissions } from '../hooks/usePermissions';
 import './Exchange.css';
@@ -439,11 +442,118 @@ function OrdersTab({ orders, loading, onRefresh, navigate }) {
 
 function BalancesTab({ balances, summary, partners, onRefresh }) {
   const [settleModal, setSettleModal] = useState(null);   // { partner, direction }
+  const [pendingSettlements, setPendingSettlements] = useState([]);
+  const [settlementsBusy, setSettlementsBusy] = useState(false);
 
   const acceptedPartners = partners.filter(p => p.status === 'accepted');
 
+  // Load all settlements and filter to pending/incoming
+  const loadSettlements = useCallback(async () => {
+    try {
+      const r = await listSettlementsApi();
+      setPendingSettlements((r || []).filter(s => s.status === 'pending'));
+    } catch (err) { console.warn('settlements load', err.message); }
+  }, []);
+  useEffect(() => { loadSettlements(); }, [loadSettlements]);
+
+  const confirm = async (id) => {
+    setSettlementsBusy(true);
+    try {
+      await confirmSettlementApi(id);
+      toast.success('Settlement confirmed — ledger updated.');
+      await Promise.all([loadSettlements(), onRefresh()]);
+    } catch (err) {
+      toast.error(err.response?.data?.error || err.message);
+    } finally { setSettlementsBusy(false); }
+  };
+  const dispute = async (id) => {
+    const reason = prompt('Reason for dispute (required):');
+    if (!reason?.trim()) return;
+    setSettlementsBusy(true);
+    try {
+      await disputeSettlementApi(id, reason);
+      toast.info('Settlement disputed — partner notified.');
+      await loadSettlements();
+    } catch (err) { toast.error(err.response?.data?.error || err.message); }
+    finally { setSettlementsBusy(false); }
+  };
+
   return (
     <div className="ex-balances">
+      {/* Pending settlements — need my confirmation */}
+      {pendingSettlements.filter(s => s.needsMyConfirmation).length > 0 && (
+        <div className="p-card ex-pending-settlements">
+          <div className="p-card-head">
+            <h3><AlertTriangle size={16} /> Pending Settlements — Action Required</h3>
+            <span className="ex-muted ex-muted--small">
+              Ledger won't update until you confirm each one
+            </span>
+          </div>
+          <div className="ex-pending-list">
+            {pendingSettlements.filter(s => s.needsMyConfirmation).map(s => {
+              const partner = balances.find(b =>
+                b.partnerStoreId === (s.payerStoreId !== s.storeAId ? s.payerStoreId : s.payeeStoreId) ||
+                b.partnerStoreId === (s.payerStoreId === s.storeAId ? s.payeeStoreId : s.payerStoreId)
+              );
+              const partnerName = partner?.partnerName || 'Partner';
+              const paidByMe = s.payerStoreId === partner?.partnerStoreId ? false : true;
+              // Simpler: if recorder says THEY paid me, s.paidByMe in API is from RECORDER's view.
+              // For us (other party), invert:
+              const partnerClaimsPaid = !s.paidByMe;  // recorder's paidByMe inverted
+              return (
+                <div key={s.id} className="ex-pending-row">
+                  <div className="ex-pending-main">
+                    <div className="ex-pending-title">
+                      {partnerClaimsPaid
+                        ? <>Partner says <strong>they paid you</strong> {money(s.amount)}</>
+                        : <>Partner says <strong>you paid them</strong> {money(s.amount)}</>}
+                    </div>
+                    <div className="ex-muted ex-muted--small">
+                      {s.method}{s.methodRef ? ` #${s.methodRef}` : ''} · {fmtDateTime(s.recordedAt)}
+                      {s.note && <> · "{s.note}"</>}
+                    </div>
+                  </div>
+                  <div className="ex-pending-actions">
+                    <button className="p-btn p-btn-primary" onClick={() => confirm(s.id)} disabled={settlementsBusy}>
+                      <Check size={14} /> Confirm
+                    </button>
+                    <button className="p-btn p-btn-ghost" onClick={() => dispute(s.id)} disabled={settlementsBusy}>
+                      <X size={14} /> Dispute
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Awaiting partner confirmation (mine that they haven't confirmed yet) */}
+      {pendingSettlements.filter(s => s.recordedByMe).length > 0 && (
+        <div className="p-card ex-awaiting-settlements">
+          <div className="p-card-head">
+            <h3><Clock size={16} /> Awaiting Partner Confirmation</h3>
+          </div>
+          <div className="ex-pending-list">
+            {pendingSettlements.filter(s => s.recordedByMe).map(s => (
+              <div key={s.id} className="ex-pending-row">
+                <div className="ex-pending-main">
+                  <div className="ex-pending-title">
+                    {s.paidByMe
+                      ? <>You recorded paying {money(s.amount)}</>
+                      : <>You recorded receiving {money(s.amount)}</>}
+                  </div>
+                  <div className="ex-muted ex-muted--small">
+                    {s.method}{s.methodRef ? ` #${s.methodRef}` : ''} · {fmtDateTime(s.recordedAt)}
+                  </div>
+                </div>
+                <div className="ex-muted ex-muted--small">Waiting for partner to confirm…</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {summary && (
         <div className="ex-bal-summary">
           <div className="ex-bal-summary-card">
@@ -604,7 +714,7 @@ function SettlementModal({ partner, direction, amount, onClose, onSaved }) {
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} />
           </div>
           <div className="ex-modal-info">
-            <Clock size={13} /> Partner gets a 7-day dispute window before the settlement locks in.
+            <Clock size={13} /> Partner will be notified by email. The ledger only updates after they confirm receipt.
           </div>
         </div>
         <div className="p-modal-foot">

@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import { listWholesaleOrders, listPendingPartnerRequests } from '../services/api';
+import { listWholesaleOrders, listPendingPartnerRequests, listSettlements } from '../services/api';
 
 const POLL_INTERVAL = 15000;
 
@@ -57,6 +57,7 @@ function playSound() {
 export default function ExchangeNotifier() {
   const lastOrdersRef = useRef(null);
   const lastPartnersRef = useRef(null);
+  const lastSettlementsRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -66,13 +67,15 @@ export default function ExchangeNotifier() {
         const u = JSON.parse(localStorage.getItem('user') || '{}');
         if (!u.token) return;
 
-        const [ordersRes, partnersRes] = await Promise.all([
+        const [ordersRes, partnersRes, settlementsRes] = await Promise.all([
           listWholesaleOrders({ direction: 'incoming', status: 'sent', limit: 50 }).catch(() => ({ data: [] })),
           listPendingPartnerRequests().catch(() => ({ data: [], count: 0 })),
+          listSettlements().catch(() => []),
         ]);
 
         const pendingOrders = ordersRes.data?.length || 0;
         const pendingPartners = partnersRes.count || 0;
+        const pendingSettlementsForMe = (settlementsRes || []).filter(s => s.needsMyConfirmation).length;
 
         if (lastOrdersRef.current !== null && pendingOrders > lastOrdersRef.current) {
           const diff = pendingOrders - lastOrdersRef.current;
@@ -97,8 +100,21 @@ export default function ExchangeNotifier() {
             { autoClose: 10000 }
           );
         }
+        if (lastSettlementsRef.current !== null && pendingSettlementsForMe > lastSettlementsRef.current) {
+          playSound();
+          toast.info(
+            <div onClick={() => navigate('/portal/exchange?tab=balances')} style={{ cursor: 'pointer' }}>
+              <strong>Settlement Needs Confirmation</strong>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                Your partner recorded a payment — click to confirm receipt
+              </div>
+            </div>,
+            { autoClose: 10000 }
+          );
+        }
         lastOrdersRef.current = pendingOrders;
         lastPartnersRef.current = pendingPartners;
+        lastSettlementsRef.current = pendingSettlementsForMe;
       } catch { /* silent */ }
     };
 

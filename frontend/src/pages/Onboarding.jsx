@@ -77,7 +77,7 @@ export default function Onboarding() {
   // Skip onboarding if user already has a tenant
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user?.tenantId) navigate('/portal/pos-api', { replace: true });
+    if (user?.tenantId) navigate('/portal/realtime', { replace: true });
   }, [navigate]);
 
   /* ── Step 0 submit — create tenant ─────────────────────────────────────── */
@@ -135,7 +135,7 @@ export default function Onboarding() {
       toast.info('Your account is under review. You will be notified when approved.');
       navigate('/login', { replace: true });
     } else {
-      navigate('/portal/pos-api', { replace: true });
+      navigate('/portal/realtime', { replace: true });
     }
   };
 
@@ -319,7 +319,7 @@ export default function Onboarding() {
         {[
           ['Invite your team', '/portal/users'],
           ['Add more stores', '/portal/stores'],
-          ['Connect your POS', '/portal/pos-api'],
+          ['Go to Live Dashboard', '/portal/realtime'],
         ].map(([label, path]) => (
           <div key={path} className="ob-next-step-row">
             <span className="ob-next-step-label">{label}</span>

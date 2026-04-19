@@ -1,5 +1,5 @@
 /**
- * Seed Transactions — Future Foods Portal
+ * Seed Transactions — Storv POS Portal
  *
  * Generates ~2,500-4,000 realistic POS transactions spread across the last 90 days.
  * Run via: node prisma/seedTransactions.js

@@ -26,7 +26,7 @@ import {
 } from '../controllers/wholesaleOrderController.js';
 
 import {
-  listBalances, getLedger, recordSettlement, listSettlements,
+  listBalances, getLedger, recordSettlement, confirmSettlement, listSettlements,
   disputeSettlement, resolveSettlement, exchangeReport,
 } from '../controllers/partnerLedgerController.js';
 
@@ -65,8 +65,9 @@ router.get('/balances',                          requirePermission('exchange.vie
 router.get('/balances/:partnerStoreId/ledger',   requirePermission('exchange.view'), getLedger);
 
 // ── Settlements ────────────────────────────────────────────────────
-router.get ('/settlements',            requirePermission('exchange.view'),   listSettlements);
-router.post('/settlements',            requirePermission('exchange.settle'), recordSettlement);
+router.get ('/settlements',             requirePermission('exchange.view'),   listSettlements);
+router.post('/settlements',             requirePermission('exchange.settle'), recordSettlement);
+router.post('/settlements/:id/confirm', requirePermission('exchange.settle'), confirmSettlement);
 router.post('/settlements/:id/dispute', requirePermission('exchange.settle'), disputeSettlement);
 router.post('/settlements/:id/resolve', requirePermission('exchange.settle'), resolveSettlement);
 

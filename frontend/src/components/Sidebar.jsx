@@ -127,7 +127,6 @@ const menuGroups = [
   {
     label: 'Integrations',
     items: [
-      { name: 'POS API', icon: <Zap size={13} />, path: '/portal/pos-api' },
       { name: 'Delivery Platforms', icon: <Globe size={13} />, path: '/portal/integrations' },
     ],
   },

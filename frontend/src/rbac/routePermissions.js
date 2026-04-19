@@ -62,7 +62,6 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   '/portal/exchange/orders/:id':   'exchange.view',
 
   // Integrations
-  '/portal/pos-api':           'pos_config.view',
   '/portal/integrations':      'pos_config.view',
 
   // POS

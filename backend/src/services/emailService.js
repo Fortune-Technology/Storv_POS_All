@@ -297,21 +297,34 @@ export async function sendWholesaleOrderEdited(to, { orderNumber, senderName, gr
   return sendMail(to, `[Exchange] Order ${orderNumber} was updated`, html);
 }
 
-export async function sendSettlementRecorded(to, { method, amount, methodRef, note, disputeWindowEndsAt, paidByMe }) {
+export async function sendSettlementRecorded(to, { method, amount, methodRef, note, paidByMe, needsConfirmation }) {
   const url = `${PORTAL_URL()}/portal/exchange?tab=balances`;
-  const windowEnds = new Date(disputeWindowEndsAt).toLocaleDateString();
-  const action = paidByMe ? 'You paid your trading partner' : 'Your trading partner recorded a payment from you';
-  const html = wrap('Settlement recorded', `
-    <h2>${escapeHtml(action)}</h2>
+  // From the recipient's POV: paidByMe=true means THEY paid (I received),
+  // paidByMe=false means THEY received (I paid)
+  const heading = paidByMe
+    ? 'Your partner says you paid them — please confirm'
+    : 'Your partner says they received your payment — please confirm';
+  const html = wrap('Action required: confirm settlement', `
+    <h2>${escapeHtml(heading)}</h2>
     <table style="width:100%;font-size:14px;margin:16px 0;border-collapse:collapse;">
       <tr><td style="padding:8px 0;color:#94a3b8">Amount</td><td style="padding:8px 0"><strong>${money(amount)}</strong></td></tr>
       <tr><td style="padding:8px 0;color:#94a3b8">Method</td><td style="padding:8px 0">${escapeHtml(method)}${methodRef ? ' #' + escapeHtml(methodRef) : ''}</td></tr>
       ${note ? `<tr><td style="padding:8px 0;color:#94a3b8">Note</td><td style="padding:8px 0">${escapeHtml(note)}</td></tr>` : ''}
     </table>
-    <p>If this doesn't match your records, you can dispute it until <strong>${windowEnds}</strong> (7-day window). After that it locks in automatically.</p>
+    <p><strong>The ledger won't update until you confirm.</strong> Click the link below to review and either confirm receipt or dispute.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Review &amp; Confirm</a></p>
+  `);
+  return sendMail(to, `[Exchange] Confirm settlement ${money(amount)}`, html);
+}
+
+export async function sendSettlementConfirmed(to, { amount, method, methodRef }) {
+  const url = `${PORTAL_URL()}/portal/exchange?tab=balances`;
+  const html = wrap('Settlement confirmed', `
+    <h2>Your partner confirmed the settlement</h2>
+    <p>They've acknowledged the ${money(amount)} payment via ${escapeHtml(method)}${methodRef ? ' #' + escapeHtml(methodRef) : ''}. Both ledgers are now up to date.</p>
     <p style="text-align:center"><a class="btn" href="${url}">View Ledger</a></p>
   `);
-  return sendMail(to, `[Exchange] Settlement ${money(amount)} recorded`, html);
+  return sendMail(to, `[Exchange] Settlement ${money(amount)} confirmed`, html);
 }
 
 export async function sendSettlementDisputed(to, { amount, method, reason }) {

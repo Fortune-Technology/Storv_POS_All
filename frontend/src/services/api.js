@@ -42,7 +42,10 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     const url    = error?.config?.url || '';
-    const isAuthFlow = /\/auth\/(login|signup|forgot-password|reset-password)/.test(url);
+    // verify-password is used by the inactivity lock to re-prove identity —
+    // a 401 here means "wrong password", not "session expired", so we must
+    // NOT log the user out.
+    const isAuthFlow = /\/auth\/(login|signup|forgot-password|reset-password|verify-password)/.test(url);
 
     if (status === 401 && !isAuthFlow) {
       // Session is no longer valid — wipe and redirect once.
@@ -571,6 +574,7 @@ export const confirmWholesaleOrder= (id, lines)       => api.post(`/exchange/ord
 export const listPartnerBalances = ()                   => api.get('/exchange/balances').then(exchangeFull);
 export const getPartnerLedger    = (partnerStoreId)     => api.get(`/exchange/balances/${partnerStoreId}/ledger`).then(exchangeUnwrap);
 export const recordSettlement    = (data)               => api.post('/exchange/settlements', data).then(exchangeUnwrap);
+export const confirmSettlement   = (id)                 => api.post(`/exchange/settlements/${id}/confirm`).then(exchangeUnwrap);
 export const listSettlements     = (params)             => api.get('/exchange/settlements', { params }).then(exchangeUnwrap);
 export const disputeSettlement   = (id, reason)         => api.post(`/exchange/settlements/${id}/dispute`, { reason }).then(exchangeUnwrap);
 export const resolveSettlement   = (id)                 => api.post(`/exchange/settlements/${id}/resolve`).then(exchangeUnwrap);

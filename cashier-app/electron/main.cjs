@@ -5,7 +5,7 @@
  * WITHOUT requiring QZ Tray.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, shell } = require('electron');
 const path   = require('path');
 const net    = require('net');
 const fs     = require('fs');
@@ -446,6 +446,21 @@ function registerAppIPC(ipcMain, win) {
       customerDisplayWin.close();
     }
     return { ok: true };
+  });
+
+  // Open external URL in the user's default browser (not an Electron window).
+  // Used by the POS "Back Office" button — portal sessions live in the browser,
+  // so the user must view the portal there. Only http(s) URLs are allowed.
+  ipcMain.handle('app:open-external', async (_e, url) => {
+    try {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        return { ok: false, error: 'URL must start with http:// or https://' };
+      }
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 }
 

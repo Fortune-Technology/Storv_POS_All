@@ -83,4 +83,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Survives localStorage clears and Electron updates.
   saveConfig: (data) => ipcRenderer.invoke('config:save', data),
   loadConfig: ()     => ipcRenderer.invoke('config:load'),
+
+  // ── External browser ───────────────────────────────────────────────────────
+  /** Open a URL in the user's default system browser (Chrome/Edge/Firefox),
+   *  not in an Electron BrowserWindow. Returns true on success. */
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
 });

@@ -14,10 +14,11 @@
  */
 
 import prisma from '../config/postgres.js';
-import { sendSettlementRecorded, sendSettlementDisputed } from '../services/emailService.js';
+import {
+  sendSettlementRecorded, sendSettlementDisputed, sendSettlementConfirmed,
+} from '../services/emailService.js';
 
 const getStoreId = (req) => req.headers['x-store-id'] || req.storeId || req.query.storeId;
-const DISPUTE_DAYS = 7;
 
 function canonPair(a, b) {
   return a < b ? { storeAId: a, storeBId: b, swapped: false } : { storeAId: b, storeBId: a, swapped: true };
@@ -167,11 +168,12 @@ const METHODS = new Set(['cash', 'check', 'bank_transfer', 'zelle', 'venmo', 'ot
  * POST /api/exchange/settlements
  *   body { partnerStoreId, amount, method, methodRef?, note?, paidByMe?: boolean }
  *
- * If paidByMe=true, I (active store) paid the partner → delta: I owe less / partner owes me more.
- * If paidByMe=false, the partner paid me → delta: partner owes me less / I owe partner more.
+ * Creates a Settlement with status='pending' and notifies the other party.
  *
- * Writes a Settlement row (status='pending' until dispute window elapses) plus
- * a LedgerEntry that moves PartnerBalance by the amount in the correct direction.
+ * NO ledger entry and NO balance change happen yet — those are written only
+ * when the OTHER party calls POST /settlements/:id/confirm. This ensures
+ * both sides explicitly agree a payment changed hands before the books
+ * reflect it.
  */
 export const recordSettlement = async (req, res) => {
   try {
@@ -194,60 +196,106 @@ export const recordSettlement = async (req, res) => {
     const payerStoreId = paidByMe ? myStoreId : partnerStoreId;
     const payeeStoreId = paidByMe ? partnerStoreId : myStoreId;
 
-    const { storeAId, storeBId, swapped } = canonPair(myStoreId, partnerStoreId);
+    const { storeAId, storeBId } = canonPair(myStoreId, partnerStoreId);
 
-    // Settlement: payer → payee reduces payer's debt. In canonical:
-    //   if payer is A (canonical smaller) → A owes B LESS → balance += amount
-    //   if payer is B → B owes A LESS → balance -= amount
-    const payerIsA = payerStoreId === storeAId;
-    const direction = payerIsA ? 'B_OWES_A' : 'A_OWES_B';   // whose debt is increasing (opposite of who paid)
-    const delta = payerIsA ? amt : -amt;
-    // Note: this increases the ledger toward the payee. In my convention
-    // "balance > 0 means B owes A", so if A paid B, A no longer owes B (or B owes A more).
+    // Use far-future date so the legacy disputeWindowEndsAt column (NOT NULL
+    // in schema) stays valid. It's no longer load-bearing — confirmation is
+    // explicit, not time-based.
+    const sentinelWindow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
-    const disputeWindowEndsAt = new Date(Date.now() + DISPUTE_DAYS * 24 * 60 * 60 * 1000);
+    const settlement = await prisma.settlement.create({
+      data: {
+        storeAId, storeBId,
+        payerStoreId, payeeStoreId,
+        amount: amt, method, methodRef: methodRef || null, note: note || null,
+        status: 'pending', disputeWindowEndsAt: sentinelWindow,
+        recordedById: userId,
+      },
+    });
 
-    const result = await prisma.$transaction(async (tx) => {
-      const settlement = await tx.settlement.create({
-        data: {
-          storeAId, storeBId,
-          payerStoreId, payeeStoreId,
-          amount: amt, method, methodRef: methodRef || null, note: note || null,
-          status: 'pending', disputeWindowEndsAt,
-          recordedById: userId,
-        },
+    // Notify the other party that action is required
+    if (partnerStore.organization?.billingEmail) {
+      sendSettlementRecorded(partnerStore.organization.billingEmail, {
+        method, amount: amt, methodRef, note,
+        paidByMe: !paidByMe,                    // from partner's POV
+        needsConfirmation: true,
+      }).catch(() => {});
+    }
+
+    res.json({ success: true, data: settlement });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/exchange/settlements/:id/confirm
+ *
+ * Called by the party who DIDN'T record the settlement to confirm they actually
+ * received (or paid) the amount. This is where the ledger entry + balance
+ * update happen. Only the counterparty can confirm.
+ */
+export const confirmSettlement = async (req, res) => {
+  try {
+    const myStoreId = getStoreId(req);
+    const userId = req.user?.id;
+    const id = req.params.id;
+
+    const s = await prisma.settlement.findUnique({ where: { id } });
+    if (!s) return res.status(404).json({ success: false, error: 'Settlement not found.' });
+    if (s.storeAId !== myStoreId && s.storeBId !== myStoreId) {
+      return res.status(403).json({ success: false, error: 'Not your settlement.' });
+    }
+    if (s.recordedById === userId) {
+      return res.status(400).json({ success: false, error: 'The other party must confirm — you recorded this.' });
+    }
+    if (s.status !== 'pending') {
+      return res.status(400).json({ success: false, error: `Already ${s.status}.` });
+    }
+
+    const amt = Number(s.amount);
+    const payerIsA = s.payerStoreId === s.storeAId;
+    const direction = payerIsA ? 'B_OWES_A' : 'A_OWES_B';
+    const delta     = payerIsA ? amt : -amt;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.settlement.update({
+        where: { id },
+        data:  { status: 'accepted', resolvedAt: new Date(), resolvedById: userId },
       });
 
       const pb = await tx.partnerBalance.upsert({
-        where: { storeAId_storeBId: { storeAId, storeBId } },
+        where:  { storeAId_storeBId: { storeAId: s.storeAId, storeBId: s.storeBId } },
         update: { balance: { increment: delta }, lastActivityAt: new Date() },
-        create: { storeAId, storeBId, balance: delta, lastActivityAt: new Date() },
+        create: { storeAId: s.storeAId, storeBId: s.storeBId, balance: delta, lastActivityAt: new Date() },
       });
 
       await tx.ledgerEntry.create({
         data: {
-          storeAId, storeBId, direction, amount: amt,
+          storeAId: s.storeAId, storeBId: s.storeBId, direction, amount: amt,
           balanceAfter: Number(pb.balance),
           entryType: 'settlement',
-          settlementId: settlement.id,
-          description: `Settlement: ${method}${methodRef ? ' #' + methodRef : ''} — ${amt.toFixed(2)}`,
+          settlementId: s.id,
+          description: `Settlement confirmed: ${s.method}${s.methodRef ? ' #' + s.methodRef : ''} — ${amt.toFixed(2)}`,
           createdById: userId,
         },
       });
-
-      return settlement;
+      return u;
     });
 
-    // Notify the other party (they can dispute within 7 days)
-    if (partnerStore.organization?.billingEmail) {
-      sendSettlementRecorded(partnerStore.organization.billingEmail, {
-        method, amount: amt, methodRef, note,
-        disputeWindowEndsAt,
-        paidByMe: !paidByMe, // from partner's POV — if I paid, partner received
+    // Notify the original recorder that it was confirmed
+    const recorderStoreId = s.payerStoreId === myStoreId ? s.payeeStoreId : s.payerStoreId;
+    const other = await prisma.store.findUnique({
+      where: { id: recorderStoreId },
+      select: { name: true, organization: { select: { billingEmail: true } } },
+    });
+    if (other?.organization?.billingEmail) {
+      sendSettlementConfirmed(other.organization.billingEmail, {
+        amount: amt, method: s.method, methodRef: s.methodRef,
       }).catch(() => {});
     }
 
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -274,21 +322,13 @@ export const listSettlements = async (req, res) => {
       take: 200,
     });
 
-    // Promote pending → accepted when window elapsed (lazy)
-    const now = new Date();
-    const toAccept = rows.filter(s => s.status === 'pending' && s.disputeWindowEndsAt <= now);
-    if (toAccept.length) {
-      await prisma.settlement.updateMany({
-        where: { id: { in: toAccept.map(s => s.id) } },
-        data: { status: 'accepted' },
-      });
-      for (const s of toAccept) s.status = 'accepted';
-    }
-
-    // Annotate from my perspective
+    // Annotate from my perspective + flag whose turn it is to act
+    const userId = req.user?.id;
     const annotated = rows.map((s) => ({
       ...s,
       paidByMe: s.payerStoreId === myStoreId,
+      recordedByMe: s.recordedById === userId,
+      needsMyConfirmation: s.status === 'pending' && s.recordedById !== userId,
     }));
 
     res.json({ success: true, data: annotated });

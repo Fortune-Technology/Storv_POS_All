@@ -1347,7 +1347,7 @@ export default function POSScreen() {
                       >
                         <CreditCard size={16} /><span>CARD</span>
                       </button>
-                      <button onClick={() => quickCashSubmit(totals.grandTotal)} style={{ height: 56, borderRadius: 12, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.3)', color: 'var(--green)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; }}>
+                      <button onClick={() => openTender('cash')} style={{ height: 56, borderRadius: 12, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.3)', color: 'var(--green)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; }}>
                         <Banknote size={16} /><span>CASH</span>
                       </button>
                       {showEbtButton && (
@@ -1735,9 +1735,9 @@ export default function POSScreen() {
                       <span>CARD</span>
                     </button>
 
-                    {/* CASH */}
+                    {/* CASH — opens TenderModal for manual amount entry + split payments */}
                     <button
-                      onClick={() => quickCashSubmit(totals.grandTotal)}
+                      onClick={() => openTender('cash')}
                       style={{
                         height: 56, borderRadius: 12,
                         background: 'rgba(122,193,67,.12)',
@@ -1856,7 +1856,15 @@ export default function POSScreen() {
         onHardwareSettings={() => setShowHardwareSettings(true)}
         onAdminPortal={() => {
           const portalUrl = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5173';
-          window.open(`${portalUrl}/portal/realtime`, '_blank', 'noopener,noreferrer');
+          const url = `${portalUrl}/portal/realtime`;
+          // In Electron, open in the user's default browser so the portal
+          // session works (cookies, localStorage, auto-refresh) and doesn't
+          // render blank in a fresh BrowserWindow.
+          if (window.electronAPI?.openExternal) {
+            window.electronAPI.openExternal(url);
+          } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
         }}
         onCustomerDisplay={() => {
           if (window.electronAPI?.openCustomerDisplay) {
