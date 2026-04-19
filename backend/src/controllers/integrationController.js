@@ -36,13 +36,19 @@ export const listPlatforms = async (req, res, next) => {
       integrations.map((i) => [i.platform, i]),
     );
 
-    const platforms = PLATFORMS.map((p) => ({
+    // PLATFORMS is an object keyed by platform slug (doordash/ubereats/etc.)
+    // — convert to array with the slug attached as `key` for the frontend.
+    // Previously called `.map()` directly on the object which threw
+    // `TypeError: PLATFORMS.map is not a function` on every Integrations
+    // page load.
+    const platforms = Object.entries(PLATFORMS).map(([key, p]) => ({
+      key,
       ...p,
-      connected: !!connectedMap[p.key],
-      status: connectedMap[p.key]?.status || null,
-      storeName: connectedMap[p.key]?.storeName || null,
-      lastSyncAt: connectedMap[p.key]?.lastSyncAt || null,
-      lastError: connectedMap[p.key]?.lastError || null,
+      connected: !!connectedMap[key],
+      status: connectedMap[key]?.status || null,
+      storeName: connectedMap[key]?.storeName || null,
+      lastSyncAt: connectedMap[key]?.lastSyncAt || null,
+      lastError: connectedMap[key]?.lastError || null,
     }));
 
     res.json(platforms);

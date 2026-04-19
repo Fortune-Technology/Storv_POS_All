@@ -194,7 +194,11 @@ export const listMyPins = async (req, res) => {
     const [ownerStores, memberStores] = await Promise.all([
       ownedOrgIds.length
         ? prisma.store.findMany({
-            where:  { orgId: { in: ownedOrgIds }, active: true },
+            // Store model uses `isActive` (NOT `active`). Three lines here
+            // and one at the filter below had `active` — caused Prisma
+            // validation errors in prod logs whenever any user hit the
+            // MyPIN tab.
+            where:  { orgId: { in: ownedOrgIds }, isActive: true },
             select: { id: true, name: true, orgId: true },
           })
         : Promise.resolve([]),
@@ -202,7 +206,7 @@ export const listMyPins = async (req, res) => {
         where:  { userId },
         select: {
           posPin:  true,
-          store:   { select: { id: true, name: true, orgId: true, active: true } },
+          store:   { select: { id: true, name: true, orgId: true, isActive: true } },
         },
       }),
     ]);
@@ -215,7 +219,7 @@ export const listMyPins = async (req, res) => {
       map.set(s.id, { storeId: s.id, storeName: s.name, orgId: s.orgId, hasPin: false });
     }
     for (const m of memberStores) {
-      if (!m.store || !m.store.active) continue;
+      if (!m.store || !m.store.isActive) continue;
       map.set(m.store.id, {
         storeId:   m.store.id,
         storeName: m.store.name,
@@ -247,9 +251,9 @@ export const setMyPin = async (req, res) => {
 
     const store = await prisma.store.findUnique({
       where:  { id: storeId },
-      select: { id: true, orgId: true, active: true },
+      select: { id: true, orgId: true, isActive: true },
     });
-    if (!store || !store.active) return res.status(404).json({ error: 'Store not found' });
+    if (!store || !store.isActive) return res.status(404).json({ error: 'Store not found' });
 
     // Authorise: must be either UserStore member, or owner/admin in store's org
     const [membership, orgMembership] = await Promise.all([

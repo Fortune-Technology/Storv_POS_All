@@ -5390,6 +5390,20 @@ Tested:
 
 **Closes a real UX gap** — staff managing inventory, cashiers, any non-admin role can now update their own details (including password) without needing admin to do it for them. No schema change, no seed, no env var.
 
+### 13. Production hotfixes surfaced during deploy
+
+Two 500-level errors were showing up in `pm2 logs api-pos-error.log` after the Session 37b deploy:
+
+**a. `Unknown argument 'active'. Did you mean 'isActive'?`** — [`stationController.js`](backend/src/controllers/stationController.js) lines 197, 205, 218, 254, 256. My Session 36 `listMyPins` + `setMyPin` queries used `Store.active` but the Prisma schema's column is `Store.isActive`. Every call to `/api/users/me/pins` or PUT `/api/users/me/pin` was 500'ing in production. Local dev didn't catch it because no manager-role test traffic hit those endpoints until the user did in prod.
+
+**b. `TypeError: PLATFORMS.map is not a function`** — [`integrationController.js:39`](backend/src/controllers/integrationController.js). Pre-existing (not my session's bug), but surfaced in the deploy logs. `PLATFORMS` in [`adapterInterface.js`](backend/src/services/platforms/adapterInterface.js) is an object keyed by slug (`{ doordash: {...}, ubereats: {...}, ... }`) — controller was calling `.map()` directly on the object. Fixed with `Object.entries(PLATFORMS).map(([key, p]) => ({ key, ...p, ... }))`. Every Delivery Platforms / Integrations page load was 500'ing.
+
+Both verified against the live dev backend after fix — `/api/users/me/pins` returns `{ stores: [...] }` with 1 active store; `/api/integrations/platforms` returns an array of 6 platforms with proper `key` slugs attached.
+
+**Deploy**: 2 commands — `git pull` + `pm2 restart api-pos`. No schema, no seed, no frontend rebuild.
+
+**Lesson**: when shipping new `/me/*` endpoints, test AS a manager/cashier role, not as admin. Admin roles have `'*'` perms so they'd never hit the stores.view gate that exposed the root cause chain — but the `Store.active` vs `isActive` schema mismatch would still have thrown whenever the endpoint was actually called. Mock manager session (already done for RBAC testing) should be part of the standard verification loop for any self-service endpoint from here on.
+
 ### Files touched (Session 37b)
 
 **Backend**:
@@ -5412,6 +5426,8 @@ Tested:
 **Backend additions**:
 - `backend/src/controllers/userManagementController.js` — `getMe`, `updateMe`, `changeMyPassword` handlers
 - `backend/src/routes/userManagementRoutes.js` — three `/me` routes registered BEFORE `/:id` so they aren't shadowed
+- `backend/src/controllers/stationController.js` — `active` → `isActive` schema fixes in `listMyPins` + `setMyPin` (production hotfix after deploy uncovered the bug)
+- `backend/src/controllers/integrationController.js` — `PLATFORMS.map` → `Object.entries(PLATFORMS).map` (pre-existing bug, fixed on same pass)
 
 **Cashier-app**:
 - `cashier-app/src/hooks/useQuickButtonLayout.js` — rowHeight in returned shape, default 56
