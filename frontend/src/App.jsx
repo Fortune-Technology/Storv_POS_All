@@ -30,7 +30,6 @@ import InvoiceImport from './pages/InvoiceImport';
 import InventoryCount from './pages/InventoryCount';
 import PriceUpdate from './pages/PriceUpdate';
 import FeesMappings from './pages/FeesMappings';
-import POSAPI from './pages/POSAPI';
 import SalesAnalytics from './pages/SalesAnalytics';
 import DepartmentAnalytics from './pages/DepartmentAnalytics';
 import ProductAnalytics from './pages/ProductAnalytics';
@@ -159,7 +158,7 @@ const ImpersonateLanding = () => {
         const user = JSON.parse(decodeURIComponent(userData));
         user.token = token;
         localStorage.setItem('user', JSON.stringify(user));
-        navigate('/portal/pos-api', { replace: true });
+        navigate('/portal/realtime', { replace: true });
       } catch { navigate('/login', { replace: true }); }
     } else {
       navigate('/login', { replace: true });
@@ -229,7 +228,6 @@ function App() {
           <Route path="/portal/inventory-count" element={gated(<InventoryCount />)} />
           <Route path="/portal/price-update"    element={gated(<PriceUpdate />)} />
           <Route path="/portal/fees-mappings"   element={gated(<FeesMappings />)} />
-          <Route path="/portal/pos-api"         element={gated(<POSAPI />)} />
           <Route path="/portal/realtime"        element={gated(<RealTimeDashboard />)} />
           <Route path="/portal/chat"            element={<ChatPage />} />
           <Route path="/portal/tasks"           element={gated(<TasksPage />)} />

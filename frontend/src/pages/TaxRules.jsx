@@ -118,15 +118,18 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) { setErr('Name is required.'); return; }
-    if (!form.rate || isNaN(Number(form.rate)) || Number(form.rate) < 0 || Number(form.rate) > 100) {
+    if (form.rate === '' || isNaN(Number(form.rate)) || Number(form.rate) < 0 || Number(form.rate) > 100) {
       setErr('Rate must be a number between 0 and 100.'); return;
     }
     if (!form.appliesTo) { setErr('Applies-to category is required.'); return; }
     setErr('');
+    // The form collects the rate as a percent (e.g. "5.5" for 5.5%). The DB
+    // stores it as a decimal fraction (0.055) because that's how it's applied
+    // at checkout: lineTotal × rate. Convert on save; reverse on edit-load.
     await onSave({
       name:        form.name.trim(),
       description: form.description.trim() || null,
-      rate:        parseFloat(form.rate),
+      rate:        parseFloat(form.rate) / 100,
       appliesTo:   form.appliesTo,
       ebtExempt:   form.ebtExempt,
       state:       form.state || null,
@@ -261,7 +264,10 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       }}>
         <span style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--accent-secondary)', lineHeight: 1 }}>
-          {Number(rule.rate).toFixed(Number(rule.rate) % 1 === 0 ? 0 : 3).replace(/0+$/, '').replace(/\.$/, '')}%
+          {(() => {
+            const pct = Number(rule.rate) * 100;
+            return pct.toFixed(pct % 1 === 0 ? 0 : 3).replace(/0+$/, '').replace(/\.$/, '');
+          })()}%
         </span>
       </div>
 
@@ -452,7 +458,9 @@ export default function TaxRules({ embedded }) {
           initial={showForm === 'new' ? EMPTY_FORM : {
             name:        showForm.name,
             description: showForm.description || '',
-            rate:        showForm.rate,
+            // DB stores rate as decimal fraction (0.055) — display in the
+            // form as percent (5.5) to match the "%" label the user sees.
+            rate:        String(+(Number(showForm.rate) * 100).toFixed(4)),
             appliesTo:   showForm.appliesTo,
             ebtExempt:   showForm.ebtExempt !== false,
             state:       showForm.state || '',

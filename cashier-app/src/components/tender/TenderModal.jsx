@@ -44,7 +44,12 @@ const METHODS = [
   { id: 'other',       label: 'Other',       Icon: MoreHorizontal, color: 'var(--text-secondary)', bg: 'rgba(255,255,255,.07)', border: 'rgba(255,255,255,.18)'},
 ];
 const BY_ID       = Object.fromEntries(METHODS.map(m => [m.id, m]));
-const HAS_AMOUNT  = ['cash', 'manual_card', 'manual_ebt', 'other'];
+// All methods can now accept partial amounts. Integrated card/ebt partials
+// charge the Dejavoo/PAX terminal for the entered amount when the cashier
+// clicks "Add & Continue", so Card+Card and Card+EBT splits work natively.
+const HAS_AMOUNT  = ['cash', 'card', 'ebt', 'manual_card', 'manual_ebt', 'other'];
+// Methods that route through the integrated payment terminal
+const USES_TERMINAL = ['card', 'ebt'];
 const GIVES_CHANGE = ['cash'];
 
 // Style helpers kept as shortcuts referencing CSS classes
@@ -163,17 +168,23 @@ export default function TenderModal({
 
   const canComplete = useMemo(() => {
     if (isRefundTx) return true;  // refund/bottle return: always completeable
-    if (totalSplit >= totals.grandTotal - 0.005) return true;
-    if (method === 'card' || method === 'manual_card') return remaining > 0;
+    if (totalSplit >= totals.grandTotal - 0.005) return true;   // fully covered by splits
+    if (method === 'manual_card') return remaining > 0;
+    if (USES_TERMINAL.includes(method)) {
+      // Integrated card/ebt: if cashier typed an amount, they want to charge exactly that.
+      // If no amount typed, charge the full remaining. Either needs remaining > 0.
+      return remaining > 0;
+    }
     if (GIVES_CHANGE.includes(method)) return activeAmt >= remaining - 0.005;
-    if (method === 'ebt' || method === 'manual_ebt') return activeAmt > 0;
+    if (method === 'manual_ebt') return activeAmt > 0;
     if (method === 'other') return activeAmt > 0;
     return false;
   }, [isRefundTx, method, activeAmt, remaining, totalSplit, totals.grandTotal]);
 
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
-  const showNumpad  = HAS_AMOUNT.includes(method);  // false for 'card'
+  // Numpad shows for every method now (card/ebt can accept partial amounts)
+  const showNumpad  = HAS_AMOUNT.includes(method);
 
   const storeId  = cashier?.storeId || cashier?.stores?.[0]?.storeId;
   const txNumber = `TXN-${Date.now().toString(36).toUpperCase()}`;
@@ -181,18 +192,124 @@ export default function TenderModal({
   // ── Helpers ────────────────────────────────────────────────────────────────
   const switchMethod = (id) => { setMethod(id); setAmount(''); setNote(''); };
 
-  const addSplitLine = () => {
-    if (!HAS_AMOUNT.includes(method) || activeAmt <= 0) return;
+  /**
+   * Charge the integrated payment terminal (Dejavoo or PAX) for a specific
+   * amount. Used by both addSplitLine (partial) and complete (final).
+   * Returns: { approved, result, offlineAccepted } on success
+   * Throws:  on network/config error. On decline, returns { approved: false, result }.
+   */
+  const chargeTerminal = async (chargeAmount, chargeMethod) => {
+    if (hasDejavoo) {
+      const resp = await posApi.dejavooSale({
+        stationId:     station?.id,
+        amount:        Math.abs(chargeAmount),
+        invoiceNumber: txNumber,
+        paymentType:   chargeMethod === 'ebt' ? 'ebt_food' : 'card',
+        captureSignature: Number(chargeAmount) >= Number(signatureThreshold),
+      });
+      const result = resp?.result || resp || {};
+      const raw    = result._raw || {};
+      const offlineAccepted = result.approved && (
+        raw.OfflineMode === true || raw.StoredOffline === true ||
+        result.message?.toLowerCase().includes('offline')
+      );
+      return {
+        approved: !!result.approved,
+        result,
+        paymentTransactionId: resp?.paymentTransactionId || null,
+        referenceId: result.referenceId || null,
+        offlineAccepted,
+      };
+    }
+    if (hasPAX && chargeMethod === 'card') {
+      const resp = await posApi.paxSale({
+        amount: chargeAmount,
+        invoiceNumber: txNumber,
+        edcType: '02',
+        stationId: station?.id,
+      });
+      return {
+        approved: !!resp.approved,
+        result: resp.data || resp,
+        paymentTransactionId: resp?.paymentTransactionId || null,
+        referenceId: resp?.data?.referenceId || null,
+        offlineAccepted: false,
+      };
+    }
+    // No terminal configured — treat as manually approved (cashier confirms)
+    return { approved: true, result: { message: 'No integrated terminal' }, paymentTransactionId: null, referenceId: null, offlineAccepted: false };
+  };
+
+  const [splitCharging, setSplitCharging] = useState(false);
+
+  const addSplitLine = async () => {
+    if (!HAS_AMOUNT.includes(method) || activeAmt <= 0 || splitCharging) return;
     const m = BY_ID[method];
-    setSplits(prev => [...prev, {
-      id: nanoid(), method,
-      label: note ? `${m.label} (${note})` : m.label,
-      amount: Math.min(activeAmt, remaining),
-    }]);
+    const commitAmount = Math.min(activeAmt, remaining);
+
+    // For integrated card/ebt, charge terminal BEFORE committing the split.
+    // Only commit on approval so the split lines mirror actual terminal charges.
+    if (USES_TERMINAL.includes(method) && (hasDejavoo || hasPAX)) {
+      setSplitCharging(true);
+      setPayStatus('waiting');
+      try {
+        const r = await chargeTerminal(commitAmount, method);
+        if (!r.approved) {
+          setPayStatus('declined');
+          setPayResult(r.result);
+          return;
+        }
+        setPayStatus(null);
+        setPayResult(null);
+        setSplits(prev => [...prev, {
+          id: nanoid(), method,
+          label: note ? `${m.label} (${note})` : m.label,
+          amount: commitAmount,
+          paymentTransactionId: r.paymentTransactionId,
+          referenceId: r.referenceId,
+          lastFour: r.result.last4,
+          cardType: r.result.cardType,
+          authCode: r.result.authCode,
+          entryMode: r.result.entryType,
+          provider: hasDejavoo ? 'dejavoo' : 'pax',
+          offlineAccepted: r.offlineAccepted,
+        }]);
+      } catch (err) {
+        setPayStatus('error');
+        setPayResult({ message: err?.response?.data?.error || err.message });
+        return;
+      } finally {
+        setSplitCharging(false);
+      }
+    } else {
+      setSplits(prev => [...prev, {
+        id: nanoid(), method,
+        label: note ? `${m.label} (${note})` : m.label,
+        amount: commitAmount,
+      }]);
+    }
     setAmount(''); setNote(''); setMethod('cash');
   };
 
-  const removeSplit = (id) => setSplits(prev => prev.filter(l => l.id !== id));
+  const removeSplit = async (id) => {
+    const line = splits.find(s => s.id === id);
+    if (!line) return;
+    // If this split charged the terminal, void it there too
+    if (line.paymentTransactionId && USES_TERMINAL.includes(line.method)) {
+      if (!window.confirm(`Void the ${fmt$(line.amount)} ${line.method.toUpperCase()} charge on the terminal?`)) return;
+      try {
+        await posApi.dejavooVoid({
+          stationId: station?.id,
+          paymentTransactionId: line.paymentTransactionId,
+          referenceId: line.referenceId || undefined,
+        });
+      } catch (err) {
+        alert(`Terminal void failed: ${err?.response?.data?.error || err.message}. The split was NOT removed — please void manually on the terminal.`);
+        return;
+      }
+    }
+    setSplits(prev => prev.filter(l => l.id !== id));
+  };
 
   const finish = (finalTx, cashChange) => {
     // Pass both the tx and the change amount so POSScreen can render
@@ -206,80 +323,36 @@ export default function TenderModal({
   const complete = async () => {
     if (!canComplete || saving) return;
 
-    // ── Dejavoo SPIn terminal charge (Card / EBT) ────────────────────────────
-    // Supports P17 offline mode: if the terminal is offline, SPIn returns
-    // statusCode === '0000' with OfflineMode flag. We accept the sale and
-    // surface a warning banner so the cashier knows it will settle later.
-    if (hasDejavoo && (method === 'card' || method === 'ebt') && payStatus !== 'approved') {
-      setPayStatus('waiting');
-      setDjOfflineWarning(false);
-      try {
-        const payload = {
-          stationId:     station?.id,
-          amount:        Math.abs(totals.grandTotal),
-          invoiceNumber: txNumber,
-          // Map cashier tender method → Dejavoo PaymentType
-          // 'card' → terminal decides credit vs debit based on card
-          // 'ebt'  → default to EBT_Food (receipt screen will let cashier pick SNAP vs Cash)
-          paymentType:   method === 'ebt' ? 'ebt_food' : 'card',
-          captureSignature: Number(totals.grandTotal) >= Number(signatureThreshold),
-        };
-
-        const fn = method === 'ebt' ? posApi.dejavooSale : posApi.dejavooSale;
-        const resp = await fn(payload);
-        const result = resp?.result || resp || {};
-
-        // Save referenceId + paymentTransactionId for possible abort / linking
-        setDjReferenceId(result.referenceId || null);
-        setDjPaymentTxId(resp?.paymentTransactionId || null);
-
-        // Detect offline-accepted transactions (P17 store-and-forward)
-        const raw = result._raw || {};
-        const isOfflineAccepted = result.approved && (
-          raw.OfflineMode === true ||
-          raw.StoredOffline === true ||
-          result.message?.toLowerCase().includes('offline')
-        );
-        if (isOfflineAccepted) setDjOfflineWarning(true);
-
-        if (result.approved) {
+    // ── Final terminal charge (Card / EBT) — only for the outstanding balance,
+    // NOT the full grand total. Prior splits already charged their portions
+    // via addSplitLine → chargeTerminal, so we only need to charge what's
+    // still remaining when the cashier hits Complete with method=card/ebt.
+    let finalTerminalResult = null;
+    let finalTerminalTxId = null;
+    if (USES_TERMINAL.includes(method) && (hasDejavoo || hasPAX) && payStatus !== 'approved') {
+      const finalAmount = remaining;
+      if (finalAmount > 0.005) {
+        setPayStatus('waiting');
+        setDjOfflineWarning(false);
+        try {
+          const r = await chargeTerminal(finalAmount, method);
+          setDjReferenceId(r.referenceId || null);
+          setDjPaymentTxId(r.paymentTransactionId || null);
+          if (r.offlineAccepted) setDjOfflineWarning(true);
+          if (!r.approved) {
+            setPayStatus('declined');
+            setPayResult(r.result);
+            return;
+          }
           setPayStatus('approved');
-          setPayResult(result);
-          // Fall through to save POS transaction
-        } else {
-          setPayStatus('declined');
-          setPayResult(result);
+          setPayResult(r.result);
+          finalTerminalResult = r.result;
+          finalTerminalTxId = r.paymentTransactionId;
+        } catch (err) {
+          setPayStatus('error');
+          setPayResult({ message: err?.response?.data?.error || err.message });
           return;
         }
-      } catch (err) {
-        setPayStatus('error');
-        setPayResult({ message: err?.response?.data?.error || err.message });
-        return;
-      }
-    }
-
-    // ── Legacy PAX fallback (only when Dejavoo not configured) ────────────
-    if (method === 'card' && hasPAX && !hasDejavoo && payStatus !== 'approved') {
-      setPayStatus('waiting');
-      try {
-        const result = await posApi.paxSale({
-          amount: totals.grandTotal,
-          invoiceNumber: txNumber,
-          edcType: '02',
-          stationId: station?.id,
-        });
-        if (result.approved) {
-          setPayStatus('approved');
-          setPayResult(result.data);
-        } else {
-          setPayStatus('declined');
-          setPayResult(result.data);
-          return;
-        }
-      } catch (err) {
-        setPayStatus('error');
-        setPayResult({ message: err.message });
-        return;
       }
     }
 
@@ -289,12 +362,35 @@ export default function TenderModal({
 
     setSaving(true);
 
-    const finalLines = [...splits.map(({ method: m, label, amount: a }) => ({ method: m, label, amount: a }))];
+    // Preserve terminal metadata from prior committed splits
+    const finalLines = splits.map(s => ({
+      method: s.method,
+      label:  s.label,
+      amount: s.amount,
+      ...(s.paymentTransactionId ? { paymentTransactionId: s.paymentTransactionId } : {}),
+      ...(s.referenceId ? { referenceId: s.referenceId } : {}),
+      ...(s.lastFour   ? { lastFour: s.lastFour } : {}),
+      ...(s.cardType   ? { acctType: s.cardType } : {}),
+      ...(s.authCode   ? { authCode: s.authCode } : {}),
+      ...(s.entryMode  ? { entryMode: s.entryMode } : {}),
+      ...(s.provider   ? { provider: s.provider } : {}),
+      ...(s.offlineAccepted ? { offlineAccepted: true } : {}),
+    }));
     if (isRefundTx) {
       // Refund transaction: cash is disbursed to customer
       finalLines.push({ method: 'cash', amount: Math.abs(totals.grandTotal), note: 'Refund/Bottle Return' });
-    } else if (method === 'card' || method === 'manual_card') {
-      finalLines.push({ method, amount: remaining });
+    } else if (USES_TERMINAL.includes(method) || method === 'manual_card') {
+      const line = { method, amount: remaining };
+      if (finalTerminalResult) {
+        if (finalTerminalTxId)            line.paymentTransactionId = finalTerminalTxId;
+        if (finalTerminalResult.referenceId) line.referenceId = finalTerminalResult.referenceId;
+        if (finalTerminalResult.last4)    line.lastFour = finalTerminalResult.last4;
+        if (finalTerminalResult.cardType) line.acctType = finalTerminalResult.cardType;
+        if (finalTerminalResult.authCode) line.authCode = finalTerminalResult.authCode;
+        if (finalTerminalResult.entryType) line.entryMode = finalTerminalResult.entryType;
+        line.provider = hasDejavoo ? 'dejavoo' : 'pax';
+      }
+      finalLines.push(line);
     } else if (activeAmt > 0) {
       finalLines.push({ method, amount: activeAmt, ...(note ? { note } : {}) });
     }
@@ -346,21 +442,8 @@ export default function TenderModal({
       ...totals,
     };
 
-    // Include Dejavoo payment info in tender lines for receipt display
-    if (djPaymentTxId && payResult?.approved && hasDejavoo) {
-      const tenderId = method === 'ebt' ? 'ebt' : 'card';
-      const payLine = finalLines.find(l => l.method === tenderId);
-      if (payLine) {
-        payLine.paymentTransactionId = djPaymentTxId;
-        payLine.referenceId = payResult.referenceId || undefined;
-        payLine.lastFour    = payResult.last4       || undefined;
-        payLine.acctType    = payResult.cardType    || undefined;
-        payLine.authCode    = payResult.authCode    || undefined;
-        payLine.entryMode   = payResult.entryType   || undefined;
-        payLine.provider    = 'dejavoo';
-        if (djOfflineWarning) payLine.offlineAccepted = true;
-      }
-    }
+    // (Terminal metadata is now applied inline per-split when each charge
+    // completes — see the splits.map() above and the final-line push.)
 
     try {
       if (isOnline) {
@@ -809,12 +892,21 @@ export default function TenderModal({
               <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.5rem 0.875rem' }}>
                 {splits.map(line => {
                   const m = BY_ID[line.method]; const Icon = m?.Icon || DollarSign;
+                  const terminalCharged = !!line.paymentTransactionId;
                   return (
                     <div key={line.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.3rem 0', borderBottom: '1px solid var(--border)' }}>
                       <Icon size={13} color={m?.color} />
-                      <span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{line.label}</span>
+                      <span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {line.label}
+                        {line.lastFour && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>••{line.lastFour}</span>}
+                        {terminalCharged && <Wifi size={10} color="var(--green)" title="Charged on terminal" />}
+                      </span>
                       <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{fmt$(line.amount)}</span>
-                      <button onClick={() => removeSplit(line.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 4px' }}><Trash2 size={12} /></button>
+                      <button
+                        onClick={() => removeSplit(line.id)}
+                        title={terminalCharged ? `Void ${fmt$(line.amount)} on terminal` : 'Remove split line'}
+                        style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 4px' }}
+                      ><Trash2 size={12} /></button>
                     </div>
                   );
                 })}
@@ -971,12 +1063,16 @@ export default function TenderModal({
         {/* Footer */}
         <div style={{ padding: '0.875rem 1rem', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {canAddSplit && (
-            <button onClick={addSplitLine} className="tm-split-add-btn">
-              <PlusCircle size={14} /> Add {fmt$(activeAmt)} {activeM?.label} — pay {fmt$(remaining - activeAmt)} separately
+            <button onClick={addSplitLine} disabled={splitCharging} className="tm-split-add-btn">
+              {splitCharging
+                ? <><RotateCcw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Charging terminal for {fmt$(activeAmt)}…</>
+                : USES_TERMINAL.includes(method)
+                  ? <><CreditCard size={14} /> Charge {fmt$(activeAmt)} on terminal — pay {fmt$(remaining - activeAmt)} separately</>
+                  : <><PlusCircle size={14} /> Add {fmt$(activeAmt)} {activeM?.label} — pay {fmt$(remaining - activeAmt)} separately</>}
             </button>
           )}
-          <button onClick={complete} disabled={!canComplete || saving}
-            className="tm-big-btn" style={{ background: (!canComplete || saving) ? undefined : (method === 'card' ? 'var(--blue, #3b82f6)' : padColor) }}
+          <button onClick={complete} disabled={!canComplete || saving || splitCharging}
+            className="tm-big-btn" style={{ background: (!canComplete || saving || splitCharging) ? undefined : (method === 'card' ? 'var(--blue, #3b82f6)' : padColor) }}
           >
             {saving
               ? <><RotateCcw size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>

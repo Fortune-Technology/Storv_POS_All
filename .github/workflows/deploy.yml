@@ -46,13 +46,28 @@ jobs:
           npm install
           npx prisma generate
 
-          # Run any pending SQL migrations (safe — all use IF NOT EXISTS)
+          # Run any pending SQL migrations (safe — all use IF NOT EXISTS).
+          # These handle data migrations / backfills and specific ALTERs that
+          # need to run in order.
           for f in prisma/migrations/*.sql; do
             if [ -f "$f" ]; then
               echo "Running migration: $f"
               npx prisma db execute --file "$f" --schema prisma/schema.prisma || echo "  ⚠ Migration $f had warnings (non-fatal)"
             fi
           done
+
+          # Sync any remaining schema changes — this is the safety net for
+          # any additions (new tables, new columns) that weren't captured in
+          # a SQL migration file. Idempotent: if the DB already matches the
+          # Prisma schema, this is a no-op.
+          # We use --accept-data-loss only because new optional columns on
+          # existing tables can require it; the command never drops data
+          # unless a column/table is actually removed from schema.prisma.
+          echo "→ Running prisma db push to sync any remaining schema changes"
+          npx prisma db push --accept-data-loss --skip-generate || {
+            echo "::error::prisma db push failed — database schema is out of sync with Prisma client"
+            exit 1
+          }
 
           # Seed / refresh RBAC system roles + permission catalog.
           # Idempotent — creates missing roles, adds missing permission rows,

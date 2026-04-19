@@ -1,5 +1,5 @@
 /**
- * Lottery Seed — Future Foods Portal
+ * Lottery Seed — Storv POS Portal
  *
  * Seeds Ontario OLGC scratch ticket games + demo boxes, transactions & shift reports.
  *

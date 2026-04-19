@@ -102,10 +102,10 @@ export const seedData = async () => {
     // Create a default org first
     const org = await prisma.organization.create({
       data: {
-        name:         'Future Foods',
-        slug:         'future-foods',
+        name:         'Demo Store',
+        slug:         'demo-store',
         plan:         'pro',
-        billingEmail: 'admin@futurefoodsme.com',
+        billingEmail: 'admin@storeveu.com',
       },
     });
 
@@ -114,8 +114,8 @@ export const seedData = async () => {
     await prisma.user.createMany({
       data: [
         {
-          name:     'Future Foods Admin',
-          email:    'admin@futurefoodsme.com',
+          name:     'Storv Admin',
+          email:    'admin@storeveu.com',
           phone:    '1234567890',
           password: adminHash,
           role:     'admin',

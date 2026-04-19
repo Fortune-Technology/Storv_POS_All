@@ -1,5 +1,5 @@
 /**
- * Express server for the Future Foods Portal
+ * Express server for the Storv POS Portal
  */
 
 import express from 'express';
