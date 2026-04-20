@@ -436,6 +436,22 @@ export const commitImport = (formData) =>
 export const downloadImportTemplate = (type) =>
   api.get(`/catalog/import/template/${type}`, { responseType: 'blob' }).then(r => r.data);
 
+// Session 2 — full product catalog export (active store's overrides included)
+export const exportProductsCsv = (params = {}) =>
+  api.get('/catalog/products/export', { params, responseType: 'blob' });
+
+// Session 5 — vendor templates (retailer pick + preview)
+export const listVendorTemplates  = (params = {}) => api.get('/vendor-templates', { params }).then(r => r.data);
+export const getVendorTemplate    = (id)          => api.get(`/vendor-templates/${id}`).then(r => r.data);
+export const previewVendorTemplate= (id, rows)    => api.post(`/vendor-templates/${id}/preview`, { rows }).then(r => r.data);
+
+// Session 4 — department-scoped attributes
+export const getDepartmentAttributes     = (params = {}) => api.get('/catalog/department-attributes', { params }).then(r => r.data);
+export const createDepartmentAttribute   = (data)        => api.post('/catalog/department-attributes', data).then(r => r.data);
+export const updateDepartmentAttribute   = (id, data)    => api.put(`/catalog/department-attributes/${id}`, data).then(r => r.data);
+export const deleteDepartmentAttribute   = (id)          => api.delete(`/catalog/department-attributes/${id}`).then(r => r.data);
+export const applyStandardDeptAttributes = (deptId)      => api.post(`/catalog/departments/${deptId}/apply-standard-attributes`).then(r => r.data);
+
 export const getImportHistory = (params) =>
   api.get('/catalog/import/history', { params }).then(r => r.data);
 

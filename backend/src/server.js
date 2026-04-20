@@ -22,6 +22,7 @@ import posRoutes from './routes/posRoutes.js';
 import salesRoutes from './routes/salesRoutes.js';
 import weatherRoutes from './routes/weatherRoutes.js';
 import catalogRoutes     from './routes/catalogRoutes.js';
+import vendorTemplateRoutes from './routes/vendorTemplateRoutes.js';
 import posTerminalRoutes from './routes/posTerminalRoutes.js';
 import reportsRoutes     from './routes/reportsRoutes.js';
 import lotteryRoutes     from './routes/lotteryRoutes.js';
@@ -72,7 +73,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
-    
+
     // Check if '*' is in allowedOrigins or if origin is in the list
     if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -82,6 +83,9 @@ app.use(cors({
     }
   },
   credentials: true,
+  // Expose download-related + row-count headers so the frontend can read the
+  // server-provided filename + rowCount from CSV/PDF/XLSX exports
+  exposedHeaders: ['Content-Disposition', 'X-Row-Count'],
 }));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
@@ -112,6 +116,7 @@ app.use('/api/pos',          posRoutes);
 app.use('/api/sales',        salesRoutes);
 app.use('/api/weather',      weatherRoutes);
 app.use('/api/catalog',       catalogRoutes);
+app.use('/api/vendor-templates', vendorTemplateRoutes);
 app.use('/api/pos-terminal', posTerminalRoutes);
 app.use('/api/reports',      reportsRoutes);
 app.use('/api/lottery',      lotteryRoutes);

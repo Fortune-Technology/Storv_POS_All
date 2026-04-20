@@ -16,7 +16,7 @@ import {
 } from '../services/api';
 import {
   Plus, Edit2, Trash2, RotateCcw, X, Check,
-  ShieldAlert, Leaf, Tag, Layers, GripVertical,
+  ShieldAlert, Leaf, Layers, GripVertical,
   Search, ToggleLeft, ToggleRight, Package, Monitor, Copy,
 } from 'lucide-react';
 
@@ -118,7 +118,29 @@ const EMPTY_FORM = {
   ageRequired: '', ebtEligible: false,
   taxClass: '', bottleDeposit: false,
   showInPOS: true, color: 'var(--accent-primary)', active: true,
+  category: '',
 };
+
+const CATEGORY_OPTIONS = [
+  { value: '',        label: '— Not set —' },
+  { value: 'general', label: 'General (no standard fields)' },
+  { value: 'wine',    label: 'Wine (Vintage, Varietal, ABV…)' },
+  { value: 'liquor',  label: 'Liquor / Spirits (Type, Proof, ABV…)' },
+  { value: 'beer',    label: 'Beer (Style, Container, ABV…)' },
+  { value: 'tobacco', label: 'Tobacco / Vape (Type, Nicotine, Flavour…)' },
+];
+
+// Same auto-guess as the backend — used to suggest a category when the user
+// types a dept name so retailers get a sensible default without clicking.
+function guessDeptCategory(name = '', code = '') {
+  const n = name.toLowerCase();
+  const c = code.toLowerCase();
+  if (c === 'wine' || n.includes('wine') || n.includes('champagne') || n.includes('vino')) return 'wine';
+  if (c === 'beer' || n.includes('beer') || n.includes('cerveza') || n.includes('cider') || n.includes('malt')) return 'beer';
+  if (['liquor','spirits','spirit','liq','spir'].includes(c) || n.includes('liquor') || n.includes('spirit') || n.includes('whiskey') || n.includes('licor')) return 'liquor';
+  if (['tobac','tobacco','vape','smoke'].some(t => c.includes(t)) || n.includes('tobacco') || n.includes('vape') || n.includes('cigar') || n.includes('smoke')) return 'tobacco';
+  return '';
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,9 +196,23 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
     showInPOS:     dept.showInPOS ?? true,
     color:         dept.color || 'var(--accent-primary)',
     active:        dept.active ?? true,
+    category:      dept.category || '',
   } : { ...EMPTY_FORM });
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // Flag if the user has ever manually touched the category dropdown,
+  // so we don't overwrite their explicit choice while they're still typing.
+  const [categoryTouched, setCategoryTouched] = useState(!!(dept?.category));
+
+  const set = (k, v) => setForm(f => {
+    const next = { ...f, [k]: v };
+    // Auto-guess category from name/code (only for NEW depts where the
+    // retailer hasn't made an explicit choice). Keeps the dropdown lively.
+    if (!dept && !categoryTouched && (k === 'name' || k === 'code')) {
+      const guess = guessDeptCategory(next.name, next.code);
+      next.category = guess;
+    }
+    return next;
+  });
 
   const inputStyle = {
     width: '100%', padding: '0.55rem 0.75rem', borderRadius: 8,
@@ -270,6 +306,23 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
             </div>
           </div>
 
+          {/* Category — drives the preset attributes (Wine/Liquor/Beer/Tobacco) */}
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={labelStyle}>CATEGORY <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>(drives standard fields on products)</span></label>
+            <select
+              value={form.category}
+              onChange={e => { setCategoryTouched(true); set('category', e.target.value); }}
+              style={inputStyle}
+            >
+              {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {form.category && form.category !== 'general' && (
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                Products in this department will show the standard {form.category} fields on their form (Vintage, ABV, etc.). You can customize them via <em>Manage Attributes</em>.
+              </div>
+            )}
+          </div>
+
           {/* Tax Class — options come from the store's actual Tax Rules.
               Each option's label is "Category — rate%" pulled from the
               matching TaxRule. Falls back to a default category list when
@@ -309,7 +362,6 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted, #6b7280)', letterSpacing: '0.05em', marginBottom: '0.875rem' }}>DEPARTMENT FLAGS</div>
             {[
               { key: 'ebtEligible',   label: 'EBT / SNAP Eligible', desc: 'Products in this dept can be paid with EBT',  icon: Leaf,    color: '#10b981' },
-              { key: 'bottleDeposit', label: 'Bottle Deposit',       desc: 'Auto-apply bottle deposit fees',              icon: Tag,     color: '#3b82f6' },
               { key: 'showInPOS',     label: 'Show in POS',          desc: 'Display this dept as a category in the POS',  icon: Monitor, color: 'var(--accent-primary)' },
             ].map(({ key, label, desc, icon: Icon, color }, idx, arr) => (
               <div key={key} style={{
@@ -375,7 +427,7 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
 
 // ─── Draggable Row ─────────────────────────────────────────────────────────────
 
-function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, draggingIdx, onEdit, onToggleActive, onTogglePOS, onDeactivate, onReactivate }) {
+function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, draggingIdx, onEdit, onManageAttrs, onToggleActive, onTogglePOS, onDeactivate, onReactivate }) {
   const isDragging = draggingIdx === index;
   const isTarget   = draggingIdx !== null && draggingIdx !== index;
 
@@ -430,7 +482,6 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, paddingLeft: 17 }}>
           <TaxBadge tc={dept.taxClass} />
           {dept.ebtEligible && <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(16,185,129,.15)', color: '#10b981' }}>EBT</span>}
-          {dept.bottleDeposit && <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(59,130,246,.15)', color: '#3b82f6' }}>DEP</span>}
           {dept.ageRequired && (
             <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(245,158,11,.15)', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 2 }}>
               <ShieldAlert size={9} />{dept.ageRequired}+
@@ -479,6 +530,15 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
         >
           <Edit2 size={13} />
         </button>
+        <button onClick={() => onManageAttrs(dept)} title="Manage Attributes" style={{
+          padding: 6, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,.04)',
+          cursor: 'pointer', color: 'var(--text-muted, #6b7280)', display: 'flex', alignItems: 'center',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,.12)'; e.currentTarget.style.color = '#7c3aed'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'var(--text-muted, #6b7280)'; }}
+        >
+          <Layers size={13} />
+        </button>
         <button onClick={() => onDeactivate(dept.id)} title="Deactivate" style={{
           padding: 6, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,.04)',
           cursor: 'pointer', color: 'var(--text-muted, #6b7280)', display: 'flex', alignItems: 'center',
@@ -501,6 +561,7 @@ export default function Departments() {
   const [search,       setSearch]       = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [panelDept,    setPanelDept]    = useState(undefined);
+  const [attrsDept,    setAttrsDept]    = useState(null); // dept currently shown in Manage Attributes panel
   const [saving,       setSaving]       = useState(false);
   const [deleteId,     setDeleteId]     = useState(null);
   const [draggingIdx,  setDraggingIdx]  = useState(null);
@@ -773,6 +834,7 @@ export default function Departments() {
                 onDrop={handleDrop}
                 onDragEnd={handleDragEnd}
                 onEdit={setPanelDept}
+                onManageAttrs={setAttrsDept}
                 onTogglePOS={togglePOS}
                 onToggleActive={toggleActive}
                 onDeactivate={id => setDeleteId(id)}
@@ -809,6 +871,237 @@ export default function Departments() {
         {panelDept !== undefined && (
           <DeptForm dept={panelDept} onSave={handleSave} onClose={() => setPanelDept(undefined)} saving={saving} taxClassOptions={taxClassOptions} />
         )}
+        {/* Manage Attributes panel */}
+        {attrsDept && (
+          <AttrsPanel dept={attrsDept} onClose={() => setAttrsDept(null)} />
+        )}
       </div>
+  );
+}
+
+// ─── Manage Attributes side panel ─────────────────────────────────────────────
+
+function AttrsPanel({ dept, onClose }) {
+  const [attrs, setAttrs]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addForm, setAddForm] = useState({ key: '', label: '', dataType: 'text', unit: '', placeholder: '', options: '', required: false });
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await import('../services/api').then(m => m.getDepartmentAttributes({ departmentId: dept.id }));
+      // Filter to this dept only (exclude org-wide attrs to keep the UI focused)
+      const rows = (res?.data ?? []).filter(a => a.departmentId === dept.id);
+      setAttrs(rows);
+    } catch {
+      setAttrs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [dept.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async () => {
+    if (!addForm.key.trim() || !addForm.label.trim()) {
+      import('react-toastify').then(({ toast }) => toast.error('Key and label are required'));
+      return;
+    }
+    setSaving(true);
+    try {
+      const api = await import('../services/api');
+      await api.createDepartmentAttribute({
+        departmentId: dept.id,
+        key:          addForm.key.trim(),
+        label:        addForm.label.trim(),
+        dataType:     addForm.dataType,
+        unit:         addForm.unit.trim() || null,
+        placeholder:  addForm.placeholder.trim() || null,
+        required:     addForm.required,
+        options:      addForm.options ? addForm.options.split(',').map(s => s.trim()).filter(Boolean) : [],
+      });
+      setAddForm({ key: '', label: '', dataType: 'text', unit: '', placeholder: '', options: '', required: false });
+      await load();
+      import('react-toastify').then(({ toast }) => toast.success('Attribute added'));
+    } catch (e) {
+      import('react-toastify').then(({ toast }) => toast.error(e.response?.data?.error || 'Failed to add'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this attribute? Any values already stored on products will become freeform "Other Details".')) return;
+    try {
+      const api = await import('../services/api');
+      await api.deleteDepartmentAttribute(id);
+      setAttrs(as => as.filter(a => a.id !== id));
+    } catch (e) {
+      import('react-toastify').then(({ toast }) => toast.error(e.response?.data?.error || 'Failed to delete'));
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editDraft) return;
+    setSaving(true);
+    try {
+      const api = await import('../services/api');
+      await api.updateDepartmentAttribute(editDraft.id, {
+        label:       editDraft.label,
+        dataType:    editDraft.dataType,
+        unit:        editDraft.unit || null,
+        placeholder: editDraft.placeholder || null,
+        required:    editDraft.required,
+        options:     Array.isArray(editDraft.options) ? editDraft.options : String(editDraft.options || '').split(',').map(s => s.trim()).filter(Boolean),
+        sortOrder:   editDraft.sortOrder,
+      });
+      setEditingId(null); setEditDraft(null);
+      await load();
+      import('react-toastify').then(({ toast }) => toast.success('Attribute updated'));
+    } catch (e) {
+      import('react-toastify').then(({ toast }) => toast.error(e.response?.data?.error || 'Failed to save'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplyStandard = async () => {
+    if (!dept.category || dept.category === 'general') {
+      import('react-toastify').then(({ toast }) => toast.error('Set a category (Wine/Liquor/Beer/Tobacco) on the department first'));
+      return;
+    }
+    setSaving(true);
+    try {
+      const api = await import('../services/api');
+      const res = await api.applyStandardDeptAttributes(dept.id);
+      await load();
+      import('react-toastify').then(({ toast }) => toast.success(`Applied ${res.applied} of ${res.total} standard fields`));
+    } catch (e) {
+      import('react-toastify').then(({ toast }) => toast.error(e.response?.data?.error || 'Failed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const rowStyle = {
+    display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.8fr 0.6fr 80px',
+    gap: 8, padding: '0.55rem 0.75rem', alignItems: 'center',
+    background: 'var(--bg-tertiary)', borderRadius: 7, border: '1px solid var(--border-color)',
+  };
+  const inpStyle = { padding: '0.4rem 0.55rem', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary, #fff)', color: 'var(--text-primary)', fontSize: '0.78rem' };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.5)' }} />
+      <div style={{ position: 'relative', zIndex: 1, width: 620, height: '100vh', overflowY: 'auto', background: 'var(--bg-secondary, #fff)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 32px rgba(0,0,0,.2)' }}>
+        {/* Header */}
+        <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'var(--bg-secondary, #fff)', zIndex: 2 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>Manage Attributes</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              {dept.name}
+              {dept.category && (
+                <span style={{ marginLeft: 8, fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: 'rgba(124,58,237,.12)', color: '#7c3aed' }}>
+                  {dept.category}
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, display: 'flex' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '1.25rem 1.5rem', flex: 1 }}>
+          {dept.category && dept.category !== 'general' && (
+            <button onClick={handleApplyStandard} disabled={saving}
+              style={{ width: '100%', padding: '0.6rem', marginBottom: '1rem', borderRadius: 8, border: '1px solid rgba(124,58,237,.3)', background: 'rgba(124,58,237,.08)', color: '#7c3aed', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+              + Apply Standard {dept.category.charAt(0).toUpperCase() + dept.category.slice(1)} Fields
+            </button>
+          )}
+
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>
+            CURRENT FIELDS ({attrs.length})
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>Loading…</div>
+          ) : attrs.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem', border: '1px dashed var(--border-color)', borderRadius: 7 }}>
+              No attributes yet. {dept.category && dept.category !== 'general' ? 'Click "Apply Standard Fields" above to seed the defaults, or ' : ''}add your own below.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: '1rem' }}>
+              {attrs.map(a => editingId === a.id ? (
+                <div key={a.id} style={{ ...rowStyle, background: 'rgba(124,58,237,.06)', borderColor: 'rgba(124,58,237,.35)' }}>
+                  <input style={inpStyle} value={editDraft.label} onChange={e => setEditDraft(d => ({ ...d, label: e.target.value }))} placeholder="Label" />
+                  <input style={inpStyle} value={editDraft.options.join ? editDraft.options.join(',') : editDraft.options} onChange={e => setEditDraft(d => ({ ...d, options: e.target.value }))} placeholder="Options (comma-sep, for dropdown)" />
+                  <select style={inpStyle} value={editDraft.dataType} onChange={e => setEditDraft(d => ({ ...d, dataType: e.target.value }))}>
+                    {['text','decimal','integer','boolean','date','dropdown'].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <input style={inpStyle} value={editDraft.unit || ''} onChange={e => setEditDraft(d => ({ ...d, unit: e.target.value }))} placeholder="Unit" />
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={handleSaveEdit} disabled={saving} style={{ padding: 6, border: 'none', borderRadius: 6, background: 'var(--brand-primary)', color: '#fff', cursor: 'pointer' }}><Check size={13} /></button>
+                    <button onClick={() => { setEditingId(null); setEditDraft(null); }} style={{ padding: 6, border: 'none', borderRadius: 6, background: 'rgba(0,0,0,.05)', cursor: 'pointer' }}><X size={13} /></button>
+                  </div>
+                </div>
+              ) : (
+                <div key={a.id} style={rowStyle}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{a.label}{a.required ? ' *' : ''}</div>
+                    <div style={{ fontSize: '0.68rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{a.key}</div>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {a.dataType === 'dropdown' && a.options?.length ? a.options.join(' / ') : <em>—</em>}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.dataType}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.unit || '—'}</div>
+                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <button onClick={() => { setEditingId(a.id); setEditDraft({ ...a, options: a.options || [] }); }} title="Edit" style={{ padding: 5, border: 'none', borderRadius: 5, background: 'rgba(0,0,0,.05)', cursor: 'pointer', display: 'flex' }}><Edit2 size={12} /></button>
+                    <button onClick={() => handleDelete(a.id)} title="Delete" style={{ padding: 5, border: 'none', borderRadius: 5, background: 'rgba(0,0,0,.05)', cursor: 'pointer', display: 'flex', color: '#ef4444' }}><Trash2 size={12} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>
+            ADD NEW FIELD
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <input style={inpStyle} value={addForm.key} onChange={e => setAddForm(f => ({ ...f, key: e.target.value }))} placeholder="Key (e.g. farm_origin)" />
+            <input style={inpStyle} value={addForm.label} onChange={e => setAddForm(f => ({ ...f, label: e.target.value }))} placeholder="Label (e.g. Farm Origin)" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <select style={inpStyle} value={addForm.dataType} onChange={e => setAddForm(f => ({ ...f, dataType: e.target.value }))}>
+              <option value="text">Text</option>
+              <option value="decimal">Decimal</option>
+              <option value="integer">Integer</option>
+              <option value="boolean">Yes/No</option>
+              <option value="date">Date</option>
+              <option value="dropdown">Dropdown</option>
+            </select>
+            <input style={inpStyle} value={addForm.unit} onChange={e => setAddForm(f => ({ ...f, unit: e.target.value }))} placeholder="Unit (e.g. %, mg, °)" />
+          </div>
+          {addForm.dataType === 'dropdown' && (
+            <input style={{ ...inpStyle, width: '100%', marginBottom: 8 }} value={addForm.options} onChange={e => setAddForm(f => ({ ...f, options: e.target.value }))} placeholder="Options, comma-separated (e.g. Red, White, Rosé)" />
+          )}
+          <input style={{ ...inpStyle, width: '100%', marginBottom: 8 }} value={addForm.placeholder} onChange={e => setAddForm(f => ({ ...f, placeholder: e.target.value }))} placeholder="Placeholder (e.g. 2019)" />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', marginBottom: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={addForm.required} onChange={e => setAddForm(f => ({ ...f, required: e.target.checked }))} />
+            Required field
+          </label>
+          <button onClick={handleAdd} disabled={saving || !addForm.key.trim() || !addForm.label.trim()}
+            style={{ width: '100%', padding: '0.6rem', borderRadius: 8, border: 'none', background: 'var(--brand-primary)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', opacity: (!addForm.key.trim() || !addForm.label.trim()) ? 0.5 : 1 }}>
+            <Plus size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+            Add Attribute
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

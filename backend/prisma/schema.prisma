@@ -50,6 +50,12 @@ model Department {
   code        String? // "BEER", "WINE", "SPIRITS", "GROC", "TOBAC", "FOOD"
   description String?
 
+  // Session 4b — explicit category for attribute preset matching.
+  // Decouples preset matching from dept NAME so retailers can call the dept
+  // whatever they want (Vino, Cerveza, etc.) without breaking the preset.
+  // Valid values: wine | liquor | beer | tobacco | general | null
+  category String?
+
   // Age verification
   ageRequired Int? // minimum purchase age: 21 (alcohol), 18 (tobacco), null (none)
 
@@ -73,10 +79,86 @@ model Department {
 
   products      MasterProduct[]
   productGroups ProductGroup[]
+  attributes    DepartmentAttribute[]
 
   @@unique([orgId, code])
   @@index([orgId, active])
   @@map("departments")
+}
+
+// ─────────────────────────────────────────────────
+// VENDOR IMPORT TEMPLATE — Session 5
+// Superadmin-curated mapping profiles for common wholesaler CSV formats.
+// Each template declares: which import type it targets (products / promotions /
+// deposits / invoice_costs), and for each column in the vendor file, how to
+// map + transform it into our canonical field. Retailers pick a template at
+// upload time; the engine applies the mapping + transforms, then hands rows
+// to the existing import pipeline.
+// ─────────────────────────────────────────────────
+model VendorImportTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String   // "AGNE — Wholesale", "Sante POS — Export", etc.
+  slug        String   @unique // "agne", "sante-pos", "pine-state-specials"
+  description String?
+  target      String   // "products" | "promotions" | "deposits" | "invoice_costs"
+  vendorHint  String?  // free-text hint for matching, e.g. "AGNE, Associated Grocers"
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mappings VendorImportTemplateMapping[]
+
+  @@index([target, active])
+  @@map("vendor_import_templates")
+}
+
+model VendorImportTemplateMapping {
+  id           Int    @id @default(autoincrement())
+  templateId   Int
+  template     VendorImportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  vendorColumn String   // exact header text in the vendor file, e.g. "REG_RETAIL", "Unit Cost"
+  targetField  String?  // canonical field key, e.g. "upc", "defaultRetailPrice", or "" for drop/skip
+  transform    String?  // transform fn name: "trim_leading_zero" | "strip_prefix" | "multiply_by_col" | etc. null = no transform
+  transformArgs Json?   // arg payload, e.g. { by: "pack" } for multiply_by_col, { prefix: "_" } for strip_prefix
+  constantValue String? // if set, use this literal value instead of the vendor column (for filling a column the file doesn't provide)
+  skip         Boolean  @default(false) // when true, column is explicitly ignored
+  sortOrder    Int      @default(0)
+
+  @@index([templateId])
+  @@map("vendor_import_template_mappings")
+}
+
+// ─────────────────────────────────────────────────
+// DEPARTMENT ATTRIBUTE — typed metadata fields per department.
+// Wine has Vintage / Country / Varietal; Liquor has Proof / ABV; etc.
+// Rendered dynamically on the Product Form based on the product's dept.
+// Admins add/remove/edit via the department management UI. Seeded with
+// sensible defaults for alcohol/tobacco so retailers get value on day 1.
+// ─────────────────────────────────────────────────
+model DepartmentAttribute {
+  id            Int       @id @default(autoincrement())
+  orgId         String
+  departmentId  Int?      // null = applies to all products org-wide
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  key           String    // internal key: "vintage", "abv", "country"
+  label         String    // user-facing label: "Vintage Year"
+  dataType      String    @default("text") // text | decimal | integer | boolean | date | dropdown
+  required      Boolean   @default(false)
+  options       String[]  @default([])     // for dropdown: ["Red","White","Rosé"]
+  unit          String?                    // display suffix e.g. "%" for ABV, "°" for Proof
+  placeholder   String?
+  sortOrder     Int       @default(0)
+  active        Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, departmentId, key])
+  @@index([orgId, departmentId, active])
+  @@map("department_attributes")
 }
 
 // ─────────────────────────────────────────────────
@@ -343,6 +425,12 @@ model MasterProduct {
   // Simplified deposit (v2)
   depositPerUnit Decimal? @db.Decimal(10, 4) // flat per-unit deposit
   caseDeposit    Decimal? @db.Decimal(10, 4) // total deposit for a full vendor case
+
+  // Session 4 — department-scoped + freeform attributes. Keys like
+  // "vintage", "abv", "country" get promoted to typed DepartmentAttribute
+  // fields; the rest live here until they're seen often enough to promote.
+  // Shape: { [key: string]: string | number | boolean }
+  attributes Json? @default("{}")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

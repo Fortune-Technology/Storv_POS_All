@@ -16,6 +16,7 @@
 
 import prisma from '../config/postgres.js';
 import { parsePrice } from '../utils/validators.js';
+import * as XLSX from 'xlsx';
 
 // ── Safe price coercer ─────────────────────────────────────────────────────
 // Wrap parsePrice so controllers can one-line the transform.
@@ -82,13 +83,33 @@ export const getDepartments = async (req, res) => {
   }
 };
 
+const VALID_DEPT_CATEGORIES = ['wine','liquor','beer','tobacco','general'];
+
+// Auto-guess a dept's category from name/code — used as a default when the
+// retailer doesn't pick one explicitly. See also `categorize()` in seedDeptAttributes.
+function guessDeptCategory(name, code) {
+  const n = String(name || '').toLowerCase();
+  const c = String(code || '').toLowerCase();
+  if (c === 'wine' || n.includes('wine') || n.includes('champagne') || n.includes('vino')) return 'wine';
+  if (c === 'beer' || n.includes('beer') || n.includes('cerveza') || n.includes('cider') || n.includes('malt')) return 'beer';
+  if (['liquor','spirits','spirit','liq','spir'].includes(c) || n.includes('liquor') || n.includes('spirit') || n.includes('whiskey') || n.includes('licor')) return 'liquor';
+  if (['tobac','tobacco','vape','smoke'].some(t => c.includes(t)) || n.includes('tobacco') || n.includes('vape') || n.includes('cigar') || n.includes('smoke')) return 'tobacco';
+  return null;
+}
+
 export const createDepartment = async (req, res) => {
   try {
     const orgId = getOrgId(req);
     const { name, code, description, ageRequired, ebtEligible, taxClass,
-            bottleDeposit, sortOrder, color, showInPOS } = req.body;
+            bottleDeposit, sortOrder, color, showInPOS, category } = req.body;
 
     if (!name) return res.status(400).json({ success: false, error: 'name is required' });
+
+    // Explicit category wins; otherwise auto-guess from name/code.
+    let finalCategory = null;
+    if (category && VALID_DEPT_CATEGORIES.includes(category)) finalCategory = category;
+    else if (category === null || category === '') finalCategory = null;
+    else finalCategory = guessDeptCategory(name, code);
 
     const dept = await prisma.department.create({
       data: {
@@ -103,6 +124,7 @@ export const createDepartment = async (req, res) => {
         sortOrder:     parseInt(sortOrder) || 0,
         color:         color || null,
         showInPOS:     showInPOS !== undefined ? Boolean(showInPOS) : true,
+        category:      finalCategory,
       },
     });
 
@@ -121,7 +143,15 @@ export const updateDepartment = async (req, res) => {
     const orgId = getOrgId(req);
     const id = parseInt(req.params.id);
     const { name, code, description, ageRequired, ebtEligible, taxClass,
-            bottleDeposit, sortOrder, color, showInPOS, active } = req.body;
+            bottleDeposit, sortOrder, color, showInPOS, active, category } = req.body;
+
+    // Validate + normalize category. Empty string clears the category.
+    let categoryUpdate;
+    if (category !== undefined) {
+      if (category === null || category === '') categoryUpdate = null;
+      else if (VALID_DEPT_CATEGORIES.includes(category)) categoryUpdate = category;
+      else return res.status(400).json({ success: false, error: `Invalid category. Must be one of: ${VALID_DEPT_CATEGORIES.join(', ')}` });
+    }
 
     const dept = await prisma.department.update({
       where: { id, orgId },
@@ -137,6 +167,7 @@ export const updateDepartment = async (req, res) => {
         ...(color         !== undefined && { color }),
         ...(showInPOS     !== undefined && { showInPOS: Boolean(showInPOS) }),
         ...(active        !== undefined && { active: Boolean(active) }),
+        ...(category      !== undefined && { category: categoryUpdate }),
       },
     });
 
@@ -159,6 +190,173 @@ export const deleteDepartment = async (req, res) => {
     res.json({ success: true, message: 'Department deactivated' });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Department not found' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// DEPARTMENT ATTRIBUTES (Session 4)
+// Typed metadata fields per department — Wine has Vintage / Country,
+// Liquor has Proof / ABV, etc. Product Form loads these dynamically.
+// ═══════════════════════════════════════════════════════
+
+const VALID_ATTR_TYPES = ['text','decimal','integer','boolean','date','dropdown'];
+
+// GET /api/catalog/department-attributes?departmentId=X
+// Returns attributes for a specific department + org-wide (departmentId=null) ones
+export const getDepartmentAttributes = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const departmentId = req.query.departmentId ? parseInt(req.query.departmentId) : null;
+
+    const where = departmentId != null
+      ? { orgId, active: true, OR: [{ departmentId }, { departmentId: null }] }
+      : { orgId, active: true };
+
+    const attrs = await prisma.departmentAttribute.findMany({
+      where,
+      orderBy: [{ departmentId: 'asc' }, { sortOrder: 'asc' }, { label: 'asc' }],
+    });
+    res.json({ success: true, data: attrs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// POST /api/catalog/department-attributes
+export const createDepartmentAttribute = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { departmentId, key, label, dataType, required, options, unit, placeholder, sortOrder } = req.body;
+
+    if (!key || !label) return res.status(400).json({ success: false, error: 'key and label are required' });
+    const normalizedKey = String(key).toLowerCase().trim().replace(/[^a-z0-9_]+/g, '_');
+    const type = VALID_ATTR_TYPES.includes(dataType) ? dataType : 'text';
+
+    const attr = await prisma.departmentAttribute.create({
+      data: {
+        orgId,
+        departmentId: departmentId ? parseInt(departmentId) : null,
+        key:          normalizedKey,
+        label,
+        dataType:     type,
+        required:     Boolean(required),
+        options:      Array.isArray(options) ? options : [],
+        unit:         unit || null,
+        placeholder:  placeholder || null,
+        sortOrder:    Number.isFinite(+sortOrder) ? +sortOrder : 0,
+      },
+    });
+    res.status(201).json({ success: true, data: attr });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ success: false, error: 'An attribute with this key already exists for that department' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// PUT /api/catalog/department-attributes/:id
+export const updateDepartmentAttribute = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const id = parseInt(req.params.id);
+    const body = req.body;
+    const updates = {};
+
+    if (body.label        !== undefined) updates.label        = body.label;
+    if (body.dataType     !== undefined) updates.dataType     = VALID_ATTR_TYPES.includes(body.dataType) ? body.dataType : 'text';
+    if (body.required     !== undefined) updates.required     = Boolean(body.required);
+    if (body.options      !== undefined) updates.options      = Array.isArray(body.options) ? body.options : [];
+    if (body.unit         !== undefined) updates.unit         = body.unit || null;
+    if (body.placeholder  !== undefined) updates.placeholder  = body.placeholder || null;
+    if (body.sortOrder    !== undefined) updates.sortOrder    = Number.isFinite(+body.sortOrder) ? +body.sortOrder : 0;
+    if (body.active       !== undefined) updates.active       = Boolean(body.active);
+
+    const attr = await prisma.departmentAttribute.update({
+      where: { id, orgId },
+      data: updates,
+    });
+    res.json({ success: true, data: attr });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Attribute not found' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// POST /api/catalog/departments/:id/apply-standard-attributes
+// Seeds the alcohol/tobacco attribute preset for a department's `category`.
+// Idempotent — upserts on (orgId, departmentId, key). Never overwrites existing.
+export const applyStandardAttributes = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const id = parseInt(req.params.id);
+
+    const dept = await prisma.department.findFirst({ where: { id, orgId } });
+    if (!dept) return res.status(404).json({ success: false, error: 'Department not found' });
+    const cat = dept.category;
+    if (!cat || cat === 'general') {
+      return res.status(400).json({ success: false, error: `Set category before applying standard attributes (got "${cat || 'none'}").` });
+    }
+
+    // Same presets as seedDeptAttributes.js — single source of truth at runtime.
+    const PRESETS = {
+      wine: [
+        { key: 'vintage',  label: 'Vintage Year',  dataType: 'integer', placeholder: 'e.g. 2019', sortOrder: 1 },
+        { key: 'country',  label: 'Country',       dataType: 'text',    placeholder: 'e.g. France', sortOrder: 2 },
+        { key: 'region',   label: 'Region',        dataType: 'text',    placeholder: 'e.g. Napa Valley', sortOrder: 3 },
+        { key: 'varietal', label: 'Varietal',      dataType: 'text',    placeholder: 'e.g. Cabernet Sauvignon', sortOrder: 4 },
+        { key: 'colour',   label: 'Colour',        dataType: 'dropdown', options: ['Red','White','Rosé','Sparkling','Dessert'], sortOrder: 5 },
+        { key: 'abv',      label: 'ABV',           dataType: 'decimal', unit: '%', placeholder: 'e.g. 13.5', sortOrder: 6 },
+        { key: 'bottle_size', label: 'Bottle Size', dataType: 'text',  placeholder: 'e.g. 750ml', sortOrder: 7 },
+      ],
+      liquor: [
+        { key: 'type',     label: 'Type',      dataType: 'dropdown', options: ['Whiskey','Vodka','Gin','Rum','Tequila','Brandy','Liqueur','Other'], sortOrder: 1 },
+        { key: 'country',  label: 'Country',   dataType: 'text',    placeholder: 'e.g. Scotland', sortOrder: 2 },
+        { key: 'proof',    label: 'Proof',     dataType: 'decimal', unit: '°',  placeholder: 'e.g. 80', sortOrder: 3 },
+        { key: 'abv',      label: 'ABV',       dataType: 'decimal', unit: '%',  placeholder: 'e.g. 40.0', sortOrder: 4 },
+        { key: 'bottle_size', label: 'Bottle Size', dataType: 'text', placeholder: 'e.g. 750ml', sortOrder: 5 },
+      ],
+      beer: [
+        { key: 'style',       label: 'Style',      dataType: 'dropdown', options: ['Lager','IPA','Stout','Wheat','Pilsner','Sour','Ale','Cider','Other'], sortOrder: 1 },
+        { key: 'container',   label: 'Container',  dataType: 'dropdown', options: ['Can','Bottle','Keg'], sortOrder: 2 },
+        { key: 'abv',         label: 'ABV',        dataType: 'decimal', unit: '%', placeholder: 'e.g. 5.0', sortOrder: 3 },
+        { key: 'country',     label: 'Country',    dataType: 'text',    placeholder: 'e.g. Mexico', sortOrder: 4 },
+        { key: 'pack_count',  label: 'Pack Count', dataType: 'integer', placeholder: 'e.g. 6', sortOrder: 5 },
+      ],
+      tobacco: [
+        { key: 'type',             label: 'Type',              dataType: 'dropdown', options: ['Cigarette','Cigar','Pipe','Smokeless','Vape','E-Liquid','Rolling Paper','Other'], sortOrder: 1 },
+        { key: 'nicotine_strength',label: 'Nicotine Strength', dataType: 'text',    placeholder: 'e.g. 6mg', sortOrder: 2 },
+        { key: 'flavour',          label: 'Flavour',           dataType: 'text',    placeholder: 'e.g. Menthol', sortOrder: 3 },
+        { key: 'country',          label: 'Country',           dataType: 'text',    placeholder: 'e.g. USA', sortOrder: 4 },
+      ],
+    };
+
+    const preset = PRESETS[cat] || [];
+    let applied = 0;
+    for (const a of preset) {
+      try {
+        await prisma.departmentAttribute.upsert({
+          where:  { orgId_departmentId_key: { orgId, departmentId: id, key: a.key } },
+          create: { orgId, departmentId: id, key: a.key, label: a.label, dataType: a.dataType, options: a.options || [], unit: a.unit || null, placeholder: a.placeholder || null, sortOrder: a.sortOrder || 0 },
+          update: {}, // never overwrite operator customizations
+        });
+        applied++;
+      } catch { /* skip collisions silently */ }
+    }
+    res.json({ success: true, applied, total: preset.length, category: cat });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// DELETE /api/catalog/department-attributes/:id
+export const deleteDepartmentAttribute = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const id = parseInt(req.params.id);
+    await prisma.departmentAttribute.delete({ where: { id, orgId } });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Attribute not found' });
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -627,6 +825,164 @@ export const getMasterProducts = async (req, res) => {
   }
 };
 
+// ─── GET /api/catalog/products/export ────────────────────────────────────────
+// Session 2 dedup export. One CSV with every product for the active store,
+// including multi-UPC (pipe-separated), multi-pack options (compressed), and
+// per-store overrides (QOH + price). Columns intentionally mirror the bulk
+// import shape so a round-trip edit is possible, but the export is NOT strict
+// round-trip — read-only fields (id, timestamps, resolved names) come along for
+// reference. See Session 2 of CLAUDE.md.
+export const exportMasterProducts = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const storeId = req.query.storeId || req.headers['x-store-id'] || req.storeId || null;
+    const includeDeleted = req.query.includeDeleted === 'true';
+    const activeOnly     = req.query.activeOnly     === 'true';
+
+    const where = {
+      orgId,
+      ...(includeDeleted ? {} : { deleted: false }),
+      ...(activeOnly && { active: true }),
+    };
+
+    const [products, alternateUpcs, packSizes, store] = await Promise.all([
+      prisma.masterProduct.findMany({
+        where,
+        include: {
+          department:   { select: { id: true, name: true, code: true } },
+          vendor:       { select: { id: true, name: true, code: true } },
+          productGroup: { select: { id: true, name: true } },
+          ...(storeId && {
+            storeProducts: {
+              where: { storeId },
+              select: { quantityOnHand: true, retailPrice: true, costPrice: true, inStock: true },
+              take: 1,
+            },
+          }),
+        },
+        orderBy: [{ name: 'asc' }],
+      }),
+      prisma.productUpc.findMany({
+        where: { orgId, isDefault: false },
+        select: { masterProductId: true, upc: true, label: true },
+        orderBy: [{ masterProductId: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.productPackSize.findMany({
+        where: { orgId },
+        select: { masterProductId: true, label: true, unitCount: true, retailPrice: true, isDefault: true, sortOrder: true },
+        orderBy: [{ masterProductId: 'asc' }, { sortOrder: 'asc' }],
+      }),
+      storeId ? prisma.store.findUnique({ where: { id: storeId }, select: { name: true } }) : null,
+    ]);
+
+    const altByProduct = new Map();
+    for (const a of alternateUpcs) {
+      const list = altByProduct.get(a.masterProductId) || [];
+      list.push(a.upc);
+      altByProduct.set(a.masterProductId, list);
+    }
+    const packsByProduct = new Map();
+    for (const p of packSizes) {
+      const list = packsByProduct.get(p.masterProductId) || [];
+      list.push(p);
+      packsByProduct.set(p.masterProductId, list);
+    }
+
+    const rows = products.map(p => {
+      const sp    = storeId ? p.storeProducts?.[0] : null;
+      const alts  = altByProduct.get(p.id) || [];
+      const packs = packsByProduct.get(p.id) || [];
+      const packOptions = packs.map(pk => {
+        const price = pk.retailPrice != null ? Number(pk.retailPrice) : '';
+        return `${pk.label || ''}@${pk.unitCount || 1}@${price}${pk.isDefault ? '*' : ''}`;
+      }).join(';');
+
+      return {
+        id:                 p.id,
+        upc:                p.upc || '',
+        additional_upcs:    alts.join('|'),
+        sku:                p.sku || '',
+        item_code:          p.itemCode || '',
+        name:               p.name,
+        brand:              p.brand || '',
+        size:               p.size || '',
+        size_unit:          p.sizeUnit || '',
+        description:        p.description || '',
+        image_url:          p.imageUrl || '',
+
+        department_id:      p.departmentId ?? '',
+        department_name:    p.department?.name || '',
+        vendor_id:          p.vendorId ?? '',
+        vendor_name:        p.vendor?.name || '',
+        product_group:      p.productGroup?.name || '',
+        tax_class:          p.taxClass || '',
+
+        unit_pack:          p.unitPack   != null ? p.unitPack   : '',
+        packs_per_case:     p.packInCase != null ? p.packInCase : '',
+        pack_options:       packOptions,
+
+        default_cost_price:   p.defaultCostPrice   != null ? Number(p.defaultCostPrice)   : '',
+        default_retail_price: p.defaultRetailPrice != null ? Number(p.defaultRetailPrice) : '',
+        default_case_price:   p.defaultCasePrice   != null ? Number(p.defaultCasePrice)   : '',
+
+        store_cost_price:     sp?.costPrice   != null ? Number(sp.costPrice)   : '',
+        store_retail_price:   sp?.retailPrice != null ? Number(sp.retailPrice) : '',
+
+        deposit_per_unit:   p.depositPerUnit != null ? Number(p.depositPerUnit) : '',
+        case_deposit:       p.caseDeposit    != null ? Number(p.caseDeposit)    : '',
+
+        ebt_eligible:       p.ebtEligible      ? 'true' : 'false',
+        age_required:       p.ageRequired ?? '',
+        taxable:            p.taxable          ? 'true' : 'false',
+        discount_eligible:  p.discountEligible ? 'true' : 'false',
+
+        quantity_on_hand:   sp?.quantityOnHand != null ? Number(sp.quantityOnHand) : '',
+        reorder_point:      p.reorderPoint ?? '',
+        reorder_qty:        p.reorderQty ?? '',
+        track_inventory:    p.trackInventory ? 'true' : 'false',
+
+        hide_from_ecom:     p.hideFromEcom ? 'true' : 'false',
+        ecom_description:   p.ecomDescription || '',
+
+        active:             p.active ? 'true' : 'false',
+        created_at:         p.createdAt ? new Date(p.createdAt).toISOString() : '',
+        updated_at:         p.updatedAt ? new Date(p.updatedAt).toISOString() : '',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: rows[0] ? Object.keys(rows[0]) : [
+        'id','upc','additional_upcs','sku','item_code','name','brand','size','size_unit',
+        'description','image_url','department_id','department_name','vendor_id','vendor_name',
+        'product_group','tax_class','unit_pack','packs_per_case','pack_options',
+        'default_cost_price','default_retail_price','default_case_price',
+        'store_cost_price','store_retail_price','deposit_per_unit','case_deposit',
+        'ebt_eligible','age_required','taxable','discount_eligible',
+        'quantity_on_hand','reorder_point','reorder_qty','track_inventory',
+        'hide_from_ecom','ecom_description','active','created_at','updated_at',
+      ],
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'csv' });
+
+    const storeSlug = store?.name
+      ? store.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30)
+      : 'all-stores';
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `products-${storeSlug}-${date}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('X-Row-Count', String(rows.length));
+    return res.send(buffer);
+  } catch (err) {
+    console.error('[exportMasterProducts] failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 export const searchMasterProducts = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -771,6 +1127,43 @@ export const getMasterProduct = async (req, res) => {
   }
 };
 
+// Keep ProductUpc table in sync with MasterProduct.upc (the primary barcode).
+// When the primary UPC is set, the ProductUpc row with isDefault=true mirrors it.
+// This lets the cashier-app scan either the primary or any alternate UPC from the
+// same `product_upcs` table — a single source of truth. See Session 36 of CLAUDE.md
+// for the cascade `ProductUpc → MasterProduct.upc` lookup in searchMasterProducts.
+async function syncPrimaryUpc(orgId, productId, newUpc) {
+  const normalized = newUpc ? normalizeUPC(newUpc) : null;
+  if (!normalized) {
+    await prisma.productUpc.updateMany({
+      where: { orgId, masterProductId: productId, isDefault: true },
+      data:  { isDefault: false },
+    });
+    return;
+  }
+  const existing = await prisma.productUpc.findUnique({
+    where: { orgId_upc: { orgId, upc: normalized } },
+  });
+  if (existing && existing.masterProductId !== productId) {
+    const err = new Error(`UPC ${normalized} is already used by another product (id ${existing.masterProductId})`);
+    err.code = 'P2002';
+    throw err;
+  }
+  // Unset any other default for this product that isn't the new primary
+  await prisma.productUpc.updateMany({
+    where: {
+      orgId, masterProductId: productId, isDefault: true,
+      NOT: { upc: normalized },
+    },
+    data: { isDefault: false },
+  });
+  await prisma.productUpc.upsert({
+    where:  { orgId_upc: { orgId, upc: normalized } },
+    update: { masterProductId: productId, isDefault: true },
+    create: { orgId, masterProductId: productId, upc: normalized, isDefault: true, label: 'Primary' },
+  });
+}
+
 export const createMasterProduct = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -784,6 +1177,7 @@ export const createMasterProduct = async (req, res) => {
       ebtEligible, ageRequired, taxable, discountEligible, foodstamp,
       trackInventory, reorderPoint, reorderQty,
       hideFromEcom, ecomDescription, ecomTags,
+      attributes,
       active,
     } = req.body;
 
@@ -857,6 +1251,7 @@ export const createMasterProduct = async (req, res) => {
         hideFromEcom:       Boolean(hideFromEcom),
         ecomDescription:    ecomDescription || null,
         ecomTags:           Array.isArray(ecomTags) ? ecomTags : [],
+        attributes:         (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) ? attributes : {},
         active:             active !== false,
       },
       include: {
@@ -864,6 +1259,19 @@ export const createMasterProduct = async (req, res) => {
         vendor:     { select: { id: true, name: true } },
       },
     });
+
+    // Keep ProductUpc table in sync with primary UPC
+    if (product.upc) {
+      try { await syncPrimaryUpc(orgId, product.id, product.upc); }
+      catch (e) {
+        if (e.code === 'P2002') {
+          // Primary UPC would conflict with another product's barcode — roll back
+          await prisma.masterProduct.delete({ where: { id: product.id } }).catch(() => {});
+          return res.status(409).json({ success: false, error: e.message });
+        }
+        throw e;
+      }
+    }
 
     emitProductSync(orgId, product.id, 'create', {
       name: product.name, description: product.description, brand: product.brand,
@@ -976,6 +1384,7 @@ export const updateMasterProduct = async (req, res) => {
     if (body.active        !== undefined) updates.active        = Boolean(body.active);
     if (body.hideFromEcom  !== undefined) updates.hideFromEcom  = Boolean(body.hideFromEcom);
     if (body.ecomTags      !== undefined) updates.ecomTags      = Array.isArray(body.ecomTags) ? body.ecomTags : [];
+    if (body.attributes    !== undefined) updates.attributes    = (body.attributes && typeof body.attributes === 'object' && !Array.isArray(body.attributes)) ? body.attributes : {};
     if (body.unitPack      !== undefined) updates.unitPack      = body.unitPack   ? parseInt(body.unitPack)         : null;
     if (body.packInCase    !== undefined) updates.packInCase    = body.packInCase ? parseInt(body.packInCase)       : null;
     if (body.depositPerUnit!== undefined) updates.depositPerUnit= toPrice(body.depositPerUnit, 'depositPerUnit');
@@ -993,6 +1402,17 @@ export const updateMasterProduct = async (req, res) => {
         vendor:     { select: { id: true, name: true } },
       },
     });
+
+    // Keep ProductUpc in sync whenever the primary UPC changes (incl. clearing it)
+    if (body.upc !== undefined) {
+      try { await syncPrimaryUpc(orgId, product.id, product.upc); }
+      catch (e) {
+        if (e.code === 'P2002') {
+          return res.status(409).json({ success: false, error: e.message });
+        }
+        throw e;
+      }
+    }
 
     // Queue label if retail price changed
     try {

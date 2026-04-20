@@ -21,6 +21,7 @@ import {
   generateTemplate,
   IMPORT_SERVICE_VERSION,
 } from '../services/importService.js';
+import { applyTemplate } from '../services/vendorTemplateEngine.js';
 
 // ─── Multer: in-memory, CSV/XLSX only, 10 MB max ─────────────────────────────
 const ALLOWED_MIMES = new Set([
@@ -177,10 +178,17 @@ export const commitImport = [
       // Without this fallback, `In Stock` values in the CSV are silently dropped
       // because the frontend doesn't send a storeId when scope='active'.
       let storeId = req.body.storeId || req.headers['x-store-id'] || null;
+      const templateId = req.body.templateId ? parseInt(req.body.templateId) : null;
+      // Session 5 — retailer picks how to handle rows whose UPC doesn't match
+      // any existing product: 'create' (default when no template), 'fail', 'skip'.
+      // Default 'fail' when a template is in use (matches the conservative UX
+      // we committed to for vendor-file imports).
+      const unknownUpcStrategy = req.body.unknownUpcStrategy || (templateId ? 'fail' : 'create');
       const opts = {
         duplicateStrategy:     req.body.duplicateStrategy     || 'overwrite',
         unknownDeptStrategy:   req.body.unknownDeptStrategy   || 'skip',
         unknownVendorStrategy: req.body.unknownVendorStrategy || 'skip',
+        unknownUpcStrategy,
       };
 
       if (!VALID_TYPES.includes(type)) {
@@ -210,16 +218,51 @@ export const commitImport = [
       const { headers, rows } = parseFile(req.file.buffer, req.file.mimetype, req.file.originalname);
       if (rows.length === 0) return res.status(400).json({ error: 'File is empty' });
 
-      // 2 — Detect + merge manual mapping (manual wins absolutely)
-      const detectedMapping = detectColumns(headers);
+      // 1b — Session 5: if a vendor template was selected, apply it BEFORE
+      // column detection. Rows come out in canonical shape, so we build an
+      // identity mapping and skip the fuzzy alias matcher entirely.
+      let workingRows = rows;
+      let workingHeaders = headers;
+      let templateWarnings = [];
+      let templateApplied = null;
+
+      if (templateId) {
+        const tmpl = await prisma.vendorImportTemplate.findUnique({
+          where: { id: templateId },
+          include: { mappings: { orderBy: { sortOrder: 'asc' } } },
+        });
+        if (!tmpl) return res.status(400).json({ error: `Vendor template ${templateId} not found` });
+        if (tmpl.target !== type) {
+          return res.status(400).json({ error: `Template "${tmpl.name}" targets "${tmpl.target}" but upload type is "${type}"` });
+        }
+        const applied = applyTemplate(rows, tmpl);
+        workingRows = applied.transformedRows;
+        templateWarnings = applied.warnings;
+        templateApplied = { id: tmpl.id, name: tmpl.name, slug: tmpl.slug };
+        // Canonical headers = union of keys present in the transformed rows
+        const keySet = new Set();
+        for (const r of workingRows) Object.keys(r).forEach(k => keySet.add(k));
+        workingHeaders = [...keySet];
+      }
+
+      // 2 — Build column mapping.
+      // Templates emit rows keyed by CANONICAL field names, so we bypass the
+      // alias-fuzzy-match detector and build an identity mapping: `upc → upc`,
+      // `defaultRetailPrice → defaultRetailPrice`, etc. Without this, fields
+      // like defaultRetailPrice wouldn't be claimed (the aliases are external
+      // header labels like "retail" / "price", not canonical names).
+      // Non-templated uploads keep the existing alias-detection behavior.
       const manualMappingRaw = req.body.mapping ? JSON.parse(req.body.mapping) : {};
+      const detectedMapping = templateId
+        ? Object.fromEntries(workingHeaders.map(h => [h, h]))
+        : detectColumns(workingHeaders);
       const mapping = mergeMapping(detectedMapping, manualMappingRaw);
 
       // 3 — Build context
       const ctx = await buildContext(orgId);
 
       // 4 — Validate
-      const { valid, invalid, warnings } = await validateRows(rows, type, mapping, ctx, opts);
+      const { valid, invalid, warnings } = await validateRows(workingRows, type, mapping, ctx, opts);
 
       // 5 — Create import job record (status = importing)
       const job = await prisma.importJob.create({
@@ -280,7 +323,9 @@ export const commitImport = [
         failed:      invalid.length + result.errors.length,
         warnings:    warnings.length,
         errors:      allErrors.slice(0, 50), // return first 50 in response
-        message:     `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${invalid.length + result.errors.length} failed`,
+        template:    templateApplied,
+        templateWarnings: templateWarnings.slice(0, 20),
+        message:     `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${invalid.length + result.errors.length} failed${templateApplied ? ` (using "${templateApplied.name}")` : ''}`,
       });
     } catch (err) {
       console.error('[importController.commitImport]', err);

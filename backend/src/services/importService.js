@@ -20,7 +20,7 @@ import { batchUpsertGlobalImages } from './globalImageService.js';
 
 // Marker so you can tell from logs which version of the mapping code is loaded.
 // Bump IMPORT_SERVICE_VERSION whenever you change ALIASES or detectColumns.
-export const IMPORT_SERVICE_VERSION = '2026-04-16-v3-packInCase-priority';
+export const IMPORT_SERVICE_VERSION = '2026-04-20-v4-additional-upcs-and-pack-options';
 console.log('[importService] loaded version:', IMPORT_SERVICE_VERSION);
 
 // ─── Column alias maps ───────────────────────────────────────────────────────
@@ -172,8 +172,18 @@ const ALIASES = {
   // `casebottledeposit` added so the common "Case Bottle Deposit" column maps correctly
   caseDeposit:        ['casedeposit','case_deposit','casedep','casebottledeposit','case_bottle_deposit','casedeposittotal'],
 
-  // ── Linked UPC ──
+  // ── Linked UPC (legacy single-extra-barcode) ──
   linkedUpc:          ['linkedupc','caseupc','case_upc','relatedupc','altbarcode','altupc','secondaryupc'],
+
+  // ── Multi-UPC via pipe-separated list (matches the export format) ──
+  // Example cell value: "0055555555555|0044444444444"
+  additionalUpcs:     ['additionalupcs','alternateupcs','extraupcs','otherupcs','altupcs','secondaryupcs'],
+
+  // ── Pack size options compressed into ONE cell ──
+  // Format: "label@unitCount@price[*];label@unitCount@price[*];…"
+  // The asterisk marks the default selection shown first in the cashier picker.
+  // Example: "Single@1@1.99;6-Pack@6@9.99*;Case@24@32.00"
+  packOptions:        ['packoptions','packsizes','pack_size_options','packsizelist','multipack','packpicker'],
 
   // ── Legacy / misc ──
   quantityOnHand:     ['quantityonhand','qoh','stockqty','onhand','currentstock','inventoryqty','instock','stockcount','inventory'],
@@ -195,7 +205,9 @@ export function chunkArray(arr, size) {
 }
 
 function normalizeHeader(h) {
-  return String(h || '').toLowerCase().trim().replace(/[\s_\-\.#\/\\()\[\]]+/g, '');
+  // Also strips `*` so a template header like `upc*` (marking the field
+  // as required in the downloadable template) still matches the alias `upc`.
+  return String(h || '').toLowerCase().trim().replace(/[\s_\-\.#\/\\()\[\]\*]+/g, '');
 }
 
 function parseBool(v, def = false) {
@@ -662,6 +674,15 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
       // ── For linked UPC (processed in importProductRows) ──
       _linkedUpc:         get('linkedUpc') || null,
 
+      // ── Multi-UPC / multi-pack (Session 3) ─────────────────────────────
+      // `_has*` flags distinguish "column absent" (undefined) from "column present
+      // but empty" (''), so REPLACE semantics only fire when the column was
+      // explicitly supplied in the CSV.
+      _hasAdditionalUpcs: !!mapping['additionalUpcs'],
+      _additionalUpcs:    get('additionalUpcs') || '',
+      _hasPackOptions:    !!mapping['packOptions'],
+      _packOptions:       get('packOptions') || '',
+
       // ── Deposits ──
       depositPerUnit:     parseDecimal(get('depositPerUnit')),
       caseDeposit:        parseDecimal(get('caseDeposit')),
@@ -957,7 +978,7 @@ export async function validateRows(rows, type, mapping, ctx, opts = {}) {
 
 // ─── Import Rows ──────────────────────────────────────────────────────────────
 
-async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
+async function importProductRows(validRows, orgId, storeId, duplicateStrategy, opts = {}) {
   let created = 0, updated = 0, skipped = 0;
   const errors = [];
 
@@ -1024,6 +1045,7 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
       _tprRetail, _tprCost, _tprMultiple, _tprStartDate, _tprEndDate,
       _futureRetail, _futureCost, _futureActiveDate, _futureMultiple,
       _quantityOnHand, _sectionName,
+      _hasAdditionalUpcs, _additionalUpcs, _hasPackOptions, _packOptions,
       ...data
     } = cleaned;
 
@@ -1046,7 +1068,18 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
         toUpdate.push({ id: exists.id, data: { ...data, orgId } });
       }
     } else {
-      toCreate.push({ ...data, orgId });
+      // Session 5 — honor the caller-selected strategy for rows whose UPC
+      // doesn't match any existing catalog entry. Default ('create') preserves
+      // the historical behavior; template-driven imports default to 'fail'
+      // server-side so vendor files can't accidentally mint products.
+      const unknownStrat = opts?.unknownUpcStrategy || 'create';
+      if (unknownStrat === 'fail') {
+        errors.push({ field: 'upc', message: `Unknown UPC ${data.upc || '(blank)'} — no existing product to update` });
+      } else if (unknownStrat === 'skip') {
+        skipped++;
+      } else {
+        toCreate.push({ ...data, orgId });
+      }
     }
   }
 
@@ -1115,7 +1148,25 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
   });
   const productByUpcFinal = new Map(allProductsFinal.map(p => [p.upc, p]));
 
-  let linkedCreated = 0, promosCreated = 0;
+  // ── Session 1 dedup: sync primary UPC → ProductUpc (isDefault=true) ─────────
+  // The Product Form's unified Barcodes list reads from ProductUpc exclusively,
+  // so every product's primary barcode must have a matching default row. This
+  // also mirrors the behaviour of catalogController.createMasterProduct /
+  // updateMasterProduct via their syncPrimaryUpc helper.
+  const primarySyncTargets = allProductsFinal.filter(p => p.upc);
+  for (const chunk of chunkArray(primarySyncTargets, 100)) {
+    try {
+      await prisma.$transaction(
+        chunk.map(p => prisma.productUpc.upsert({
+          where:  { orgId_upc: { orgId, upc: p.upc } },
+          create: { orgId, masterProductId: p.id, upc: p.upc, isDefault: true, label: 'Primary' },
+          update: { masterProductId: p.id, isDefault: true },
+        }))
+      );
+    } catch { /* best-effort — conflicts surface at product-create time */ }
+  }
+
+  let linkedCreated = 0, promosCreated = 0, altUpcsCreated = 0, packSizesCreated = 0;
 
   for (const { cleaned } of validRows) {
     const product = cleaned.upc ? productByUpcFinal.get(cleaned.upc) : null;
@@ -1131,6 +1182,69 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
         });
         linkedCreated++;
       } catch { /* dupe OK */ }
+    }
+
+    // ── Session 3: additional_upcs (pipe-separated) → ProductUpc alternates
+    // REPLACE semantics — the CSV cell defines the full set of alternates for
+    // this product. Existing non-default ProductUpc rows are cleared first so
+    // a cell of "A|B" leaves exactly {A, B} as alternates. An empty cell with
+    // the column present wipes alternates. Column absent → untouched.
+    if (cleaned._hasAdditionalUpcs) {
+      const raw = String(cleaned._additionalUpcs || '');
+      const newUpcs = raw.split('|').map(s => s.replace(/\D/g, '').trim()).filter(Boolean);
+      try {
+        await prisma.productUpc.deleteMany({
+          where: { orgId, masterProductId: product.id, isDefault: false },
+        });
+        for (const u of newUpcs) {
+          if (u === product.upc) continue; // skip primary (lives as default row)
+          try {
+            await prisma.productUpc.upsert({
+              where:  { orgId_upc: { orgId, upc: u } },
+              create: { orgId, masterProductId: product.id, upc: u, isDefault: false, label: 'Alternate' },
+              update: { masterProductId: product.id, isDefault: false },
+            });
+            altUpcsCreated++;
+          } catch { /* UPC owned by another product — skip silently */ }
+        }
+      } catch { /* best-effort */ }
+    }
+
+    // ── Session 3: pack_options compressed → ProductPackSize rows ──────────
+    // Format: "label@unitCount@price[*];label@unitCount@price[*];…"
+    // `*` marks the default size. REPLACE semantics same as additional_upcs.
+    if (cleaned._hasPackOptions) {
+      const raw = String(cleaned._packOptions || '');
+      const entries = raw.split(';').map(s => s.trim()).filter(Boolean);
+      const parsed = [];
+      for (const entry of entries) {
+        const isDefault = entry.endsWith('*');
+        const core = isDefault ? entry.slice(0, -1) : entry;
+        const parts = core.split('@').map(s => s.trim());
+        if (parts.length < 3) continue; // malformed → skip this entry
+        const [label, unitCountStr, priceStr] = parts;
+        const unitCount = parseInt(unitCountStr, 10);
+        const retailPrice = parseDecimal(priceStr);
+        if (!label || !unitCount || retailPrice === null) continue;
+        parsed.push({ label, unitCount, retailPrice, isDefault });
+      }
+      try {
+        await prisma.productPackSize.deleteMany({
+          where: { orgId, masterProductId: product.id },
+        });
+        for (let i = 0; i < parsed.length; i++) {
+          const pk = parsed[i];
+          await prisma.productPackSize.create({
+            data: {
+              orgId, masterProductId: product.id,
+              label: pk.label, unitCount: pk.unitCount,
+              retailPrice: pk.retailPrice, isDefault: pk.isDefault,
+              sortOrder: i,
+            },
+          });
+          packSizesCreated++;
+        }
+      } catch { /* best-effort */ }
     }
 
     // Helper: parse YYYYMMDD dates from wholesale files
@@ -1235,8 +1349,10 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
     }
   }
 
-  if (linkedCreated > 0) console.log(`🔗 Created ${linkedCreated} linked UPC entries`);
-  if (promosCreated > 0) console.log(`🏷️ Created ${promosCreated} promotion entries from import`);
+  if (linkedCreated > 0)    console.log(`🔗 Created ${linkedCreated} linked UPC entries`);
+  if (altUpcsCreated > 0)   console.log(`🔗 Created ${altUpcsCreated} alternate UPCs from additional_upcs column`);
+  if (packSizesCreated > 0) console.log(`📦 Created ${packSizesCreated} pack-size rows from pack_options column`);
+  if (promosCreated > 0)    console.log(`🏷️ Created ${promosCreated} promotion entries from import`);
 
   // ── Post-import: populate global image cache ────────────────────────────────
   const imageItems = validRows
@@ -1254,7 +1370,14 @@ async function importProductRows(validRows, orgId, storeId, duplicateStrategy) {
     }
   }
 
-  return { created, updated, skipped, errors, linkedUPCs: linkedCreated, promotions: promosCreated, globalImages: globalImagesInserted };
+  return {
+    created, updated, skipped, errors,
+    linkedUPCs: linkedCreated,
+    alternateUPCs: altUpcsCreated,
+    packSizes: packSizesCreated,
+    promotions: promosCreated,
+    globalImages: globalImagesInserted,
+  };
 }
 
 async function importDepartmentRows(validRows, orgId, duplicateStrategy) {
@@ -1462,7 +1585,7 @@ async function importInvoiceCostRows(validRows, orgId, storeId) {
 export async function importRows(validRows, type, orgId, storeId, opts = {}) {
   const strategy = opts.duplicateStrategy || 'overwrite';
   switch (type) {
-    case 'products':      return importProductRows(validRows, orgId, storeId, strategy);
+    case 'products':      return importProductRows(validRows, orgId, storeId, strategy, opts);
     case 'departments':   return importDepartmentRows(validRows, orgId, strategy);
     case 'vendors':       return importVendorRows(validRows, orgId, strategy);
     case 'promotions':    return importPromotionRows(validRows, orgId, strategy);
@@ -1474,36 +1597,113 @@ export async function importRows(validRows, type, orgId, storeId, opts = {}) {
 
 // ─── CSV Template Generator ───────────────────────────────────────────────────
 export function generateTemplate(type) {
+  // Headers ending in `*` are required. `normalizeHeader` strips the asterisk
+  // at import time so the alias match still succeeds. All other fields are
+  // optional — the importer leaves them unchanged when blank on update, and
+  // uses sensible defaults on create.
   const TEMPLATES = {
     products: {
-      headers: ['upc','name','brand','size','size_unit','pack','dept_id','vendor_id','cost','retail','case_cost','tax_class','ebt_eligible','age_required','discount_eligible','sku','item_code','active'],
-      example: ['012345678901','Example Chips','Frito-Lay','1oz','oz','48','1','1','0.45','0.99','21.60','grocery','false','','true','SKU-001','FL-4201','true'],
-      notes:   ['required — UPC/barcode','required','','e.g. 12oz 750ml 1lb','oz ml L lb g each','units per case','Dept ID (1,2,3…) or dept name','Vendor ID or vendor name','unit cost','retail price','cost per full case','grocery|alcohol|tobacco|hot_food|none','true/false','18 or 21 only','true/false','internal SKU','vendor item code','true/false'],
+      headers: [
+        // Identity
+        'upc*','additional_upcs','sku','item_code','plu',
+        // Product
+        'name*','brand','size','size_unit','description','image_url',
+        // Classification
+        'department','vendor','tax_class','product_group',
+        // Pack
+        'unit_pack','packs_per_case','pack','pack_options',
+        // Pricing
+        'cost','retail','case_cost',
+        // Deposit
+        'deposit_per_unit','case_deposit',
+        // Compliance
+        'ebt_eligible','age_required','taxable','discount_eligible','wic_eligible',
+        // Inventory
+        'quantity_on_hand','reorder_point','reorder_qty','track_inventory',
+        // Inline SALE promo (primary slot)
+        'sale_retail','sale_cost','sale_start_date','sale_end_date',
+        // Inline TPR (second slot)
+        'tpr_retail','tpr_cost','tpr_start_date','tpr_end_date',
+        // Scheduled future price
+        'future_retail','future_cost','future_active_date',
+        // E-commerce
+        'hide_from_ecom','ecom_description','ecom_summary','ecom_price','ecom_sale_price','ecom_on_sale',
+        // Status
+        'active',
+      ],
+      notes: [
+        // Identity
+        '* primary UPC/barcode','pipe-separated extra UPCs (e.g. 123|456)','internal SKU','vendor item code','produce PLU',
+        // Product
+        '* product name','manufacturer or brand name','numeric part of size e.g. "12"','oz|ml|L|lb|g|each|ct|pk','long description','full URL to product image',
+        // Classification
+        'dept name OR ID (1,2,3…) — auto-creates if unknown','vendor name OR ID — auto-creates if unknown','grocery|alcohol|tobacco|hot_food|none|standard','product group name OR ID',
+        // Pack
+        'units per sell-unit (e.g. 6 for a 6-pack)','sell-units per vendor case','legacy total units per case — blank if unit_pack/packs_per_case set','multi-pack picker: label@count@price[*]; — * = default',
+        // Pricing
+        'unit cost $','retail price $','cost per full case $',
+        // Deposit
+        '$ per unit (e.g. 0.05 CRV)','$ per full case — auto-computed if blank',
+        // Compliance
+        'true/false','18 or 21','true/false','true/false','true/false',
+        // Inventory
+        'current on-hand at active store','reorder when stock ≤ this','qty to order','true/false',
+        // SALE promo
+        'sale price $','sale cost $','YYYY-MM-DD','YYYY-MM-DD',
+        // TPR
+        'temporary price reduction $','TPR cost $','YYYY-MM-DD','YYYY-MM-DD',
+        // Future
+        'scheduled new retail $','scheduled new cost $','YYYY-MM-DD effective date',
+        // E-commerce
+        'true/false','long description for storefront','short tagline for storefront','retail $ for storefront','storefront sale $','true/false',
+        // Status
+        'true/false',
+      ],
+      example: [
+        '012345678901','012345678918|012345678925','SKU-001','FL-4201','',
+        'Example Chips','Frito-Lay','1','oz','Crunchy potato chips','',
+        'Grocery','Frito-Lay','grocery','Snacks',
+        '1','48','','Single@1@0.99;Box@12@9.99*',
+        '0.45','0.99','21.60',
+        '','',
+        'false','','true','true','false',
+        '120','24','48','true',
+        '0.79','','2026-04-20','2026-04-26',
+        '','','','',
+        '','','',
+        'false','Delicious crunchy chips','','','','false',
+        'true',
+      ],
     },
+
     departments: {
-      headers: ['id','name','code','description','tax_class','ebt_eligible','age_required','bottle_deposit','sort_order','color','show_in_pos','active'],
-      example: ['','Beer & Wine','BEER','Domestic and imported beer','alcohol','false','21','true','1','#3d56b5','true','true'],
-      notes:   ['leave blank = create new; fill = update existing dept','required','short code e.g. BEER GROC TOBAC','','grocery|alcohol|tobacco|hot_food|none','true/false','21 or blank','true/false','number — display order','hex color #rrggbb','true/false','true/false'],
+      headers: ['id','name*','code','description','tax_class','ebt_eligible','age_required','sort_order','color','show_in_pos','active'],
+      notes:   ['blank = create new; fill = update existing dept','* department name','short code e.g. BEER GROC TOBAC','','grocery|alcohol|tobacco|hot_food|none','true/false','18 or 21 or blank','number — display order','hex color e.g. #3d56b5','true/false','true/false'],
+      example: ['','Beer & Wine','BEER','Domestic and imported beer','alcohol','false','21','1','#3d56b5','true','true'],
     },
+
     vendors: {
-      headers: ['id','name','code','contact_name','email','phone','website','terms','account_no','active'],
-      example: ['','Pine State Beverages','PSB','John Smith','jsmith@pinesstate.com','207-555-0100','https://pinestate.com','Net 30','ACC-4892','true'],
-      notes:   ['leave blank = create new; fill = update by ID','required','short identifier','','','','','Net 30 / Net 14 / COD','your account # with this vendor','true/false'],
+      headers: ['id','name*','code','contact_name','email','phone','website','terms','account_no','active'],
+      notes:   ['blank = create new; fill = update by ID','* vendor name','short identifier','','','','','Net 30 / Net 14 / COD','your account # with this vendor','true/false'],
+      example: ['','Pine State Beverages','PSB','John Smith','jsmith@pinestate.com','207-555-0100','https://pinestate.com','Net 30','ACC-4892','true'],
     },
+
     promotions: {
-      headers: ['name','promo_type','discount_type','discount_value','min_qty','buy_qty','get_qty','product_upcs','department_ids','badge_label','badge_color','start_date','end_date','active'],
-      example: ['Coke 6pk Deal','sale','percent','10','','','','012345678901|098765432109','1|3','10% OFF','#ef4444','2025-01-01','2025-12-31','true'],
-      notes:   ['required','required: sale|bogo|volume|mix_match|combo','percent|amount|fixed','discount %/$/price','for volume/mix_match','for bogo: buy X','for bogo: get Y','pipe-separated UPCs','pipe-separated dept IDs (1|3|5)','badge shown on POS item tile','hex color','YYYY-MM-DD','YYYY-MM-DD','true/false'],
+      headers: ['name*','promo_type*','discount_type','discount_value','min_qty','buy_qty','get_qty','product_upcs','department_ids','badge_label','badge_color','start_date','end_date','active'],
+      notes:   ['* promo name','* sale|bogo|volume|mix_match|combo','percent|amount|fixed','discount %/$/price','for volume/mix_match','for bogo: buy X','for bogo: get Y','pipe-separated UPCs','pipe-separated dept IDs (1|3|5)','badge text on POS tile','hex color','YYYY-MM-DD','YYYY-MM-DD','true/false'],
+      example: ['Coke 6pk Deal','sale','percent','10','','','','012345678901|098765432109','1|3','10% OFF','#ef4444','2026-01-01','2026-12-31','true'],
     },
+
     deposits: {
-      headers: ['name','deposit_amount','min_volume_oz','max_volume_oz','container_types','state','active'],
+      headers: ['name*','deposit_amount*','min_volume_oz','max_volume_oz','container_types','state','active'],
+      notes:   ['* rule name','* $ amount e.g. 0.05','inclusive min oz — blank = no min','exclusive max oz — blank = no max','comma-separated: bottle,can,carton,jug','state code e.g. ME NH VT','true/false'],
       example: ['Maine CRV Small','0.05','','24','bottle,can','ME','true'],
-      notes:   ['required','required — $ amount e.g. 0.05','inclusive min oz — leave blank = no min','exclusive max oz — leave blank = no max','comma-separated: bottle,can,carton,jug','state code e.g. ME NH VT','true/false'],
     },
+
     invoice_costs: {
-      headers: ['upc','cost','case_cost','case_qty','received_qty','vendor_id'],
+      headers: ['upc*','cost*','case_cost','case_qty','received_qty','vendor_id'],
+      notes:   ['* matches existing product','* new unit cost','cost per full case','units per case','cases received this delivery','Vendor ID (optional)'],
       example: ['012345678901','1.89','45.36','24','10','1'],
-      notes:   ['required — matches existing product','required — new unit cost','cost per full case','units per case','cases received this delivery','Vendor ID (optional)'],
     },
   };
 

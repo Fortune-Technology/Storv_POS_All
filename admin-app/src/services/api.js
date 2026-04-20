@@ -164,4 +164,13 @@ export const createAdminState    = (data)             => api.post('/states', dat
 export const updateAdminState    = (code, data)       => api.put(`/states/${code}`, data).then(r => r.data);
 export const deleteAdminState    = (code)             => api.delete(`/states/${code}`).then(r => r.data);
 
+// ── Vendor Import Templates (Session 5) ──────────────────────────────────────
+export const getVendorTemplates      = (params = {}) => api.get('/vendor-templates', { params }).then(r => r.data);
+export const getVendorTemplate       = (id)          => api.get(`/vendor-templates/${id}`).then(r => r.data);
+export const createVendorTemplate    = (data)        => api.post('/vendor-templates', data).then(r => r.data);
+export const updateVendorTemplate    = (id, data)    => api.put(`/vendor-templates/${id}`, data).then(r => r.data);
+export const deleteVendorTemplate    = (id)          => api.delete(`/vendor-templates/${id}`).then(r => r.data);
+export const getVendorTemplateTransforms = ()        => api.get('/vendor-templates/transforms').then(r => r.data);
+export const previewVendorTemplate   = (id, rows)    => api.post(`/vendor-templates/${id}/preview`, { rows }).then(r => r.data);
+
 export default api;

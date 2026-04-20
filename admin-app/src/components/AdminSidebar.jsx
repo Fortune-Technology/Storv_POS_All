@@ -46,11 +46,12 @@ const adminMenuGroups = [
   {
     label: 'Management',
     items: [
-      { name: 'Users',         icon: <Users size={13} />,     path: '/users' },
-      { name: 'Organizations', icon: <Building2 size={13} />, path: '/organizations' },
-      { name: 'Stores',        icon: <Store size={13} />,     path: '/stores' },
-      { name: 'States',        icon: <MapPin size={13} />,    path: '/states' },
-      { name: 'Roles',         icon: <Shield size={13} />,    path: '/roles' },
+      { name: 'Users',            icon: <Users size={13} />,     path: '/users' },
+      { name: 'Organizations',    icon: <Building2 size={13} />, path: '/organizations' },
+      { name: 'Stores',           icon: <Store size={13} />,     path: '/stores' },
+      { name: 'States',           icon: <MapPin size={13} />,    path: '/states' },
+      { name: 'Vendor Templates', icon: <FileText size={13} />,  path: '/vendor-templates' },
+      { name: 'Roles',            icon: <Shield size={13} />,    path: '/roles' },
     ],
   },
   {

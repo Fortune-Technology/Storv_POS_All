@@ -73,7 +73,8 @@
       "Bash(grep -E \"\\\\.\\(js|jsx\\)$\")",
       "Bash(netstat -ano)",
       "Bash(npm ls *)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports',{}\\), indent=2\\)\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports',{}\\), indent=2\\)\\)\")",
+      "Bash(gh pr *)"
     ]
   }
 }
