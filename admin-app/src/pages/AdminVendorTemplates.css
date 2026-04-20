@@ -1,0 +1,219 @@
+/* AdminVendorTemplates — prefix avt- */
+
+.avt-header-actions { display: flex; gap: 0.75rem; align-items: center; }
+
+.avt-search {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  min-width: 240px;
+}
+
+.avt-create-btn {
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.avt-create-btn:hover { background: var(--accent-primary-hover, #4f46e5); }
+
+.avt-target-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.avt-target-products    { background: #dbeafe; color: #1e40af; }
+.avt-target-promotions  { background: #fee2e2; color: #991b1b; }
+.avt-target-deposits    { background: #ecfdf5; color: #065f46; }
+.avt-target-invoice_costs { background: #fef3c7; color: #92400e; }
+
+.avt-slug {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ─── Modal ─── */
+.avt-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1000;
+  display: flex; align-items: stretch; justify-content: flex-end;
+}
+.avt-modal {
+  width: 90%; max-width: 1100px;
+  background: var(--bg-secondary, #fff);
+  display: flex; flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.25);
+}
+.avt-modal-header {
+  padding: 1.1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex; justify-content: space-between; align-items: center;
+  position: sticky; top: 0;
+  background: var(--bg-secondary, #fff);
+  z-index: 2;
+}
+.avt-modal-title { font-size: 1.05rem; font-weight: 800; color: var(--text-primary); }
+.avt-modal-subtitle { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+.avt-modal-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); padding: 4px; display: flex;
+}
+.avt-modal-body { padding: 1.25rem 1.5rem; flex: 1; overflow-y: auto; }
+
+.avt-modal-footer {
+  padding: 0.9rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  display: flex; justify-content: flex-end; gap: 0.6rem;
+  position: sticky; bottom: 0;
+  background: var(--bg-secondary, #fff);
+}
+.avt-btn-cancel, .avt-btn-primary, .avt-btn-danger {
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.avt-btn-cancel  { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-color); }
+.avt-btn-primary { background: var(--accent-primary); color: #fff; }
+.avt-btn-danger  { background: #ef4444; color: #fff; }
+.avt-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.avt-form-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+.avt-form-row-3 {
+  display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+.avt-label {
+  display: block;
+  font-size: 0.7rem; font-weight: 700; color: var(--text-muted);
+  letter-spacing: 0.05em; margin-bottom: 5px;
+}
+.avt-input, .avt-select, .avt-textarea {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary, #f8fafc);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  box-sizing: border-box;
+}
+.avt-textarea { resize: vertical; min-height: 56px; }
+.avt-input:focus, .avt-select:focus, .avt-textarea:focus {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -1px;
+}
+
+.avt-mappings-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: 1.25rem 0 0.5rem;
+}
+.avt-mappings-title { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); }
+.avt-mappings-help { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+.avt-mappings-table {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.avt-mapping-row, .avt-mappings-head {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr 1.2fr 1.6fr 1fr 40px 40px;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  font-size: 0.78rem;
+}
+.avt-mapping-row:last-child, .avt-mappings-head { border-bottom: 1px solid var(--border-color); }
+.avt-mappings-head {
+  background: var(--bg-tertiary, #f8fafc);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.avt-mapping-row.avt-mapping-row--skip { opacity: 0.5; }
+.avt-mapping-row input, .avt-mapping-row select {
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.avt-mapping-row input[disabled], .avt-mapping-row select[disabled] { background: #f3f4f6; }
+.avt-skip-chk {
+  width: 16px; height: 16px; cursor: pointer;
+  margin: 0 auto; display: block;
+}
+.avt-del-btn {
+  padding: 4px;
+  background: rgba(239,68,68,0.08);
+  color: #ef4444;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.avt-del-btn:hover { background: rgba(239,68,68,0.2); }
+
+.avt-add-mapping {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1.5px dashed var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.avt-add-mapping:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+
+.avt-transform-hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .avt-modal { width: 100%; max-width: 100%; }
+  .avt-form-row, .avt-form-row-3 { grid-template-columns: 1fr; }
+  .avt-mapping-row, .avt-mappings-head {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 10px 8px;
+  }
+}

@@ -18,13 +18,14 @@ import {
   deleteAllCatalogProducts,
   getPOSConfig,
   updatePOSConfig,
+  exportProductsCsv,
 } from '../services/api';
 import { toast } from 'react-toastify';
 import {
   Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight,
   Package, Loader, RefreshCw, Copy, CheckSquare, Square,
   XCircle, Tag, ToggleLeft, DollarSign, Layers, AlertTriangle, Settings, X,
-  Camera,
+  Camera, Download,
 } from 'lucide-react';
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { SetupGuide } from '../components/SetupGuide';
@@ -316,6 +317,33 @@ export default function ProductCatalog() {
     } catch (e) { toast.error(e.response?.data?.error || 'Delete failed'); }
   };
 
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await exportProductsCsv(
+        activeStoreId ? { storeId: activeStoreId } : {}
+      );
+      const blob = res.data;
+      const rowCount = parseInt(res.headers?.['x-row-count'] || '0', 10);
+      const disposition = res.headers?.['content-disposition'] || '';
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] || `products-${new Date().toISOString().slice(0,10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${rowCount || 'all'} products`);
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const activePromos = (productId) => {
     const now = new Date();
     return promotions.filter(p =>
@@ -350,6 +378,14 @@ export default function ProductCatalog() {
               title="Customize columns for this store"
             >
               <Settings size={14} />
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="pc-refresh-btn"
+              title={activeStoreId ? 'Export all products to CSV (active store)' : 'Export all products to CSV'}
+            >
+              {exporting ? <Loader size={14} className="pc-spin" /> : <Download size={14} />}
             </button>
             {canDelete && (
               <button

@@ -22,6 +22,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
   '/chat':                         'admin_chat.view',
   '/price-calculator':             'admin_system.view',
   '/states':                       'admin_system.view',
+  '/vendor-templates':             'admin_system.view',
 };
 
 export function getRoutePermission(pathname) {

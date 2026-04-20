@@ -17,7 +17,7 @@ import {
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../contexts/StoreContext';
-import { previewImport, commitImport, downloadImportTemplate, getImportHistory, getCatalogDepartments, getCatalogVendors } from '../services/api';
+import { previewImport, commitImport, downloadImportTemplate, getImportHistory, getCatalogDepartments, getCatalogVendors, listVendorTemplates } from '../services/api';
 import './BulkImport.css';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -880,6 +880,10 @@ export default function BulkImport() {
   const [duplicateStrategy,     setDuplicateStrategy]     = useState('overwrite');
   const [unknownDeptStrategy,   setUnknownDeptStrategy]   = useState('skip');
   const [unknownVendorStrategy, setUnknownVendorStrategy] = useState('skip');
+  // Session 5 — vendor template + unknown-UPC strategy
+  const [templates,             setTemplates]             = useState([]);
+  const [templateId,            setTemplateId]            = useState('');
+  const [unknownUpcStrategy,    setUnknownUpcStrategy]    = useState('create');
   const [preview,           setPreview]           = useState(null);
   const [mapping,           setMapping]           = useState({});
   const [autoDetected,      setAutoDetected]      = useState({});
@@ -903,6 +907,14 @@ export default function BulkImport() {
       .then(d => { setHistory(d?.jobs || []); setHistoryLoaded(true); })
       .catch(() => setHistoryLoaded(true));
   }, []);
+
+  // Session 5 — load vendor templates for the current import type
+  useEffect(() => {
+    listVendorTemplates({ target: importType, active: true })
+      .then(d => setTemplates(d?.data || []))
+      .catch(() => setTemplates([]));
+    setTemplateId(''); // reset template when type changes
+  }, [importType]);
 
   const startProgress = () => {
     setProgress(0);
@@ -1022,6 +1034,8 @@ export default function BulkImport() {
       fd.append('duplicateStrategy',     duplicateStrategy);
       fd.append('unknownDeptStrategy',   unknownDeptStrategy);
       fd.append('unknownVendorStrategy', unknownVendorStrategy);
+      fd.append('unknownUpcStrategy',    unknownUpcStrategy);
+      if (templateId) fd.append('templateId', String(templateId));
       fd.append('mapping', JSON.stringify(mapping));
       if (storeScope && storeScope !== 'active' && storeScope !== 'all') fd.append('storeId', storeScope);
       const data = await commitImport(fd);
@@ -1132,6 +1146,28 @@ export default function BulkImport() {
                   <span>Max rows: 50,000</span>
                 </div>
 
+                {/* Session 5 — vendor template picker */}
+                {templates.length > 0 && (
+                  <div>
+                    <span className="bi-label">Vendor file format</span>
+                    <select
+                      value={templateId}
+                      onChange={e => setTemplateId(e.target.value)}
+                      style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary, #f8fafc)', color: 'var(--text-primary)', fontSize: '0.9rem' }}
+                    >
+                      <option value="">— Standard format (Storv columns) —</option>
+                      {templates.map(t => (
+                        <option key={t.id} value={t.id}>{t.name} ({t._count?.mappings || 0} cols)</option>
+                      ))}
+                    </select>
+                    {templateId && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        {templates.find(t => String(t.id) === String(templateId))?.description}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <span className="bi-label">When a record already exists</span>
                   <div className="bi-dup-row">
@@ -1186,6 +1222,28 @@ export default function BulkImport() {
                     </div>
                     <div className="bi-resolve-hint">
                       Text names are matched case-insensitively to existing names and codes. Numeric values are matched by ID.
+                    </div>
+                  </div>
+                )}
+
+                {/* Session 5 — unknown UPC strategy for product imports */}
+                {importType === 'products' && (
+                  <div>
+                    <span className="bi-label">When a row's UPC doesn't match any existing product</span>
+                    <div className="bi-dup-row">
+                      {[
+                        { id: 'create', label: 'Create new product', desc: 'Use the row as a fresh catalog entry' },
+                        { id: 'fail',   label: 'Fail the row',       desc: 'Flag in errors, nothing happens (safest for vendor files)' },
+                        { id: 'skip',   label: 'Skip silently',      desc: 'Log + move on' },
+                      ].map(s => (
+                        <label key={s.id} className={`bi-card bi-dup-option ${unknownUpcStrategy === s.id ? 'bi-dup-option--selected' : ''}`}>
+                          <input type="radio" name="unknownUpc" value={s.id} checked={unknownUpcStrategy === s.id} onChange={() => setUnknownUpcStrategy(s.id)} />
+                          <div>
+                            <div className="bi-dup-option-label">{s.label}</div>
+                            <div className="bi-dup-option-desc">{s.desc}</div>
+                          </div>
+                        </label>
+                      ))}
                     </div>
                   </div>
                 )}

@@ -20,6 +20,12 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  // Department Attributes (Session 4)
+  getDepartmentAttributes,
+  createDepartmentAttribute,
+  updateDepartmentAttribute,
+  deleteDepartmentAttribute,
+  applyStandardAttributes,
   // Tax Rules
   getTaxRules,
   createTaxRule,
@@ -55,6 +61,7 @@ import {
   bulkToggleActive,
   deleteAllProducts,
   duplicateMasterProduct,
+  exportMasterProducts,
   // Product UPCs
   getProductUpcs,
   addProductUpc,
@@ -118,6 +125,13 @@ router.post('/departments',       requirePermission('departments.create'), creat
 router.put('/departments/:id',    requirePermission('departments.edit'),   updateDepartment);
 router.delete('/departments/:id', requirePermission('departments.delete'), deleteDepartment);
 
+// Department Attributes (Session 4)
+router.get('/department-attributes',         requirePermission('departments.view'),   getDepartmentAttributes);
+router.post('/department-attributes',        requirePermission('departments.edit'),   createDepartmentAttribute);
+router.put('/department-attributes/:id',     requirePermission('departments.edit'),   updateDepartmentAttribute);
+router.delete('/department-attributes/:id',  requirePermission('departments.edit'),   deleteDepartmentAttribute);
+router.post('/departments/:id/apply-standard-attributes', requirePermission('departments.edit'), applyStandardAttributes);
+
 // ─── Tax Rules ───────────────────────────────────────────
 router.get('/tax-rules',        requirePermission('rules_fees.view'), getTaxRules);
 router.post('/tax-rules',       requirePermission('rules_fees.edit'), createTaxRule);
@@ -157,6 +171,7 @@ router.post('/groups/:id/add-products',    requirePermission('products.edit'),  
 router.post('/groups/:id/remove-products', requirePermission('products.edit'),   removeProductsFromGroup);
 
 router.get('/products/search',           requirePermission('products.view'),   searchMasterProducts);
+router.get('/products/export',           requirePermission('products.view'),   exportMasterProducts);
 router.get('/products/bulk',             requirePermission('products.view'),   getMasterProducts);
 router.post('/products/bulk-update',     requirePermission('products.edit'),   bulkUpdateMasterProducts);
 router.post('/products/bulk-delete',     requirePermission('products.delete'), bulkDeleteMasterProducts);

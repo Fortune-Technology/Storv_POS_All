@@ -639,6 +639,19 @@
   border: 1px solid var(--border-color);
 }
 
+/* Primary row — amber-tinted border + slightly brighter background so the
+   editable primary barcode stands out from read-only alternate rows. */
+.pf-upc-row-primary {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.pf-upc-row-primary .pf-input-mono {
+  background: var(--bg-secondary, #fff);
+  font-family: monospace;
+  font-weight: 600;
+}
+
 .pf-upc-code {
   font-family: monospace;
   font-size: 0.88rem;

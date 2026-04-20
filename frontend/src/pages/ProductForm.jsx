@@ -20,6 +20,7 @@ import PriceInput from '../components/PriceInput';
 import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
+  getDepartmentAttributes,
   getCatalogVendors, createCatalogVendor, updateCatalogVendor, deleteCatalogVendor,
   upsertStoreInventory, getStoreInventory,
   getCatalogPromotions, createCatalogPromotion, updateCatalogPromotion, deleteCatalogPromotion,
@@ -35,7 +36,7 @@ import {
   ChevronLeft, Save, Package, Building2, Truck, X, Plus,
   Trash2, Settings, DollarSign, Info, Check, Tag, Percent,
   Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle, Barcode, Layers,
-  Copy, Users as UsersIcon, Upload, Image, Link2,
+  Copy, Users as UsersIcon, Upload, Image, Link2, Star,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -689,6 +690,13 @@ export default function ProductForm() {
   const [dealForm,    setDealForm]    = useState(null);
   const [editDealIdx, setEditDealIdx] = useState(null);
 
+  // ── Session 4 — Department-scoped attribute definitions ──────────────────────
+  // `deptAttrs` is the schema (label/type/options) for the current dept.
+  // `form.attributes` is the key-value bucket storing both typed + freeform.
+  const [deptAttrs, setDeptAttrs] = useState([]);
+  const [newAttrKey, setNewAttrKey] = useState('');
+  const [newAttrVal, setNewAttrVal] = useState('');
+
   // ── Core form ────────────────────────────────────────────────────────────────
   const blank = {
     name: '', brand: '', upc: '', description: '',
@@ -710,6 +718,8 @@ export default function ProductForm() {
     ecomPrice: '', ecomSalePrice: '', ecomOnSale: false, ecomSummary: '',
     // Inventory
     reorderPoint: '', reorderQty: '',
+    // Session 4 — department-scoped + freeform attributes bucket
+    attributes: {},
   };
 
   const [form, setForm] = useState(blank);
@@ -808,6 +818,8 @@ export default function ProductForm() {
           // Inventory
           reorderPoint:       p.reorderPoint != null ? String(p.reorderPoint) : '',
           reorderQty:         p.reorderQty != null ? String(p.reorderQty) : '',
+          // Session 4 attributes bucket (keeps all typed + unknown values)
+          attributes:         (p.attributes && typeof p.attributes === 'object') ? p.attributes : {},
         });
 
         if (p.caseDeposit) {
@@ -950,6 +962,21 @@ export default function ProductForm() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, id, setup.loading, setup.storeCount]);
+
+  // ── Session 4: load dept-scoped attribute definitions when dept changes ──────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!form.departmentId) { setDeptAttrs([]); return; }
+      try {
+        const res = await getDepartmentAttributes({ departmentId: form.departmentId });
+        if (!cancelled) setDeptAttrs(res?.data ?? []);
+      } catch {
+        if (!cancelled) setDeptAttrs([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [form.departmentId]);
 
   // ── Derived pricing ──────────────────────────────────────────────────────────
   const caseCostVal  = parseFloat(form.defaultCasePrice)   || null;
@@ -1143,6 +1170,7 @@ export default function ProductForm() {
         byUnit:             form.byUnit,
         size:               form.size             || null,
         sizeUnit:           form.sizeUnit         || null,
+        attributes:         form.attributes       || {},
         active:             form.active,
       };
 
@@ -1330,27 +1358,8 @@ export default function ProductForm() {
                 <div className="pf-section-title">Product Info</div>
                 <div className="pf-product-info-grid">
 
-                  {/* Left: UPC + Name */}
+                  {/* Left: Name + size/brand (UPC moved to unified Barcodes card below) */}
                   <div>
-                    <div className="pf-row">
-                      <label className="pf-label">UPC / Barcode</label>
-                      <div className="pf-upc-wrap">
-                        <input className={`form-input pf-full pf-input-mono${upcWarning ? ' pf-input-error' : ''}`}
-                          value={form.upc} onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
-                          placeholder="012345678901" maxLength={14} />
-                        {form.upc && isValidUPC(form.upc) && (
-                          <span className="pf-upc-digits">
-                            <Check size={9} /> {form.upc.length} digits
-                          </span>
-                        )}
-                      </div>
-                      {upcWarning && (
-                        <div className="pf-warn">
-                          <AlertCircle size={10} /> {upcWarning}
-                        </div>
-                      )}
-                    </div>
-
                     <div>
                       <label className="pf-label">Product Name *</label>
                       <input className="form-input pf-full pf-input-bold"
@@ -1464,6 +1473,193 @@ export default function ProductForm() {
 
                 </div>
               </div>
+
+              {/* ── Barcodes (primary + alternates merged into one list) ── */}
+              <div className="pf-card">
+                <div className="pf-upc-header">
+                  <div className="pf-section-title" style={{ marginBottom: 0 }}>
+                    Barcodes
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    First row is the primary. Add alternates if the product scans with multiple UPCs.
+                  </span>
+                </div>
+
+                <div className="pf-upc-list" style={{ marginTop: '0.5rem' }}>
+                  {/* Primary row — bound to form.upc */}
+                  <div className="pf-upc-row pf-upc-row-primary">
+                    <Star size={13} color="#f59e0b" fill="#f59e0b" />
+                    <input
+                      className={`form-input pf-input-mono${upcWarning ? ' pf-input-error' : ''}`}
+                      value={form.upc}
+                      onChange={e => setF('upc', e.target.value.replace(/\D/g, ''))}
+                      placeholder="Primary barcode — 012345678901"
+                      maxLength={14}
+                      style={{ flex: 1, minWidth: 0 }}
+                    />
+                    {form.upc && isValidUPC(form.upc) && (
+                      <span className="pf-upc-digits">
+                        <Check size={9} /> {form.upc.length} digits
+                      </span>
+                    )}
+                    <span className="pf-upc-default-badge">Primary</span>
+                  </div>
+                  {upcWarning && (
+                    <div className="pf-warn" style={{ marginLeft: 22 }}>
+                      <AlertCircle size={10} /> {upcWarning}
+                    </div>
+                  )}
+
+                  {/* Alternate rows (non-default ProductUpc entries) */}
+                  {upcs.filter(u => !u.isDefault).map(u => (
+                    <div key={u.id} className="pf-upc-row">
+                      <Barcode size={13} color="var(--text-muted)" />
+                      <span className="pf-upc-code">{u.upc}</span>
+                      {u.label && <span className="pf-upc-label-text">{u.label}</span>}
+                      <button type="button" className="pf-upc-delete-btn"
+                        onClick={() => handleDeleteUpc(u.id)} title="Remove barcode">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add alternate (requires saved product) */}
+                {isEdit ? (
+                  <div className="pf-upc-add-row">
+                    <input className="form-input" placeholder="Alternate barcode (digits)"
+                      value={newUpc} onChange={e => setNewUpc(e.target.value.replace(/\D/g, ''))}
+                      maxLength={14} style={{ fontFamily: 'monospace' }} />
+                    <input className="form-input" placeholder="Label (optional)"
+                      value={newUpcLabel} onChange={e => setNewUpcLabel(e.target.value)}
+                      style={{ flex: 0.7 }} />
+                    <button type="button" className="pf-btn-primary pf-btn-sm"
+                      onClick={handleAddUpc} disabled={!newUpc || upcSaving}>
+                      <Plus size={13} /> Add
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                    Save the product first to add alternate barcodes.
+                  </div>
+                )}
+              </div>
+
+              {/* ── Session 4: Product Details — dept-scoped attributes + freeform bucket ── */}
+              {(deptAttrs.length > 0 || Object.keys(form.attributes || {}).length > 0) && (
+                <div className="pf-card">
+                  <div className="pf-upc-header">
+                    <div className="pf-section-title" style={{ marginBottom: 0 }}>Product Details</div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {deptAttrs.length > 0
+                        ? 'Fields configured for this department. Leave any blank.'
+                        : 'No department fields yet — add custom details below.'}
+                    </span>
+                  </div>
+
+                  {/* Dept-scoped typed fields */}
+                  {deptAttrs.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                      {deptAttrs.map(attr => {
+                        const val = form.attributes?.[attr.key] ?? '';
+                        const setVal = (v) => setF('attributes', { ...(form.attributes || {}), [attr.key]: v });
+                        const labelWithUnit = attr.unit ? `${attr.label} (${attr.unit})` : attr.label;
+                        if (attr.dataType === 'dropdown') {
+                          return (
+                            <div key={attr.id}>
+                              <label className="pf-label">{labelWithUnit}{attr.required && ' *'}</label>
+                              <select className="form-input pf-full" value={val} onChange={e => setVal(e.target.value)}>
+                                <option value="">— Select —</option>
+                                {(attr.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            </div>
+                          );
+                        }
+                        if (attr.dataType === 'boolean') {
+                          return (
+                            <div key={attr.id} className="pf-sb-toggle-row" style={{ margin: 0 }}>
+                              <span className="pf-toggle-label">{labelWithUnit}{attr.required && ' *'}</span>
+                              <Tog value={val === true || val === 'true'} onChange={v => setVal(v)} />
+                            </div>
+                          );
+                        }
+                        const inputType = attr.dataType === 'date' ? 'date'
+                          : (attr.dataType === 'integer' || attr.dataType === 'decimal') ? 'number' : 'text';
+                        const step = attr.dataType === 'decimal' ? 'any' : attr.dataType === 'integer' ? '1' : undefined;
+                        return (
+                          <div key={attr.id}>
+                            <label className="pf-label">{labelWithUnit}{attr.required && ' *'}</label>
+                            <input
+                              className="form-input pf-full"
+                              type={inputType}
+                              step={step}
+                              value={val}
+                              placeholder={attr.placeholder || ''}
+                              onChange={e => setVal(e.target.value)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Freeform "Other Details" bucket — shows keys NOT in deptAttrs */}
+                  {(() => {
+                    const knownKeys = new Set(deptAttrs.map(a => a.key));
+                    const extraKeys = Object.keys(form.attributes || {}).filter(k => !knownKeys.has(k));
+                    if (extraKeys.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: '1rem' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                          OTHER DETAILS
+                        </div>
+                        <div className="pf-upc-list">
+                          {extraKeys.map(k => (
+                            <div key={k} className="pf-upc-row">
+                              <span style={{ fontFamily:'monospace', fontSize:'0.78rem', minWidth:110, color:'var(--text-muted)' }}>{k}</span>
+                              <input
+                                className="form-input"
+                                style={{ flex: 1, minWidth: 0 }}
+                                value={form.attributes?.[k] ?? ''}
+                                onChange={e => setF('attributes', { ...(form.attributes || {}), [k]: e.target.value })}
+                              />
+                              <button type="button" className="pf-upc-delete-btn" title="Remove"
+                                onClick={() => {
+                                  const next = { ...(form.attributes || {}) };
+                                  delete next[k];
+                                  setF('attributes', next);
+                                }}>
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Add-freeform-attribute row */}
+                  <div className="pf-upc-add-row" style={{ marginTop: '0.75rem' }}>
+                    <input className="form-input" placeholder="Detail name (e.g. barrel_number)"
+                      value={newAttrKey} onChange={e => setNewAttrKey(e.target.value)}
+                      style={{ fontFamily: 'monospace' }} />
+                    <input className="form-input" placeholder="Value"
+                      value={newAttrVal} onChange={e => setNewAttrVal(e.target.value)}
+                      style={{ flex: 0.7 }} />
+                    <button type="button" className="pf-btn-primary pf-btn-sm"
+                      disabled={!newAttrKey.trim() || !newAttrVal.trim()}
+                      onClick={() => {
+                        const k = newAttrKey.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+                        if (!k) return;
+                        setF('attributes', { ...(form.attributes || {}), [k]: newAttrVal.trim() });
+                        setNewAttrKey('');
+                        setNewAttrVal('');
+                      }}>
+                      <Plus size={13} /> Add
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* ── 2. Pricing ── */}
               <div className="pf-card">
@@ -1910,53 +2106,6 @@ export default function ProductForm() {
                   </div>
                 </div>
               </div>}
-
-              {/* ── Additional UPCs / Barcodes ── */}
-              <div className="pf-card">
-                <div className="pf-upc-header">
-                  <div className="pf-section-title" style={{ marginBottom: 0 }}>
-                    Additional UPCs / Barcodes
-                  </div>
-                  {!isEdit && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      Save product first to add extra barcodes
-                    </span>
-                  )}
-                </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.5rem 0 0.75rem' }}>
-                  Add alternate UPCs so the same product is found no matter which barcode is scanned.
-                </p>
-                {upcs.length === 0 ? (
-                  <div className="pf-upc-empty">No extra barcodes yet</div>
-                ) : (
-                  <div className="pf-upc-list">
-                    {upcs.map(u => (
-                      <div key={u.id} className="pf-upc-row">
-                        <Barcode size={13} color="var(--text-muted)" />
-                        <span className="pf-upc-code">{u.upc}</span>
-                        {u.label && <span className="pf-upc-label-text">{u.label}</span>}
-                        {u.isDefault && <span className="pf-upc-default-badge">Default</span>}
-                        <button type="button" className="pf-upc-delete-btn"
-                          onClick={() => handleDeleteUpc(u.id)} title="Remove UPC">
-                          <X size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="pf-upc-add-row">
-                  <input className="form-input" placeholder="Barcode (digits)"
-                    value={newUpc} onChange={e => setNewUpc(e.target.value.replace(/\D/g, ''))}
-                    maxLength={14} style={{ fontFamily: 'monospace' }} />
-                  <input className="form-input" placeholder="Label (optional)"
-                    value={newUpcLabel} onChange={e => setNewUpcLabel(e.target.value)}
-                    style={{ flex: 0.7 }} />
-                  <button type="button" className="pf-btn-primary pf-btn-sm"
-                    onClick={handleAddUpc} disabled={!newUpc || upcSaving}>
-                    <Plus size={13} /> Add
-                  </button>
-                </div>
-              </div>
 
             </div>{/* end left column */}
 
