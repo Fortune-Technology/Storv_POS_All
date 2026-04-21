@@ -1,0 +1,172 @@
+/* Storv onboarding tour — overrides for intro.js */
+
+.otr-tooltip.introjs-tooltip {
+
+  min-width: 300px;
+  max-width: 380px;
+  margin-top: 16px !important;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+  font-family: inherit;
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+}
+
+/* Floating tooltip for the Welcome step — pin near the top-centre so the
+   sidebar stays visible below it and the user can see what they're about to
+   tour. Override intro.js's fixed-centre positioning. */
+.otr-tooltip.introjs-floating {
+  position: fixed !important;
+  top: 10vh !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  margin: 0 !important;
+}
+
+.otr-tooltip .introjs-tooltip-header {
+  padding: 14px 16px 0;
+}
+
+.otr-tooltip .introjs-tooltiptext {
+  padding: 10px 16px 16px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  width: 100%;
+}
+
+.otr-tooltip .introjs-tooltiptext strong {
+  color: var(--brand-primary, #3d56b5);
+  font-size: 1rem;
+}
+
+.otr-tooltip .otr-item-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #64748b);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.otr-tooltip .otr-item-list li {
+  margin: 2px 0;
+}
+
+.otr-tooltip .introjs-button {
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  text-shadow: none;
+  border: 1px solid var(--border-color, #cbd5e1);
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary, #0f172a);
+}
+
+.otr-tooltip .introjs-nextbutton,
+.otr-tooltip .introjs-donebutton {
+  background: var(--brand-primary, #3d56b5);
+  border-color: var(--brand-primary, #3d56b5);
+  color: #fff;
+}
+
+.otr-tooltip .introjs-nextbutton:hover,
+.otr-tooltip .introjs-donebutton:hover {
+  background: var(--brand-dark, #2d3f8f);
+  color: #fff;
+}
+
+.otr-tooltip .introjs-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.otr-tooltip .introjs-progress {
+  background: var(--bg-tertiary, #f1f5f9);
+  border-radius: 999px;
+  height: 4px;
+  margin: 6px 16px 0;
+}
+
+.otr-tooltip .introjs-progressbar {
+  background: var(--brand-primary, #3d56b5);
+}
+
+/* Skip — always-visible text button in the top-right corner. */
+.otr-tooltip .introjs-skipbutton {
+  position: absolute !important;
+  top: 6px;
+  right: 40px;
+  padding: 4px 10px !important;
+  border: none !important;
+  background: transparent !important;
+  text-shadow: none !important;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0 !important;
+  /* hide default "×"; we render our own label */
+  color: var(--text-muted, #64748b) !important;
+  z-index: 2;
+}
+
+.otr-tooltip .introjs-skipbutton::before {
+  content: '✕ Skip tour';
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.otr-tooltip .introjs-skipbutton:hover {
+  background: var(--bg-tertiary, #f1f5f9) !important;
+  color: var(--text-primary, #0f172a) !important;
+}
+
+/* Leave room so the title doesn't run under the Skip button */
+.otr-tooltip .introjs-tooltip-header {
+  padding-right: 100px;
+}
+
+.otr-highlight {
+  border-radius: 10px !important;
+  box-shadow:
+    0 0 0 3px rgba(61, 86, 181, 0.55),
+    0 0 0 6px rgba(61, 86, 181, 0.2) !important;
+}
+
+.introjs-overlay {
+  background: rgba(15, 23, 42, 0.5) !important;
+  opacity: 1 !important;
+}
+
+/* Help button in sidebar */
+.sidebar-help-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - 1rem);
+  margin: 0.25rem 0.5rem 0.5rem;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: var(--bg-tertiary, #f1f5f9);
+  color: var(--brand-primary, #3d56b5);
+  border: 1px dashed var(--brand-primary, #3d56b5);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-help-btn:hover {
+  background: var(--brand-primary, #3d56b5);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .otr-tooltip.introjs-tooltip {
+    min-width: auto;
+    max-width: calc(100vw - 32px);
+    width: 100%;
+  }
+}

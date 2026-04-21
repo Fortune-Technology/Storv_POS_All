@@ -115,12 +115,12 @@ export default function Exchange() {
   return (
     <div className="p-page ex-page">
       <header className="p-header">
-        <div className="p-header-icon" style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
-          <Repeat size={22} color="#fff" />
-        </div>
-        <div className="p-header-text">
-          <h1>Storv Exchange</h1>
-          <p>B2B wholesale between trading partners — orders, balances, and settlement.</p>
+        <div className="p-header-left">
+          <div className="p-header-icon"><Repeat size={22} /></div>
+          <div>
+            <h1 className="p-title">Storv Exchange</h1>
+            <p className="p-subtitle">B2B wholesale between trading partners — orders, balances, and settlement.</p>
+          </div>
         </div>
         <div className="p-header-actions">
           <button className="p-btn p-btn-ghost" onClick={refreshAll} disabled={loading}>

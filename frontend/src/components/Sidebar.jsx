@@ -44,6 +44,7 @@ import {
   Handshake,
   Repeat,
   Layout,
+  HelpCircle,
 } from 'lucide-react';
 import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
@@ -301,6 +302,18 @@ const Sidebar = () => {
         <div style={{ padding: '0.5rem 0.5rem 0.75rem', display: 'flex', justifyContent: 'center' }}>
           <StoreveuLogo height={70} darkMode={false} />
         </div>
+
+        {/* ── Help / Start Tour ────────────────────────────────────────── */}
+        <button
+          type="button"
+          className="sidebar-help-btn"
+          data-tour="sidebar-help-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('storv-start-onboarding'))}
+          title="Restart the guided walkthrough"
+        >
+          <HelpCircle size={14} />
+          <span>Take the tour</span>
+        </button>
 
         {/* ── Store Switcher ───────────────────────────────────────────── */}
         <StoreSwitcher />

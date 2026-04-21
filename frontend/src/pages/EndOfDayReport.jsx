@@ -172,7 +172,13 @@ export default function EndOfDayReport() {
       {/* ── Non-print toolbar ── */}
       <div className="eod-toolbar" data-no-print>
         <div className="eod-toolbar-left">
-          <h1 className="eod-title"><FileText size={22} /> End of Day Report</h1>
+          <div className="p-header-left">
+            <div className="p-header-icon"><FileText size={22} /></div>
+            <div>
+              <h1 className="p-title">End of Day Report</h1>
+              <p className="p-subtitle">Reconcile payouts, tender, transactions, and cash drawer</p>
+            </div>
+          </div>
         </div>
         <div className="eod-toolbar-right">
           <button className="eod-btn eod-btn-secondary" onClick={loadReport} disabled={loading} title="Refresh report">

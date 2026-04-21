@@ -85,9 +85,9 @@ function ContainerTypeToggle({ value, onChange }) {
             style={{
               padding: '0.3rem 0.7rem',
               borderRadius: 6,
-              border: `1px solid ${on ? 'rgba(52,211,153,.4)' : 'var(--border-color, #2a2a3a)'}`,
-              background: on ? 'rgba(52,211,153,.12)' : 'var(--bg-card, #1a1a2a)',
-              color: on ? '#34d399' : 'var(--text-muted, #6b7280)',
+              border: `1px solid ${on ? 'rgba(52,211,153,.4)' : 'var(--border-color, #e2e8f0)'}`,
+              background: on ? 'rgba(52,211,153,.12)' : 'var(--bg-tertiary, #f1f5f9)',
+              color: on ? '#34d399' : 'var(--text-muted, #64748b)',
               fontSize: '0.75rem', fontWeight: 700,
               cursor: 'pointer', transition: 'all .12s',
             }}
@@ -203,8 +203,8 @@ function RuleForm({ initial, onSave, onCancel, saving }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button type="button" onClick={onCancel} style={{
           padding: '0.5rem 1.25rem', borderRadius: 8,
-          background: 'var(--bg-card, #1a1a2a)', border: '1px solid var(--border-color, #2a2a3a)',
-          color: 'var(--text-secondary, #9ca3af)', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem',
+          background: 'var(--bg-tertiary, #f1f5f9)', border: '1px solid var(--border-color, #e2e8f0)',
+          color: 'var(--text-secondary, #475569)', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem',
         }}>
           Cancel
         </button>
@@ -296,8 +296,8 @@ function RuleCard({ rule, onEdit, onDeactivate }) {
           title="Edit rule"
           style={{
             width: 32, height: 32, borderRadius: 8,
-            background: 'var(--bg-card, #1a1a2a)', border: '1px solid var(--border-color, #2a2a3a)',
-            color: 'var(--text-secondary, #9ca3af)', cursor: 'pointer',
+            background: 'var(--bg-tertiary, #f1f5f9)', border: '1px solid var(--border-color, #e2e8f0)',
+            color: 'var(--text-secondary, #475569)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >

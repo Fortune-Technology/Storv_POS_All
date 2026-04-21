@@ -304,8 +304,8 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         <button onClick={() => onEdit(rule)} title="Edit rule" style={{
           width: 32, height: 32, borderRadius: 8,
-          background: 'var(--bg-card, #1a1a2a)', border: '1px solid var(--border-color, #2a2a3a)',
-          color: 'var(--text-secondary, #9ca3af)', cursor: 'pointer',
+          background: 'var(--bg-tertiary, #f1f5f9)', border: '1px solid var(--border-color, #e2e8f0)',
+          color: 'var(--text-secondary, #475569)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <Pencil size={13} />

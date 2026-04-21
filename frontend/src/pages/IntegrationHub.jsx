@@ -160,7 +160,7 @@ function ConnectionsTab({ platforms, onRefresh }) {
 }
 
 function PlatformCard({ platformKey, data, onRefresh }) {
-  const meta = PLATFORM_META[platformKey];
+  const meta = PLATFORM_META[platformKey] || { name: platformKey, color: '#888', initial: platformKey?.[0]?.toUpperCase() || '?', credentialFields: [], status: 'live' };
   const [creds, setCreds] = useState({});
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -372,7 +372,7 @@ function SettingsTab({ connectedKeys }) {
       {/* Platform pills */}
       <div className="ih-platform-pills">
         {connectedKeys.map(key => {
-          const m = PLATFORM_META[key];
+          const m = PLATFORM_META[key] || { name: key, color: '#888', initial: key?.[0]?.toUpperCase() || '?' };
           return (
             <button
               key={key}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Mail, Plus, RefreshCw, Trash2, Copy, Check, X, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
+import '../styles/portal.css';
 import './Invitations.css';
 
 import {
@@ -95,15 +96,20 @@ export default function Invitations() {
   }
 
   return (
-    <div className="inv-page">
-      <div className="inv-header">
-        <div>
-          <h1><Mail size={22} /> Invitations</h1>
-          <p>Invite team members to your organisation. New users can accept from any device.</p>
+    <div className="inv-page p-page">
+      <div className="p-header">
+        <div className="p-header-left">
+          <div className="p-header-icon"><Mail size={22} /></div>
+          <div>
+            <h1 className="p-title">Invitations</h1>
+            <p className="p-subtitle">Invite team members to your organisation. New users can accept from any device.</p>
+          </div>
         </div>
-        <button className="inv-btn inv-btn--primary" onClick={() => setShowCreate(true)}>
-          <Plus size={16} /> New Invitation
-        </button>
+        <div className="p-header-actions">
+          <button className="inv-btn inv-btn--primary" onClick={() => setShowCreate(true)}>
+            <Plus size={16} /> New Invitation
+          </button>
+        </div>
       </div>
 
       <div className="inv-tabs">

@@ -119,9 +119,9 @@
 .dr-confirm-cancel {
   padding: 0.4rem 1rem;
   border-radius: 8px;
-  background: var(--bg-card, #1a1a2a);
-  border: 1px solid var(--border-color, #2a2a3a);
-  color: var(--text-secondary, #9ca3af);
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
   font-weight: 700;
   cursor: pointer;
   font-size: 0.82rem;

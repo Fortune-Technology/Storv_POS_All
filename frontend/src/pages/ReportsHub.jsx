@@ -37,6 +37,19 @@ const toDateStr  = (d) => d.toISOString().slice(0, 10);
 const todayStr   = () => toDateStr(new Date());
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
 
+/**
+ * Coerce any backend value into a safe renderable string. Defends against
+ * React's "Objects are not valid as a React child" crash when a field is
+ * unexpectedly an object like { name, code } (e.g. a state or department
+ * reference that hasn't been flattened server-side).
+ */
+const txt = (v) => {
+  if (v == null) return '';
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (typeof v === 'object') return v.name || v.label || v.code || v.id || '';
+  return String(v);
+};
+
 const TABS = [
   'Summary', 'Tender', 'Sales', 'Day', 'Tax', 'Inventory', 'Compare', 'Expenses',
   'Notes', 'Logins', 'Modifications', 'Receiving', 'House Accounts',
@@ -263,7 +276,7 @@ export default function ReportsHub() {
               <tbody>
                 {depts.map((d, i) => (
                   <tr key={i}>
-                    <td className="p-td-strong">{d.department || d.name}</td>
+                    <td className="p-td-strong">{txt(d.department) || txt(d.name)}</td>
                     <td>{fmt(d.sales)}</td>
                     <td>{fmt(d.cost)}</td>
                     <td className={d.profit >= 0 ? 'p-td-green' : 'p-td-red'}>{fmt(d.profit)}</td>
@@ -452,7 +465,7 @@ export default function ReportsHub() {
               <tbody>
                 {cashiers.map((c, i) => (
                   <tr key={i}>
-                    <td className="p-td-strong">{c.cashier || c.name}</td>
+                    <td className="p-td-strong">{txt(c.cashier) || txt(c.name)}</td>
                     <td>{fmtNum(c.transactions)}</td>
                     <td>{fmt(c.totalSales || c.sales)}</td>
                   </tr>
@@ -472,7 +485,7 @@ export default function ReportsHub() {
               <tbody>
                 {stations.map((s, i) => (
                   <tr key={i}>
-                    <td className="p-td-strong">{s.station || s.name}</td>
+                    <td className="p-td-strong">{txt(s.station) || txt(s.name)}</td>
                     <td>{fmtNum(s.transactions)}</td>
                     <td>{fmt(s.totalSales || s.sales)}</td>
                   </tr>
@@ -591,7 +604,7 @@ export default function ReportsHub() {
               <tbody>
                 {classes.map((c, i) => (
                   <tr key={i}>
-                    <td className="p-td-strong">{c.taxClass || c.name}</td>
+                    <td className="p-td-strong">{txt(c.taxClass) || txt(c.name)}</td>
                     <td>{fmt(c.taxableSales)}</td>
                     <td>{pct(c.rate)}</td>
                     <td className="p-td-green">{fmt(c.taxAmount)}</td>
@@ -709,9 +722,9 @@ export default function ReportsHub() {
             <tbody>
               {filtered.map((p, i) => (
                 <tr key={i}>
-                  <td className="p-td-strong">{p.name}</td>
-                  <td>{p.upc}</td>
-                  <td>{p.dept}</td>
+                  <td className="p-td-strong">{txt(p.name)}</td>
+                  <td>{txt(p.upc)}</td>
+                  <td>{txt(p.dept)}</td>
                   <td>{fmtNum(p.onHand)}</td>
                   <td>{fmtNum(p.onOrder)}</td>
                   <td>{fmtNum(p.sold30d)}</td>
@@ -803,9 +816,9 @@ export default function ReportsHub() {
                 <tbody>
                   {(cmpData.metrics || []).map((m, i) => (
                     <tr key={i}>
-                      <td className="p-td-strong">{m.metric}</td>
-                      <td>{m.period1}</td>
-                      <td>{m.period2}</td>
+                      <td className="p-td-strong">{txt(m.metric)}</td>
+                      <td>{txt(m.period1)}</td>
+                      <td>{txt(m.period2)}</td>
                       <td>{changeArrow(m.changePct)}</td>
                     </tr>
                   ))}
@@ -943,11 +956,11 @@ export default function ReportsHub() {
               <tbody>
                 {notes.map((n, i) => (
                   <tr key={i}>
-                    <td>{n.date}</td>
-                    <td className="p-td-strong">{n.txNumber}</td>
+                    <td>{txt(n.date)}</td>
+                    <td className="p-td-strong">{txt(n.txNumber)}</td>
                     <td>{fmt(n.total)}</td>
-                    <td>{n.notes}</td>
-                    <td>{n.cashierId}</td>
+                    <td>{txt(n.notes)}</td>
+                    <td>{txt(n.cashierId)}</td>
                   </tr>
                 ))}
                 {!notes.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No transaction notes found</td></tr>}
@@ -1045,10 +1058,10 @@ export default function ReportsHub() {
               <tbody>
                 {filtered.map((e, i) => (
                   <tr key={i}>
-                    <td>{e.date}</td>
-                    <td className="p-td-strong">{e.user}</td>
+                    <td>{txt(e.date)}</td>
+                    <td className="p-td-strong">{txt(e.user)}</td>
                     <td>{typeBadge(e.type)}</td>
-                    <td>{e.details}</td>
+                    <td>{txt(e.details)}</td>
                   </tr>
                 ))}
                 {!filtered.length && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No login events found</td></tr>}
@@ -1146,10 +1159,10 @@ export default function ReportsHub() {
               <tbody>
                 {filtered.map((e, i) => (
                   <tr key={i}>
-                    <td>{e.date}</td>
+                    <td>{txt(e.date)}</td>
                     <td>{modBadge(e.type)}</td>
-                    <td className="p-td-strong">{e.user}</td>
-                    <td>{e.details}</td>
+                    <td className="p-td-strong">{txt(e.user)}</td>
+                    <td>{txt(e.details)}</td>
                     <td>{fmt(e.amount)}</td>
                   </tr>
                 ))}
@@ -1237,9 +1250,9 @@ export default function ReportsHub() {
                       <td style={{ width: 28, textAlign: 'center' }}>
                         {expandedPO === o.poNumber ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </td>
-                      <td className="p-td-strong">{o.poNumber}</td>
-                      <td>{o.vendor}</td>
-                      <td>{o.receivedDate}</td>
+                      <td className="p-td-strong">{txt(o.poNumber)}</td>
+                      <td>{txt(o.vendor)}</td>
+                      <td>{txt(o.receivedDate)}</td>
                       <td>{fmtNum(Array.isArray(o.items) ? o.items.length : o.items)}</td>
                       <td>{fmt(o.grandTotal)}</td>
                       <td>{statusBadge(o.status)}</td>
@@ -1255,8 +1268,8 @@ export default function ReportsHub() {
                               <tbody>
                                 {o.items.map((item, j) => (
                                   <tr key={j}>
-                                    <td>{item.name || item.description}</td>
-                                    <td>{item.upc}</td>
+                                    <td>{txt(item.name) || txt(item.description)}</td>
+                                    <td>{txt(item.upc)}</td>
                                     <td>{fmtNum(item.qtyOrdered)}</td>
                                     <td>{fmtNum(item.qtyReceived)}</td>
                                     <td>{fmt(item.cost)}</td>
@@ -1350,8 +1363,8 @@ export default function ReportsHub() {
               <tbody>
                 {customers.map((c, i) => (
                   <tr key={i}>
-                    <td className="p-td-strong">{c.name}</td>
-                    <td>{c.phone}</td>
+                    <td className="p-td-strong">{txt(c.name)}</td>
+                    <td>{txt(c.phone)}</td>
                     <td className={balanceClass(c.balance, c.balanceLimit)}>{fmt(c.balance)}</td>
                     <td>{fmt(c.balanceLimit)}</td>
                     <td>{c.discount != null ? `${c.discount}%` : '--'}</td>

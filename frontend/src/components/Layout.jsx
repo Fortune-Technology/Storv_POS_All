@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import BillingBanner from './BillingBanner';
 import AIAssistantWidget from './AIAssistantWidget';
 import TourRunner from './TourRunner';
+import OnboardingTour from './OnboardingTour';
 
 const Layout = ({ children }) => {
   return (
@@ -15,6 +16,7 @@ const Layout = ({ children }) => {
       </main>
       <AIAssistantWidget />
       <TourRunner />
+      <OnboardingTour />
     </div>
   );
 };
