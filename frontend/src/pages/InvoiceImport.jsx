@@ -195,27 +195,37 @@ function PriceInput({ value, onChange, readOnly, style, placeholder }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function InvoiceCard({ inv, selected, onOpen, onDelete }) {
   const s = STATUS[inv.status] || STATUS.draft;
+  const isCredit = inv.invoiceType === 'credit_memo';
   return (
     <div
       onClick={() => onOpen(inv)}
-      className={`ii-card ${selected ? 'ii-card--selected' : ''} ${inv.status === 'processing' ? 'ii-card--processing' : ''}`}
+      className={`ii-card ${selected ? 'ii-card--selected' : ''} ${inv.status === 'processing' ? 'ii-card--processing' : ''} ${isCredit ? 'ii-card--credit' : ''}`}
     >
-      <div className="ii-card-icon" style={{ background: s.bg }}>
+      <div className="ii-card-icon" style={{ background: isCredit ? 'rgba(239, 68, 68, 0.14)' : s.bg }}>
         {inv.status === 'processing' && <Loader size={18} color={s.color} className="ii-spin" />}
-        {inv.status === 'draft'      && <FileText size={18} color={s.color} />}
+        {inv.status === 'draft'      && <FileText size={18} color={isCredit ? '#dc2626' : s.color} />}
         {inv.status === 'failed'     && <AlertCircle size={18} color={s.color} />}
-        {(inv.status === 'synced' || inv.status === 'processed') && <CheckCircle size={18} color={s.color} />}
+        {(inv.status === 'synced' || inv.status === 'processed') && <CheckCircle size={18} color={isCredit ? '#dc2626' : s.color} />}
       </div>
       <div className="ii-card-body">
         <div className="ii-card-title-row">
           <span className="ii-card-name">{inv.vendorName || inv.fileName}</span>
+          {isCredit && (
+            <span className="ii-card-badge" style={{ background: 'rgba(239, 68, 68, 0.14)', color: '#dc2626', fontWeight: 700 }}>
+              CREDIT
+            </span>
+          )}
           <span className="ii-card-badge" style={{ background: s.bg, color: s.color }}>{s.label}</span>
         </div>
         <div className="ii-card-meta">
           {inv.vendorName           && <span style={{ color: 'var(--text-secondary)' }}>{inv.fileName}</span>}
           {inv.invoiceNumber        && <span>#{inv.invoiceNumber}</span>}
           {inv.invoiceDate          && <span>{inv.invoiceDate}</span>}
-          {inv.totalInvoiceAmount > 0 && <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{fmt(inv.totalInvoiceAmount)}</span>}
+          {inv.totalInvoiceAmount > 0 && (
+            <span style={{ color: isCredit ? '#dc2626' : 'var(--text-primary)', fontWeight: 600 }}>
+              {isCredit ? `−${fmt(inv.totalInvoiceAmount)}` : fmt(inv.totalInvoiceAmount)}
+            </span>
+          )}
           {inv.lineItems?.length > 0 && <span>{inv.lineItems.length} items</span>}
           {inv.status === 'processing' && <span style={{ color: 'var(--accent-secondary)' }}>AI is reading your invoice...</span>}
           {inv.status === 'failed'     && <span style={{ color: '#ef4444' }}>{inv.processingError || 'Extraction failed'}</span>}
@@ -551,6 +561,58 @@ function ReviewPanel({
             >
               Force
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Invoice Type Toggle (Purchase / Credit Memo) ── */}
+      {!readOnly && (
+        <div className="ii-type-row">
+          <div className="ii-type-row-inner">
+            <label className="ii-type-label">Type</label>
+            <div className="ii-type-segmented" role="radiogroup" aria-label="Invoice type">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={(editData?.invoiceType || 'purchase') === 'purchase'}
+                onClick={() => onHeaderChange('invoiceType', 'purchase')}
+                className={`ii-type-opt ${(editData?.invoiceType || 'purchase') === 'purchase' ? 'ii-type-opt--active' : ''}`}
+                title="Standard vendor invoice — adds to inventory + vendor cost in P&L"
+              >
+                📝 Purchase Invoice
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={editData?.invoiceType === 'credit_memo'}
+                onClick={() => onHeaderChange('invoiceType', 'credit_memo')}
+                className={`ii-type-opt ${editData?.invoiceType === 'credit_memo' ? 'ii-type-opt--active ii-type-opt--credit' : ''}`}
+                title="Credit memo / rebate — subtracts from vendor cost in P&L; does not move inventory"
+              >
+                💳 Credit / Rebate
+              </button>
+            </div>
+            {editData?.invoiceType === 'credit_memo' && (
+              <span className="ii-credit-hint">
+                Enter the credit as a <strong>positive</strong> amount — the P&amp;L report will subtract it from the vendor's cost total.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Credit Memo — optional link to original invoice ── */}
+      {!readOnly && editData?.invoiceType === 'credit_memo' && (
+        <div className="ii-type-row ii-type-row--credit">
+          <div className="ii-type-row-inner">
+            <label className="ii-type-label">Link to Original Invoice <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 4 }}>(optional)</span></label>
+            <input
+              type="text"
+              className="ii-linked-input"
+              placeholder="Invoice # or ID the credit applies to (leave blank if standalone rebate)"
+              value={editData?.linkedInvoiceId || ''}
+              onChange={e => onHeaderChange('linkedInvoiceId', e.target.value)}
+            />
           </div>
         </div>
       )}
@@ -1802,6 +1864,10 @@ const InvoiceImport = () => {
     if (!editData) return;
     setIsConfirming(true);
     try {
+      const isCredit = editData.invoiceType === 'credit_memo';
+      // Credit memos never accept PO matches — they don't move inventory.
+      const effectiveAcceptPO = isCredit ? false : acceptPOMatch;
+
       // Step 1 — mark invoice as synced + save vendor-product mappings + optionally receive PO
       const confirmResult = await confirmInvoice({
         id: editData.id, lineItems: editData.lineItems, vendorName: editData.vendorName,
@@ -1811,7 +1877,9 @@ const InvoiceImport = () => {
         checkNumber: editData.checkNumber, tax: editData.tax, totalDiscount: editData.totalDiscount,
         totalDeposit: editData.totalDeposit, otherFees: editData.otherFees,
         driverName: editData.driverName, salesRepName: editData.salesRepName, loadNumber: editData.loadNumber,
-        acceptPOMatch,
+        invoiceType:     editData.invoiceType || 'purchase',
+        linkedInvoiceId: editData.linkedInvoiceId || null,
+        acceptPOMatch:   effectiveAcceptPO,
       });
 
       // Show PO receive result
@@ -1832,7 +1900,9 @@ const InvoiceImport = () => {
           && (item.linkedProductId || item.posProductId)
       );
 
-      if (matchedItems.length > 0) {
+      // Credit memos don't push vendor→product mappings to the catalog.
+      // A rebate invoice doesn't describe deliverable products.
+      if (!isCredit && matchedItems.length > 0) {
         const posResults = await Promise.allSettled(
           matchedItems.map(item => {
             const catalogFields = {};

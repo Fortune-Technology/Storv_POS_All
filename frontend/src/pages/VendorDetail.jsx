@@ -13,6 +13,7 @@ import {
   getVendorProducts,
   getVendorPayouts,
   getVendorStats,
+  getVendorInvoiceSummary,
 } from '../services/api';
 import './VendorDetail.css';
 import {
@@ -503,14 +504,19 @@ function PayoutsTab({ vendorId }) {
 
 function StatsTab({ vendorId }) {
   const [stats,   setStats]   = useState(null);
+  const [invSummary, setInvSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    getVendorStats(vendorId)
-      .then(r => setStats(r?.data || null))
-      .catch(() => toast.error('Failed to load stats'))
-      .finally(() => setLoading(false));
+    Promise.allSettled([
+      getVendorStats(vendorId),
+      getVendorInvoiceSummary({ vendorId }),
+    ]).then(([statsRes, invRes]) => {
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value?.data || null);
+      else toast.error('Failed to load stats');
+      if (invRes.status === 'fulfilled') setInvSummary(invRes.value || null);
+    }).finally(() => setLoading(false));
   }, [vendorId]);
 
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading stats…</div>;
@@ -527,6 +533,70 @@ function StatsTab({ vendorId }) {
         <StatCard label="Total Paid Out"  value={fmt(stats.totalPaid)}    color="#a855f7" bg="rgba(168,85,247,.08)" icon={DollarSign}   />
         <StatCard label="Payout Events"   value={stats.payoutCount}       color="#3b82f6" bg="rgba(59,130,246,.08)" icon={CreditCard}   />
       </div>
+
+      {/* Invoice-based vendor cost (purchases vs credits) */}
+      {invSummary && (invSummary.purchases?.count > 0 || invSummary.credits?.count > 0) && (
+        <div style={{ ...cardStyle, padding: '1.25rem', marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+              Invoice-Based Vendor Cost
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {invSummary.from} → {invSummary.to}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+            <StatCard
+              label={`Purchase Invoices (${invSummary.purchases.count})`}
+              value={fmt(invSummary.purchases.total)}
+              color="#059669"
+              bg="rgba(5, 150, 105, 0.08)"
+              icon={Package}
+            />
+            <StatCard
+              label={`Credit Memos (${invSummary.credits.count})`}
+              value={`−${fmt(invSummary.credits.total)}`}
+              color="#dc2626"
+              bg="rgba(220, 38, 38, 0.08)"
+              icon={DollarSign}
+            />
+            <StatCard
+              label="Net Cost (P&L)"
+              value={fmt(invSummary.netCost)}
+              color="var(--accent-primary)"
+              bg="var(--brand-08)"
+              icon={BarChart2}
+            />
+          </div>
+          {invSummary.recentCredits?.length > 0 && (
+            <div style={{ marginTop: '1.25rem' }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+                Recent Credits
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {invSummary.recentCredits.map((cr) => (
+                  <div key={cr.id} style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    fontSize: '0.78rem', padding: '4px 8px',
+                    background: 'rgba(220, 38, 38, 0.04)', borderRadius: 4,
+                  }}>
+                    <span>
+                      {cr.invoiceNumber ? `#${cr.invoiceNumber}` : cr.id.slice(0, 8)}
+                      {cr.invoiceDate && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+                        {new Date(cr.invoiceDate).toLocaleDateString()}
+                      </span>}
+                      {cr.linkedInvoiceId && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+                        → {cr.linkedInvoiceId}
+                      </span>}
+                    </span>
+                    <span style={{ color: '#dc2626', fontWeight: 600 }}>−{fmt(cr.totalInvoiceAmount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Monthly spend bar chart */}
       {monthEntries.length > 0 ? (

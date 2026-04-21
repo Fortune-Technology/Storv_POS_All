@@ -334,6 +334,7 @@ export default function DepartmentAnalytics({ embedded }) {
                         <th>Department</th>
                         <th>Total Sales</th>
                         <th>Gross Sales</th>
+                        <th>Tax Collected</th>
                         <th>Items Sold</th>
                         <th>Transactions</th>
                         <th>Avg Price</th>
@@ -349,6 +350,7 @@ export default function DepartmentAnalytics({ embedded }) {
                           </td>
                           <td className="dan-td-accent">{fmt(d.TotalSales)}</td>
                           <td>{fmt(d.TotalGrossSales)}</td>
+                          <td>{fmt(d.TotalTaxCollected ?? 0)}</td>
                           <td>{fmtInt(d.TotalItems)}</td>
                           <td>{fmtInt(d.TotalTransactionsCount)}</td>
                           <td>{fmt(d.TotalAvgPrice)}</td>

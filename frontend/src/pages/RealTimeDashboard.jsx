@@ -470,12 +470,13 @@ export default function RealTimeDashboard({ embedded = false }) {
             </div>
             <div className="rtd-summary-grid">
               {[
-                { label: 'Subtotal',     value: fmt((ts.netSales || 0) - (ts.taxTotal || 0) - (ts.depositTotal || 0)) },
-                { label: 'Tax',          value: fmt(ts.taxTotal) },
-                { label: 'Deposits',     value: fmt(ts.depositTotal) },
-                { label: 'EBT Sales',    value: fmt(ts.ebtTotal) },
-                { label: 'Net Sales',    value: fmt(ts.netSales), accent: true },
-                { label: 'Transactions', value: fmtN(ts.txCount) },
+                { label: 'Net Sales',                     value: fmt(ts.netSales),     accent: true },
+                { label: 'Gross Sales',                   value: fmt(ts.grossSales) },
+                { label: 'Tax Collected',                 value: fmt(ts.taxTotal) },
+                { label: 'Bottle Deposits (pass-through)',value: fmt(ts.depositTotal) },
+                { label: 'Bag Fees (pass-through)',       value: fmt(ts.bagFeeTotal ?? 0) },
+                { label: 'EBT Sales',                     value: fmt(ts.ebtTotal) },
+                { label: 'Transactions',                  value: fmtN(ts.txCount) },
               ].map(item => (
                 <div key={item.label} className="rtd-summary-item">
                   <div className="rtd-summary-label">{item.label}</div>

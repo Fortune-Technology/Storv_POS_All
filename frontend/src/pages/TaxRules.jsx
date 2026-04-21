@@ -11,6 +11,7 @@ import {
   createCatalogTaxRule,
   updateCatalogTaxRule,
   deleteCatalogTaxRule,
+  getCatalogDepartments,
 } from '../services/api';
 import {
   Percent, Plus, Pencil, Trash2, Check, X as XIcon,
@@ -61,6 +62,7 @@ const labelStyle = {
 };
 const EMPTY_FORM = {
   name: '', description: '', rate: '', appliesTo: 'all',
+  departmentIds: [],                // Option B: dept-linked matching (preferred)
   ebtExempt: true, state: '', county: '',
 };
 
@@ -111,9 +113,33 @@ function ToggleChip({ checked, onChange, label }) {
 
 // ── TaxRuleForm ────────────────────────────────────────────────────────────
 function TaxRuleForm({ initial, onSave, onCancel, saving }) {
-  const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
+  const [form, setForm] = useState(() => ({
+    ...EMPTY_FORM,
+    ...initial,
+    departmentIds: Array.isArray(initial?.departmentIds) ? initial.departmentIds.map(n => Number(n)) : [],
+  }));
   const [err,  setErr]  = useState('');
+  const [depts, setDepts] = useState([]);
+  const [deptsLoading, setDeptsLoading] = useState(true);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Load departments for the multi-select — Option B's primary matcher.
+  useEffect(() => {
+    let cancelled = false;
+    getCatalogDepartments()
+      .then(d => { if (!cancelled) setDepts(Array.isArray(d?.data) ? d.data : (Array.isArray(d) ? d : [])); })
+      .catch(() => { if (!cancelled) setDepts([]); })
+      .finally(() => { if (!cancelled) setDeptsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleDept = (deptId) => {
+    const id = Number(deptId);
+    setForm(f => {
+      const has = f.departmentIds.includes(id);
+      return { ...f, departmentIds: has ? f.departmentIds.filter(x => x !== id) : [...f.departmentIds, id] };
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -121,19 +147,23 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
     if (form.rate === '' || isNaN(Number(form.rate)) || Number(form.rate) < 0 || Number(form.rate) > 100) {
       setErr('Rate must be a number between 0 and 100.'); return;
     }
-    if (!form.appliesTo) { setErr('Applies-to category is required.'); return; }
+    // Option B: a rule can match by departments OR appliesTo class. At least one is required.
+    if ((!form.departmentIds || form.departmentIds.length === 0) && !form.appliesTo) {
+      setErr('Pick at least one department OR an Applies-to class.'); return;
+    }
     setErr('');
     // The form collects the rate as a percent (e.g. "5.5" for 5.5%). The DB
     // stores it as a decimal fraction (0.055) because that's how it's applied
     // at checkout: lineTotal × rate. Convert on save; reverse on edit-load.
     await onSave({
-      name:        form.name.trim(),
-      description: form.description.trim() || null,
-      rate:        parseFloat(form.rate) / 100,
-      appliesTo:   form.appliesTo,
-      ebtExempt:   form.ebtExempt,
-      state:       form.state || null,
-      county:      form.county.trim() || null,
+      name:          form.name.trim(),
+      description:   form.description.trim() || null,
+      rate:          parseFloat(form.rate) / 100,
+      appliesTo:     form.appliesTo || 'all',
+      departmentIds: form.departmentIds || [],
+      ebtExempt:     form.ebtExempt,
+      state:         form.state || null,
+      county:        form.county.trim() || null,
     });
   };
 
@@ -164,15 +194,66 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
           </div>
         </div>
 
-        {/* Applies to */}
+        {/* Departments multi-select — preferred matcher (Option B) */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={labelStyle}>DEPARTMENTS (RECOMMENDED)</label>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+            Pick the departments this rate applies to. Uses YOUR own department names — works across states and countries.
+            {form.departmentIds.length === 0 && ' Leave empty to fall back to the class-based "Applies to" matcher below.'}
+          </div>
+          {deptsLoading ? (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '0.5rem' }}>Loading departments…</div>
+          ) : depts.length === 0 ? (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '0.5rem', border: '1px dashed var(--border-color)', borderRadius: 6 }}>
+              No departments yet. <a href="/portal/departments" style={{ color: 'var(--accent-primary)' }}>Create one →</a>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {depts.map(d => {
+                const selected = form.departmentIds.includes(Number(d.id));
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleDept(d.id)}
+                    style={{
+                      padding: '0.35rem 0.7rem',
+                      borderRadius: 7,
+                      border: `1px solid ${selected ? 'var(--brand-primary)' : 'var(--border-color)'}`,
+                      background: selected ? 'var(--brand-10)' : 'var(--bg-card)',
+                      color: selected ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                      fontWeight: 600, fontSize: '0.78rem',
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+                    }}>
+                    {selected && <Check size={10} strokeWidth={3} />}
+                    {d.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {form.departmentIds.length > 0 && (
+            <div style={{ fontSize: '0.7rem', color: 'var(--accent-primary)', marginTop: 6 }}>
+              ✓ Linked to {form.departmentIds.length} department{form.departmentIds.length === 1 ? '' : 's'} — class matcher below is ignored.
+            </div>
+          )}
+        </div>
+
+        {/* Applies to — legacy / fallback matcher */}
         <div>
-          <label style={labelStyle}>APPLIES TO *</label>
+          <label style={labelStyle}>APPLIES TO (LEGACY CLASS)</label>
           <div style={{ position: 'relative' }}>
-            <select style={{ ...inp, paddingRight: '2rem', cursor: 'pointer' }}
-              value={form.appliesTo} onChange={e => set('appliesTo', e.target.value)}>
+            <select
+              style={{ ...inp, paddingRight: '2rem', cursor: 'pointer', opacity: form.departmentIds.length > 0 ? 0.5 : 1 }}
+              value={form.appliesTo} onChange={e => set('appliesTo', e.target.value)}
+              disabled={form.departmentIds.length > 0}
+            >
               {APPLIES_TO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             <ChevronDown size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted, #6b7280)' }} />
+          </div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            Only used when no departments are picked above.
           </div>
         </div>
 
@@ -284,7 +365,19 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
           )}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-          <AppliesToBadge value={rule.appliesTo} />
+          {Array.isArray(rule.departmentIds) && rule.departmentIds.length > 0 ? (
+            <span style={{
+              fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.55rem',
+              borderRadius: 8,
+              background: 'var(--brand-10)', color: 'var(--brand-primary)',
+              border: '1px solid var(--brand-25)',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }} title={`Department IDs: ${rule.departmentIds.join(', ')}`}>
+              {rule.departmentIds.length} dept{rule.departmentIds.length === 1 ? '' : 's'}
+            </span>
+          ) : (
+            <AppliesToBadge value={rule.appliesTo} />
+          )}
           {rule.ebtExempt && (
             <span style={{
               fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.45rem',
@@ -446,15 +539,16 @@ export default function TaxRules({ embedded }) {
       {showForm && (
         <TaxRuleForm
           initial={showForm === 'new' ? EMPTY_FORM : {
-            name:        showForm.name,
-            description: showForm.description || '',
+            name:          showForm.name,
+            description:   showForm.description || '',
             // DB stores rate as decimal fraction (0.055) — display in the
             // form as percent (5.5) to match the "%" label the user sees.
-            rate:        String(+(Number(showForm.rate) * 100).toFixed(4)),
-            appliesTo:   showForm.appliesTo,
-            ebtExempt:   showForm.ebtExempt !== false,
-            state:       showForm.state || '',
-            county:      showForm.county || '',
+            rate:          String(+(Number(showForm.rate) * 100).toFixed(4)),
+            appliesTo:     showForm.appliesTo,
+            departmentIds: Array.isArray(showForm.departmentIds) ? showForm.departmentIds : [],
+            ebtExempt:     showForm.ebtExempt !== false,
+            state:         showForm.state || '',
+            county:        showForm.county || '',
           }}
           onSave={handleSave}
           onCancel={() => setShowForm(false)}

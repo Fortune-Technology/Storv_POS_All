@@ -268,27 +268,47 @@ export async function getMonthlySalesComparison(user, storeId) {
 // DEPARTMENT SALES
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Rule-match wildcards — mirror of cashier-app's `matchTax` in useCartStore.js
+// so report-time tax attribution matches cart-time calculation.
+const TAX_RULE_WILDCARDS = new Set(['', 'all', 'any', '*', 'standard', 'none']);
+function matchTaxRule(appliesTo, taxClass) {
+  const applied = String(appliesTo || '').toLowerCase().trim();
+  if (TAX_RULE_WILDCARDS.has(applied)) return true;
+  const list = applied.split(',').map(s => s.trim()).filter(Boolean);
+  const cls = String(taxClass || '').toLowerCase().trim();
+  if (list.includes(cls)) return true;
+  return list.some(x => TAX_RULE_WILDCARDS.has(x));
+}
+
 export async function getDepartmentSales(user, storeId, from, to) {
-  const txns = await prisma.transaction.findMany({
-    where: buildWhere(user, storeId, from, to),
-    select: { id: true, lineItems: true, status: true },
-  });
+  const orgId = user?.orgId;
+  const [txns, taxRules] = await Promise.all([
+    prisma.transaction.findMany({
+      where: buildWhere(user, storeId, from, to),
+      select: { id: true, lineItems: true, status: true, taxTotal: true, subtotal: true },
+    }),
+    // Load active tax rules once. They're small (<20 rows typically).
+    orgId
+      ? prisma.taxRule.findMany({ where: { orgId, active: true }, select: { appliesTo: true, rate: true, departmentIds: true } })
+      : Promise.resolve([]),
+  ]);
 
   // Bug B1 fix: Track distinct transaction IDs per department so
   // TotalTransactionsCount reflects unique baskets, not line-item count.
   // Bug B2 fix applied here too: gross = line total BEFORE discount (unit × qty),
-  // net = line total AFTER discount (li.lineTotal). Department reports show
-  // line-level gross/net since tax isn't attributed per-line in our data.
-  // Refund txs subtract their line totals so department reports reconcile
-  // with the End-of-Day report.
+  // net = line total AFTER discount (li.lineTotal).
+  //
+  // Session 20 enhancement — per-department tax attribution:
+  // Tax is NOT stored per line, so we recompute it at report time by matching
+  // each line's taxClass against the store's active tax rules (same matchTax
+  // logic the cashier uses). When rules haven't changed between save-time and
+  // report-time, the aggregate tax matches tx.taxTotal exactly. If rules HAVE
+  // changed since sales were recorded, numbers may drift — to avoid that we'd
+  // need per-line taxAmount stored at save-time (not done yet).
   const depts = {};
   for (const tx of txns) {
     const items = Array.isArray(tx.lineItems) ? tx.lineItems : [];
     const isRefund = tx.status === 'refund';
-    // Sign convention: refund tx → -|line values|; complete tx → raw signed
-    // (so a negative-total complete cart subtracts correctly).
-    // Only count a department once per transaction. Refunds DON'T add to the
-    // basket count — they reduce the gross sales amount.
     const seenInThisTx = new Set();
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
@@ -302,11 +322,12 @@ export async function getDepartmentSales(user, storeId, from, to) {
           TotalSales:      0,
           TotalNetSales:   0,
           TotalGrossSales: 0,
+          TotalTaxCollected: 0,
           TotalItems:      0,
           ItemsSold:       0,
           TotalTransactionsCount: 0,
           TransactionCount: 0,
-          _txSet: new Set(),   // Internal — removed before JSON serialization
+          _txSet: new Set(),
         };
       }
       const d = depts[deptId];
@@ -323,7 +344,18 @@ export async function getDepartmentSales(user, storeId, from, to) {
       d.TotalItems      += qty;
       d.ItemsSold       += qty;
 
-      // Distinct-transaction counting per department — only for non-refund txs
+      // Per-line tax match — Option B (dept-linked rules win, class matcher
+      // is the legacy fallback). Skip EBT-eligible / non-taxable lines.
+      if (li.taxable && !li.ebtEligible) {
+        const lineDeptId = li.departmentId ? Number(li.departmentId) : null;
+        const deptRule = lineDeptId
+          ? taxRules.find(r => Array.isArray(r.departmentIds) && r.departmentIds.includes(lineDeptId))
+          : null;
+        const rule = deptRule || taxRules.find(r => (!r.departmentIds || r.departmentIds.length === 0) && matchTaxRule(r.appliesTo, li.taxClass));
+        const rate = rule ? parseFloat(rule.rate) : 0;
+        d.TotalTaxCollected += lineTotal * rate;
+      }
+
       if (!isRefund && !seenInThisTx.has(deptId)) {
         d._txSet.add(tx.id);
         seenInThisTx.add(deptId);

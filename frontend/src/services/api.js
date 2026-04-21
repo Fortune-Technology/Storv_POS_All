@@ -135,6 +135,14 @@ export const saveInvoiceDraft = (id, data) => api.patch(`/invoice/${id}/draft`, 
 export const deleteInvoiceDraft = (id) => api.delete(`/invoice/drafts/${id}`);
 export const clearInvoicePOSCache = () => api.post('/invoice/clear-pos-cache');
 export const getInvoiceAccuracy = () => api.get('/invoice/accuracy').then(r => r.data);
+// Vendor-level summary that separates purchase invoices from credit memos.
+// Returns { purchases: {count, total}, credits: {count, total}, netCost, recentCredits[] }.
+export const getVendorInvoiceSummary = (params) => api.get('/invoice/vendor-summary', { params }).then(r => r.data);
+
+// ── Daily Sale — unified back-office reconciliation ────────────────────
+export const getDailySale      = (date)       => api.get(date ? `/daily-sale/${date}` : '/daily-sale').then(r => r.data);
+export const saveDailySale     = (date, body) => api.put(`/daily-sale/${date}`, body).then(r => r.data);
+export const closeDailySale    = (date)       => api.post(`/daily-sale/${date}/close`).then(r => r.data);
 // Re-run the matching cascade on a draft invoice, optionally scoped to a vendor.
 // Preserves user-made manual matches unless force=true.
 export const rematchInvoice = (id, { vendorId, force } = {}) =>

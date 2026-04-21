@@ -438,7 +438,15 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
   let taxTotal = 0;
   for (const item of items) {
     if (!item.taxable || item.ebtEligible) continue;
-    const rule = taxRules.find(r => r.active && matchTax(r.appliesTo, item.taxClass));
+    // Option B match order:
+    //   1. If ANY active rule has this item's departmentId in its departmentIds
+    //      → use that rule (dept-linked rules win)
+    //   2. Otherwise fall through to the legacy class matcher on appliesTo
+    // Both paths check `active`. The first matching rule wins in each tier.
+    const deptRule = item.departmentId
+      ? taxRules.find(r => r.active && Array.isArray(r.departmentIds) && r.departmentIds.includes(Number(item.departmentId)))
+      : null;
+    const rule = deptRule || taxRules.find(r => r.active && (!r.departmentIds || r.departmentIds.length === 0) && matchTax(r.appliesTo, item.taxClass));
     taxTotal += item.lineTotal * (rule ? parseFloat(rule.rate) : 0);
   }
   taxTotal = round2(taxTotal);

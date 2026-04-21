@@ -815,6 +815,8 @@ export const realtimeSales = async (req, res) => {
     let netSales = 0, grossSales = 0, taxTotal = 0, depositTotal = 0, ebtTotal = 0;
     let cashTotal = 0, cardTotal = 0, ebtTender = 0;
     let totalCost = 0, totalRevenue = 0, knownCostItems = 0, totalItems = 0;
+    // Pass-through fees — not revenue, not profit. Shown separately for visibility.
+    let bagFeeTotal = 0, bagFeeCount = 0;
     const productMap = {};
     const hourlyMap  = {};
 
@@ -849,6 +851,17 @@ export const realtimeSales = async (req, res) => {
         if (m === 'cash')                          cashTotal  += amt;
         else if (['card','credit','debit'].includes(m)) cardTotal  += amt;
         else if (m === 'ebt' || m === 'ebt_cash' || m === 'efs') ebtTender  += amt;
+      }
+
+      // Bag fees tally — sweep across complete AND refund so refund qty subtracts
+      const liAll = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+      for (const li of liAll) {
+        if (li.isBagFee) {
+          const amt = Number(li.lineTotal) || 0;
+          const q   = Number(li.qty) || 1;
+          if (isRefund) { bagFeeTotal -= Math.abs(amt); bagFeeCount -= Math.abs(q); }
+          else           { bagFeeTotal += amt;          bagFeeCount += q; }
+        }
       }
 
       // Top products from lineItems. Cost is either:
@@ -1114,7 +1127,9 @@ export const realtimeSales = async (req, res) => {
         refundCount,                       // refund tx count (separate)
         avgTx:        r2(avgTx),
         taxTotal:     r2(taxTotal),
-        depositTotal: r2(depositTotal),
+        depositTotal: r2(depositTotal),    // pass-through — not revenue
+        bagFeeTotal:  r2(bagFeeTotal),     // pass-through — not revenue
+        bagFeeCount,                       // # of bags sold today
         ebtTotal:     r2(ebtTotal),
         cashTotal:    r2(cashTotal),       // net cash collected (refund cash subtracted)
         cardTotal:    r2(cardTotal),

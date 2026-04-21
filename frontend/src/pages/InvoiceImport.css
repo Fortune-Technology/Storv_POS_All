@@ -509,6 +509,80 @@
   line-height: 1.4;
 }
 
+/* ── Review-panel invoice type toggle (Purchase / Credit) ── */
+.ii-type-row {
+  background: rgba(99, 102, 241, 0.04);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+  padding: 0.5rem 1rem;
+}
+.ii-type-row--credit {
+  background: rgba(239, 68, 68, 0.05);
+  border-bottom-color: rgba(239, 68, 68, 0.18);
+}
+.ii-type-row-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.ii-type-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+.ii-type-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--bg-secondary, #ffffff);
+}
+.ii-type-opt {
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.12s;
+}
+.ii-type-opt:hover {
+  color: var(--text-primary);
+}
+.ii-type-opt--active {
+  background: var(--brand-primary, #6366f1);
+  color: #ffffff;
+}
+.ii-type-opt--active.ii-type-opt--credit {
+  background: #dc2626;
+}
+.ii-credit-hint {
+  font-size: 0.75rem;
+  color: #991b1b;
+  flex-basis: 100%;
+  line-height: 1.4;
+}
+.ii-linked-input {
+  flex: 1 1 320px;
+  max-width: 420px;
+  padding: 5px 9px;
+  font-size: 0.82rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary);
+}
+
+/* Credit-memo styling on card list */
+.ii-card--credit {
+  border-left: 3px solid #dc2626;
+}
+
 /* ── Review-panel vendor row + re-match ── */
 .ii-vendor-row {
   background: rgba(99, 102, 241, 0.05);

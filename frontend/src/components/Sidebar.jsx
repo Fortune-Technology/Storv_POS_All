@@ -108,6 +108,7 @@ const menuGroups = [
       { name: 'Employees', icon: <Users size={13} />, path: '/portal/employees' },
       { name: 'Reports', icon: <FileText size={13} />, path: '/portal/reports' },
       { name: 'End of Day', icon: <FileText size={13} />, path: '/portal/end-of-day' },
+      { name: 'Daily Sale', icon: <FileText size={13} />, path: '/portal/daily-sale' },
       { name: 'Audit Log', icon: <Shield size={13} />, path: '/portal/audit' },
     ],
   },

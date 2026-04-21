@@ -22,6 +22,53 @@
 import prisma from '../../../config/postgres.js';
 
 /**
+ * Detect a gap in the book-number sequence for the game being activated.
+ *
+ * Books arrive from the state lottery in strict numeric order within a
+ * given game. If the store's latest book for game 498 was 027633 and we
+ * just received 027636, we skipped 027634 and 027635 — either they're
+ * still in transit or missing. We surface this as a warning (non-blocking).
+ *
+ * Returns a warning descriptor `{ code, message, details }` or null if
+ * the scanned book is adjacent/identical/lower than the last-received.
+ *
+ * Pure, cheap lookup — only runs on activate (not on every scan).
+ */
+export async function detectSequenceGap({ orgId, storeId, gameId, boxNumber }) {
+  if (!boxNumber || !gameId) return null;
+  const asInt = parseInt(boxNumber, 10);
+  if (Number.isNaN(asInt)) return null;
+
+  // Find the highest numeric book for this game at this store, excluding
+  // the one we're activating right now.
+  const others = await prisma.lotteryBox.findMany({
+    where: { orgId, storeId, gameId, NOT: { boxNumber } },
+    select: { boxNumber: true, status: true, createdAt: true },
+  });
+  if (others.length === 0) return null; // first book for this game; nothing to compare
+
+  const numeric = others
+    .map((o) => ({ num: parseInt(o.boxNumber, 10), ...o }))
+    .filter((o) => !Number.isNaN(o.num) && o.num < asInt)
+    .sort((a, b) => b.num - a.num);
+  if (numeric.length === 0) return null; // no smaller predecessor — new game starting range
+
+  const prev = numeric[0];
+  const gap = asInt - prev.num - 1;
+  if (gap <= 0) return null;
+
+  return {
+    code: 'book_sequence_gap',
+    message: `Book ${boxNumber} activates after ${prev.boxNumber} — ${gap} book number${gap === 1 ? '' : 's'} in between are not in your inventory. Either they haven't arrived yet or may be missing.`,
+    details: {
+      scannedBookNumber: boxNumber,
+      previousBookNumber: prev.boxNumber,
+      missingCount: gap,
+    },
+  };
+}
+
+/**
  * Auto-pick the next free slot number for this store.
  * Returns the smallest positive integer not currently in use on a book with
  * status='active' at this store.
@@ -116,6 +163,7 @@ export async function processScan({
   }
 
   let autoSoldout = null;
+  const warnings = [];
   if (box.status === 'inventory') {
     if (!allowMultipleActivePerGame) {
       const peer = await prisma.lotteryBox.findFirst({
@@ -141,6 +189,14 @@ export async function processScan({
       }
     }
 
+    // Book-sequence gap detection. Books for a given game are issued by the
+    // state lottery in numeric order; scanning a book that skips one or more
+    // in the expected sequence is a soft warning — either the skipped book
+    // hasn't been received yet (inventory mistake) or is missing/stolen.
+    // We don't block the activation; we return a warning for the UI to show.
+    const gapWarning = await detectSequenceGap({ orgId, storeId, gameId: box.gameId, boxNumber: box.boxNumber });
+    if (gapWarning) warnings.push(gapWarning);
+
     const slot = await nextFreeSlot(orgId, storeId);
     const activated = await prisma.lotteryBox.update({
       where: { id: box.id },
@@ -156,7 +212,7 @@ export async function processScan({
       },
       include: { game: true },
     });
-    return { action: 'activate', box: activated, autoSoldout };
+    return { action: 'activate', box: activated, autoSoldout, warnings };
   }
 
   return { action: 'rejected', reason: `unhandled_status_${box.status}`, box };

@@ -215,11 +215,13 @@ export default function CartItem({ item, selected, onSelect, onEdit }) {
         </div>
       </div>
 
-      {/* Deposit sub-line */}
+      {/* Deposit sub-line — the per-deposit "not taxed" footnote was being
+          misread as "this PRODUCT has no tax". Removed for clarity. Deposits
+          are pass-through by convention across all US states. */}
       {item.depositAmount > 0 && (
         <div className="ci-deposit">
           <span className="ci-deposit-label">
-            Bottle Deposit ({item.qty} &times; {fmt$(item.depositAmount)}) &middot; No Tax
+            Bottle Deposit ({item.qty} &times; {fmt$(item.depositAmount)})
           </span>
           <span className="ci-deposit-value">{fmt$(item.depositTotal)}</span>
         </div>

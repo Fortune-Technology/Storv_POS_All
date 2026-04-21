@@ -385,13 +385,27 @@ export const getTaxRules = async (req, res) => {
   }
 };
 
+// Normalize departmentIds input — accept number[], string[] (IDs as strings),
+// or a single value. Returns a clean number[] with invalid entries dropped.
+function normalizeDeptIds(raw) {
+  if (raw == null) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  return arr
+    .map(v => (typeof v === 'number' ? v : parseInt(String(v), 10)))
+    .filter(n => Number.isFinite(n) && n > 0);
+}
+
 export const createTaxRule = async (req, res) => {
   try {
     const orgId = getOrgId(req);
-    const { name, description, rate, appliesTo, ebtExempt, state, county, storeId } = req.body;
+    const { name, description, rate, appliesTo, ebtExempt, state, county, storeId, departmentIds } = req.body;
 
-    if (!name || rate == null || !appliesTo) {
-      return res.status(400).json({ success: false, error: 'name, rate, and appliesTo are required' });
+    // With the dept-linked matcher (Option B) a rule can target either a set
+    // of departments OR a class string (appliesTo). At least one must be set.
+    const deptIds = normalizeDeptIds(departmentIds);
+    const hasClass = appliesTo && String(appliesTo).trim() !== '';
+    if (!name || rate == null || (!hasClass && deptIds.length === 0)) {
+      return res.status(400).json({ success: false, error: 'name, rate, and either departments or appliesTo are required' });
     }
 
     const rule = await prisma.taxRule.create({
@@ -401,7 +415,8 @@ export const createTaxRule = async (req, res) => {
         name,
         description: description || null,
         rate,
-        appliesTo,
+        appliesTo: hasClass ? appliesTo : 'all', // keep the column populated for legacy callers
+        departmentIds: deptIds,
         ebtExempt: ebtExempt !== false,
         state: state || null,
         county: county || null,
@@ -419,9 +434,23 @@ export const updateTaxRule = async (req, res) => {
     const orgId = getOrgId(req);
     const id = parseInt(req.params.id);
 
+    // Sanitize the body — only allow known fields + normalize departmentIds.
+    const body = req.body || {};
+    const data = {};
+    if (body.name        !== undefined) data.name        = body.name;
+    if (body.description !== undefined) data.description = body.description;
+    if (body.rate        !== undefined) data.rate        = body.rate;
+    if (body.appliesTo   !== undefined) data.appliesTo   = body.appliesTo || 'all';
+    if (body.ebtExempt   !== undefined) data.ebtExempt   = Boolean(body.ebtExempt);
+    if (body.state       !== undefined) data.state       = body.state || null;
+    if (body.county      !== undefined) data.county      = body.county || null;
+    if (body.storeId     !== undefined) data.storeId     = body.storeId || null;
+    if (body.active      !== undefined) data.active      = Boolean(body.active);
+    if (body.departmentIds !== undefined) data.departmentIds = normalizeDeptIds(body.departmentIds);
+
     const rule = await prisma.taxRule.update({
       where: { id, orgId },
-      data: req.body,
+      data,
     });
 
     res.json({ success: true, data: rule });

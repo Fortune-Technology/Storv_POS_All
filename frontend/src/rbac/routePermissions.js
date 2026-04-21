@@ -43,6 +43,7 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   '/portal/analytics':         'analytics.view',
   '/portal/pos-reports':       'transactions.view',
   '/portal/end-of-day':        'reports.view',
+  '/portal/daily-sale':        'reports.view',
   '/portal/reports':           'reports.view',
   '/portal/employees':         'users.view',
 
