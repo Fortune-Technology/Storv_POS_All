@@ -15,10 +15,10 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const STATUS_BADGE = {
-  pending:  { label: 'Pending',  className: 'inv-badge--pending' },
+  pending: { label: 'Pending', className: 'inv-badge--pending' },
   accepted: { label: 'Accepted', className: 'inv-badge--accepted' },
-  revoked:  { label: 'Revoked',  className: 'inv-badge--revoked' },
-  expired:  { label: 'Expired',  className: 'inv-badge--expired' },
+  revoked: { label: 'Revoked', className: 'inv-badge--revoked' },
+  expired: { label: 'Expired', className: 'inv-badge--expired' },
 };
 
 function formatDate(iso) {
@@ -37,10 +37,10 @@ function daysLeft(iso) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function Invitations() {
   const [invitations, setInvitations] = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [filter,      setFilter]      = useState('all');   // all | pending | accepted | revoked | expired
-  const [showCreate,  setShowCreate]  = useState(false);
-  const [copiedId,    setCopiedId]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');   // all | pending | accepted | revoked | expired
+  const [showCreate, setShowCreate] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,7 +64,7 @@ export default function Invitations() {
     try {
       const { acceptUrl } = await resendInvitation(id);
       toast.success('Invitation resent');
-      await navigator.clipboard?.writeText(acceptUrl).catch(() => {});
+      await navigator.clipboard?.writeText(acceptUrl).catch(() => { });
       load();
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to resend invitation');
@@ -112,19 +112,14 @@ export default function Invitations() {
         </div>
       </div>
 
-      <div className="inv-tabs">
+      <div className="p-tabs">
         {['all', 'pending', 'accepted', 'revoked', 'expired'].map(key => (
           <button
             key={key}
-            className={`inv-tab ${filter === key ? 'inv-tab--active' : ''}`}
+            className={`p-tab ${filter === key ? 'active' : ''}`}
             onClick={() => setFilter(key)}
           >
             {key[0].toUpperCase() + key.slice(1)}
-            {key !== 'all' && (
-              <span className="inv-tab-count">
-                {invitations.filter(i => i.status === key).length}
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -219,7 +214,7 @@ export default function Invitations() {
             setShowCreate(false);
             load();
             if (result.acceptUrl) {
-              navigator.clipboard?.writeText(result.acceptUrl).catch(() => {});
+              navigator.clipboard?.writeText(result.acceptUrl).catch(() => { });
               toast.success('Invitation sent — accept link copied to clipboard');
             }
           }}
@@ -231,23 +226,23 @@ export default function Invitations() {
 
 // ─── Create Modal ────────────────────────────────────────────────────────────
 function CreateInvitationModal({ onClose, onCreated }) {
-  const [email,    setEmail]    = useState('');
-  const [phone,    setPhone]    = useState('');
-  const [role,     setRole]     = useState('cashier');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [role, setRole] = useState('cashier');
   const [storeIds, setStoreIds] = useState([]);
-  const [stores,   setStores]   = useState([]);
-  const [roles,    setRoles]    = useState([]);
+  const [stores, setStores] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    getStores().then(setStores).catch(() => {});
+    getStores().then(setStores).catch(() => { });
     listRoles?.()
       .then(r => {
         const assignable = (r || []).filter(x => x.status === 'active' && !['owner', 'superadmin'].includes(x.key));
         setRoles(assignable);
       })
       .catch(() => setRoles([
-        { key: 'admin',   name: 'Admin' },
+        { key: 'admin', name: 'Admin' },
         { key: 'manager', name: 'Manager' },
         { key: 'cashier', name: 'Cashier' },
       ]));
@@ -270,8 +265,8 @@ function CreateInvitationModal({ onClose, onCreated }) {
     setSubmitting(true);
     try {
       const result = await createInvitation({
-        email:    email.trim(),
-        phone:    phone.trim() || undefined,
+        email: email.trim(),
+        phone: phone.trim() || undefined,
         role,
         storeIds: storeIds.length ? storeIds : undefined,
       });
