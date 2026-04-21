@@ -203,4 +203,22 @@ export const deleteAiConversation = (id, headers = {}) => api.delete(`/ai-assist
 export const submitAiFeedback     = (msgId, feedback, note = null, headers = {}) =>
   api.post(`/ai-assistant/messages/${msgId}/feedback`, { feedback, note }, { headers }).then(r => r.data);
 
+// ── Admin Lottery Catalog (global, state-scoped ticket catalog) ──────────────
+// Ticket Catalog CRUD — visible to all stores of the matching state.
+export const listAdminLotteryCatalog    = (params) => api.get('/lottery/catalog/all', { params }).then(r => r.data);
+export const createAdminLotteryCatalog  = (data)   => api.post('/lottery/catalog', data).then(r => r.data);
+export const updateAdminLotteryCatalog  = (id, d)  => api.put(`/lottery/catalog/${id}`, d).then(r => r.data);
+export const deleteAdminLotteryCatalog  = (id)     => api.delete(`/lottery/catalog/${id}`).then(r => r.data);
+
+// Ticket Requests — store-submitted requests to add a game to the catalog.
+export const listAdminLotteryRequests   = (params) => api.get('/lottery/ticket-requests', { params }).then(r => r.data);
+export const reviewAdminLotteryRequest  = (id, d)  => api.put(`/lottery/ticket-requests/${id}/review`, d).then(r => r.data);
+
+// Supported states — backs the state dropdown in the Admin UI.
+export const listAdminLotterySupportedStates = () => api.get('/states/public').then(r => r.data);
+
+// Pull the latest games from the state lottery's public feed.
+export const syncAdminLotteryCatalog = (state) =>
+  api.post('/lottery/catalog/sync', { state }).then(r => r.data);
+
 export default api;

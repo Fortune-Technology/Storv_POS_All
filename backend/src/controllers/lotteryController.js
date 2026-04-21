@@ -18,6 +18,8 @@ import {
   recentWeeks as _recentWeeks,
   computeSettlement as _computeSettlement,
   getAdapter as _getAdapter,
+  syncState as _syncState,
+  syncAllSupported as _syncAllSupported,
 } from '../services/lottery/index.js';
 
 const getOrgId  = (req) => req.orgId  || req.user?.orgId;
@@ -1063,12 +1065,27 @@ export const scanLotteryBarcode = async (req, res) => {
       });
     }
 
+    // Surface sequence-gap warnings so the UI can nag the user
+    if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+      for (const w of result.warnings) {
+        await logScanEvent({
+          orgId, storeId, userId,
+          raw, parsed: { adapter: parsed.adapter.code, ...parsed.parsed, warning: w.code },
+          action: 'warning',
+          context,
+          notes:  w.message,
+          boxId:  result.box?.id || null,
+        });
+      }
+    }
+
     return res.json({
       success: true,
       action:       result.action,
       reason:       result.reason || null,
       box:          result.box || null,
       autoSoldout:  result.autoSoldout || null,
+      warnings:     result.warnings || [],
       state:        parsed.adapter.code,
       parsed:       parsed.parsed,
     });
@@ -1815,6 +1832,37 @@ export const markLotterySettlementPaid = async (req, res) => {
     res.json({ success: true, data: row });
   } catch (err) {
     console.error('[lottery.settlements.mark-paid]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// CATALOG SYNC (Phase 3b) — pull state-lottery game lists from their
+// public feeds and upsert into LotteryTicketCatalog.
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/lottery/catalog/sync
+ * Body: { state?: 'MA' | 'all' }
+ *
+ * Only MA is supported today; adding ME will extend this endpoint
+ * without a route change. Returns a per-state diff summary.
+ */
+export const syncLotteryCatalog = async (req, res) => {
+  try {
+    const state = String(req.body?.state || 'all').toUpperCase();
+    if (state === 'ALL') {
+      const results = await _syncAllSupported();
+      return res.json({ success: true, results });
+    }
+
+    const diff = await _syncState(state).catch((err) => {
+      if (err.code === 'UNSUPPORTED_STATE') return { state, error: err.message, unsupported: true };
+      throw err;
+    });
+    res.json({ success: true, result: diff });
+  } catch (err) {
+    console.error('[lottery.catalog.sync]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };

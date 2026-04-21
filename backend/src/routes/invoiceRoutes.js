@@ -12,6 +12,7 @@ import {
   clearInvoicePOSCache,
   getMatchAccuracy,
   rematchInvoice,
+  getVendorInvoiceSummary,
 } from '../controllers/invoiceController.js';
 import { protect } from '../middleware/auth.js';
 import { requirePermission } from '../rbac/permissionService.js';
@@ -66,9 +67,10 @@ router.post('/:id/rematch',     requirePermission('invoices.edit'),   rematchInv
 router.delete('/drafts/:id',    requirePermission('invoices.delete'), deleteDraft);
 
 // Reads
-router.get('/accuracy', requirePermission('invoices.view'), getMatchAccuracy);
-router.get('/history',  requirePermission('invoices.view'), getInvoiceHistory);
-router.get('/drafts',   requirePermission('invoices.view'), getInvoiceDrafts);
-router.get('/:id',      requirePermission('invoices.view'), getInvoiceById);
+router.get('/accuracy',        requirePermission('invoices.view'), getMatchAccuracy);
+router.get('/history',         requirePermission('invoices.view'), getInvoiceHistory);
+router.get('/drafts',          requirePermission('invoices.view'), getInvoiceDrafts);
+router.get('/vendor-summary',  requirePermission('invoices.view'), getVendorInvoiceSummary);
+router.get('/:id',             requirePermission('invoices.view'), getInvoiceById);
 
 export default router;

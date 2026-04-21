@@ -26,6 +26,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
   '/ai-reviews':                   'ai_assistant.manage',
   '/ai-kb':                        'ai_assistant.manage',
   '/ai-tours':                     'ai_assistant.manage',
+  '/lottery':                      'lottery.manage',
 };
 
 export function getRoutePermission(pathname) {

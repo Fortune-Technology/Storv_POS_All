@@ -70,6 +70,12 @@ const adminMenuGroups = [
     ],
   },
   {
+    label: 'Lottery',
+    items: [
+      { name: 'Ticket Catalog',   icon: <Ticket size={13} />, path: '/lottery' },
+    ],
+  },
+  {
     label: 'Content',
     items: [
       { name: 'CMS Pages', icon: <FileText size={13} />,  path: '/cms' },

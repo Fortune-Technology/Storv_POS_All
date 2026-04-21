@@ -1,0 +1,261 @@
+/* AdminLottery.css — prefix: adm-lot-
+ * Mirrors the existing admin-app light-theme patterns
+ * (see AdminStates.css, AdminUsers.css).
+ */
+
+.adm-lot-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── Price-tier strip ─────────────────────────────────────── */
+.adm-lot-price-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.adm-lot-price-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.adm-lot-price-pill:hover {
+  border-color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary, #6366f1);
+}
+.adm-lot-price-pill.active {
+  background: var(--accent-primary, #6366f1);
+  color: #fff;
+  border-color: var(--accent-primary, #6366f1);
+}
+.adm-lot-price-val {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+.adm-lot-price-count {
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+/* ── Filters ──────────────────────────────────────────────── */
+.adm-lot-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.adm-lot-filters select {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary, #ffffff);
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+.adm-lot-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary, #ffffff);
+  min-width: 280px;
+  flex: 1;
+  max-width: 420px;
+}
+.adm-lot-search svg { color: var(--text-muted); flex-shrink: 0; }
+.adm-lot-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+}
+
+.adm-lot-loading,
+.adm-lot-empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Table cells ──────────────────────────────────────────── */
+.adm-lot-state {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--accent-primary-12, rgba(99, 102, 241, 0.12));
+  color: var(--accent-primary, #6366f1);
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+.adm-lot-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 320px;
+}
+.adm-lot-price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.adm-lot-cat {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.adm-lot-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.adm-lot-badge--active   { background: rgba(34, 197, 94, 0.14); color: #166534; }
+.adm-lot-badge--inactive { background: rgba(148, 163, 184, 0.18); color: #475569; }
+.adm-lot-badge--pending  { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.adm-lot-badge--approved { background: rgba(34, 197, 94, 0.14); color: #166534; }
+.adm-lot-badge--rejected { background: rgba(239, 68, 68, 0.12); color: #991b1b; }
+
+/* ── Modal form ───────────────────────────────────────────── */
+.adm-lot-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.adm-lot-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.adm-lot-field--full {
+  grid-column: 1 / -1;
+}
+.adm-lot-field label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.adm-lot-field input,
+.adm-lot-field select,
+.adm-lot-field textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.86rem;
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary);
+  font-family: inherit;
+}
+.adm-lot-field textarea { resize: vertical; min-height: 48px; }
+.adm-lot-field small {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.adm-lot-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+/* ── Request review summary box ───────────────────────────── */
+.adm-lot-request-summary {
+  padding: 10px 12px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ── Sync dropdown ────────────────────────────────────────── */
+.adm-lot-sync-wrap {
+  position: relative;
+  display: inline-block;
+}
+.adm-lot-sync-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 220px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.adm-lot-sync-menu button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: 4px;
+}
+.adm-lot-sync-menu button:hover {
+  background: var(--bg-tertiary, #f1f5f9);
+}
+.adm-lot-sync-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border-color);
+}
+.adm-lot-soon {
+  font-size: 0.64rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+@keyframes adm-lot-spin-kf {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.adm-lot-spin {
+  animation: adm-lot-spin-kf 0.9s linear infinite;
+}
+
+@media (max-width: 768px) {
+  .adm-lot-form-grid { grid-template-columns: 1fr; }
+}

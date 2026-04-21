@@ -483,12 +483,28 @@ export const confirmInvoice = async (req, res) => {
     const existing = await prisma.invoice.findFirst({ where });
     if (!existing) return res.status(404).json({ error: 'Invoice not found' });
 
+    // Validate invoiceType — default to 'purchase' if omitted; reject anything
+    // other than the two supported values so bad client input doesn't silently
+    // corrupt P&L math.
+    const rawType = (req.body.invoiceType || existing.invoiceType || 'purchase').toString().toLowerCase();
+    if (!['purchase', 'credit_memo'].includes(rawType)) {
+      return res.status(400).json({ error: `invoiceType must be 'purchase' or 'credit_memo' (got: ${rawType})` });
+    }
+
+    // linkedInvoiceId is only meaningful on credit memos. Clear it on purchase
+    // invoices so the data stays tidy.
+    const linkedInvoiceId = rawType === 'credit_memo'
+      ? (req.body.linkedInvoiceId || existing.linkedInvoiceId || null)
+      : null;
+
     const invoice = await prisma.invoice.update({
       where: { id: existing.id },
       data: {
         lineItems,
         vendorName,
         invoiceNumber,
+        invoiceType:        rawType,
+        linkedInvoiceId,
         invoiceDate:        invoiceDate ? new Date(invoiceDate) : null,
         totalInvoiceAmount: totalInvoiceAmount ? Number(totalInvoiceAmount) : null,
         customerNumber:     req.body.customerNumber,
@@ -544,8 +560,11 @@ export const confirmInvoice = async (req, res) => {
     } catch { /* non-fatal */ }
 
     // ── PO Receiving — if user accepted the PO match ──────────────────────────
+    // Credit memos never move inventory — a supplier rebate or volume-bonus
+    // credit doesn't correspond to a physical receipt. Skip PO receiving
+    // even if the client accidentally sent acceptPOMatch=true.
     let poReceiveResult = null;
-    if (req.body.acceptPOMatch && existing.linkedPurchaseOrderId) {
+    if (rawType !== 'credit_memo' && req.body.acceptPOMatch && existing.linkedPurchaseOrderId) {
       try {
         const poMatchData = existing.poMatchResult || {};
         const matchedItems = poMatchData.matchedItems || [];
@@ -940,6 +959,95 @@ export const rematchInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error('[rematchInvoice] failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// VENDOR INVOICE SUMMARY (credit-memo aware)
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Aggregates synced invoices for a single vendor over a date range, splitting
+// purchases from credit memos and reporting the net cost for P&L reporting.
+//
+// Response shape:
+//   {
+//     vendor:            string,          // vendor name
+//     vendorId:          number | null,   // matched Vendor.id if resolved
+//     from:              ISO date | null,
+//     to:                ISO date | null,
+//     purchases:         { count, total },
+//     credits:           { count, total },
+//     netCost:           number,          // purchases.total − credits.total
+//     recentCredits:     [{ id, invoiceNumber, invoiceDate, totalInvoiceAmount, linkedInvoiceId }],
+//   }
+//
+// Caller must supply either ?vendorId= (integer) or ?vendorName= (exact match).
+// ?from / ?to are optional YYYY-MM-DD; default window is last 365 days.
+export const getVendorInvoiceSummary = async (req, res) => {
+  try {
+    const orgId = req.orgId;
+    const { vendorId, vendorName, from, to } = req.query;
+    if (!vendorId && !vendorName) {
+      return res.status(400).json({ error: 'vendorId or vendorName is required' });
+    }
+
+    const now = new Date();
+    const fromDate = from ? new Date(from + 'T00:00:00Z')
+                         : new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const toDate = to ? new Date(to + 'T23:59:59Z') : now;
+
+    const where = {
+      orgId,
+      status: 'synced',
+      invoiceDate: { gte: fromDate, lte: toDate },
+    };
+    if (vendorId) where.vendorId = Number(vendorId);
+    else where.vendorName = vendorName;
+
+    const invoices = await prisma.invoice.findMany({
+      where,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceDate: true,
+        totalInvoiceAmount: true,
+        invoiceType: true,
+        linkedInvoiceId: true,
+      },
+      orderBy: { invoiceDate: 'desc' },
+    });
+
+    let purchasesTotal = 0, purchasesCount = 0;
+    let creditsTotal   = 0, creditsCount   = 0;
+    const recentCredits = [];
+
+    for (const inv of invoices) {
+      const amt = Number(inv.totalInvoiceAmount || 0);
+      if (inv.invoiceType === 'credit_memo') {
+        creditsTotal += amt;
+        creditsCount += 1;
+        if (recentCredits.length < 10) recentCredits.push(inv);
+      } else {
+        purchasesTotal += amt;
+        purchasesCount += 1;
+      }
+    }
+
+    const netCost = Math.round((purchasesTotal - creditsTotal) * 100) / 100;
+
+    res.json({
+      vendor:   vendorName || null,
+      vendorId: vendorId ? Number(vendorId) : null,
+      from:     fromDate.toISOString().slice(0, 10),
+      to:       toDate.toISOString().slice(0, 10),
+      purchases: { count: purchasesCount, total: Math.round(purchasesTotal * 100) / 100 },
+      credits:   { count: creditsCount,   total: Math.round(creditsTotal   * 100) / 100 },
+      netCost,
+      recentCredits,
+    });
+  } catch (error) {
+    console.error('[getVendorInvoiceSummary] failed:', error);
     res.status(500).json({ error: error.message });
   }
 };

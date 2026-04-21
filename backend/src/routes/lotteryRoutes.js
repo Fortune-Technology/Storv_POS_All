@@ -29,6 +29,7 @@ import {
   getDailyLotteryInventory, closeLotteryDay,
   listLotterySettlements, getLotterySettlement,
   upsertLotterySettlement, finalizeLotterySettlement, markLotterySettlementPaid,
+  syncLotteryCatalog,
 } from '../controllers/lotteryController.js';
 
 const router = express.Router();
@@ -110,5 +111,8 @@ router.get( '/settlements/:weekStart',          requirePermission('lottery.view'
 router.put( '/settlements/:weekStart',          requirePermission('lottery.manage'), upsertLotterySettlement);
 router.post('/settlements/:weekStart/finalize', requirePermission('lottery.manage'), finalizeLotterySettlement);
 router.post('/settlements/:weekStart/paid',     requirePermission('lottery.manage'), markLotterySettlementPaid);
+
+// ── Phase 3b: Catalog sync from state lottery feeds ──────────────────────
+router.post('/catalog/sync', requirePermission('lottery.manage'), syncLotteryCatalog);
 
 export default router;

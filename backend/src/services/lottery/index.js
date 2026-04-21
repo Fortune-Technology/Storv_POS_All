@@ -3,7 +3,7 @@
 
 export { getAdapter, allAdapters, supportedStates } from './adapters/_registry.js';
 export { parseScan } from './engine/scanParser.js';
-export { processScan, findBox, nextFreeSlot } from './engine/autoActivator.js';
+export { processScan, findBox, nextFreeSlot, detectSequenceGap } from './engine/autoActivator.js';
 export {
   runPendingMoveSweep,
   startPendingMoveScheduler,
@@ -16,3 +16,8 @@ export {
   isBookEligible,
   computeSettlement,
 } from './engine/settlement.js';
+export {
+  fetchMACatalog,
+  syncState,
+  syncAllSupported,
+} from './catalogSync.js';

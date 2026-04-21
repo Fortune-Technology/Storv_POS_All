@@ -1159,6 +1159,19 @@ model Invoice {
   // unitCost, caseCost, retailPrice, deposit, discount, tax, total, etc.
   lineItems Json @default("[]")
 
+  // Invoice classification — distinguishes a normal purchase invoice from
+  // a vendor-issued credit memo (rebates, volume bonuses, pricing
+  // adjustments). Credit memos store a POSITIVE totalInvoiceAmount; P&L
+  // reports subtract them from the vendor's purchase total to produce the
+  // net cost.
+  //
+  // Values: 'purchase' (default) | 'credit_memo'
+  invoiceType     String  @default("purchase")
+  // Optional link back to the original purchase invoice this credit
+  // applies to (purely for traceability — no FK constraint so the
+  // reference survives when the original is deleted/archived).
+  linkedInvoiceId String?
+
   // Processing state
   status          String  @default("pending") // "pending" | "processing" | "complete" | "error"
   processingError String?
@@ -3568,4 +3581,79 @@ model AiFeedbackReview {
   @@index([status, createdAt])
   @@index([orgId, status])
   @@map("ai_feedback_reviews")
+}
+
+// ─────────────────────────────────────────────────
+// DAILY SALE REPORT — Phase 3d unified reconciliation
+//
+// One row per (orgId, storeId, date). Stores only the manually-entered /
+// adjustable fields — everything auto-derivable from POS transactions,
+// lottery totals, shifts, and vendor payments is computed live in the
+// service layer and merged into the response.
+//
+// Math (computed in service):
+//   Total In  = cash collected + credit + debit + lottery sales
+//             + otherIncome + moneyIn + houseAccts credits
+//   Total Out = bankDeposit + lotteryDeposit + creditCardTotal + debitCardTotal
+//             + purchaseCashPO + expenseCashPO + lottery payouts
+//   Short/Over = Total In − Total Out   (positive = over, negative = short)
+// ─────────────────────────────────────────────────
+model DailySaleReport {
+  id      String   @id @default(cuid())
+  orgId   String
+  storeId String
+  date    DateTime @db.Date
+
+  // Per-department adjustments on top of POS-auto totals.
+  // Shape: [{ key, name, adjustment, note }]  — "key" is the dept id or slug;
+  //   auto POS amount is fetched live, never stored here.
+  deptAdjustments Json @default("[]")
+
+  // Lottery terminal readings (manually entered)
+  totalizerBegin Decimal? @db.Decimal(12, 2)
+  totalizerEnd   Decimal? @db.Decimal(12, 2)
+  voids          Decimal? @default(0) @db.Decimal(12, 2)
+  customerCount  Int?
+  reportNumbers  String?
+
+  // Tax override (blank = use live-computed from transactions)
+  salesTaxOverride Decimal? @db.Decimal(12, 2)
+
+  // Other inflows not captured by POS/lottery
+  otherIncome Decimal @default(0) @db.Decimal(12, 2)
+  moneyIn     Decimal @default(0) @db.Decimal(12, 2)
+
+  // Cash counted at close (pre-fills from Shift.closingAmount; manager-editable)
+  cashCounted    Decimal? @db.Decimal(12, 2)
+  cashAdjustment Decimal  @default(0) @db.Decimal(12, 2)
+
+  // Store Money — deposits planned / made today
+  bankDeposit     Decimal @default(0) @db.Decimal(12, 2)
+  lotteryDeposit  Decimal @default(0) @db.Decimal(12, 2)
+  creditCardTotal Decimal @default(0) @db.Decimal(12, 2)
+  debitCardTotal  Decimal @default(0) @db.Decimal(12, 2)
+
+  // Cash paidout categorization (auto-filled from VendorPayment.paymentType;
+  // manager can override totals)
+  purchaseCashPO Decimal @default(0) @db.Decimal(12, 2)
+  expenseCashPO  Decimal @default(0) @db.Decimal(12, 2)
+
+  // House accounts — simple running list
+  // Shape: [{ customerId, customerName, amount, note }]
+  houseAccounts Json @default("[]")
+
+  // Freeform notes
+  notes String?
+
+  // Lifecycle
+  status     String    @default("draft") // 'draft' | 'closed'
+  closedAt   DateTime?
+  closedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, storeId, date])
+  @@index([orgId, storeId, date])
+  @@map("daily_sale_reports")
 }

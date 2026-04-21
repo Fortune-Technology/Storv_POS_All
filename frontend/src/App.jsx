@@ -121,6 +121,7 @@ import AccountHub        from './pages/AccountHub';
 import MyProfile         from './pages/MyProfile';
 import CustomersHub      from './pages/CustomersHub';
 import EndOfDayReport    from './pages/EndOfDayReport';
+import DailySale         from './pages/DailySale';
 import Roles             from './pages/Roles';
 
 // Components
@@ -257,6 +258,7 @@ function App() {
           {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
           <Route path="/portal/pos-reports"     element={gated(<POSReports />)} />
           <Route path="/portal/end-of-day"      element={gated(<EndOfDayReport />)} />
+          <Route path="/portal/daily-sale"      element={gated(<DailySale />)} />
 
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/rules"           element={gated(<RulesAndFees />)} />
