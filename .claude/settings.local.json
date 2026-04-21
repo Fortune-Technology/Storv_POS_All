@@ -74,7 +74,14 @@
       "Bash(netstat -ano)",
       "Bash(npm ls *)",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports',{}\\), indent=2\\)\\)\")",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(grep -n \"model.*{$\" \"C:\\\\Users\\\\nishn\\\\Desktop\\\\Future Foods\\\\Portal\\\\Storv_POS_All\\\\Storv_POS_All\\\\backend\\\\prisma\\\\schema.prisma\")",
+      "Bash(grep -n \"\\)\\)}$\\\\|^            \\)\\)}\" \"C:\\\\Users\\\\nishn\\\\Desktop\\\\Future Foods\\\\Portal\\\\Storv_POS_All\\\\Storv_POS_All\\\\frontend\\\\src\\\\components\\\\AIAssistantWidget.jsx\")",
+      "Bash(cp -n backend/src/services/lottery/adapters/*.js src/services/lottery/adapters/)",
+      "Bash(cp -n backend/src/services/lottery/engine/*.js src/services/lottery/engine/)",
+      "Bash(cp -n backend/src/services/lottery/index.js src/services/lottery/index.js)",
+      "Bash(powershell -Command \"Stop-Process -Id 1600 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; netstat -ano | findstr ':5000' | findstr 'LISTENING'\")",
+      "Bash(npx jest *)"
     ]
   }
 }

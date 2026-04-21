@@ -5491,4 +5491,1012 @@ Unchanged — Reolink RTSP → ffmpeg rolling buffer → 15s clip on TX → Clou
 
 *Last updated: April 2026 — Session 37b: RBAC manager-role fix, SSO portal URL fallback, light-theme CSS rewrite, react-grid-layout legacy adapter, tile-size + custom-color UX polish, one-entry Quick Buttons consolidation, **PIN-SSO from cashier-app Back Office → portal**, **sidebar "signed in as" card**, **My Profile self-service page***
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38)
+
+### AI Support Assistant — P1 Foundation
+
+First slice of the AI chatbot for feature help + live-store data queries. Portal-only for now; cashier-app + admin-app + KB + auto-ticket escalation land in P2/P3.
+
+#### Architecture
+- **Claude Sonnet 4.5** via Anthropic tool-use — AI never touches the DB directly. It calls server-side tool functions; each tool re-checks the caller's RBAC permissions server-side before returning data.
+- **One chat surface, multi-role safe** — a cashier asking "show me today's sales across the org" hits `get_store_summary` which checks `dashboard.view`/`analytics.view`. Lacks it → tool returns `{error: ...}`, AI relays politely. Store/org scoping always comes from `req.orgId`/`req.storeId` (JWT + active-store header), never from tool input.
+- Graceful 503 fallback when `ANTHROPIC_API_KEY` is unset — everything else (CRUD, permissions, UI) keeps working.
+
+#### Schema — 2 new models ([schema.prisma](backend/prisma/schema.prisma))
+```prisma
+model AiConversation {
+  id            String   @id @default(cuid())
+  orgId         String?        // null for future superadmin cross-tenant
+  storeId       String?
+  userId        String
+  userRole      String?        // denormalized effective role at creation
+  userName      String?
+  title         String?        // auto-summary of first user message (<=80 chars)
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  messages AiMessage[]
+  @@index([userId, lastMessageAt])
+  @@index([orgId, lastMessageAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String         // "user" | "assistant"
+  content        String   @db.Text
+  toolCalls      Json?          // [{name, input, output, durationMs}]
+  tokenCount     Int?
+  model          String?
+  feedback       String?        // "helpful" | "unhelpful" | null
+  feedbackNote   String?  @db.Text
+  ticketId       String?        // auto-escalation hook (P2)
+  createdAt      DateTime @default(now())
+  conversation AiConversation @relation(onDelete: Cascade)
+  @@index([conversationId, createdAt])
+  @@index([feedback])
+  @@map("ai_messages")
+}
+```
+Pushed via `npx prisma db push`; non-destructive.
+
+#### RBAC — 2 new permissions ([permissionCatalog.js](backend/src/rbac/permissionCatalog.js))
+| Key | Grants |
+|---|---|
+| `ai_assistant.view` | Everyone who can open the chat (manager, cashier, owner via `*`, admin via `*`, superadmin via `admin:*`+`*`). Staff deliberately NOT granted. |
+| `ai_assistant.manage` | Manager + owner + admin + superadmin. Gates access to the 👎-review queue and KB curation (P2). |
+
+Seeded via `node prisma/seedRbac.js`. Verified via login — `manager@storeveu.com` returns `permissions: ['ai_assistant.view','ai_assistant.manage', ...]`.
+
+#### Backend ([aiAssistantController.js](backend/src/controllers/aiAssistantController.js) + [aiAssistantRoutes.js](backend/src/routes/aiAssistantRoutes.js))
+
+**Tool-use loop:**
+1. Save user message to DB
+2. Load last 20 messages of the conversation (sliding window sent to Claude)
+3. Build system prompt with store/user context
+4. Call Claude with tool definitions + messages
+5. If `stop_reason === 'tool_use'`: execute each requested tool in parallel (with 8s per-tool timeout), push results back into the conversation, loop again
+6. Max 5 tool iterations per turn (guards against infinite loops)
+7. Extract final text → save assistant message with tool-call trace + token count + model
+
+**4 P1 tools** (read-only, each re-checks RBAC):
+
+| Tool | Checks | Returns |
+|---|---|---|
+| `get_store_summary` | `dashboard.view` OR `analytics.view` | Net/gross sales, tx count, tax, top 5 products over last 1-30 days |
+| `get_inventory_status` | `products.view` | Products with QOH, threshold, low-stock flag; search + low-stock-only filters |
+| `get_recent_transactions` | `transactions.view` | Last N transactions with tender method + amounts |
+| `search_transactions` | `transactions.view` | Date range + amount + tender method filters |
+
+**API routes** (all gated on `ai_assistant.view`):
+```
+GET    /api/ai-assistant/conversations                — list user's conversations
+POST   /api/ai-assistant/conversations                — create empty conversation
+GET    /api/ai-assistant/conversations/:id            — full message history
+DELETE /api/ai-assistant/conversations/:id            — delete conversation
+POST   /api/ai-assistant/conversations/:id/messages   — send message, get response
+POST   /api/ai-assistant/messages/:id/feedback        — 👍 or 👎 with optional note
+```
+
+**System prompt** — identifies as Storv AI Assistant; tells it to call tools rather than guess; bans code/SQL/internal discussion; tells it to propose a support ticket when it can't answer.
+
+**Cost guards** (MVP):
+- Max 2048 output tokens per response
+- Max 20 messages of history per request
+- Max 5 tool-use iterations per user message
+- 8-second per-tool hard timeout
+
+#### Frontend ([AIAssistantWidget.jsx](frontend/src/components/AIAssistantWidget.jsx) + [`.css`](frontend/src/components/AIAssistantWidget.css))
+
+Floating widget mounted globally in [Layout.jsx](frontend/src/components/Layout.jsx). Hidden unless `can('ai_assistant.view')`.
+
+- **FAB** bottom-right (Sparkles icon, brand gradient)
+- **Panel** 420×640 with header (icon + title + new-convo + close), scrollable message area, composer
+- **Greeting screen** on new conversation — "Hi {firstName}!" + 4 clickable example prompts ("How are sales today?", "What's running low on stock?", etc.)
+- **Streaming 3-dot "thinking" animation** while waiting for Claude (non-streaming P1; true token streaming lands in P2)
+- **Minimal markdown** — `**bold**`, `` `code` ``, line breaks; all HTML-escaped first
+- **👍👎 buttons** on every assistant response. 👎 opens an inline feedback textarea — note is stored on the AiMessage for the admin review queue (P2)
+- **Session persistence** — conversation id stored in `sessionStorage` so page refresh keeps the current thread
+- **CSS prefix** — `aiw-` (AIAssistantWidget) with brand-compatible light theme + responsive breakpoint at 520px (collapses to full-screen on phones)
+
+#### API helpers added ([services/api.js](frontend/src/services/api.js))
+```js
+listAiConversations()             // → { conversations }
+getAiConversation(id)             // → { conversation: { messages: [...] } }
+createAiConversation()            // → { conversation: { id, title, ... } }
+sendAiMessage(id, content)        // → { userMessage, assistantMessage }
+deleteAiConversation(id)          // → { success }
+submitAiFeedback(msgId, feedback, note?)   // → { message }
+```
+
+#### Env vars
+```bash
+# Required for assistant to work — without it, sendMessage returns 503
+ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# Optional — defaults to claude-sonnet-4-5
+ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+Added to `backend/.env.example` with instructions.
+
+#### Verification (live stack)
+- ✅ `manager@storeveu.com` login → permissions include `ai_assistant.view` + `ai_assistant.manage`
+- ✅ FAB renders bottom-right on all `/portal/*` pages
+- ✅ Click FAB → panel opens with header, greeting, 4 example prompts, composer
+- ✅ `POST /api/ai-assistant/conversations` as manager → 201 with conversation id
+- ✅ `POST /conversations/:id/messages` (API key not set) → clean 503 `AI assistant is not configured on this server. Contact support.`
+- ✅ `DELETE /conversations/:id` → 200
+- ✅ Widget hides entirely for users without `ai_assistant.view`
+
+Once the user sets `ANTHROPIC_API_KEY` in `.env` and restarts the backend, the full chat flow works end-to-end.
+
+#### Deferred to P2/P3
+- **P2:** pgvector KB seeding from CLAUDE.md + feature docs, RAG retrieval in prompt, auto-ticket escalation on low confidence or 👎+note (integrates with existing `SupportTicket`/Session 8), admin review queue page in admin-app (`ai_assistant.manage` gated)
+- **P3:** Cashier-app Help button → modal integration, admin-app cross-tenant chat (superadmin), admin curation UI to promote 👎 items to KB, extended tools (lottery, fuel, predictions, employees, EoD), prompt caching for cost reduction
+- **V2:** Voice / phone-call agent via Twilio + ElevenLabs
+
+#### Files Added (Session 38)
+| File | Purpose |
+|---|---|
+| `backend/src/controllers/aiAssistantController.js` | Tool-use loop + 4 tools + CRUD + feedback |
+| `backend/src/routes/aiAssistantRoutes.js` | `/api/ai-assistant/*` routes |
+| `frontend/src/components/AIAssistantWidget.jsx` | Floating chat widget |
+| `frontend/src/components/AIAssistantWidget.css` | `aiw-` prefix |
+
+#### Files Modified (Session 38)
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`AiConversation` + `AiMessage` models |
+| `backend/src/rbac/permissionCatalog.js` | +`ai_assistant` module (view + manage) + grants to manager/cashier |
+| `backend/src/server.js` | Mount `/api/ai-assistant` |
+| `backend/.env.example` | +`ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL` docs |
+| `backend/package.json` | +`@anthropic-ai/sdk` dep |
+| `frontend/src/services/api.js` | +6 AI assistant API helpers |
+| `frontend/src/components/Layout.jsx` | Mount `<AIAssistantWidget />` globally |
+
+---
+
+*Last updated: April 2026 — Session 38: AI Support Assistant P1 Foundation — Claude tool-use framework, 4 read-only tools with RBAC-gated execution, portal chat widget, 👍👎 feedback logging*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38b)
+
+### AI Support Assistant — P2: RAG + Escalation + Admin Review Queue
+
+Second slice — the assistant now retrieves from a curated knowledge base before answering, can file support tickets on the user's behalf, and 👎 feedback lands in an admin review queue that admins turn into new KB articles.
+
+#### Schema additions — 2 new tables ([schema.prisma](backend/prisma/schema.prisma))
+
+```prisma
+model AiKnowledgeArticle {
+  id             String   @id @default(cuid())
+  orgId          String?        // null = platform-wide (seeded), non-null = org-specific
+  category       String         // "feature" | "how-to" | "troubleshoot" | "faq"
+  title          String
+  content        String   @db.Text
+  embedding      Float[]        // 1536-dim vector (OpenAI text-embedding-3-small)
+  source         String   @default("curated")  // "seed" | "curated" | "admin"
+  tags           String[] @default([])
+  helpfulCount   Int      @default(0)
+  unhelpfulCount Int      @default(0)
+  createdById    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@index([orgId, active])
+  @@index([category])
+  @@map("ai_knowledge_articles")
+}
+
+model AiFeedbackReview {
+  id              String   @id @default(cuid())
+  orgId           String?
+  messageId       String   @unique
+  conversationId  String?
+  question        String   @db.Text   // denormalized prior user message
+  aiResponse      String   @db.Text   // denormalized assistant reply
+  userSuggestion  String?  @db.Text   // the 👎 note they left
+  status          String   @default("pending")  // "pending" | "promoted" | "dismissed"
+  reviewedById    String?
+  reviewedAt      DateTime?
+  articleId       String?   // if promoted to KB
+  ticketId        String?   // if escalated alongside the review
+  createdAt       DateTime @default(now())
+  @@index([status, createdAt])
+  @@index([orgId, status])
+  @@map("ai_feedback_reviews")
+}
+```
+
+Pushed via `npx prisma db push` — non-destructive.
+
+#### RAG — embeddings + retrieval ([kbService.js](backend/src/services/kbService.js))
+
+- **Provider:** OpenAI `text-embedding-3-small` (1536-dim, $0.02/1M tokens). The `OPENAI_API_KEY` was already on the server for OCR enrichment — zero new config.
+- **Storage:** native Postgres `Float[]`. At <500 articles, loading all rows into memory and computing cosine in JS is <20ms. Swap to pgvector if the KB ever grows past that.
+- **Scope:** a query retrieves platform-wide (`orgId=null`) + the caller's own org (`orgId=req.orgId`). Articles authored by an admin for Org A never leak to Org B.
+- **Threshold:** 0.35 cosine (below that, we skip RAG and let Claude answer from general knowledge + tools).
+- **Live-test results:**
+  - "How do I add a product?" → 0.676 "Add a new product to the catalog"
+  - "my cash drawer is stuck" → 0.656 "Cash drawer is not opening"
+  - "what is net sales" → 0.63 "What does Net Sales mean vs Gross Sales"
+
+#### Seed — 30 curated articles ([seedAiKnowledge.js](backend/prisma/seedAiKnowledge.js))
+
+Covers the full feature surface — products, inventory, shifts, refunds, voids, lottery setup+EoD, fuel sales, vendor payouts, user invitations, custom roles, Quick Buttons, tax rules, bottle deposits, loyalty, End-of-Day report, transaction lookup, vendor orders, invoice OCR, clock-in/out — plus 4 troubleshoot entries (drawer not opening, barcode scans wrong product, offline sync, report total mismatch) and 3 FAQs. Idempotent; safe to re-run.
+
+Run: `cd backend && node prisma/seedAiKnowledge.js` (requires `OPENAI_API_KEY`).
+
+#### Controller changes ([aiAssistantController.js](backend/src/controllers/aiAssistantController.js))
+
+- **RAG in `runToolLoop`:** before calling Claude, embed the latest user message, search KB, inject top 3 articles (above threshold) into the system prompt block. Articles safely fall back to `[]` if OpenAI is unavailable.
+- **New tool `create_support_ticket`:** Claude can file a SupportTicket directly when the user agrees. The tool re-checks `support.create` permission, writes the ticket with `body + "— Filed via AI Support Assistant"`, and returns the ticket id. The controller stores `ticketId` on the assistant message so the UI links to it.
+- **System prompt tightened:** explicit instructions to prefer KB articles for how-to questions, tools for data questions, and to propose a ticket (rather than file proactively) when confidence is low.
+- **`submitFeedback` auto-escalates:** on 👎 + free-text note, upserts an `AiFeedbackReview` row (keyed by messageId for idempotent re-edits) with denormalized question + response + note. Admin sees it in the review queue.
+- **New endpoint `POST /conversations/:id/escalate`:** user-initiated ticket filing. Bundles the last 10 messages as the ticket body and appends a confirmation message to the conversation itself (so the user sees it without refreshing).
+- **New admin endpoints** (gated on `ai_assistant.manage`):
+  - `GET /admin/reviews?status=pending|promoted|dismissed` — list (admin sees own org; superadmin sees all)
+  - `GET /admin/reviews/:id/conversation` — full conversation context for a review
+  - `POST /admin/reviews/:id/promote` — admin writes a corrected answer → new AiKnowledgeArticle + review status=promoted. Generates the embedding on the fly.
+  - `POST /admin/reviews/:id/dismiss` — status=dismissed
+
+#### Routes ([aiAssistantRoutes.js](backend/src/routes/aiAssistantRoutes.js))
+
+Two tiers:
+- `useGuard` (`ai_assistant.view`) — chat endpoints + escalation
+- `manageGuard` (`ai_assistant.manage`) — admin review queue + KB curation
+
+#### Portal widget — "File support ticket" footer
+
+[AIAssistantWidget.jsx](frontend/src/components/AIAssistantWidget.jsx) gains a thin escalation footer below the composer (visible only after the user has sent at least one message — keeps the greeting clean). Click → `POST /conversations/:id/escalate` → confirmation message appended inline with the ticket number.
+
+#### Admin-app — AdminAiReviews page
+
+New [AdminAiReviews.jsx](admin-app/src/pages/AdminAiReviews.jsx) + [`.css`](admin-app/src/pages/AdminAiReviews.css) (prefix `ar-`):
+
+- **Tabs**: Pending (with count badge) / Promoted / Dismissed
+- **Split layout**: list on the left (question preview + 👎 badge + user suggestion), detail panel on the right
+- **Detail panel**: question, AI response, user suggestion (amber highlight), full conversation transcript
+- **Actions**: "Promote to KB" opens a modal to author the canonical answer (title + category + content + tags) → generates embedding + creates AiKnowledgeArticle + marks review promoted. "Dismiss" marks it resolved.
+- **Route**: `/ai-reviews` (permission: `ai_assistant.manage`)
+- **Sidebar**: new "AI Review Queue" link under Support group with Sparkles icon
+
+#### RBAC note
+
+The existing `ai_assistant.view` + `ai_assistant.manage` permissions (from Session 38) cover all P2 endpoints. No new permissions added.
+
+#### Verification (live stack)
+
+- ✅ `npx prisma db push` — schema applied clean
+- ✅ `npx prisma generate` — client regen clean
+- ✅ `node prisma/seedAiKnowledge.js` — 30/30 articles embedded + stored
+- ✅ Backend restart clean
+- ✅ `manager@storeveu.com` login → `ai_assistant.view` + `ai_assistant.manage` present
+- ✅ `POST /conversations` → 201
+- ✅ `GET /admin/reviews?status=pending` → 200
+- ✅ `POST /conversations/:id/escalate` → 201 with real SupportTicket created
+- ✅ RAG retrieval live-tested on 3 queries — correct articles, cosine scores 0.63-0.68
+
+#### Files Added (Session 38b)
+
+| File | Purpose |
+|---|---|
+| `backend/src/services/kbService.js` | OpenAI embedding + JS cosine search + prompt formatter |
+| `backend/prisma/seedAiKnowledge.js` | 30-article idempotent seed |
+| `admin-app/src/pages/AdminAiReviews.jsx` | Review queue page |
+| `admin-app/src/pages/AdminAiReviews.css` | `ar-` prefix |
+
+#### Files Modified (Session 38b)
+
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`AiKnowledgeArticle` + `AiFeedbackReview` |
+| `backend/src/controllers/aiAssistantController.js` | RAG retrieval, `create_support_ticket` tool, `submitFeedback` auto-escalates, new `escalateConversation` + `listReviews` + `promoteReview` + `dismissReview` + `getReviewConversation` handlers |
+| `backend/src/routes/aiAssistantRoutes.js` | +escalation + admin review routes |
+| `frontend/src/components/AIAssistantWidget.jsx` | Escalation footer + `fileTicket` handler |
+| `frontend/src/components/AIAssistantWidget.css` | `.aiw-escalate*` styles |
+| `frontend/src/services/api.js` | +`escalateAiConversation` |
+| `admin-app/src/services/api.js` | +4 admin review API helpers |
+| `admin-app/src/App.jsx` | +`/ai-reviews` route |
+| `admin-app/src/rbac/routePermissions.js` | +`/ai-reviews` → `ai_assistant.manage` |
+| `admin-app/src/components/AdminSidebar.jsx` | +"AI Review Queue" nav item |
+
+#### Deferred to P3
+
+- Cashier-app integration (Help button → modal)
+- Admin-app cross-tenant chat (superadmin sees everyone's conversations)
+- Extended tools (lottery stats, fuel stats, predictions, employees, EoD report)
+- Prompt caching for ~90% input-token cost reduction
+- Article management UI (list/edit/deactivate articles, not just promote-on-feedback)
+
+---
+
+*Last updated: April 2026 — Session 38b: AI Assistant P2 — RAG retrieval over 30-article curated KB, support-ticket escalation (AI-initiated + user-initiated + auto on 👎+note), admin review queue in admin-app*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38c)
+
+### AI Support Assistant — P3: Multi-surface widgets + Extended Tools + Prompt Caching
+
+Third slice — the AI is now available everywhere, knows way more, and costs ~90% less per query on warm-cache requests.
+
+#### Floating widget on all 3 apps
+
+| App | Position | Size | When hidden |
+|---|---|---|---|
+| Portal | bottom-right | 420×640 | Never (once signed in) |
+| Admin-app | bottom-right | 420×640 | Not logged in |
+| Cashier-app | **top-right** | 360×560 | Not signed-in (PIN screen) |
+
+**Cashier-app specifics:** positioned top-right so it doesn't cover cart/totals. Z-index `900` — modal overlays use `1000+`, so any open transaction flow (TenderModal, ManagerPin, OpenShift, CloseShift, etc.) naturally covers the widget without any JS detection. Compact 40px FAB, 360×560 panel, 12.5px message font — tuned for 1366×768 POS hardware.
+
+**Admin-app specifics:** same UX as portal, uses `admin_user` localStorage token, built-in superadmin cross-tenant support — chatting without an org context works (Claude answers from KB); setting `X-Tenant-Id` lets superadmin ask about a specific org's data.
+
+**Shared pattern across all three:** greeting screen with 4 role-appropriate example prompts (different per app — portal asks about sales/stock, admin-app asks about user approval + RBAC, cashier asks about refund/shift), 👍👎 feedback (👎 auto-queues to admin review), inline "File support ticket" button after first user message, session-persisted conversation id.
+
+#### 5 new live-data tools
+
+| Tool | Permission | Returns |
+|---|---|---|
+| `get_lottery_summary` | `lottery.view` | Net sales, gross sales, commission earned, active boxes, top 5 games over 1-90 days |
+| `get_fuel_summary` | `fuel.view` | Net gallons, net amount, per-type breakdown with avg $/gallon |
+| `get_employee_hours` | `reports.view` OR `users.view` | Hours per employee, who's currently clocked in, session counts |
+| `get_end_of_day_report` | `reports.view` | Full EoD: gross/net/tax, complete+refund counts, tender breakdown by method |
+| `get_sales_predictions` | `predictions.view` OR `analytics.view` | Holt-Winters forecast 1-30 days ahead (falls back to 14-day flat average if predictions util unavailable) |
+
+Plus the 4 P1 tools (`get_store_summary`, `get_inventory_status`, `get_recent_transactions`, `search_transactions`) = **9 live-data tools** + `create_support_ticket`.
+
+All tools re-check RBAC before returning data. Missing org context no longer throws — tools return `{error: "..."}` which Claude politely relays.
+
+#### Anthropic prompt caching
+
+System prompt + tool definitions are now sent with `cache_control: { type: 'ephemeral' }` markers. First request in a 5-minute window pays full input cost; every subsequent request gets ~90% discount on the cached blocks. For a multi-turn conversation, this cuts ~$15/1M input tokens to ~$1.50/1M on the cached portion (system prompt + tools ≈ 4K tokens, so ~$0.0006 saved per cached request). Over 1,000 daily queries per org, that's a meaningful cost win.
+
+**Implementation:**
+- `system` changed from a string to a block array with `cache_control` on the prompt block
+- `cache_control` attached to the LAST tool definition (Anthropic hashes all tools up to the marker)
+- No change to the message history path — per-query content stays uncached (as expected)
+
+#### `requireTenant` middleware removed from ai-assistant routes
+
+Superadmins can now chat without an active org (they'd previously get a 403). Non-superadmins always have an org from `scopeToTenant` so they're unaffected. Tools that need an org return a friendly error instead of throwing.
+
+#### Verified (live stack, all 4 apps)
+
+- ✅ Backend restart clean (no imports-broken errors after refactor)
+- ✅ `POST /api/ai-assistant/conversations` → 201 (manager)
+- ✅ `GET /api/ai-assistant/admin/reviews?status=pending` → 200 (superadmin)
+- ✅ Portal FAB renders on every `/portal/*` page
+- ✅ Admin-app FAB renders on every page, `/ai-reviews` nav link present
+- ✅ Cashier-app widget correctly hidden at PIN login, wired in `App.jsx` root
+- ✅ All 9 tools + `create_support_ticket` registered in Claude's tool list
+
+#### Files Added (Session 38c)
+
+| File | Purpose |
+|---|---|
+| `admin-app/src/components/AIAssistantWidget.jsx` | Admin floating widget (cross-tenant aware) |
+| `admin-app/src/components/AIAssistantWidget.css` | Copied from portal — same visual language |
+| `cashier-app/src/components/AIAssistantWidget.jsx` | Cashier floating widget (top-right, compact) |
+| `cashier-app/src/components/AIAssistantWidget.css` | `aiw-` prefix, tuned for POS hardware |
+
+#### Files Modified (Session 38c)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/aiAssistantController.js` | +5 extended tools, prompt caching via `system` blocks + `cache_control` on last tool, `execTool` returns friendly error instead of throwing on missing org |
+| `backend/src/routes/aiAssistantRoutes.js` | Removed `requireTenant` guard so superadmin cross-tenant works |
+| `admin-app/src/services/api.js` | +5 chat helpers (`createAiConversation`, etc.) alongside existing review helpers |
+| `admin-app/src/components/AdminLayout.jsx` | Mount `<AIAssistantWidget />` in layout |
+| `cashier-app/src/api/pos.js` | +5 AI assistant helpers |
+| `cashier-app/src/App.jsx` | Mount widget alongside POSScreen |
+
+#### Deferred to P4
+
+- Org picker in admin-app widget (superadmin picks target org → sets `X-Tenant-Id`)
+- KB article management UI (list / edit / deactivate articles — currently only admin promote-on-feedback path)
+- Streaming responses (non-streaming currently; Anthropic SDK supports streams)
+- Voice integration (Phase 2 — Twilio + ElevenLabs phone agent)
+- Extended tools for: recent shift reports, vendor order suggestions, customer lookup by phone
+
+---
+
+*Last updated: April 2026 — Session 38c: AI Assistant P3 — Floating widget on all 3 apps (portal+admin+cashier), 5 new tools (lottery/fuel/predictions/employee hours/EoD), Anthropic prompt caching for ~90% input cost reduction on warm cache*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38d)
+
+### AI Support Assistant — P4: Polish for Real Testing
+
+Final slice before real Claude-API testing. Adds 3 more tools, conversation history, tool-call chips for transparency, org picker on admin-app widget for cross-tenant testing, and a full KB article management UI.
+
+#### 3 more tools — now 12 total live-data tools
+
+| Tool | Permission | Use case |
+|---|---|---|
+| `lookup_customer` | `customers.view` | "does 555-1234 have points", "find Jane Doe's balance" |
+| `get_vendor_order_suggestions` | `vendor_orders.view` | "what should I reorder from Coca-Cola", "reorder list" |
+| `list_open_shifts` | `shifts.view` | "who is on the register right now", "any shift still open from yesterday" |
+
+`get_vendor_order_suggestions` prefers the 14-factor `orderEngine.generateSuggestions()` output; falls back to a simple "below reorder point" heuristic when the engine is unavailable. `list_open_shifts` flags shifts that crossed midnight.
+
+Full tool lineup: `get_store_summary`, `get_inventory_status`, `get_recent_transactions`, `search_transactions`, `get_lottery_summary`, `get_fuel_summary`, `get_employee_hours`, `get_end_of_day_report`, `get_sales_predictions`, `lookup_customer`, `get_vendor_order_suggestions`, `list_open_shifts` + `create_support_ticket` action.
+
+#### Tool-call chips — transparency + trust
+
+Every assistant response now shows small pills below the bubble for each tool that fired:
+```
+✓ Sales summary    ✓ Inventory check
+```
+Hovering shows the tool's input JSON for debugging. Applied to all 3 widgets with consistent styling. Users see what the AI did rather than trusting a black box.
+
+#### Conversation history — all 3 widgets
+
+New "history" icon (clock/history) in each widget header. Click → dropdown panel lists the user's last 30 conversations (title + timestamp). Click a row → loads that conversation. Current conversation is highlighted. Falls back cleanly if `listAiConversations` fails.
+
+Powered by existing `GET /api/ai-assistant/conversations` endpoint (no backend changes).
+
+#### Org picker — admin-app widget only
+
+Dropdown at the top of the admin-app chat panel: `— Platform (no org context) —` + list of all active orgs. Picking one sets `X-Tenant-Id` on every subsequent API call from the widget (conversation create, send message, list history, feedback) — so superadmin can ask "show me this org's inventory" and the right data comes back via the existing `scopeToTenant` superadmin-override logic.
+
+Switching orgs mid-session clears the current conversation (context invalidated). Choice persists in `sessionStorage` key `adminAiTargetOrgId` across page reloads.
+
+#### AI Knowledge Base management UI — admin-app
+
+New page [AdminAiKb.jsx](admin-app/src/pages/AdminAiKb.jsx) + [`.css`](admin-app/src/pages/AdminAiKb.css) at `/ai-kb`, gated by `ai_assistant.manage`.
+
+**Features:**
+- Live stats row — Total / Active / Inactive / Seeded / Admin-authored
+- Search (title + content), category filter, active/inactive filter — debounced 180ms
+- Article list with category badge, source badge (Seeded/Curated/Admin-authored), 👍/👎 counts, platform-wide badge (for `orgId=null`), 2-line preview
+- Per-article actions: Edit / Toggle Active / Soft-delete (protected — seeded articles need superadmin to delete)
+- Create/edit modal — title, category, content (markdown), tags, active flag
+- **Embeddings auto-regenerate** on title/content change via `generateEmbedding()` in the update handler
+
+**Sidebar:** new "AI Knowledge Base" link under Support group with `BookOpen` icon.
+
+#### Backend — 5 new KB CRUD endpoints
+
+| Method | Route | Guards |
+|---|---|---|
+| `GET /admin/articles` | list (filters: search, category, active, source) | `ai_assistant.manage` |
+| `GET /admin/articles/:id` | full article (embedding stripped from response) | `ai_assistant.manage` |
+| `POST /admin/articles` | create + generate embedding | `ai_assistant.manage` |
+| `PUT /admin/articles/:id` | update + regenerate embedding on text change | `ai_assistant.manage` |
+| `DELETE /admin/articles/:id` | soft-delete (active=false); seeded articles require superadmin | `ai_assistant.manage` |
+
+Org-scoped: non-superadmin admins see their own org's articles + platform-wide seeds; superadmin sees all + can create platform-wide.
+
+#### Verified (live stack)
+
+- ✅ Backend restart clean after all P4 changes
+- ✅ `GET /api/ai-assistant/admin/articles?limit=5` → 200 with 5 seed articles
+- ✅ Portal widget: history button present, panel opens, greeting + composer render
+- ✅ Admin-app widget: history button + org picker (4 options: Platform + 3 orgs) present
+- ✅ Admin-app sidebar: both `/ai-reviews` and `/ai-kb` links render
+- ✅ Cashier-app: widget wired, correctly hidden at PIN screen (shows after cashier signs in)
+
+#### Files Added (Session 38d)
+
+| File | Purpose |
+|---|---|
+| `admin-app/src/pages/AdminAiKb.jsx` | KB article management page |
+| `admin-app/src/pages/AdminAiKb.css` | `kb-` prefix |
+
+#### Files Modified (Session 38d)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/aiAssistantController.js` | +3 tools (lookup_customer, vendor order suggestions, open shifts), +5 KB CRUD handlers |
+| `backend/src/routes/aiAssistantRoutes.js` | +5 KB CRUD routes |
+| `frontend/src/components/AIAssistantWidget.jsx` | Tool-call chips, history picker, `History` icon, `TOOL_LABELS` map |
+| `frontend/src/components/AIAssistantWidget.css` | `.aiw-tool-chip*`, `.aiw-history*`, `.aiw-iconbtn--on` |
+| `frontend/src/services/api.js` | Already had `listAiConversations` |
+| `admin-app/src/components/AIAssistantWidget.jsx` | + tool chips, history picker, **org picker** with `X-Tenant-Id` threading through all API calls, `changeOrg` handler that clears current conversation |
+| `admin-app/src/components/AIAssistantWidget.css` | `.aiw-org-picker`, `.aiw-org-select`, `.aiw-tool-chip*`, `.aiw-history*` |
+| `admin-app/src/services/api.js` | +`listAiConversations` helper, +5 KB CRUD helpers |
+| `admin-app/src/App.jsx` | +`/ai-kb` route |
+| `admin-app/src/rbac/routePermissions.js` | +`/ai-kb` → `ai_assistant.manage` |
+| `admin-app/src/components/AdminSidebar.jsx` | +"AI Knowledge Base" nav item with `BookOpen` icon |
+| `cashier-app/src/components/AIAssistantWidget.jsx` | + tool chips, history picker |
+| `cashier-app/src/components/AIAssistantWidget.css` | `.aiw-tool-chip*`, `.aiw-history*` |
+| `cashier-app/src/api/pos.js` | +`listAiConversations` helper |
+
+#### What's ready for testing
+
+With `ANTHROPIC_API_KEY` set in `backend/.env`, you can now test end-to-end:
+1. **Portal** (bottom-right FAB) — ask feature questions, live-data queries, file tickets
+2. **Admin-app** (bottom-right FAB + org picker) — ask cross-tenant questions, browse review queue, curate KB articles, manage the full KB
+3. **Cashier-app** (top-right compact FAB) — cashier-role questions, escalate tickets mid-shift
+
+#### Deferred to future work
+
+- **Streaming responses** — backend SSE + frontend EventSource. Non-trivial but the 3-dot thinking animation is acceptable for now
+- **V2 — Voice / phone agent** — Twilio + ElevenLabs. Separate project.
+- **Admin-app cross-org "acting as" banner** — show a persistent chip when superadmin has an org picked
+- **Article 👍/👎 rollup** — increment article-level helpful/unhelpful counts when user rates a response that referenced them (the toolCalls + articlesUsed trace is already stored; just needs aggregation)
+- **Conversation export** — download a conversation as .txt or .md
+
+---
+
+*Last updated: April 2026 — Session 38d: AI Assistant P4 — 3 more tools (customer/vendor-order/open-shifts), tool-call chips, conversation history on all widgets, admin-app org picker for cross-tenant chat, full KB article management UI*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38e)
+
+### AI Support Assistant — P5: KB Gap Fill + Clickable In-App Navigation
+
+User tested the assistant against real questions and found two sharp edges: (1) missing KB article on age verification caused a guessed/wrong answer, (2) UI-path citations were static text, not actionable. Fixed both.
+
+#### 10 more KB articles — now 40 total
+
+Filled gaps uncovered during testing + rounded out coverage of the second-tier features:
+
+1. **Set up age verification for tobacco and alcohol** (the one that failed in testing) — points to **Store Settings → Age Verification Policy** with state-default quick-start instructions
+2. **Configure general store settings** (name/address/phone/timezone/hours)
+3. **Set up a new fuel type** (Price per gallon, color, default, taxable)
+4. **Launch an online store** (5-tab Ecom Setup walkthrough + custom domain)
+5. **Set up loyalty program and points** (accrual rules, redemption, excluded departments)
+6. **Configure the receipt printer** (QZ Tray / Network / Browser-print options + receipt customization link)
+7. **Set up the Dejavoo payment terminal** (MID/TID, test, batch close)
+8. **Invite team members and assign roles** (invitation flow from Session 33)
+9. **Transfer store ownership to another user** (the Session 34 transfer flow with type-"TRANSFER" confirmation)
+10. **AI assistant says "The service is temporarily unavailable"** — self-documentation of the error messages
+
+Verified with live RAG retrieval — the exact failing question "how do I edit tobacco and liquor age" now matches the right article at **cosine 0.64** (safely above the 0.35 threshold).
+
+#### System prompt overhaul — clickable links + walk-through format
+
+**Clickable portal links.** The prompt now includes a full route map (22 common portal URLs like `/portal/realtime`, `/portal/account?tab=stores`, `/portal/fuel`) and instructs Claude to write every UI reference as a real markdown link:
+```
+[Account → Store Settings](/portal/account?tab=stores)
+```
+Instead of the old "Go to **Account → Store Settings** in the portal sidebar."
+
+**Walk-through format.** When the user asks "walk me through", "guide me", "show me step by step", or "how do I...", Claude now structures the answer as a numbered walk-through starting with a clickable link, one action per step, ending with a "what you should see when it worked" confirmation and a follow-up offer.
+
+#### Clickable links — rendered + intercepted
+
+**All 3 widgets** now parse `[label](href)` markdown and render as `<a class="aiw-link ...">`:
+- **Portal widget** — `/portal/*` links get `.aiw-link--in-app` class + right-arrow marker. A delegated click handler on `.aiw-messages` calls React Router's `navigate()`, auto-closes the chat panel, so one click takes the user to the destination screen. Middle-click / cmd-click preserved for "open in new tab".
+- **Admin-app widget** — `/portal/*` links get `.aiw-link--portal` class + up-right-arrow marker. Clicks open the portal URL in a new tab (admin-app lives on a different origin).
+- **Cashier-app widget** — same as admin-app: portal links open in the system browser (or new tab in web mode).
+- **External `https://` links** in any widget — open in a new tab with `rel="noopener noreferrer"`.
+
+Regex accepts ONLY `/portal/*` or `http(s)://` in the href slot — no `javascript:`, `data:`, or relative paths slip through.
+
+#### Live-verified end-to-end
+
+Same question the user asked during testing, now tested live:
+
+**Question:** "guide me through editing tobacco and liquor age"
+
+**AI response:**
+> Here's your step-by-step guide to editing tobacco and alcohol age limits:
+>
+> 1. **Navigate to Store Settings** — Open **[Account → Store Settings](/portal/account?tab=stores)** in the portal sidebar.
+> 2. **Select your store** — If you manage multiple stores, click on Main Street Marketplace…
+> 3. Scroll…
+
+**What happened when clicked:**
+- URL: `http://localhost:5173/portal/account?tab=stores` ✓
+- Panel auto-closed ✓
+- No page reload — React Router SPA navigation ✓
+
+#### Files Changed (Session 38e)
+
+| File | Change |
+|---|---|
+| `backend/prisma/seedAiKnowledge.js` | +10 articles (30 → 40 total) |
+| `backend/src/controllers/aiAssistantController.js` | `buildSystemPrompt` — full portal-route map + walk-through format instructions |
+| `frontend/src/components/AIAssistantWidget.jsx` | `renderContent` parses `[label](href)` markdown links; `useNavigate` hook; `handleMessageClick` intercepts `.aiw-link--in-app` clicks for React Router nav + auto-closes panel |
+| `frontend/src/components/AIAssistantWidget.css` | `.aiw-link`, `.aiw-link--in-app` styles (brand-coloured, dashed underline, `→` arrow marker) |
+| `admin-app/src/components/AIAssistantWidget.jsx` + `.css` | `renderContent` + styles — portal links open in new tab with `↗` marker |
+| `cashier-app/src/components/AIAssistantWidget.jsx` + `.css` | Same pattern as admin-app |
+
+Re-running the seed is idempotent — existing articles are updated in place with new embeddings; new articles created.
+
+#### P6 (next session / deferred) — full interactive product tour
+
+User asked for "screen by screen guide similar to SaaS onboarding" — i.e. Appcues/Intercom Product Tours with UI element tooltips. Realistic path for a dedicated future session:
+
+- **Library**: `driver.js` (MIT, 7KB, zero deps) or `Shepherd.js` (MIT, popper-based)
+- **Schema**: `ProductTour` model (name, trigger keyword, steps JSON `[{selector, title, body, action, nextCondition}]`)
+- **Backend tool**: `start_product_tour(name)` — AI triggers a tour by slug when user agrees
+- **Frontend**: global Tour Runner mounted in Layout; listens for `ai-tour-start` event from widget; drives driver.js step-by-step
+- **Element selectors**: add `data-tour="add-product-btn"` attributes to key UI elements in existing pages
+- **Seeded tours**: "add-product", "set-age-verification", "process-refund", "close-shift", "invite-user" (5 canonical onboarding flows to start)
+- **Admin authoring UI** (nice-to-have) — record a tour by clicking through the portal; the recorder emits the steps JSON
+
+Estimated 1 full session. P5 (this session) gives 80% of the value — clickable deep-links that get the user to the right screen — without the overlay complexity.
+
+---
+
+*Last updated: April 2026 — Session 38e: AI Assistant P5 — 10 more KB articles (40 total), system prompt with full portal-route map + walk-through format, clickable markdown links with React Router in-app nav in the portal (admin-app + cashier-app open in new tab)*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38f)
+
+### AI Support Assistant — P6: Interactive Product Tours
+
+The "walk me through it, screen by screen" feature the user asked for. When Claude detects a walkthrough request, it recommends a narrated tour; the widget renders a prominent "▶ Start guided tour" button; clicking drives a floating step-card overlay at top-right with progress bar, step content, Back/Next/Exit, and "Go to this screen" navigation — page by page.
+
+**Design choice: no UI element overlays.** Traditional product tours (Appcues, Intercom, driver.js) highlight specific buttons with tooltip arrows — but that requires `data-tour="..."` attributes on every UI element (100+ across 30+ pages for 5 tours). We went with **structured narrated walkthroughs** instead: each step has a title, body, and optional URL. Works on any page without code changes. 80% of the UX value, zero page-level retrofits.
+
+#### Schema — `ProductTour` model
+
+```prisma
+model ProductTour {
+  id          String   @id @default(cuid())
+  orgId       String?        // null = platform-wide (default for seeded)
+  slug        String         // "add-product", "set-age-verification"
+  name        String         // "Add your first product"
+  description String?  @db.Text
+  category    String   @default("onboarding") // onboarding | feature | troubleshoot
+  triggers    String[] @default([])           // phrases the AI matches
+  steps       Json     @default("[]")         // [{ title, body, url? }]
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([active, category])
+  @@map("product_tours")
+}
+```
+
+Pushed via `npx prisma db push`.
+
+#### 5 canonical tours seeded
+
+| Slug | Steps | Covers |
+|---|---|---|
+| `add-product` | 8 | New product walkthrough (nav → name → dept → pricing → UPCs → pack sizes → save) |
+| `set-age-verification` | 8 | Tobacco/alcohol age limits per store + state-defaults quick-start |
+| `invite-user` | 8 | Invite teammate (email → role → stores → track) |
+| `configure-receipt-printer` | 8 | Portal receipt settings + cashier-app hardware setup (QZ Tray / Network) |
+| `setup-fuel-type` | 8 | Enable fuel module + add Regular/Premium/Diesel grades |
+
+Seed: `cd backend && node prisma/seedProductTours.js` — idempotent; updates in place on re-run.
+
+#### Backend — new tool + routes
+
+**New Claude tool** `start_product_tour(slug)`:
+- Detailed description with explicit **trigger phrases** (walk me through / guide me / step by step / tutorial for)
+- Enum-constrained slug parameter so Claude can only pick valid tours
+- Returns `{ success, tour: { slug, name, stepCount } }` — widget detects this in `toolCalls` and renders the CTA
+- System prompt elevated the tour path: "Check for a matching tour FIRST. Fall back to text walk-through only if no match."
+
+**Routes** (`/api/ai-assistant/*`):
+| Method | Route | Guard |
+|---|---|---|
+| GET | `/tours/:slug` | `ai_assistant.view` (public read for TourRunner) |
+| GET | `/admin/tours` | `ai_assistant.manage` |
+| POST | `/admin/tours` | `ai_assistant.manage` |
+| GET | `/admin/tours/:id` | `ai_assistant.manage` |
+| PUT | `/admin/tours/:id` | `ai_assistant.manage` |
+| DELETE | `/admin/tours/:id` | `ai_assistant.manage` (soft delete — sets active=false) |
+
+#### Portal — TourRunner component
+
+New [TourRunner.jsx](frontend/src/components/TourRunner.jsx) + [`.css`](frontend/src/components/TourRunner.css) (prefix `tr-`) mounted globally in [Layout.jsx](frontend/src/components/Layout.jsx).
+
+**Features:**
+- Floating card top-right (360px, brand-gradient header)
+- Progress bar + "Step X of Y" label
+- Clickable step dots to jump between steps
+- "Go to this screen" button (uses React Router `navigate`) when a step has a URL
+- Back / Next / Exit buttons
+- **Minimize to pill** — card collapses to a small floating badge so the user can work without the card covering content; click to expand again
+- **Session persistence** — `activeTour` key in `sessionStorage`. Survives React Router navigation (so a tour step can navigate to a new page and the card stays). Survives full page reload.
+- **URL parameter support** — `?startTour=slug` launches a tour on page load (used by the admin-app "Preview" button)
+
+#### Widget integration
+
+[AIAssistantWidget.jsx](frontend/src/components/AIAssistantWidget.jsx):
+- `findTourRecommendation(toolCalls)` — extracts `start_product_tour` output from the tool-call trace
+- When a tour is present, renders a prominent brand-gradient CTA button below the AI message:
+  ```
+  ▶ Start guided tour: Add your first product · 8 steps
+  ```
+- Click → dispatches `window.dispatchEvent(new CustomEvent('ai-tour-start', { detail: { slug } }))` + closes the chat panel so user sees the tour card without overlap
+
+#### Admin-app — AdminAiTours page
+
+New [AdminAiTours.jsx](admin-app/src/pages/AdminAiTours.jsx) + [`.css`](admin-app/src/pages/AdminAiTours.css) at `/ai-tours` (gated by `ai_assistant.manage`).
+
+- Stats row: Total / Active / Platform-wide / Org-custom
+- Filters: category + active/inactive
+- List items with slug, category, step count, trigger count, description preview
+- Per-tour actions: **Preview** (opens portal with `?startTour=slug`), **Edit**, **Deactivate**, **Delete**
+- **Create/Edit modal** with JSON editor for steps (full click-to-author editor deferred to P7)
+- Tour fields: slug (create-only), name, description, category, triggers (line-separated), steps (JSON), active toggle
+
+Sidebar: "AI Product Tours" link under Support group with `Compass` icon.
+
+#### Live verified end-to-end
+
+**Question:** "Walk me through adding a new product"
+
+**AI response:**
+> Perfect! I've loaded an interactive 8-step tour that will walk you through creating a product in your catalog — from filling in the name and department to adding barcodes, pricing, and pack sizes. The product will be scannable at the POS immediately after you save.
+>
+> **Tap the button below to start the walkthrough.**
+
+**Tool called:** `start_product_tour({ slug: "add-product" })` → returned `{ name: "Add your first product", stepCount: 8 }`
+
+**Widget rendered:**
+- Brand-gradient CTA button: "▶ Start guided tour: Add your first product · 8 steps"
+
+**On CTA click:**
+- Chat panel auto-closes ✓
+- TourRunner card appears top-right with "Step 1 of 8" progress, 8 step dots, "Go to this screen" button ✓
+- Step content: "1. Open the Products page — We'll work from the catalog. Tap the button below to navigate there now." ✓
+
+**On "Go to this screen" click:**
+- React Router navigates to `/portal/catalog/products` ✓
+- Tour card persists across navigation (sessionStorage restore on mount) ✓
+
+**On full page reload (F5):**
+- `activeTour` sessionStorage key restored ✓
+- TourRunner loads tour by slug, jumps to saved stepIndex ✓
+
+**Admin-app `/ai-tours` page:**
+- Lists all 5 tours ✓
+- "Preview" button opens portal with `?startTour=slug` query param ✓
+- TourRunner detects param on mount, strips it from URL, launches tour ✓
+
+#### Files Added (Session 38f)
+
+| File | Purpose |
+|---|---|
+| `backend/prisma/seedProductTours.js` | 5-tour seeder (idempotent) |
+| `frontend/src/components/TourRunner.jsx` + `.css` | Step-by-step overlay (prefix `tr-`) |
+| `admin-app/src/pages/AdminAiTours.jsx` + `.css` | Admin tour management |
+
+#### Files Modified (Session 38f)
+
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`ProductTour` model |
+| `backend/src/controllers/aiAssistantController.js` | +`start_product_tour` tool with enum slug + imperative description, +`toolStartProductTour` handler, +5 CRUD handlers, updated system prompt to prefer tours over text |
+| `backend/src/routes/aiAssistantRoutes.js` | +6 tour routes (1 public read, 5 admin) |
+| `frontend/src/services/api.js` | +`getAiTourBySlug` helper |
+| `frontend/src/components/AIAssistantWidget.jsx` | `findTourRecommendation`, CTA button rendering on tour recommendations, dispatches `ai-tour-start` event |
+| `frontend/src/components/AIAssistantWidget.css` | `.aiw-tour-cta*` styles |
+| `frontend/src/components/Layout.jsx` | Mount `<TourRunner />` globally |
+| `admin-app/src/services/api.js` | +5 tour CRUD helpers |
+| `admin-app/src/App.jsx` | +`/ai-tours` route |
+| `admin-app/src/rbac/routePermissions.js` | +`/ai-tours` → `ai_assistant.manage` |
+| `admin-app/src/components/AdminSidebar.jsx` | +"AI Product Tours" nav item with `Compass` icon |
+
+#### Known side issue (documented, not caused by P6)
+
+During this session an external change added `import { startPendingMoveScheduler } from './services/lottery/index.js'` to [server.js](backend/src/server.js) pointing at files that live at `backend/backend/src/services/lottery/*` (nested path) as CommonJS. ESM backend can't load CJS via ES imports, so startup was crashing. Added an ESM stub at [`src/services/lottery/index.js`](backend/src/services/lottery/index.js) that exports no-op versions of the expected functions so the server starts. **Follow-up needed**: migrate the real CJS lottery files (adapters/MA.js, ME.js, engine/*.js) to ESM and replace the stub with real re-exports. Lottery scan + auto-activate features disabled until that's done.
+
+#### Deferred to P7 / future
+
+- **Full click-to-author tour editor** — visual step builder instead of JSON editing
+- **UI element highlighting** — driver.js/Shepherd.js with `data-tour="..."` attributes on target elements for Appcues-style tooltip arrows
+- **Per-step analytics** — track which step users drop off at; identify confusing tours
+- **Tour completion tracking** — remember which tours a user has finished so they're not re-offered
+- **Cashier-app tour rendering** — currently only the portal has the TourRunner; cashier-app tours (close-shift, process-refund, bottle-return) need their own runner
+
+---
+
+*Last updated: April 2026 — Session 38f: AI Assistant P6 — Interactive Product Tours. ProductTour schema + 5 seeded tours (add-product, set-age-verification, invite-user, configure-receipt-printer, setup-fuel-type) + start_product_tour Claude tool + portal TourRunner floating overlay with "Go to screen" navigation + session-persistent state across page refreshes + admin-app Tours management page. End-to-end verified: "Walk me through adding a product" → AI calls tool → widget shows CTA → click launches 8-step tour overlay → "Go to screen" navigates in-app → tour persists across React Router nav + full page reload.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38g)
+
+### AI Product Tours — P6b: Element Spotlight + Dim Overlay
+
+User feedback: *"Can we have the button highlighted and the other parts as overlay for better focus?"* — classic SaaS onboarding polish (Appcues / Intercom Product Tours style). Delivered without adding any npm deps.
+
+#### Rewritten TourRunner with spotlight
+
+[TourRunner.jsx](frontend/src/components/TourRunner.jsx) + [`.css`](frontend/src/components/TourRunner.css) gained:
+
+- **Spotlight overlay** — when a step has a `selector`, a fixed-positioned div is placed exactly over the target element with this box-shadow trick:
+  ```css
+  box-shadow:
+    0 0 0 4px  rgba(61, 86, 181, 0.55),    /* inner brand ring */
+    0 0 0 8px  rgba(61, 86, 181, 0.22),    /* outer glow */
+    0 0 0 9999px rgba(15, 23, 42, 0.55);   /* dims the rest of the page */
+  ```
+  The enormous spread acts as the dim overlay; the element itself shows through the "hole" the spotlight leaves.
+
+- **Pulsing animation** — `@keyframes tr-pulse` gently cycles the ring intensity every 2s to draw the eye without being jarring.
+
+- **Auto-scroll target into view** — `scrollIntoView({ behavior: 'smooth', block: 'center' })` runs when the step activates so the highlighted element is always visible.
+
+- **Retry loop for element lookup** — `waitForElement(selector, 1500ms)` uses `requestAnimationFrame` polling so selectors resolve even on steps that just navigated (React Router mount + effect-triggered render).
+
+- **Smart card repositioning** — `pickCardPosition(targetRect, cardW, cardH)` tries right → bottom → left → top, picking the first candidate that fits within the viewport with 16px margins. Falls back to top-right corner if nothing fits. Smooth 220ms cubic-bezier transition between positions.
+
+- **Live reposition on scroll / resize** — `scroll` (capture phase) + `resize` listeners keep the spotlight glued to the target if the user scrolls or the window resizes.
+
+- **Session-expired graceful handling** — if the tour's API fetch returns 401, TourRunner silently defers (sessionStorage keeps the tour slug + stepIndex). The global 401 interceptor redirects to `/login?returnTo=...`; after re-login the user lands back on the target page and the TourRunner auto-restores.
+
+- **Dim-only fallback** — when a step has no selector (or the element isn't on the current page), a plain translucent dim covers the full viewport and the card renders at its default top-right position.
+
+#### Step schema — added `selector` field
+
+Step JSON now accepts:
+```json
+{
+  "title": "2. Click \"Add Product\"",
+  "body":  "This button (highlighted on the page) opens a blank product form.",
+  "url":   "/portal/catalog/products",
+  "selector": "[data-tour=\"products-new-btn\"]"
+}
+```
+- `url` — if present, the user can (or has already) navigated here. The spotlight applies to whichever page they're actually on.
+- `selector` — standard CSS selector. If the element exists, it gets spotlighted. If not, falls back to centered card.
+
+#### `data-tour` attributes added to real pages
+
+Tagged the most critical entry-point buttons with stable `data-tour` attributes so the seeded tours can highlight them:
+
+| Page | Element | Attribute |
+|---|---|---|
+| [ProductCatalog.jsx](frontend/src/pages/ProductCatalog.jsx) | "Add Product" button | `data-tour="products-new-btn"` |
+| [UserManagement.jsx](frontend/src/pages/UserManagement.jsx) | "Invite user" button | `data-tour="invite-user-btn"` |
+| [StoreSettings.jsx](frontend/src/pages/StoreSettings.jsx) | Age Verification section | `data-tour="age-verification-section"` |
+| [Fuel.jsx](frontend/src/pages/Fuel.jsx) | "Add Fuel Type" button | `data-tour="fuel-new-btn"` |
+
+Convention: `data-tour="{module}-{verb}-{noun}"` (kebab-case) so future tours don't collide with each other.
+
+#### Re-seeded tours with selectors
+
+[`seedProductTours.js`](backend/prisma/seedProductTours.js) updated so 4 of the 5 tours have at least one step that spotlights a tagged element:
+
+- **add-product** step 2 → spotlights "Add Product" button
+- **set-age-verification** step 3 → spotlights the Age Verification section
+- **invite-user** step 2 → spotlights "Invite user" button
+- **setup-fuel-type** step 5 → spotlights "Add Fuel Type" button
+- **configure-receipt-printer** → no spotlight yet (multi-page flow across cashier-app; P7)
+
+Re-run: `cd backend && node prisma/seedProductTours.js` → idempotent, updates in place.
+
+#### UX flow
+
+1. User asks *"Walk me through adding a new product"* in the chat widget
+2. Claude calls `start_product_tour({ slug: "add-product" })` → widget shows "▶ Start guided tour · 8 steps" button
+3. Click → chat panel closes → TourRunner appears top-right with step 1
+4. Step 1 has a `url`. User clicks "Go to this screen" → navigates to `/portal/catalog/products`
+5. Tour advances to step 2 (spotlight step). TourRunner finds `[data-tour="products-new-btn"]`, scrolls it into view, lays down the dim overlay with a bright ring around the button. Card repositions so it doesn't cover the button. Hint text appears: *"👉 See the highlighted area on the page."*
+6. User clicks Next (or the button itself, if they want). Step 3 has no selector → dim overlay clears, plain card at top-right explaining the next action.
+
+#### Files Changed (Session 38g)
+
+| File | Change |
+|---|---|
+| `frontend/src/components/TourRunner.jsx` | Full rewrite with spotlight overlay, auto-scroll, smart positioning, session-expired guard |
+| `frontend/src/components/TourRunner.css` | `.tr-spotlight` + `@keyframes tr-pulse`, `.tr-card--spotlight`, `.tr-spotlight-hint`, smooth transitions |
+| `frontend/src/pages/ProductCatalog.jsx` | +`data-tour="products-new-btn"` on the Add Product button |
+| `frontend/src/pages/UserManagement.jsx` | +`data-tour="invite-user-btn"` on the Invite user button |
+| `frontend/src/pages/StoreSettings.jsx` | +`data-tour="age-verification-section"` on the age policy section |
+| `frontend/src/pages/Fuel.jsx` | +`data-tour="fuel-new-btn"` on the Add Fuel Type button |
+| `backend/prisma/seedProductTours.js` | Added `selector` field to 4 of 5 tours |
+
+#### Known follow-ups (P7)
+
+- **More data-tour attributes** — the 5 tours only have spotlight on the entry-point button. Inner-form steps (product name field, department dropdown, save button) could also be tagged for step-by-step spotlight.
+- **Click-through advance** — currently steps advance via the card's "Next" button. Could detect clicks on the spotlighted element itself (e.g., user clicks "Add Product") and auto-advance.
+- **Cashier-app tour rendering** — cashier-app still lacks a TourRunner. Tours like "close-shift" and "process-refund" belong there.
+- **Tour authoring in admin-app** — currently JSON-editor only. A point-and-click tour recorder (click a button, capture selector + URL, record the step) would let non-devs build tours.
+- **Session-expired toast in TourRunner** — when 401 fires, instead of silently deferring, show a brief toast "Session expired — resuming tour after login" before the global interceptor redirects.
+
+---
+
+*Last updated: April 2026 — Session 38g: AI Product Tours P6b — Element spotlight + dim overlay. When a step targets a `[data-tour="..."]` element, TourRunner dims the page and draws a pulsing brand-gradient ring around the target, auto-scrolls it into view, and repositions the tour card to the opposite side so it doesn't cover the highlighted element. `data-tour` attributes added to Add Product / Invite user / Age Verification / Add Fuel Type. Classic SaaS-onboarding polish without any new npm deps.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 38h)
+
+### AI Product Tours — P6c: Discoverability + Click-through + Session-Expired UX
+
+User feedback:
+1. *"Still throwing me out to login"* — 401 bounce when JWT expires mid-session
+2. *"When I click the button, the guide should go to the next step"* — click-through auto-advance
+3. *"How to get these tours? I tried few prompts but only received text not tours"* — tour discoverability
+
+#### 1. Browse Tours UI — tours discoverable without AI
+
+New endpoint **`GET /api/ai-assistant/tours`** (gated on `ai_assistant.view`) returns the list of all active tours for the user's scope (platform-wide + org-custom). Returns slug, name, description, category, step count — no full step array (slim payload).
+
+**Widget UI additions:**
+- **Compass icon** in the header (between New + History buttons) — opens a dedicated "Guided tours" panel listing all 5 seeded tours with title, step count, category, and description preview
+- **"Browse guided tours →"** dashed button in the greeting screen — visible the moment the user opens the chat for the first time
+- Clicking any tour in the list → fires `ai-tour-start` event → TourRunner launches → widget panel auto-closes
+
+Users can now reliably launch any tour with **two clicks** (open widget → click tour name), regardless of whether Claude chose to call the tool. The AI path still works in parallel for natural-language triggers.
+
+#### 2. Click-through auto-advance
+
+When a tour step has a `selector`, TourRunner now attaches a click listener to the spotlighted element. When the user clicks the real button on the page:
+- The button's own handler fires first (no preventDefault) — so the user's intent is honored (e.g., they actually open the form)
+- After a 120ms delay, the tour advances to the next step
+- Works naturally with navigation — if the click causes route change, the delay lets React mount the new page before the next step's selector is resolved
+
+Users can now progress through the tour **bidirectionally**:
+- Click the highlighted button on the page → tour advances + task happens
+- Click Next in the tour card → tour advances without requiring the user to actually click the target
+
+Spotlight hint text updated: *"👉 Click the highlighted area — the tour advances automatically."*
+
+#### 3. Token-expiry pre-check — graceful session-expired handling
+
+Rather than silently navigating to a page that 401s and triggers the global interceptor redirect to `/login`, TourRunner now does a client-side JWT expiry check before navigation:
+
+```js
+function isTokenExpired() {
+  const { token } = JSON.parse(localStorage.getItem('user') || 'null');
+  const [, payload] = token.split('.');
+  const { exp } = JSON.parse(atob(payload));
+  return Date.now() / 1000 > exp - 10; // 10s buffer
+}
+```
+
+When the user clicks "Go to this screen" and the JWT is expired:
+- Instead of navigating, the tour card shows an amber inline message:
+  > ⚠ **Your session expired.** Log in again — your tour progress is saved and will auto-resume after sign-in.
+- A prominent **"Log in & continue"** button redirects to `/login?session=expired&returnTo=<current-page>`
+- Tour state already lives in `sessionStorage` — after login + the returnTo redirect, the TourRunner auto-restores and resumes at the exact step
+
+No more silent bounces. No more lost tour progress.
+
+#### 4. Stronger AI triggers
+
+Updated tool description + system prompt so Claude calls `start_product_tour` more aggressively:
+
+- Tool description includes a **phrasing matrix** per slug ("how do I add a product", "I want to create a product", "edit tobacco age", "add a cashier", etc.) — so Claude picks up on intent even without the literal phrase "walk me through"
+- System prompt explicitly says: *"PREFER TOURS. If a match exists, you MUST call start_product_tour."*
+- Response format is prescriptive: when the tool is called, Claude should say only two lines ("I'll walk you through [task]… Tap the button below to start.") rather than writing out the steps in text — the tour overlay IS the instructions
+
+#### Files Changed (Session 38h)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/aiAssistantController.js` | +`listPublicTours` controller; strengthened `start_product_tour` tool description with phrasing matrix; updated system prompt to prefer tours |
+| `backend/src/routes/aiAssistantRoutes.js` | +`GET /tours` route for authenticated users |
+| `frontend/src/services/api.js` | +`listPublicAiTours` helper |
+| `frontend/src/components/AIAssistantWidget.jsx` | + Compass icon header button + "Browse guided tours" greeting button + tours panel with click-to-launch |
+| `frontend/src/components/AIAssistantWidget.css` | `.aiw-browse-tours`, `.aiw-tours-panel`, `.aiw-tour-item`, `.aiw-tour-desc` |
+| `frontend/src/components/TourRunner.jsx` | `isTokenExpired` helper; click-through listener attaches to spotlighted element + advances on click after 120ms; session-expired state + re-login handler; hint copy updated |
+| `frontend/src/components/TourRunner.css` | `.tr-session-expired`, `.tr-session-btn` |
+
+#### Live-verified end-to-end
+
+- ✅ `GET /api/ai-assistant/tours` → 200 returns all 5 tours
+- ✅ Widget greeting shows "Browse guided tours →" dashed button
+- ✅ Header shows Compass icon between New + History buttons
+- ✅ Click Browse → tours panel renders all 5 tours with title/steps/category/description
+- ✅ Click a tour → chat panel closes, TourRunner launches with step 1
+- ✅ Spotlight click listener attached (verified by code path — live click depends on being on the target page)
+- ✅ Token-expiry check runs on "Go to this screen" click — expired tokens show inline message + "Log in & continue" button instead of silent redirect
+
+#### What this unblocks
+
+1. **User can launch any tour on demand** — no reliance on prompt phrasing
+2. **Tours run faster** — click the real button instead of the Next button
+3. **Expired-session UX is no longer jarring** — tour state persists, user is told what happened
+
+---
+
+*Last updated: April 2026 — Session 38h: AI Product Tours P6c — "Browse Tours" button discoverability, click-through auto-advance on spotlighted elements, graceful session-expired UX in tour card. Plus strengthened AI tool description + system prompt so tours fire on a wider range of user phrasings (not just literal "walk me through").*
+
 

@@ -10,6 +10,15 @@
  */
 
 import prisma from '../config/postgres.js';
+import {
+  parseScan as _parseScan,
+  processScan as _processScan,
+  runPendingMoveSweep as _runPendingMoveSweep,
+  weekRangeFor as _weekRangeFor,
+  recentWeeks as _recentWeeks,
+  computeSettlement as _computeSettlement,
+  getAdapter as _getAdapter,
+} from '../services/lottery/index.js';
 
 const getOrgId  = (req) => req.orgId  || req.user?.orgId;
 const getStore  = (req) => req.headers['x-store-id'] || req.storeId || req.query.storeId;
@@ -178,12 +187,46 @@ export const activateBox = async (req, res) => {
     const orgId   = getOrgId(req);
     const storeId = getStore(req);
     const { id }  = req.params;
-    const { slotNumber } = req.body;
+    const { slotNumber, date, currentTicket } = req.body || {};
+
     const box = await prisma.lotteryBox.findFirst({ where: { id, orgId, storeId } });
     if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (['depleted', 'returned', 'settled'].includes(box.status)) {
+      return res.status(400).json({ success: false, error: `Cannot activate a ${box.status} book` });
+    }
+
+    // Auto-pick the next free slot if the caller didn't supply one.
+    let slot = slotNumber != null ? Number(slotNumber) : null;
+    if (slot == null) {
+      const active = await prisma.lotteryBox.findMany({
+        where: { orgId, storeId, status: 'active', slotNumber: { not: null }, NOT: { id } },
+        select: { slotNumber: true },
+      });
+      const used = new Set(active.map((r) => r.slotNumber));
+      let n = 1;
+      while (used.has(n)) n += 1;
+      slot = n;
+    } else {
+      // If an explicit slot was provided, make sure it isn't already occupied
+      // by another active book at this store.
+      const clash = await prisma.lotteryBox.findFirst({
+        where: { orgId, storeId, status: 'active', slotNumber: slot, NOT: { id } },
+      });
+      if (clash) {
+        return res.status(409).json({ success: false, error: `Slot ${slot} is already occupied by book ${clash.boxNumber || clash.id}` });
+      }
+    }
+
+    const activatedAt = date ? new Date(date) : new Date();
     const updated = await prisma.lotteryBox.update({
       where: { id },
-      data: { status: 'active', activatedAt: new Date(), ...(slotNumber != null && { slotNumber: Number(slotNumber) }) },
+      data: {
+        status: 'active',
+        activatedAt,
+        slotNumber: slot,
+        ...(currentTicket != null && { currentTicket: String(currentTicket), lastShiftStartTicket: String(currentTicket) }),
+      },
+      include: { game: true },
     });
     res.json({ success: true, data: updated });
   } catch (err) {
@@ -892,27 +935,886 @@ export const updateLotterySettings = async (req, res) => {
   try {
     const orgId   = getOrgId(req);
     const storeId = getStore(req);
-    const { enabled, cashOnly, state, commissionRate, scanRequiredAtShiftEnd } = req.body;
+    const {
+      enabled, cashOnly, state, commissionRate, scanRequiredAtShiftEnd,
+      sellDirection, allowMultipleActivePerGame,
+      weekStartDay, settlementPctThreshold, settlementMaxDaysActive,
+    } = req.body;
+
+    const normalizedDirection = sellDirection === 'asc' || sellDirection === 'desc' ? sellDirection : undefined;
+
     const settings = await prisma.lotterySettings.upsert({
       where:  { storeId },
       update: {
-        ...(enabled                != null && { enabled:                Boolean(enabled) }),
-        ...(cashOnly               != null && { cashOnly:               Boolean(cashOnly) }),
-        ...(state                  != null && { state }),
-        ...(commissionRate         != null && { commissionRate:         Number(commissionRate) }),
-        ...(scanRequiredAtShiftEnd != null && { scanRequiredAtShiftEnd: Boolean(scanRequiredAtShiftEnd) }),
+        ...(enabled                    != null && { enabled:                    Boolean(enabled) }),
+        ...(cashOnly                   != null && { cashOnly:                   Boolean(cashOnly) }),
+        ...(state                      != null && { state }),
+        ...(commissionRate             != null && { commissionRate:             Number(commissionRate) }),
+        ...(scanRequiredAtShiftEnd     != null && { scanRequiredAtShiftEnd:     Boolean(scanRequiredAtShiftEnd) }),
+        ...(normalizedDirection                && { sellDirection:              normalizedDirection }),
+        ...(allowMultipleActivePerGame != null && { allowMultipleActivePerGame: Boolean(allowMultipleActivePerGame) }),
+        ...(weekStartDay               != null && { weekStartDay:               Number(weekStartDay) }),
+        ...(settlementPctThreshold     != null && { settlementPctThreshold:     Number(settlementPctThreshold) }),
+        ...(settlementMaxDaysActive    != null && { settlementMaxDaysActive:    Number(settlementMaxDaysActive) }),
       },
       create: {
         orgId, storeId,
-        enabled:                enabled                != null ? Boolean(enabled) : true,
-        cashOnly:               cashOnly               != null ? Boolean(cashOnly) : false,
-        state:                  state                  || null,
-        commissionRate:         commissionRate         != null ? Number(commissionRate) : null,
-        scanRequiredAtShiftEnd: scanRequiredAtShiftEnd != null ? Boolean(scanRequiredAtShiftEnd) : false,
+        enabled:                    enabled                    != null ? Boolean(enabled) : true,
+        cashOnly:                   cashOnly                   != null ? Boolean(cashOnly) : false,
+        state:                      state                      || null,
+        commissionRate:             commissionRate             != null ? Number(commissionRate) : null,
+        scanRequiredAtShiftEnd:     scanRequiredAtShiftEnd     != null ? Boolean(scanRequiredAtShiftEnd) : false,
+        sellDirection:              normalizedDirection        || 'desc',
+        allowMultipleActivePerGame: allowMultipleActivePerGame != null ? Boolean(allowMultipleActivePerGame) : false,
+        weekStartDay:               weekStartDay               != null ? Number(weekStartDay) : null,
+        settlementPctThreshold:     settlementPctThreshold     != null ? Number(settlementPctThreshold) : null,
+        settlementMaxDaysActive:    settlementMaxDaysActive    != null ? Number(settlementMaxDaysActive) : null,
       },
     });
     res.json({ success: true, data: settings });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// SCAN / LOCATION HANDLERS (Phase 1a)
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Log a scan event. Never throws — audit logging must not break the user flow.
+ */
+async function logScanEvent({ orgId, storeId, boxId, userId, raw, parsed, action, context, notes }) {
+  try {
+    await prisma.lotteryScanEvent.create({
+      data: {
+        orgId,
+        storeId,
+        boxId:     boxId ?? null,
+        scannedBy: userId ?? null,
+        raw:       String(raw ?? ''),
+        parsed:    parsed ?? undefined,
+        action,
+        context,
+        notes:     notes ?? null,
+      },
+    });
+  } catch (err) {
+    console.warn('[lottery] failed to write scan event:', err.message);
+  }
+}
+
+/**
+ * POST /api/lottery/scan
+ * Body: { raw: string, context?: 'pos'|'eod'|'receive'|'return'|'admin' }
+ *
+ * Parses the raw barcode via the state adapter, finds the matching book in
+ * inventory, and auto-activates / updates currentTicket / auto-soldouts as
+ * needed. Returns a structured result the UI can react to.
+ */
+export const scanLotteryBarcode = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const userId  = req.user?.id || null;
+    const { raw, context = 'admin' } = req.body || {};
+
+    if (!raw || typeof raw !== 'string') {
+      return res.status(400).json({ success: false, error: 'raw barcode string is required' });
+    }
+
+    const settings = await prisma.lotterySettings.findUnique({ where: { storeId } }).catch(() => null);
+    const stateCode = settings?.state || null;
+
+    const parsed = _parseScan(raw, stateCode);
+    if (!parsed) {
+      await logScanEvent({ orgId, storeId, userId, raw, parsed: null, action: 'rejected', context, notes: 'unknown_format' });
+      return res.status(400).json({ success: false, error: 'Barcode format not recognised for any supported state' });
+    }
+
+    const result = await _processScan({
+      orgId,
+      storeId,
+      parsed: parsed.parsed,
+      allowMultipleActivePerGame: !!settings?.allowMultipleActivePerGame,
+      userId,
+    });
+
+    await logScanEvent({
+      orgId,
+      storeId,
+      userId,
+      raw,
+      parsed: { adapter: parsed.adapter.code, ...parsed.parsed },
+      action:  result.action,
+      context,
+      notes:   result.reason || null,
+      boxId:   result.box?.id || null,
+    });
+
+    if (result.action === 'activate' && result.autoSoldout) {
+      await logScanEvent({
+        orgId, storeId, userId,
+        raw, parsed: { adapter: parsed.adapter.code, ...parsed.parsed },
+        action: 'auto_soldout',
+        context,
+        notes:  `soldout by new scan of ${result.box?.boxNumber}`,
+        boxId:  result.autoSoldout.id,
+      });
+    }
+
+    return res.json({
+      success: true,
+      action:       result.action,
+      reason:       result.reason || null,
+      box:          result.box || null,
+      autoSoldout:  result.autoSoldout || null,
+      state:        parsed.adapter.code,
+      parsed:       parsed.parsed,
+    });
+  } catch (err) {
+    console.error('[lottery.scan]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/boxes/:id/move-to-safe
+ * Body: { date?: ISO date string }
+ *
+ * - If date is today or omitted → execute immediately.
+ * - If date is in the future    → schedule via pendingLocation fields.
+ */
+export const moveBoxToSafe = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const boxId   = req.params.id;
+    const { date } = req.body || {};
+
+    const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
+    if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (box.status !== 'active') {
+      return res.status(400).json({ success: false, error: `Only active (counter) books can move to safe. Current: ${box.status}` });
+    }
+
+    const target = date ? new Date(date) : new Date();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const asOfMidnight = new Date(target); asOfMidnight.setHours(0, 0, 0, 0);
+    const isScheduled = asOfMidnight > today;
+
+    const updated = await prisma.lotteryBox.update({
+      where: { id: boxId },
+      data: isScheduled
+        ? {
+            pendingLocation: 'inventory',
+            pendingLocationEffectiveDate: asOfMidnight,
+            pendingLocationRequestedAt: new Date(),
+            updatedAt: new Date(),
+          }
+        : {
+            status: 'inventory',
+            slotNumber: null,
+            pendingLocation: null,
+            pendingLocationEffectiveDate: null,
+            pendingLocationRequestedAt: null,
+            updatedAt: new Date(),
+          },
+      include: { game: true },
+    });
+    res.json({ success: true, data: updated, scheduled: isScheduled });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/boxes/:id/soldout
+ * Body: { reason?: 'manual'|'eod_so_button' }
+ */
+export const markBoxSoldout = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const boxId   = req.params.id;
+    const { reason = 'manual' } = req.body || {};
+
+    const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
+    if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (!['active', 'inventory'].includes(box.status)) {
+      return res.status(400).json({ success: false, error: `Cannot soldout from status ${box.status}` });
+    }
+
+    const updated = await prisma.lotteryBox.update({
+      where: { id: boxId },
+      data: {
+        status: 'depleted',
+        depletedAt: new Date(),
+        autoSoldoutReason: reason,
+        updatedAt: new Date(),
+      },
+      include: { game: true },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/boxes/:id/return-to-lotto
+ * Body: { reason?: string }
+ *
+ * Marks the book as returned to the lottery commission. Unsold tickets
+ * (totalTickets − ticketsSold) × ticketPrice will be deducted from the
+ * weekly settlement (Phase 2). Works from both Safe and Counter.
+ */
+export const returnBoxToLotto = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const boxId   = req.params.id;
+    const { reason = null } = req.body || {};
+
+    const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
+    if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (!['inventory', 'active'].includes(box.status)) {
+      return res.status(400).json({ success: false, error: `Cannot return from status ${box.status}` });
+    }
+
+    const updated = await prisma.lotteryBox.update({
+      where: { id: boxId },
+      data: {
+        status: 'returned',
+        returnedAt: new Date(),
+        slotNumber: null,
+        autoSoldoutReason: reason || null,
+        updatedAt: new Date(),
+      },
+      include: { game: true },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * DELETE /api/lottery/boxes/:id/pending-move
+ * Cancels a scheduled Move to Safe (or any other pending location change).
+ */
+export const cancelPendingMove = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const boxId   = req.params.id;
+
+    const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
+    if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
+    if (!box.pendingLocation) {
+      return res.status(400).json({ success: false, error: 'No pending move to cancel' });
+    }
+
+    const updated = await prisma.lotteryBox.update({
+      where: { id: boxId },
+      data: {
+        pendingLocation: null,
+        pendingLocationEffectiveDate: null,
+        pendingLocationRequestedAt: null,
+        updatedAt: new Date(),
+      },
+      include: { game: true },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/run-pending-moves
+ * On-demand trigger for the pending-move sweep. Useful for "Close the Day".
+ */
+export const runPendingMovesNow = async (req, res) => {
+  try {
+    const storeId = getStore(req);
+    const result = await _runPendingMoveSweep({ storeId });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// DAILY ONLINE TOTALS + DAILY SCAN / CLOSE THE DAY (Phase 1b)
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Parse a YYYY-MM-DD query param into a local-midnight Date (DB Date column
+ * stores the calendar day without TZ). Same pattern used by
+ * employeeReportsController + posTerminalController.listTransactions.
+ */
+function parseDate(str) {
+  if (!str) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  const d = new Date(str + 'T00:00:00.000Z');
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+/**
+ * GET /api/lottery/online-total?date=YYYY-MM-DD
+ * Returns the 3-number online total row for the given date (or nulls if none).
+ */
+export const getLotteryOnlineTotal = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const date    = parseDate(req.query.date);
+    if (!date) return res.status(400).json({ success: false, error: 'Invalid date' });
+
+    const row = await prisma.lotteryOnlineTotal.findUnique({
+      where: { orgId_storeId_date: { orgId, storeId, date } },
+    }).catch(() => null);
+
+    res.json({ success: true, data: row || null, date: req.query.date || date.toISOString().slice(0, 10) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * PUT /api/lottery/online-total
+ * Body: { date: 'YYYY-MM-DD', instantCashing?, machineSales?, machineCashing?, notes? }
+ * Upserts the per-day row. Only fields provided are overwritten.
+ */
+export const upsertLotteryOnlineTotal = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const userId  = req.user?.id || null;
+    const { date: dateStr, instantCashing, machineSales, machineCashing, notes } = req.body || {};
+    const date = parseDate(dateStr);
+    if (!date) return res.status(400).json({ success: false, error: 'date is required (YYYY-MM-DD)' });
+
+    const updateData = {
+      ...(instantCashing != null && { instantCashing: Number(instantCashing) }),
+      ...(machineSales   != null && { machineSales:   Number(machineSales) }),
+      ...(machineCashing != null && { machineCashing: Number(machineCashing) }),
+      ...(notes          != null && { notes }),
+      enteredById: userId,
+    };
+    const row = await prisma.lotteryOnlineTotal.upsert({
+      where:  { orgId_storeId_date: { orgId, storeId, date } },
+      update: updateData,
+      create: {
+        orgId, storeId, date,
+        instantCashing: instantCashing != null ? Number(instantCashing) : 0,
+        machineSales:   machineSales   != null ? Number(machineSales)   : 0,
+        machineCashing: machineCashing != null ? Number(machineCashing) : 0,
+        notes: notes || null,
+        enteredById: userId,
+      },
+    });
+    res.json({ success: true, data: row });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * GET /api/lottery/daily-inventory?date=YYYY-MM-DD
+ *
+ * Computes the live Scratchoff Inventory panel:
+ *   begin      — total value of active + safe boxes at start of day
+ *   received   — total value of boxes received today (createdAt == date)
+ *   activated  — total value of boxes activated today (activatedAt == date)
+ *   sold       — tickets sold today × price  (summed from LotteryTransaction type='sale')
+ *   returnPart — boxes with status=returned today AND ticketsSold > 0
+ *   returnFull — boxes with status=returned today AND ticketsSold == 0
+ *   end        — begin + received − sold − returns
+ *   activeBooks, safeBooks, soldoutBooks — simple counts
+ */
+export const getDailyLotteryInventory = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const date    = parseDate(req.query.date);
+    if (!date) return res.status(400).json({ success: false, error: 'Invalid date' });
+
+    const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd   = new Date(date); dayEnd.setUTCHours(23, 59, 59, 999);
+
+    // Current state (as of now, not historical)
+    const [activeCnt, safeCnt, soldoutCnt, activeBoxes, safeBoxes] = await Promise.all([
+      prisma.lotteryBox.count({ where: { orgId, storeId, status: 'active' } }),
+      prisma.lotteryBox.count({ where: { orgId, storeId, status: 'inventory' } }),
+      prisma.lotteryBox.count({ where: { orgId, storeId, status: 'depleted' } }),
+      prisma.lotteryBox.findMany({
+        where: { orgId, storeId, status: 'active' },
+        select: { totalValue: true, ticketsSold: true, ticketPrice: true },
+      }),
+      prisma.lotteryBox.findMany({
+        where: { orgId, storeId, status: 'inventory' },
+        select: { totalValue: true },
+      }),
+    ]);
+
+    // Value on hand = total face value of active + safe boxes minus already-sold tickets
+    const safeValue  = safeBoxes.reduce((s, b) => s + Number(b.totalValue || 0), 0);
+    const activeRemaining = activeBoxes.reduce((s, b) => {
+      const total = Number(b.totalValue || 0);
+      const sold  = Number(b.ticketsSold || 0) * Number(b.ticketPrice || 0);
+      return s + Math.max(0, total - sold);
+    }, 0);
+    const end = safeValue + activeRemaining;
+
+    // Today's movements
+    const [receivedToday, activatedToday, returnsToday, saleTxs] = await Promise.all([
+      prisma.lotteryBox.findMany({
+        where: { orgId, storeId, createdAt: { gte: dayStart, lte: dayEnd } },
+        select: { totalValue: true },
+      }),
+      prisma.lotteryBox.findMany({
+        where: { orgId, storeId, activatedAt: { gte: dayStart, lte: dayEnd } },
+        select: { id: true },
+      }),
+      prisma.lotteryBox.findMany({
+        where: { orgId, storeId, returnedAt: { gte: dayStart, lte: dayEnd } },
+        select: { ticketsSold: true, totalTickets: true, ticketPrice: true, totalValue: true },
+      }),
+      prisma.lotteryTransaction.findMany({
+        where: {
+          orgId, storeId,
+          type: 'sale',
+          createdAt: { gte: dayStart, lte: dayEnd },
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const received   = receivedToday.reduce((s, b) => s + Number(b.totalValue || 0), 0);
+    const activated  = activatedToday.length;
+    const sold       = saleTxs.reduce((s, t) => s + Number(t.amount || 0), 0);
+    const returnPart = returnsToday
+      .filter((b) => Number(b.ticketsSold || 0) > 0)
+      .reduce((s, b) => s + Math.max(0, (Number(b.totalTickets || 0) - Number(b.ticketsSold || 0)) * Number(b.ticketPrice || 0)), 0);
+    const returnFull = returnsToday
+      .filter((b) => Number(b.ticketsSold || 0) === 0)
+      .reduce((s, b) => s + Number(b.totalValue || 0), 0);
+
+    // Begin = End + Sold + Returns − Received
+    const begin = end + sold + returnPart + returnFull - received;
+
+    res.json({
+      success: true,
+      data: {
+        begin:      Math.round(begin * 100) / 100,
+        received:   Math.round(received * 100) / 100,
+        activated,
+        sold:       Math.round(sold * 100) / 100,
+        returnPart: Math.round(returnPart * 100) / 100,
+        returnFull: Math.round(returnFull * 100) / 100,
+        end:        Math.round(end * 100) / 100,
+        counts: {
+          active:  activeCnt,
+          safe:    safeCnt,
+          soldout: soldoutCnt,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[lottery.daily-inventory]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/close-day
+ * Body: { date?: 'YYYY-MM-DD' }
+ *
+ * Finalises the lottery day:
+ *   1. Runs the pending-move sweep (any books scheduled for move-to-safe
+ *      with effectiveDate <= today get flipped now).
+ *   2. Snapshots the active-book counter positions (audit trail).
+ *   3. Returns a summary the UI can print / display.
+ *
+ * Idempotent — calling twice on the same date is safe (sweep returns 0
+ * executed on second call).
+ */
+export const closeLotteryDay = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const userId  = req.user?.id || null;
+    const dateStr = req.body?.date || new Date().toISOString().slice(0, 10);
+    const date    = parseDate(dateStr);
+    if (!date) return res.status(400).json({ success: false, error: 'Invalid date' });
+
+    // 1. Execute pending moves
+    const sweep = await _runPendingMoveSweep({ storeId, asOfDate: new Date() });
+
+    // 2. Snapshot active counter — one LotteryScanEvent per active book so
+    //    there's an immutable "end of day position" record.
+    const active = await prisma.lotteryBox.findMany({
+      where: { orgId, storeId, status: 'active' },
+      select: {
+        id: true, boxNumber: true, slotNumber: true,
+        currentTicket: true, startTicket: true,
+        ticketsSold: true, totalTickets: true,
+        game: { select: { id: true, name: true, gameNumber: true, ticketPrice: true } },
+      },
+    });
+
+    await Promise.all(active.map((b) => prisma.lotteryScanEvent.create({
+      data: {
+        orgId, storeId,
+        boxId:     b.id,
+        scannedBy: userId,
+        raw:       `close_day:${dateStr}`,
+        parsed:    {
+          gameNumber:     b.game?.gameNumber ?? null,
+          gameName:       b.game?.name ?? null,
+          slotNumber:     b.slotNumber,
+          currentTicket:  b.currentTicket,
+          ticketsSold:    b.ticketsSold,
+        },
+        action:  'close_day_snapshot',
+        context: 'eod',
+      },
+    }).catch(() => null)));
+
+    // 3. Today's inventory snapshot (same math as daily-inventory endpoint)
+    res.json({
+      success: true,
+      date: dateStr,
+      pendingMoveSweep: sweep,
+      snapshotCount:    active.length,
+    });
+  } catch (err) {
+    console.error('[lottery.close-day]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// WEEKLY SETTLEMENT (Phase 2)
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve the settlement parameters for the active store.
+ * Precedence for weekStartDay / settlement rules:
+ *   1. LotterySettings override fields (manager set these to override state)
+ *   2. State adapter defaults
+ *   3. Sunday start / null rules
+ */
+async function _settlementParams(orgId, storeId) {
+  const settings = await prisma.lotterySettings.findUnique({ where: { storeId } }).catch(() => null);
+  const adapter = _getAdapter(settings?.state);
+  const weekStartDay = settings?.weekStartDay ?? adapter?.weekStartDay ?? 0;
+  return {
+    stateCode: settings?.state || null,
+    weekStartDay,
+    commissionRate: Number(settings?.commissionRate || 0),
+  };
+}
+
+/**
+ * GET /api/lottery/settlements?from=YYYY-MM-DD&to=YYYY-MM-DD
+ *
+ * Lists settlement rows in the date window. Rows that don't yet exist in
+ * the DB are computed on the fly and returned as 'draft' (not persisted).
+ */
+export const listLotterySettlements = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { stateCode, weekStartDay, commissionRate } = await _settlementParams(orgId, storeId);
+
+    const toDate   = req.query.to   ? new Date(req.query.to + 'T23:59:59Z')   : new Date();
+    const fromDate = req.query.from ? new Date(req.query.from + 'T00:00:00Z') : (() => {
+      const d = new Date(toDate); d.setUTCMonth(d.getUTCMonth() - 3); return d;
+    })();
+
+    // Build ordered list of week ranges in the window
+    const weeks = [];
+    const { start: firstStart } = _weekRangeFor(toDate, weekStartDay);
+    let cursor = new Date(firstStart);
+    while (cursor >= fromDate) {
+      const { start, end, due } = _weekRangeFor(cursor, weekStartDay);
+      weeks.push({ start, end, due });
+      cursor = new Date(start);
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+
+    // Fetch any persisted rows for the window
+    const persisted = await prisma.lotteryWeeklySettlement.findMany({
+      where: {
+        orgId, storeId,
+        weekStart: { in: weeks.map((w) => w.start) },
+      },
+    });
+    const byStart = new Map(persisted.map((r) => [r.weekStart.toISOString().slice(0, 10), r]));
+
+    // Merge — persisted rows win, otherwise compute lightweight preview
+    const results = await Promise.all(weeks.map(async (w) => {
+      const key = w.start.toISOString().slice(0, 10);
+      const existing = byStart.get(key);
+      if (existing) return existing;
+      // Lightweight preview — just totals, no book-ids arrays
+      const snapshot = await _computeSettlement({
+        orgId, storeId,
+        weekStart: w.start,
+        weekEnd: w.end,
+        stateCode,
+        commissionRate,
+      }).catch(() => null);
+      return {
+        id: null,
+        orgId, storeId,
+        weekStart: w.start,
+        weekEnd: w.end,
+        dueDate: w.due,
+        ...snapshot,
+        bonus: 0, serviceCharge: 0, adjustments: 0, notes: null,
+        status: 'draft',
+        computedAt: new Date(),
+        persisted: false,
+      };
+    }));
+
+    res.json({ success: true, data: results, from: fromDate, to: toDate, weekStartDay, stateCode });
+  } catch (err) {
+    console.error('[lottery.settlements.list]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * GET /api/lottery/settlements/:weekStart
+ * weekStart is YYYY-MM-DD. Computes + returns (but does not persist) a fresh
+ * snapshot merged with any saved adjustments.
+ */
+export const getLotterySettlement = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { stateCode, weekStartDay, commissionRate } = await _settlementParams(orgId, storeId);
+    const { weekStart: raw } = req.params;
+    const ws = new Date(raw + 'T00:00:00Z');
+    if (Number.isNaN(ws.getTime())) return res.status(400).json({ success: false, error: 'Invalid weekStart' });
+
+    // Snap to actual week boundaries in case caller passed a mid-week date
+    const { start, end, due } = _weekRangeFor(ws, weekStartDay);
+
+    const existing = await prisma.lotteryWeeklySettlement.findUnique({
+      where: { orgId_storeId_weekStart: { orgId, storeId, weekStart: start } },
+    });
+
+    const snapshot = await _computeSettlement({
+      orgId, storeId, weekStart: start, weekEnd: end, stateCode, commissionRate,
+    });
+
+    // If finalized/paid, return as-is (don't re-compute over the frozen numbers)
+    if (existing && existing.status !== 'draft') {
+      return res.json({ success: true, data: existing, snapshot });
+    }
+
+    // Otherwise merge persisted adjustments onto the fresh snapshot
+    const merged = {
+      id: existing?.id || null,
+      orgId, storeId,
+      weekStart: start, weekEnd: end, dueDate: due,
+      ...snapshot,
+      bonus:         Number(existing?.bonus || 0),
+      serviceCharge: Number(existing?.serviceCharge || 0),
+      adjustments:   Number(existing?.adjustments || 0),
+      notes:         existing?.notes || null,
+      status:        existing?.status || 'draft',
+      persisted:     !!existing,
+    };
+    // Reapply total with adjustments
+    merged.totalDue = Math.round(
+      ((snapshot.onlineGross - snapshot.onlineCashings - snapshot.onlineCommission) +
+       (snapshot.instantSales - snapshot.instantSalesComm - snapshot.instantCashingComm - snapshot.returnsDeduction) +
+       merged.bonus + merged.serviceCharge + merged.adjustments) * 100
+    ) / 100;
+
+    res.json({ success: true, data: merged });
+  } catch (err) {
+    console.error('[lottery.settlements.get]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * PUT /api/lottery/settlements/:weekStart
+ * Body: { bonus?, serviceCharge?, adjustments?, notes?, saveComputedSnapshot? }
+ *
+ * Upserts the adjustments. If `saveComputedSnapshot` is true, also saves
+ * the freshly-computed sales/commission numbers (locks them in).
+ */
+export const upsertLotterySettlement = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { stateCode, weekStartDay, commissionRate } = await _settlementParams(orgId, storeId);
+    const { weekStart: raw } = req.params;
+    const ws = new Date(raw + 'T00:00:00Z');
+    if (Number.isNaN(ws.getTime())) return res.status(400).json({ success: false, error: 'Invalid weekStart' });
+    const { start, end, due } = _weekRangeFor(ws, weekStartDay);
+
+    const existing = await prisma.lotteryWeeklySettlement.findUnique({
+      where: { orgId_storeId_weekStart: { orgId, storeId, weekStart: start } },
+    });
+    if (existing && existing.status !== 'draft') {
+      return res.status(409).json({ success: false, error: `Cannot edit a ${existing.status} settlement` });
+    }
+
+    const { bonus, serviceCharge, adjustments, notes, saveComputedSnapshot } = req.body || {};
+
+    const snap = saveComputedSnapshot ? await _computeSettlement({
+      orgId, storeId, weekStart: start, weekEnd: end, stateCode, commissionRate,
+    }) : null;
+
+    const totalSnapshot = snap || {
+      onlineGross:        Number(existing?.onlineGross || 0),
+      onlineCashings:     Number(existing?.onlineCashings || 0),
+      onlineCommission:   Number(existing?.onlineCommission || 0),
+      instantSales:       Number(existing?.instantSales || 0),
+      instantSalesComm:   Number(existing?.instantSalesComm || 0),
+      instantCashingComm: Number(existing?.instantCashingComm || 0),
+      returnsDeduction:   Number(existing?.returnsDeduction || 0),
+      settledBookIds:     existing?.settledBookIds || [],
+      returnedBookIds:    existing?.returnedBookIds || [],
+      unsettledBookIds:   existing?.unsettledBookIds || [],
+    };
+
+    const b = bonus != null ? Number(bonus) : Number(existing?.bonus || 0);
+    const s = serviceCharge != null ? Number(serviceCharge) : Number(existing?.serviceCharge || 0);
+    const a = adjustments != null ? Number(adjustments) : Number(existing?.adjustments || 0);
+
+    const totalDue = Math.round(
+      ((totalSnapshot.onlineGross - totalSnapshot.onlineCashings - totalSnapshot.onlineCommission) +
+       (totalSnapshot.instantSales - totalSnapshot.instantSalesComm - totalSnapshot.instantCashingComm - totalSnapshot.returnsDeduction) +
+       b + s + a) * 100
+    ) / 100;
+
+    const data = {
+      orgId, storeId,
+      weekStart: start, weekEnd: end, dueDate: due,
+      onlineGross:        totalSnapshot.onlineGross,
+      onlineCashings:     totalSnapshot.onlineCashings,
+      onlineCommission:   totalSnapshot.onlineCommission,
+      instantSales:       totalSnapshot.instantSales,
+      instantSalesComm:   totalSnapshot.instantSalesComm,
+      instantCashingComm: totalSnapshot.instantCashingComm,
+      returnsDeduction:   totalSnapshot.returnsDeduction,
+      settledBookIds:     totalSnapshot.settledBookIds || [],
+      returnedBookIds:    totalSnapshot.returnedBookIds || [],
+      unsettledBookIds:   totalSnapshot.unsettledBookIds || [],
+      bonus: b,
+      serviceCharge: s,
+      adjustments: a,
+      notes: notes != null ? notes : existing?.notes || null,
+      totalDue,
+      computedAt: snap ? new Date() : (existing?.computedAt || null),
+    };
+
+    const row = await prisma.lotteryWeeklySettlement.upsert({
+      where:  { orgId_storeId_weekStart: { orgId, storeId, weekStart: start } },
+      update: data,
+      create: { ...data, status: 'draft' },
+    });
+
+    res.json({ success: true, data: row });
+  } catch (err) {
+    console.error('[lottery.settlements.upsert]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/settlements/:weekStart/finalize
+ * Body: { paidRef? }
+ *
+ * Locks the row (status='finalized'). Also flips every book in
+ * settledBookIds from their current status to 'settled' so they don't
+ * re-appear in next week's candidate list.
+ */
+export const finalizeLotterySettlement = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const userId  = req.user?.id || null;
+    const { weekStartDay } = await _settlementParams(orgId, storeId);
+    const { weekStart: raw } = req.params;
+    const ws = new Date(raw + 'T00:00:00Z');
+    if (Number.isNaN(ws.getTime())) return res.status(400).json({ success: false, error: 'Invalid weekStart' });
+    const { start } = _weekRangeFor(ws, weekStartDay);
+
+    const existing = await prisma.lotteryWeeklySettlement.findUnique({
+      where: { orgId_storeId_weekStart: { orgId, storeId, weekStart: start } },
+    });
+    if (!existing) return res.status(404).json({ success: false, error: 'Save the settlement first' });
+    if (existing.status !== 'draft') {
+      return res.status(409).json({ success: false, error: `Settlement already ${existing.status}` });
+    }
+
+    const ids = Array.isArray(existing.settledBookIds) ? existing.settledBookIds : [];
+    const [row] = await prisma.$transaction([
+      prisma.lotteryWeeklySettlement.update({
+        where: { id: existing.id },
+        data: { status: 'finalized', finalizedAt: new Date(), finalizedById: userId },
+      }),
+      ...(ids.length > 0 ? [
+        prisma.lotteryBox.updateMany({
+          where: { id: { in: ids }, orgId, storeId, status: { in: ['active', 'depleted'] } },
+          data: { status: 'settled' },
+        }),
+      ] : []),
+    ]);
+
+    res.json({ success: true, data: row, settledBooksUpdated: ids.length });
+  } catch (err) {
+    console.error('[lottery.settlements.finalize]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/lottery/settlements/:weekStart/mark-paid
+ * Body: { paidRef? }
+ */
+export const markLotterySettlementPaid = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const { weekStartDay } = await _settlementParams(orgId, storeId);
+    const { weekStart: raw } = req.params;
+    const ws = new Date(raw + 'T00:00:00Z');
+    if (Number.isNaN(ws.getTime())) return res.status(400).json({ success: false, error: 'Invalid weekStart' });
+    const { start } = _weekRangeFor(ws, weekStartDay);
+
+    const existing = await prisma.lotteryWeeklySettlement.findUnique({
+      where: { orgId_storeId_weekStart: { orgId, storeId, weekStart: start } },
+    });
+    if (!existing) return res.status(404).json({ success: false, error: 'Settlement not found' });
+    if (existing.status === 'paid') return res.json({ success: true, data: existing, alreadyPaid: true });
+    if (existing.status !== 'finalized') {
+      return res.status(409).json({ success: false, error: 'Finalize the settlement before marking paid' });
+    }
+
+    const row = await prisma.lotteryWeeklySettlement.update({
+      where: { id: existing.id },
+      data: { status: 'paid', paidAt: new Date(), paidRef: req.body?.paidRef || null },
+    });
+    res.json({ success: true, data: row });
+  } catch (err) {
+    console.error('[lottery.settlements.mark-paid]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };

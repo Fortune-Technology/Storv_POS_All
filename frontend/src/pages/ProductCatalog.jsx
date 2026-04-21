@@ -402,7 +402,7 @@ export default function ProductCatalog() {
               </button>
             )}
             {canCreate && (
-              <button onClick={() => navigate('/portal/catalog/new')} className="pc-add-btn">
+              <button onClick={() => navigate('/portal/catalog/new')} className="pc-add-btn" data-tour="products-new-btn">
                 <Plus size={14} /> Add Product
               </button>
             )}

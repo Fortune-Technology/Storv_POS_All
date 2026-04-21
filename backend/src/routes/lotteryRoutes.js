@@ -23,6 +23,12 @@ import {
   getCatalogTickets, getAllCatalogTickets, createCatalogTicket, updateCatalogTicket, deleteCatalogTicket,
   getTicketRequests, createTicketRequest, reviewTicketRequest, getPendingRequestCount,
   receiveFromCatalog,
+  scanLotteryBarcode, moveBoxToSafe, markBoxSoldout, returnBoxToLotto,
+  cancelPendingMove, runPendingMovesNow,
+  getLotteryOnlineTotal, upsertLotteryOnlineTotal,
+  getDailyLotteryInventory, closeLotteryDay,
+  listLotterySettlements, getLotterySettlement,
+  upsertLotterySettlement, finalizeLotterySettlement, markLotterySettlementPaid,
 } from '../controllers/lotteryController.js';
 
 const router = express.Router();
@@ -77,5 +83,32 @@ router.put( '/ticket-requests/:id/review',    requirePermission('lottery.manage'
 
 // Receive from Catalog
 router.post('/boxes/receive-catalog', requirePermission('lottery.manage'), receiveFromCatalog);
+
+// ── Phase 1a: Scan + Location actions ───────────────────────────────────
+// Scan a ticket/book barcode and let the engine decide whether to activate,
+// update currentTicket, or auto-soldout an old book.
+router.post('/scan', requirePermission('lottery.manage'), scanLotteryBarcode);
+
+// Book lifecycle actions (context menu on Counter/Safe/Soldout tabs)
+router.post(  '/boxes/:id/move-to-safe',     requirePermission('lottery.manage'), moveBoxToSafe);
+router.post(  '/boxes/:id/soldout',          requirePermission('lottery.manage'), markBoxSoldout);
+router.post(  '/boxes/:id/return-to-lotto',  requirePermission('lottery.manage'), returnBoxToLotto);
+router.delete('/boxes/:id/pending-move',     requirePermission('lottery.manage'), cancelPendingMove);
+
+// On-demand pending-move sweep — called by "Close the Day"
+router.post('/run-pending-moves', requirePermission('lottery.manage'), runPendingMovesNow);
+
+// ── Phase 1b: Daily Scan + Online Totals + Close Day ─────────────────────
+router.get( '/online-total',    requirePermission('lottery.view'),   getLotteryOnlineTotal);
+router.put( '/online-total',    requirePermission('lottery.manage'), upsertLotteryOnlineTotal);
+router.get( '/daily-inventory', requirePermission('lottery.view'),   getDailyLotteryInventory);
+router.post('/close-day',       requirePermission('lottery.manage'), closeLotteryDay);
+
+// ── Phase 2: Weekly Settlement ───────────────────────────────────────────
+router.get( '/settlements',                     requirePermission('lottery.view'),   listLotterySettlements);
+router.get( '/settlements/:weekStart',          requirePermission('lottery.view'),   getLotterySettlement);
+router.put( '/settlements/:weekStart',          requirePermission('lottery.manage'), upsertLotterySettlement);
+router.post('/settlements/:weekStart/finalize', requirePermission('lottery.manage'), finalizeLotterySettlement);
+router.post('/settlements/:weekStart/paid',     requirePermission('lottery.manage'), markLotterySettlementPaid);
 
 export default router;

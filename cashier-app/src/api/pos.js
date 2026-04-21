@@ -187,6 +187,12 @@ export const getLotteryShiftReport = (shiftId) =>
 export const saveLotteryShiftReport = (data) =>
   api.post('/lottery/shift-reports', data).then(r => r.data);
 
+// Phase 1a: EoD scan endpoint — routes a raw barcode through the backend
+// scan engine which finds/activates/updates the matching book.
+// context should be 'eod' when called from the end-of-day wizard (Phase 1b).
+export const scanLotteryBarcode = (raw, context = 'eod') =>
+  api.post('/lottery/scan', { raw, context }).then(r => r.data);
+
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>
   api.get('/fuel/types', { params: { storeId } })
@@ -274,3 +280,13 @@ export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r 
 export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
 export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
 export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);
+
+// ── AI Support Assistant ───────────────────────────────────────────────────
+export const listAiConversations   = ()            => api.get('/ai-assistant/conversations').then(r => r.data);
+export const createAiConversation  = ()            => api.post('/ai-assistant/conversations').then(r => r.data);
+export const getAiConversation     = (id)          => api.get(`/ai-assistant/conversations/${id}`).then(r => r.data);
+export const sendAiMessage         = (id, content) => api.post(`/ai-assistant/conversations/${id}/messages`, { content }).then(r => r.data);
+export const submitAiFeedback      = (msgId, feedback, note = null) =>
+  api.post(`/ai-assistant/messages/${msgId}/feedback`, { feedback, note }).then(r => r.data);
+export const escalateAiConversation = (id, subject, priority = 'normal') =>
+  api.post(`/ai-assistant/conversations/${id}/escalate`, { subject, priority }).then(r => r.data);

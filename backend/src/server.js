@@ -51,9 +51,11 @@ import integrationRoutes from './routes/integrationRoutes.js';
 import webhookRoutes     from './routes/webhookRoutes.js';
 import storefrontAuthRoutes from './routes/storefrontAuthRoutes.js';
 import exchangeRoutes       from './routes/exchangeRoutes.js';
+import aiAssistantRoutes    from './routes/aiAssistantRoutes.js';
 import { startTokenRefreshScheduler } from './utils/posScheduler.js';
 import { startBillingScheduler } from './services/billingScheduler.js';
 import { startShiftScheduler }  from './services/shiftScheduler.js';
+import { startPendingMoveScheduler } from './services/lottery/index.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
 dotenv.config();
@@ -143,6 +145,7 @@ app.use('/api/tickets',        ticketRoutes);
 app.use('/api/integrations',   integrationRoutes);
 app.use('/api/storefront',     storefrontAuthRoutes);
 app.use('/api/exchange',       exchangeRoutes);
+app.use('/api/ai-assistant',   aiAssistantRoutes);
 app.use('/webhook',            webhookRoutes);      // PUBLIC — no auth middleware
 app.use('/api',                apiRoutes);
 
@@ -182,6 +185,7 @@ const startServer = async () => {
   startTokenRefreshScheduler();
   startBillingScheduler();
   startShiftScheduler();
+  startPendingMoveScheduler();
 
   // Recurring task spawner — checks every 15 minutes for tasks due
   setInterval(() => spawnRecurringTasks().catch(() => {}), 15 * 60 * 1000);

@@ -45,6 +45,7 @@ const ORG_MODULES = [
   { module: 'audit',           label: 'Audit Log',           actions: ['view'] },
   { module: 'tasks',           label: 'Tasks',               actions: ['view','create','edit','delete'] },
   { module: 'chat',            label: 'Chat',                actions: ['view','create'] },
+  { module: 'ai_assistant',    label: 'AI Support Assistant', actions: ['view','manage'], desc: 'Use the AI chatbot for feature help + live-data queries. "manage" grants access to the 👎 feedback review queue.' },
 ];
 
 // ─── Admin-scoped modules (superadmin panel only) ─────────────────────────
@@ -157,6 +158,7 @@ export const SYSTEM_ROLES = [
       'tasks.view','tasks.create','tasks.edit','tasks.delete',
       'chat.view','chat.create',
       'exchange.view','exchange.create','exchange.receive',
+      'ai_assistant.view','ai_assistant.manage',
     ],
   },
   {
@@ -170,6 +172,7 @@ export const SYSTEM_ROLES = [
       'loyalty.view','lottery.view','lottery.create','fuel.view','fuel.create',
       'transactions.view','shifts.view','shifts.manage',
       'chat.view','chat.create',
+      'ai_assistant.view',
     ],
   },
   {

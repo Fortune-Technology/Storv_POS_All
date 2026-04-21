@@ -704,6 +704,7 @@ export default function UserManagement({ embedded }) {
             Refresh
           </button>
           <button className="btn btn-primary" onClick={() => setShowInvite(true)}
+            data-tour="invite-user-btn"
             style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 1rem' }}>
             <UserPlus size={15} />Invite user
           </button>

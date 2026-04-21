@@ -470,6 +470,27 @@ export const activateLotteryBox       = (id, d)  => api.put(`/lottery/boxes/${id
 export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id}`, d).then(lotteryUnwrap);
 export const adjustLotteryBoxTickets  = (id, d)  => api.post(`/lottery/boxes/${id}/adjust`, d).then(lotteryUnwrap);
 
+// Phase 1a: scan + location lifecycle endpoints
+export const scanLotteryBarcode       = (data)   => api.post('/lottery/scan', data).then(lotteryUnwrap);
+export const moveLotteryBoxToSafe     = (id, d)  => api.post(`/lottery/boxes/${id}/move-to-safe`, d).then(lotteryUnwrap);
+export const soldoutLotteryBox        = (id, d)  => api.post(`/lottery/boxes/${id}/soldout`, d).then(lotteryUnwrap);
+export const returnLotteryBoxToLotto  = (id, d)  => api.post(`/lottery/boxes/${id}/return-to-lotto`, d).then(lotteryUnwrap);
+export const cancelLotteryPendingMove = (id)     => api.delete(`/lottery/boxes/${id}/pending-move`).then(lotteryUnwrap);
+export const runLotteryPendingMoves   = ()       => api.post('/lottery/run-pending-moves').then(lotteryUnwrap);
+
+// Phase 1b: Daily Scan + Online Totals + Close Day
+export const getLotteryOnlineTotal    = (params) => api.get('/lottery/online-total', { params }).then(lotteryUnwrap);
+export const upsertLotteryOnlineTotal = (data)   => api.put('/lottery/online-total', data).then(lotteryUnwrap);
+export const getDailyLotteryInventory = (params) => api.get('/lottery/daily-inventory', { params }).then(lotteryUnwrap);
+export const closeLotteryDay          = (data)   => api.post('/lottery/close-day', data).then(lotteryUnwrap);
+
+// Phase 2: Weekly Settlement
+export const listLotterySettlements      = (params)        => api.get('/lottery/settlements', { params }).then(lotteryUnwrap);
+export const getLotterySettlement        = (weekStart)     => api.get(`/lottery/settlements/${weekStart}`).then(lotteryUnwrap);
+export const upsertLotterySettlement     = (weekStart, d)  => api.put(`/lottery/settlements/${weekStart}`, d).then(lotteryUnwrap);
+export const finalizeLotterySettlement   = (weekStart, d)  => api.post(`/lottery/settlements/${weekStart}/finalize`, d).then(lotteryUnwrap);
+export const markLotterySettlementPaid   = (weekStart, d)  => api.post(`/lottery/settlements/${weekStart}/paid`, d).then(lotteryUnwrap);
+
 export const getLotteryTransactions   = (params) => api.get('/lottery/transactions', { params }).then(lotteryUnwrap);
 
 // ── Vendor Payments (back-office) ─────────────────────────────────────────
@@ -633,5 +654,18 @@ export const resolveSettlement   = (id)                 => api.post(`/exchange/s
 
 // Unified Report
 export const getExchangeReport = (params) => api.get('/exchange/report', { params }).then(exchangeFull);
+
+// ── AI ASSISTANT ──────────────────────────────────────────────────────────
+export const listAiConversations   = ()            => api.get('/ai-assistant/conversations').then(r => r.data);
+export const getAiConversation     = (id)          => api.get(`/ai-assistant/conversations/${id}`).then(r => r.data);
+export const createAiConversation  = ()            => api.post('/ai-assistant/conversations').then(r => r.data);
+export const sendAiMessage         = (id, content) => api.post(`/ai-assistant/conversations/${id}/messages`, { content }).then(r => r.data);
+export const deleteAiConversation  = (id)          => api.delete(`/ai-assistant/conversations/${id}`).then(r => r.data);
+export const submitAiFeedback      = (msgId, feedback, note = null) =>
+  api.post(`/ai-assistant/messages/${msgId}/feedback`, { feedback, note }).then(r => r.data);
+export const escalateAiConversation = (id, subject, priority = 'normal') =>
+  api.post(`/ai-assistant/conversations/${id}/escalate`, { subject, priority }).then(r => r.data);
+export const getAiTourBySlug   = (slug) => api.get(`/ai-assistant/tours/${slug}`).then(r => r.data);
+export const listPublicAiTours = ()     => api.get('/ai-assistant/tours').then(r => r.data);
 
 export default api;

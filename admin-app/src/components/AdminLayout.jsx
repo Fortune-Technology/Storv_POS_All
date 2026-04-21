@@ -1,5 +1,6 @@
 import React from 'react';
 import AdminSidebar from './AdminSidebar';
+import AIAssistantWidget from './AIAssistantWidget';
 
 const AdminLayout = ({ children }) => (
   <div className="layout-container">
@@ -7,6 +8,7 @@ const AdminLayout = ({ children }) => (
     <main className="main-content admin-page">
       {children}
     </main>
+    <AIAssistantWidget />
   </div>
 );
 

@@ -18,6 +18,7 @@ import StationSetupScreen  from './screens/StationSetupScreen.jsx';
 import PinLoginScreen      from './screens/PinLoginScreen.jsx';
 import POSScreen           from './screens/POSScreen.jsx';
 import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
+import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
 import './App.css';
 
 export default function App() {
@@ -165,5 +166,10 @@ export default function App() {
 
   if (!station)       return <StationSetupScreen />;
   if (!isAuthenticated) return <PinLoginScreen />;
-  return <POSScreen />;
+  return (
+    <>
+      <POSScreen />
+      <AIAssistantWidget />
+    </>
+  );
 }

@@ -173,4 +173,34 @@ export const deleteVendorTemplate    = (id)          => api.delete(`/vendor-temp
 export const getVendorTemplateTransforms = ()        => api.get('/vendor-templates/transforms').then(r => r.data);
 export const previewVendorTemplate   = (id, rows)    => api.post(`/vendor-templates/${id}/preview`, { rows }).then(r => r.data);
 
+// ── AI Assistant — admin review queue + KB curation ──────────────────────────
+export const listAiReviews           = (status = 'pending') => api.get('/ai-assistant/admin/reviews', { params: { status } }).then(r => r.data);
+export const getAiReviewConversation = (id)                 => api.get(`/ai-assistant/admin/reviews/${id}/conversation`).then(r => r.data);
+export const promoteAiReview         = (id, data)           => api.post(`/ai-assistant/admin/reviews/${id}/promote`, data).then(r => r.data);
+export const dismissAiReview         = (id)                 => api.post(`/ai-assistant/admin/reviews/${id}/dismiss`).then(r => r.data);
+
+// ── AI Product Tours — list + edit (admin-only) ─────────────────────────────
+export const listAiTours             = (params = {})        => api.get('/ai-assistant/admin/tours', { params }).then(r => r.data);
+export const getAiTour               = (id)                 => api.get(`/ai-assistant/admin/tours/${id}`).then(r => r.data);
+export const createAiTour            = (data)               => api.post('/ai-assistant/admin/tours', data).then(r => r.data);
+export const updateAiTour            = (id, data)           => api.put(`/ai-assistant/admin/tours/${id}`, data).then(r => r.data);
+export const deleteAiTour            = (id)                 => api.delete(`/ai-assistant/admin/tours/${id}`).then(r => r.data);
+
+// ── AI Knowledge Base article management ─────────────────────────────────────
+export const listKbArticles          = (params = {})        => api.get('/ai-assistant/admin/articles', { params }).then(r => r.data);
+export const getKbArticle            = (id)                 => api.get(`/ai-assistant/admin/articles/${id}`).then(r => r.data);
+export const createKbArticle         = (data)               => api.post('/ai-assistant/admin/articles', data).then(r => r.data);
+export const updateKbArticle         = (id, data)           => api.put(`/ai-assistant/admin/articles/${id}`, data).then(r => r.data);
+export const deleteKbArticle         = (id)                 => api.delete(`/ai-assistant/admin/articles/${id}`).then(r => r.data);
+
+// ── AI Assistant — chat widget (superadmin uses cross-tenant) ────────────────
+export const listAiConversations = (headers = {}) => api.get('/ai-assistant/conversations', { headers }).then(r => r.data);
+export const createAiConversation = (headers = {}) => api.post('/ai-assistant/conversations', null, { headers }).then(r => r.data);
+export const getAiConversation    = (id, headers = {}) => api.get(`/ai-assistant/conversations/${id}`, { headers }).then(r => r.data);
+export const sendAiMessage        = (id, content, headers = {}) =>
+  api.post(`/ai-assistant/conversations/${id}/messages`, { content }, { headers }).then(r => r.data);
+export const deleteAiConversation = (id, headers = {}) => api.delete(`/ai-assistant/conversations/${id}`, { headers }).then(r => r.data);
+export const submitAiFeedback     = (msgId, feedback, note = null, headers = {}) =>
+  api.post(`/ai-assistant/messages/${msgId}/feedback`, { feedback, note }, { headers }).then(r => r.data);
+
 export default api;

@@ -1,0 +1,398 @@
+/**
+ * Cashier-app AIAssistantWidget — compact floating FAB in the top-right.
+ *
+ * Positioned top-right (not bottom-right like the portal) so it doesn't cover
+ * the cart or tender area. Z-index deliberately LOWER than modals so any
+ * open transaction flow (TenderModal, ManagerPin, OpenShift, etc.) visually
+ * covers it — no JS detection needed.
+ *
+ * Only renders when a cashier is signed in (`pos_user` in localStorage).
+ */
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Sparkles, X, Send, Plus, ThumbsUp, ThumbsDown, Loader2, LifeBuoy, History } from 'lucide-react';
+import {
+  listAiConversations,
+  createAiConversation,
+  sendAiMessage,
+  getAiConversation,
+  submitAiFeedback,
+  escalateAiConversation,
+} from '../api/pos';
+import './AIAssistantWidget.css';
+
+const SESSION_KEY = 'cashierAiConversationId';
+
+const EXAMPLE_PROMPTS = [
+  'How do I process a refund?',
+  'How do I open a shift?',
+  'My cash drawer is stuck — what do I do?',
+  "What's the difference between void and refund?",
+];
+
+const TOOL_LABELS = {
+  get_store_summary:            'Sales summary',
+  get_inventory_status:         'Inventory check',
+  get_recent_transactions:      'Recent transactions',
+  search_transactions:          'Transaction search',
+  get_lottery_summary:          'Lottery stats',
+  get_fuel_summary:             'Fuel stats',
+  get_employee_hours:           'Employee hours',
+  get_end_of_day_report:        'End-of-day report',
+  get_sales_predictions:        'Sales forecast',
+  lookup_customer:              'Customer lookup',
+  get_vendor_order_suggestions: 'Reorder suggestions',
+  list_open_shifts:             'Open shifts',
+  create_support_ticket:        'Filed support ticket',
+};
+
+const PORTAL_BASE = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5173';
+
+function renderContent(text) {
+  if (!text) return '';
+  const escaped = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return escaped
+    // Cashier-app: portal links open in the system browser (or new tab in web mode).
+    .replace(/\[([^\]]+?)\]\((\/portal\/[^)\s]+|https?:\/\/[^)\s]+)\)/g,
+      (_m, label, href) => {
+        const isPortal = href.startsWith('/portal/');
+        const finalHref = isPortal ? `${PORTAL_BASE}${href}` : href;
+        const safe = finalHref.replace(/"/g, '&quot;');
+        return `<a href="${safe}" class="aiw-link${isPortal ? ' aiw-link--portal' : ''}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      })
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br/>');
+}
+
+function getCurrentCashier() {
+  try { return JSON.parse(localStorage.getItem('pos_user') || 'null'); }
+  catch { return null; }
+}
+
+export default function AIAssistantWidget() {
+  const [user, setUser]                 = useState(getCurrentCashier);
+  const [open, setOpen]                 = useState(false);
+  const [conversationId, setConvId]     = useState(() => sessionStorage.getItem(SESSION_KEY) || null);
+  const [messages, setMessages]         = useState([]);
+  const [input, setInput]               = useState('');
+  const [sending, setSending]           = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [feedbackFor, setFeedbackFor]   = useState(null);
+  const [feedbackNote, setFeedbackNote] = useState('');
+  const [escalating, setEscalating]     = useState(false);
+  const [showHistory, setShowHistory]   = useState(false);
+  const [historyList, setHistoryList]   = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const scrollRef = useRef(null);
+  const inputRef  = useRef(null);
+
+  // Re-read pos_user when session changes (PIN sign-in/out).
+  useEffect(() => {
+    const handler = () => setUser(getCurrentCashier());
+    window.addEventListener('pos-session-expired', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('pos-session-expired', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, sending]);
+
+  useEffect(() => {
+    if (!open || !conversationId) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingHistory(true);
+      try {
+        const res = await getAiConversation(conversationId);
+        if (cancelled) return;
+        setMessages(res.conversation?.messages || []);
+      } catch {
+        if (!cancelled) {
+          setConvId(null);
+          sessionStorage.removeItem(SESSION_KEY);
+          setMessages([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, conversationId]);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 120);
+  }, [open]);
+
+  const startNew = useCallback(() => {
+    sessionStorage.removeItem(SESSION_KEY);
+    setConvId(null);
+    setMessages([]);
+    setInput('');
+    setFeedbackFor(null);
+    setShowHistory(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
+  const toggleHistory = useCallback(async () => {
+    if (showHistory) { setShowHistory(false); return; }
+    setShowHistory(true);
+    setHistoryLoading(true);
+    try {
+      const res = await listAiConversations();
+      setHistoryList(res.conversations || []);
+    } catch {
+      setHistoryList([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [showHistory]);
+
+  const loadConversation = useCallback((id) => {
+    sessionStorage.setItem(SESSION_KEY, id);
+    setConvId(id);
+    setShowHistory(false);
+  }, []);
+
+  const send = useCallback(async (textOverride) => {
+    const text = (textOverride ?? input).trim();
+    if (!text || sending) return;
+    setSending(true);
+    setInput('');
+
+    const tempMsg = { id: `tmp-${Date.now()}`, role: 'user', content: text, createdAt: new Date().toISOString() };
+    setMessages(prev => [...prev, tempMsg]);
+
+    try {
+      let cid = conversationId;
+      if (!cid) {
+        const convRes = await createAiConversation();
+        cid = convRes.conversation?.id;
+        if (!cid) throw new Error('Failed to create conversation');
+        sessionStorage.setItem(SESSION_KEY, cid);
+        setConvId(cid);
+      }
+      const res = await sendAiMessage(cid, text);
+      setMessages(prev => {
+        const base = prev.filter(m => m.id !== tempMsg.id);
+        const merged = [...base];
+        if (res.userMessage)      merged.push(res.userMessage);
+        if (res.assistantMessage) merged.push(res.assistantMessage);
+        return merged;
+      });
+    } catch (err) {
+      const errText = err.response?.data?.error || err.message || 'Something went wrong.';
+      setMessages(prev => [
+        ...prev.filter(m => m.id !== tempMsg.id),
+        tempMsg,
+        { id: `err-${Date.now()}`, role: 'assistant', content: `⚠ ${errText}`, createdAt: new Date().toISOString(), _error: true },
+      ]);
+    } finally {
+      setSending(false);
+    }
+  }, [input, sending, conversationId]);
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  const rate = async (msgId, kind) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, feedback: kind } : m));
+    try {
+      await submitAiFeedback(msgId, kind);
+      if (kind === 'unhelpful') { setFeedbackFor(msgId); setFeedbackNote(''); }
+    } catch {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, feedback: null } : m));
+    }
+  };
+
+  const submitNote = async () => {
+    if (!feedbackFor) return;
+    const msgId = feedbackFor;
+    const note = feedbackNote.trim();
+    setFeedbackFor(null);
+    setFeedbackNote('');
+    if (!note) return;
+    try {
+      await submitAiFeedback(msgId, 'unhelpful', note);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, feedbackNote: note } : m));
+    } catch {/* silent */}
+  };
+
+  const fileTicket = async () => {
+    if (!conversationId) return;
+    const subj = messages.find(m => m.role === 'user')?.content?.slice(0, 80) || 'Help requested from cashier';
+    setEscalating(true);
+    try {
+      const res = await escalateAiConversation(conversationId, subj);
+      if (res.message) setMessages(prev => [...prev, res.message]);
+    } catch (err) {
+      const errText = err.response?.data?.error || 'Failed to file ticket';
+      setMessages(prev => [...prev, {
+        id: `err-${Date.now()}`, role: 'assistant',
+        content: `⚠ ${errText}`, createdAt: new Date().toISOString(), _error: true,
+      }]);
+    } finally {
+      setEscalating(false);
+    }
+  };
+
+  // Hide entirely if no cashier is signed in.
+  if (!user?.token) return null;
+
+  return (
+    <>
+      {!open && (
+        <button
+          type="button"
+          className="aiw-fab"
+          onClick={() => setOpen(true)}
+          aria-label="Open AI Assistant"
+          title="Help"
+        >
+          <Sparkles size={18} />
+        </button>
+      )}
+
+      {open && (
+        <div className="aiw-panel" role="dialog" aria-label="AI Assistant">
+          <div className="aiw-header">
+            <div className="aiw-header-title">
+              <span className="aiw-header-icon"><Sparkles size={14} /></span>
+              <div>
+                <div className="aiw-header-main">Help</div>
+                <div className="aiw-header-sub">Ask anything about the register</div>
+              </div>
+            </div>
+            <div className="aiw-header-actions">
+              <button type="button" className={`aiw-iconbtn ${showHistory ? 'aiw-iconbtn--on' : ''}`} onClick={toggleHistory} title="Conversation history">
+                <History size={14} />
+              </button>
+              <button type="button" className="aiw-iconbtn" onClick={startNew} title="New conversation">
+                <Plus size={14} />
+              </button>
+              <button type="button" className="aiw-iconbtn" onClick={() => setOpen(false)} title="Close">
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+
+          {showHistory && (
+            <div className="aiw-history">
+              <div className="aiw-history-header">Recent conversations</div>
+              {historyLoading ? (
+                <div className="aiw-loading-row"><Loader2 className="aiw-spin" size={13} /> Loading…</div>
+              ) : historyList.length === 0 ? (
+                <div className="aiw-history-empty">No past conversations yet.</div>
+              ) : (
+                historyList.map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`aiw-history-item ${c.id === conversationId ? 'aiw-history-item--current' : ''}`}
+                    onClick={() => loadConversation(c.id)}
+                  >
+                    <div className="aiw-history-title">{c.title || 'Untitled conversation'}</div>
+                    <div className="aiw-history-meta">{new Date(c.lastMessageAt).toLocaleString()}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          <div ref={scrollRef} className="aiw-messages">
+            {loadingHistory && (
+              <div className="aiw-loading-row"><Loader2 className="aiw-spin" size={14} /> Loading…</div>
+            )}
+
+            {!loadingHistory && messages.length === 0 && (
+              <div className="aiw-greet">
+                <div className="aiw-greet-icon"><Sparkles size={22} /></div>
+                <div className="aiw-greet-title">Hi {user?.name?.split(' ')[0] || 'there'}!</div>
+                <div className="aiw-greet-body">Quick help for POS tasks. Tap one below or type a question.</div>
+                <div className="aiw-prompts">
+                  {EXAMPLE_PROMPTS.map(p => (
+                    <button key={p} type="button" className="aiw-prompt" onClick={() => send(p)}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map(m => (
+              <div key={m.id} className={`aiw-msg aiw-msg--${m.role}${m._error ? ' aiw-msg--error' : ''}`}>
+                <div className="aiw-msg-bubble" dangerouslySetInnerHTML={{ __html: renderContent(m.content) }} />
+                {m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0 && (
+                  <div className="aiw-tool-chips">
+                    {m.toolCalls.map((t, i) => (
+                      <span key={i} className="aiw-tool-chip" title={JSON.stringify(t.input || {})}>
+                        {TOOL_LABELS[t.name] || t.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {m.role === 'assistant' && !m._error && (
+                  <div className="aiw-msg-actions">
+                    <button type="button" className={`aiw-rate ${m.feedback === 'helpful' ? 'aiw-rate--on' : ''}`}
+                            onClick={() => rate(m.id, m.feedback === 'helpful' ? null : 'helpful')} title="Helpful">
+                      <ThumbsUp size={11} />
+                    </button>
+                    <button type="button" className={`aiw-rate ${m.feedback === 'unhelpful' ? 'aiw-rate--on-neg' : ''}`}
+                            onClick={() => rate(m.id, m.feedback === 'unhelpful' ? null : 'unhelpful')} title="Not helpful">
+                      <ThumbsDown size={11} />
+                    </button>
+                  </div>
+                )}
+                {feedbackFor === m.id && (
+                  <div className="aiw-feedback-box">
+                    <textarea className="aiw-feedback-input" placeholder="Tell us what would've been better…"
+                              value={feedbackNote} onChange={e => setFeedbackNote(e.target.value)} rows={2} autoFocus />
+                    <div className="aiw-feedback-actions">
+                      <button type="button" className="aiw-feedback-skip" onClick={() => { setFeedbackFor(null); setFeedbackNote(''); }}>Skip</button>
+                      <button type="button" className="aiw-feedback-submit" onClick={submitNote} disabled={!feedbackNote.trim()}>Send</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {sending && (
+              <div className="aiw-msg aiw-msg--assistant">
+                <div className="aiw-msg-bubble aiw-thinking">
+                  <span className="aiw-dot" /><span className="aiw-dot" /><span className="aiw-dot" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="aiw-composer">
+            <textarea ref={inputRef} className="aiw-input" placeholder="Type a question…"
+                      value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKeyDown}
+                      rows={1} disabled={sending} maxLength={4000} />
+            <button type="button" className="aiw-send" onClick={() => send()} disabled={!input.trim() || sending} aria-label="Send">
+              <Send size={14} />
+            </button>
+          </div>
+
+          {conversationId && messages.some(m => m.role === 'user') && (
+            <div className="aiw-escalate">
+              <LifeBuoy size={11} />
+              <span>Need a human?</span>
+              <button type="button" className="aiw-escalate-btn" onClick={fileTicket} disabled={escalating}
+                      title="File a support ticket with this conversation attached">
+                {escalating ? 'Filing…' : 'File support ticket'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}

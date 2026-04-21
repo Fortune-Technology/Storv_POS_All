@@ -25,6 +25,9 @@ import {
   getLotteryShiftReports,
   getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
   getLotterySettings, updateLotterySettings,
+  // Phase 1a: scan + lifecycle
+  scanLotteryBarcode, moveLotteryBoxToSafe, soldoutLotteryBox,
+  returnLotteryBoxToLotto, cancelLotteryPendingMove,
   // Catalog
   getLotteryCatalog, getAllLotteryCatalog,
   createLotteryCatalogTicket, updateLotteryCatalogTicket, deleteLotteryCatalogTicket,
@@ -34,7 +37,11 @@ import {
   // Receive from catalog
   receiveFromLotteryCatalog,
 } from '../services/api';
+import LotteryDailyScan from './LotteryDailyScan';
+import LotteryWeeklySettlement from './LotteryWeeklySettlement';
 import './Lottery.css';
+import './LotteryDailyScan.css';
+import './LotteryWeeklySettlement.css';
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 const fmt = (n) => n == null ? 'N/A' : `$${Number(n).toFixed(2)}`;
@@ -202,35 +209,208 @@ function GameModal({ game, onSave, onClose }) {
 /* Activate Box Modal */
 function ActivateBoxModal({ box, onConfirm, onClose }) {
   const [slotNumber, setSlotNumber] = useState('');
+  const [activationDate, setActivationDate] = useState(toDateStr(new Date()));
+  const [currentTicket, setCurrentTicket] = useState('');
   const [saving, setSaving] = useState(false);
-  const submit = async () => { setSaving(true); await onConfirm(box.id, slotNumber ? Number(slotNumber) : null); setSaving(false); };
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await onConfirm(box.id, {
+        slotNumber: slotNumber ? Number(slotNumber) : null,
+        date: activationDate || null,
+        currentTicket: currentTicket !== '' ? String(currentTicket) : null,
+      });
+    } catch (err) {
+      alert(err?.response?.data?.error || err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <div className="lt-modal-overlay">
       <div className="lt-modal">
         <div className="lt-modal-header">
           <div>
-            <div className="lt-modal-title">Activate Ticket Box</div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Box {box.boxNumber || '#?'}</div>
+            <div className="lt-modal-title">Activate Ticket Book</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Book {box.boxNumber || '#?'}</div>
           </div>
           <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="lt-modal-info">
-          🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Box value {fmt(box.totalValue)}
+          🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Book value {fmt(box.totalValue)}
         </div>
         <div className="lt-field">
-          <label className="lt-field-label">Machine Slot Number <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <label className="lt-field-label">Activation Date</label>
+          <input className="lt-input" type="date" value={activationDate}
+            onChange={e => setActivationDate(e.target.value)} />
+          <span className="lt-field-hint">Date this book was physically placed on the counter (defaults to today — you can backdate).</span>
+        </div>
+        <div className="lt-field">
+          <label className="lt-field-label">Box # / Slot Number <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
           <input className="lt-input" type="number" min={1} max={99} value={slotNumber}
             onChange={e => setSlotNumber(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && submit()} placeholder="e.g. 3" autoFocus />
-          <span className="lt-field-hint">Which slot in the lottery machine is this box going into?</span>
+            placeholder="auto-assigns next free slot if blank" />
+          <span className="lt-field-hint">If blank, the system auto-assigns the next free counter slot.</span>
+        </div>
+        <div className="lt-field">
+          <label className="lt-field-label">Starting Ticket # <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input className="lt-input" type="number" value={currentTicket}
+            onChange={e => setCurrentTicket(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            placeholder="next-to-sell ticket number" />
+          <span className="lt-field-hint">Populate if any tickets have already been sold from this book.</span>
         </div>
         <div className="lt-form-actions">
           <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
           <button className="lt-btn lt-btn-success" onClick={submit} disabled={saving}>
-            {saving ? 'Activating…' : 'Activate Box'}
+            {saving ? 'Activating…' : 'Activate Book'}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Move to Safe Modal — supports immediate + scheduled */
+function MoveToSafeModal({ box, onConfirm, onClose }) {
+  const [date, setDate] = useState(toDateStr(new Date()));
+  const [saving, setSaving] = useState(false);
+  const today = toDateStr(new Date());
+  const isScheduled = date > today;
+  const submit = async () => {
+    setSaving(true);
+    try { await onConfirm(box.id, { date }); }
+    catch (err) { alert(err?.response?.data?.error || err.message); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <div>
+            <div className="lt-modal-title">Move to Safe</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Book {box.boxNumber || '#?'}</div>
+          </div>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="lt-modal-info">
+          Takes the book off the counter and returns it to the Safe (your on-hand inventory). The counter slot is freed.
+        </div>
+        <div className="lt-field">
+          <label className="lt-field-label">Effective Date</label>
+          <input className="lt-input" type="date" value={date} min={today}
+            onChange={e => setDate(e.target.value)} />
+          {isScheduled && (
+            <div style={{ marginTop: 6, padding: '6px 10px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 6, color: '#b45309', fontSize: '0.78rem' }}>
+              ⓘ Scheduled for {date}. The book stays on the counter until then. You can cancel any time before.
+            </div>
+          )}
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-warning" onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : (isScheduled ? 'Schedule Move' : 'Move Now')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Return to Lotto Modal — external return reducing owed commission */
+function ReturnToLottoModal({ box, onConfirm, onClose }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const unsold = Math.max(0, (box.totalTickets || 0) - (box.ticketsSold || 0));
+  const unsoldValue = unsold * Number(box.ticketPrice || 0);
+  const submit = async () => {
+    setSaving(true);
+    try { await onConfirm(box.id, { reason: reason || null }); }
+    catch (err) { alert(err?.response?.data?.error || err.message); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <div>
+            <div className="lt-modal-title">Return to Lottery Commission</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Book {box.boxNumber || '#?'}</div>
+          </div>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="lt-modal-info" style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#991b1b' }}>
+          This book is being physically returned to the lottery commission. The {fmtNum(unsold)} unsold ticket{unsold === 1 ? '' : 's'} worth {fmt(unsoldValue)} will be deducted from the next weekly settlement. This action cannot be undone.
+        </div>
+        <div className="lt-field">
+          <label className="lt-field-label">Reason / Note <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input className="lt-input" type="text" value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="e.g. game ended, partial return, unsold stock" />
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="lt-btn lt-btn-danger" onClick={submit} disabled={saving}>
+            {saving ? 'Returning…' : 'Return to Lotto'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Book Timeline — shows the lifecycle dates for a single box */
+function BookTimelineModal({ box, onClose }) {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <div>
+            <div className="lt-modal-title">Book Timeline</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>{box.game?.name} — Book {box.boxNumber || '#?'}</div>
+          </div>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="lt-modal-info">
+          🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Book value {fmt(box.totalValue)}
+          {box.slotNumber != null && <span> · Slot #{box.slotNumber}</span>}
+        </div>
+        <div style={{ padding: '12px 4px' }}>
+          <TimelineRow label="Received" at={box.createdAt} active />
+          <TimelineRow label="Activated" at={box.activatedAt} active={!!box.activatedAt} />
+          <TimelineRow label="Depleted (Soldout)" at={box.depletedAt} active={!!box.depletedAt} />
+          <TimelineRow label="Returned to Lotto" at={box.returnedAt} active={!!box.returnedAt} />
+          {box.pendingLocation && (
+            <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 6, color: '#b45309', fontSize: '0.78rem' }}>
+              ⓘ Pending move to <b>{box.pendingLocation === 'inventory' ? 'Safe' : box.pendingLocation}</b> on {fmtDate(box.pendingLocationEffectiveDate)}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '8px 4px', borderTop: '1px solid var(--border-color)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          Tickets sold: <b>{fmtNum(box.ticketsSold || 0)}</b> / {fmtNum(box.totalTickets)}
+          {box.currentTicket != null && <span> · Next ticket: <b>{box.currentTicket}</b></span>}
+          {box.autoSoldoutReason && <span> · Auto-soldout: {box.autoSoldoutReason}</span>}
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function TimelineRow({ label, at, active }) {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() + ' · ' + new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not yet';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+      <div style={{
+        width: 12, height: 12, borderRadius: '50%',
+        background: active ? 'var(--brand-primary, #3d56b5)' : 'var(--border-color)',
+        flexShrink: 0,
+      }} />
+      <div style={{ flex: 1, fontSize: '0.88rem', fontWeight: active ? 600 : 400, color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{fmtDate(at)}</div>
     </div>
   );
 }
@@ -955,16 +1135,23 @@ function LotteryBody() {
 
   const TABS = [
     'Overview',
+    'Daily Scan',
+    'Weekly Settlement',
     ...(isAdmin ? ['Ticket Catalog'] : []),
     'Receive Order',
     'Games',
-    'Inventory',
-    'Active Tickets',
+    'Counter',
+    'Safe',
+    'Soldout',
+    'Returned',
     'Shift Reports',
     'Reports',
     'Commission',
     'Settings',
   ];
+
+  // Maps display tab name → LotteryBox.status value
+  const TAB_STATUS = { Counter: 'active', Safe: 'inventory', Soldout: 'depleted', Returned: 'returned' };
 
   const [tab, setTab] = useState('Overview');
   const [games, setGames] = useState([]);
@@ -979,6 +1166,9 @@ function LotteryBody() {
   const [gameModal, setGameModal] = useState(null);
   const [receiveModal, setReceiveModal] = useState(false);
   const [activateBoxObj, setActivateBoxObj] = useState(null);
+  const [moveToSafeBox, setMoveToSafeBox] = useState(null);
+  const [returnToLottoBox, setReturnToLottoBox] = useState(null);
+  const [timelineBox, setTimelineBox] = useState(null);
   const [boxFilter, setBoxFilter] = useState('All');
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -1052,8 +1242,7 @@ function LotteryBody() {
   }, []); // eslint-disable-line
 
   useEffect(() => {
-    if (tab === 'Inventory') loadBoxes(boxFilter);
-    if (tab === 'Active Tickets') loadBoxes('active');
+    if (TAB_STATUS[tab]) loadBoxes(TAB_STATUS[tab]);
     if (tab === 'Shift Reports') loadShiftReports();
     if (tab === 'Reports') loadReport(dateFrom, dateTo);
     if (tab === 'Commission') loadCommission();
@@ -1116,19 +1305,40 @@ function LotteryBody() {
   };
 
   /* ── Box actions ──────────────────────────────────────────────────────── */
+  const reloadCurrentTab = () => {
+    const s = TAB_STATUS[tab];
+    loadBoxes(s || boxFilter);
+  };
+
   const handleReceive = async (data) => {
     await receiveLotteryBoxOrder(data);
-    setReceiveModal(false); loadBoxes(boxFilter);
+    setReceiveModal(false); reloadCurrentTab();
   };
-  const handleActivateBox = async (id, slotNumber) => {
-    await activateLotteryBox(id, { slotNumber });
+  const handleActivateBox = async (id, payload) => {
+    // payload: { slotNumber?, date?, currentTicket? }
+    await activateLotteryBox(id, payload);
     setActivateBoxObj(null);
-    loadBoxes(tab === 'Active Tickets' ? 'active' : boxFilter);
+    reloadCurrentTab();
   };
-  const handleDeplete = async (id) => {
-    if (!window.confirm('Mark this box as depleted?')) return;
-    await updateLotteryBox(id, { status: 'depleted' });
-    loadBoxes(tab === 'Active Tickets' ? 'active' : boxFilter);
+  const handleMoveToSafe = async (id, payload) => {
+    await moveLotteryBoxToSafe(id, payload); // { date? }
+    setMoveToSafeBox(null);
+    reloadCurrentTab();
+  };
+  const handleReturnToLotto = async (id, payload) => {
+    await returnLotteryBoxToLotto(id, payload); // { reason? }
+    setReturnToLottoBox(null);
+    reloadCurrentTab();
+  };
+  const handleSoldout = async (id) => {
+    if (!window.confirm('Mark this book as Soldout? It will be settled in the next weekly report.')) return;
+    await soldoutLotteryBox(id, { reason: 'manual' });
+    reloadCurrentTab();
+  };
+  const handleCancelPending = async (id) => {
+    if (!window.confirm('Cancel the scheduled move for this book?')) return;
+    await cancelLotteryPendingMove(id);
+    reloadCurrentTab();
   };
 
   /* ── Render ───────────────────────────────────────────────────────────── */
@@ -1150,7 +1360,7 @@ function LotteryBody() {
               <Plus size={15} /> New Game
             </button>
           )}
-          {(tab === 'Inventory' || tab === 'Active Tickets') && (
+          {(TAB_STATUS[tab] !== undefined) && (
             <button className="lt-btn lt-btn-primary" onClick={() => setReceiveModal(true)}>
               <Package size={15} /> Receive (Manual)
             </button>
@@ -1209,6 +1419,12 @@ function LotteryBody() {
         </div>
       )}
 
+      {/* ── DAILY SCAN (Phase 1b wizard) ─────────────────────────────── */}
+      {tab === 'Daily Scan' && <LotteryDailyScan />}
+
+      {/* ── WEEKLY SETTLEMENT (Phase 2) ──────────────────────────────── */}
+      {tab === 'Weekly Settlement' && <LotteryWeeklySettlement />}
+
       {/* ── TICKET CATALOG (admin only) ──────────────────────────────── */}
       {tab === 'Ticket Catalog' && <TicketCatalogTab />}
 
@@ -1262,100 +1478,110 @@ function LotteryBody() {
         </div>
       )}
 
-      {/* ── INVENTORY ────────────────────────────────────────────────── */}
-      {tab === 'Inventory' && (
+      {/* ── COUNTER / SAFE / SOLDOUT / RETURNED (unified table) ─────── */}
+      {TAB_STATUS[tab] !== undefined && (
         <div>
-          <div className="lt-filter-bar">
-            {['All', 'inventory', 'active', 'depleted', 'settled'].map(s => (
-              <button key={s} className={`lt-filter-chip ${boxFilter === s ? 'active' : ''}`}
-                onClick={() => { setBoxFilter(s); loadBoxes(s); }}
-                style={{ textTransform: 'capitalize' }}>{s}</button>
-            ))}
-          </div>
           <div className="lt-table-wrap">
             <table className="lt-table">
               <thead>
-                <tr>{['Game', 'Box #', 'Slot', 'Total Tickets', 'Price', 'Box Value', 'Sold', 'Status', 'Actions'].map(h => <th key={h}>{h}</th>)}</tr>
+                <tr>{[
+                  ...(tab === 'Counter' ? ['Slot'] : []),
+                  'Game', 'Book #', 'Total', 'Price', 'Value', 'Sold', 'Remaining',
+                  ...(tab === 'Counter' ? ['Current'] : []),
+                  ...(tab === 'Safe' ? ['Received'] : []),
+                  ...(tab === 'Soldout' ? ['Depleted'] : []),
+                  ...(tab === 'Returned' ? ['Returned'] : []),
+                  'Actions',
+                ].map(h => <th key={h}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {boxes.length === 0 && <tr><td colSpan={9} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No boxes found.</td></tr>}
-                {boxes.map(b => (
-                  <tr key={b.id}>
-                    <td className="lt-td-strong">{b.game?.name || 'N/A'}</td>
-                    <td>{b.boxNumber || 'N/A'}</td>
-                    <td>{b.slotNumber ?? 'N/A'}</td>
-                    <td>{fmtNum(b.totalTickets)}</td>
-                    <td>{fmt(b.ticketPrice)}</td>
-                    <td className="lt-td-strong">{fmt(b.totalValue)}</td>
-                    <td className="lt-td-small">{fmtNum(b.ticketsSold)} / {fmtNum(b.totalTickets)}</td>
-                    <td><Badge label={b.status} cls={statusColor(b.status)} /></td>
-                    <td className="lt-td-actions">
-                      <div style={{ display: 'flex', gap: 5 }}>
-                        {b.status === 'inventory' && (
-                          <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setActivateBoxObj(b)}>Activate</button>
-                        )}
-                        {b.status === 'active' && (
-                          <button className="lt-btn lt-btn-amber lt-btn-sm" onClick={() => handleDeplete(b.id)}>Deplete</button>
-                        )}
-                        {b.status === 'inventory' && (
-                          <button className="lt-btn lt-btn-danger lt-btn-sm" onClick={async () => { if (!window.confirm('Remove box?')) return; await updateLotteryBox(b.id, { status: 'removed' }); loadBoxes(boxFilter); }}>
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
+                {boxes.length === 0 && (
+                  <tr>
+                    <td colSpan={tab === 'Counter' ? 10 : 9} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      {tab === 'Counter' && 'No books are currently on the counter. Activate a book from Safe.'}
+                      {tab === 'Safe' && 'Safe is empty. Receive an order to add books.'}
+                      {tab === 'Soldout' && 'No soldout books yet.'}
+                      {tab === 'Returned' && 'No books have been returned to lottery.'}
                     </td>
                   </tr>
-                ))}
+                )}
+                {boxes.map(b => {
+                  const remaining = Math.max(0, (b.totalTickets || 0) - (b.ticketsSold || 0));
+                  const hasPending = !!b.pendingLocation;
+                  const fmtCell = (d) => d ? new Date(d).toLocaleDateString() : '—';
+                  return (
+                    <tr key={b.id} className={hasPending ? 'lt-row-pending' : ''}>
+                      {tab === 'Counter' && <td className="lt-td-strong">{b.slotNumber ?? '—'}</td>}
+                      <td className="lt-td-strong">{b.game?.name || 'N/A'}</td>
+                      <td>{b.boxNumber || 'N/A'}</td>
+                      <td>{fmtNum(b.totalTickets)}</td>
+                      <td>{fmt(b.ticketPrice)}</td>
+                      <td className="lt-td-strong">{fmt(b.totalValue)}</td>
+                      <td className="lt-td-small">{fmtNum(b.ticketsSold)}</td>
+                      <td className="lt-td-small">{fmtNum(remaining)}</td>
+                      {tab === 'Counter' && <td>{b.currentTicket ?? '—'}</td>}
+                      {tab === 'Safe' && <td className="lt-td-small">{fmtCell(b.createdAt)}</td>}
+                      {tab === 'Soldout' && <td className="lt-td-small">{fmtCell(b.depletedAt)}</td>}
+                      {tab === 'Returned' && <td className="lt-td-small">{fmtCell(b.returnedAt)}</td>}
+                      <td className="lt-td-actions">
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          {/* Timeline always available */}
+                          <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setTimelineBox(b)} title="Book timeline">
+                            ⓘ
+                          </button>
+
+                          {/* Safe-tab actions */}
+                          {b.status === 'inventory' && (
+                            <>
+                              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setActivateBoxObj(b)}>Activate</button>
+                              <button className="lt-btn lt-btn-amber lt-btn-sm" onClick={() => setReturnToLottoBox(b)}>Return</button>
+                              <button className="lt-btn lt-btn-danger lt-btn-sm"
+                                onClick={async () => {
+                                  if (!window.confirm('Remove this book from inventory? This cannot be undone.')) return;
+                                  await updateLotteryBox(b.id, { status: 'removed' });
+                                  reloadCurrentTab();
+                                }}>
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )}
+
+                          {/* Counter-tab actions */}
+                          {b.status === 'active' && (
+                            <>
+                              {hasPending ? (
+                                <button className="lt-btn lt-btn-secondary lt-btn-sm" onClick={() => handleCancelPending(b.id)}>
+                                  Cancel Move
+                                </button>
+                              ) : (
+                                <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setMoveToSafeBox(b)}>Move to Safe</button>
+                              )}
+                              <button className="lt-btn lt-btn-amber lt-btn-sm" onClick={() => handleSoldout(b.id)}>Soldout</button>
+                              <button className="lt-btn lt-btn-danger lt-btn-sm" onClick={() => setReturnToLottoBox(b)}>Return</button>
+                            </>
+                          )}
+
+                          {/* Soldout / Returned tabs — view-only except undo-soldout for admin */}
+                          {b.status === 'depleted' && (
+                            <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={async () => {
+                              if (!window.confirm('Re-activate this book onto the counter?')) return;
+                              await updateLotteryBox(b.id, { status: 'inventory' });
+                              reloadCurrentTab();
+                            }}>Undo</button>
+                          )}
+                        </div>
+                        {hasPending && (
+                          <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: 3 }}>
+                            → {b.pendingLocation === 'inventory' ? 'Safe' : b.pendingLocation} on {new Date(b.pendingLocationEffectiveDate).toLocaleDateString()}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* ── ACTIVE TICKETS ───────────────────────────────────────────── */}
-      {tab === 'Active Tickets' && (
-        <div>
-          {boxes.filter(b => b.status === 'active').length === 0 ? (
-            <div className="lt-empty">
-              <Ticket size={40} />
-              <p>No boxes currently active in machine.</p>
-              <p style={{ fontSize: '0.82rem', marginTop: 4 }}>Activate a box from the Inventory tab.</p>
-            </div>
-          ) : (
-            <div className="lt-grid-auto">
-              {boxes.filter(b => b.status === 'active').map(b => {
-                const pct = b.totalTickets > 0 ? Math.round((b.ticketsSold / b.totalTickets) * 100) : 0;
-                return (
-                  <div key={b.id} className="lt-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.game?.name || 'Unknown Game'}</div>
-                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                          {b.slotNumber ? `Slot ${b.slotNumber}` : 'No slot'} · Box {b.boxNumber || '#?'}
-                        </div>
-                      </div>
-                      <Badge label="Active" cls="lt-badge-brand" />
-                    </div>
-                    <div className="lt-progress-labels">
-                      <span>{fmtNum(b.ticketsSold)} sold</span>
-                      <span>{fmtNum(b.totalTickets - b.ticketsSold)} left</span>
-                    </div>
-                    <div className="lt-progress-wrap">
-                      <div className={`lt-progress-fill ${pct > 80 ? 'lt-progress-fill-amber' : ''}`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.875rem' }}>{pct}%</div>
-                    <div className="lt-mini-stats">
-                      <div className="lt-mini-stat"><div className="lt-mini-stat-label">Sales</div><div className="lt-mini-stat-value" style={{ color: 'var(--accent-primary)' }}>{fmt(b.salesAmount)}</div></div>
-                      <div className="lt-mini-stat"><div className="lt-mini-stat-label">Box Value</div><div className="lt-mini-stat-value">{fmt(b.totalValue)}</div></div>
-                    </div>
-                    <button className="lt-btn lt-btn-amber" style={{ width: '100%', justifyContent: 'center' }} onClick={() => handleDeplete(b.id)}>
-                      Mark as Depleted
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
 
@@ -1563,6 +1789,15 @@ function LotteryBody() {
       )}
       {activateBoxObj && (
         <ActivateBoxModal box={activateBoxObj} onConfirm={handleActivateBox} onClose={() => setActivateBoxObj(null)} />
+      )}
+      {moveToSafeBox && (
+        <MoveToSafeModal box={moveToSafeBox} onConfirm={handleMoveToSafe} onClose={() => setMoveToSafeBox(null)} />
+      )}
+      {returnToLottoBox && (
+        <ReturnToLottoModal box={returnToLottoBox} onConfirm={handleReturnToLotto} onClose={() => setReturnToLottoBox(null)} />
+      )}
+      {timelineBox && (
+        <BookTimelineModal box={timelineBox} onClose={() => setTimelineBox(null)} />
       )}
     </div>
   );

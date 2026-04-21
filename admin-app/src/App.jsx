@@ -28,6 +28,9 @@ import AdminRoles           from './pages/AdminRoles';
 import AdminPriceCalculator from './pages/AdminPriceCalculator';
 import AdminStates          from './pages/AdminStates';
 import AdminVendorTemplates from './pages/AdminVendorTemplates';
+import AdminAiReviews       from './pages/AdminAiReviews';
+import AdminAiKb            from './pages/AdminAiKb';
+import AdminAiTours         from './pages/AdminAiTours';
 
 import PermissionRoute from './components/PermissionRoute';
 
@@ -66,6 +69,9 @@ function App() {
         <Route path="/price-calculator" element={<ProtectedRoute><AdminLayout><AdminPriceCalculator /></AdminLayout></ProtectedRoute>} />
         <Route path="/states" element={<ProtectedRoute><AdminLayout><AdminStates /></AdminLayout></ProtectedRoute>} />
         <Route path="/vendor-templates" element={<ProtectedRoute><AdminLayout><AdminVendorTemplates /></AdminLayout></ProtectedRoute>} />
+        <Route path="/ai-reviews" element={<ProtectedRoute><AdminLayout><AdminAiReviews /></AdminLayout></ProtectedRoute>} />
+        <Route path="/ai-kb"      element={<ProtectedRoute><AdminLayout><AdminAiKb /></AdminLayout></ProtectedRoute>} />
+        <Route path="/ai-tours"   element={<ProtectedRoute><AdminLayout><AdminAiTours /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

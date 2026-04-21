@@ -23,6 +23,9 @@ export const ADMIN_ROUTE_PERMISSIONS = {
   '/price-calculator':             'admin_system.view',
   '/states':                       'admin_system.view',
   '/vendor-templates':             'admin_system.view',
+  '/ai-reviews':                   'ai_assistant.manage',
+  '/ai-kb':                        'ai_assistant.manage',
+  '/ai-tours':                     'ai_assistant.manage',
 };
 
 export function getRoutePermission(pathname) {

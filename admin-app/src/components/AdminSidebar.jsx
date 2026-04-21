@@ -23,6 +23,9 @@ import {
   MessageSquare,
   Calculator,
   MapPin,
+  Sparkles,
+  BookOpen,
+  Compass,
 } from 'lucide-react';
 import api from '../services/api';
 import { getRoutePermission } from '../rbac/routePermissions';
@@ -84,6 +87,9 @@ const adminMenuGroups = [
     items: [
       { name: 'Chat',          icon: <MessageSquare size={13} />, path: '/chat' },
       { name: 'Tickets',       icon: <Ticket size={13} />,        path: '/tickets' },
+      { name: 'AI Review Queue', icon: <Sparkles size={13} />,    path: '/ai-reviews' },
+      { name: 'AI Knowledge Base', icon: <BookOpen size={13} />,  path: '/ai-kb' },
+      { name: 'AI Product Tours',  icon: <Compass size={13} />,   path: '/ai-tours' },
       { name: 'System Config', icon: <Settings size={13} />,      path: '/config' },
     ],
   },

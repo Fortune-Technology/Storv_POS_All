@@ -1627,9 +1627,19 @@ model LotteryBox {
   totalValue   Decimal @db.Decimal(10, 2) // totalTickets × ticketPrice
 
   // Lifecycle
-  status      String    @default("inventory") // inventory | active | depleted | settled
+  // status values: inventory (Safe) | active (Counter) | depleted (Soldout) | returned (Returned to Lotto) | settled
+  status      String    @default("inventory")
   activatedAt DateTime?
   depletedAt  DateTime?
+  returnedAt  DateTime? // when Return to Lotto happened
+
+  // Scheduled location moves (e.g. "move to safe starting tomorrow")
+  pendingLocation              String? // target status, e.g. "inventory" or "depleted"
+  pendingLocationEffectiveDate DateTime? // when the pending move executes
+  pendingLocationRequestedAt   DateTime?
+
+  // Audit
+  autoSoldoutReason String? // 'new_book_scanned' | 'manual' | 'eod_so_button'
 
   // Ticket tracking
   startTicket          String?
@@ -1646,6 +1656,7 @@ model LotteryBox {
 
   @@index([orgId, storeId, status])
   @@index([gameId])
+  @@index([pendingLocationEffectiveDate])
   @@map("lottery_boxes")
 }
 
@@ -1731,7 +1742,7 @@ model LotterySettings {
   cashOnly Boolean @default(false) // restrict lottery transactions to cash
 
   // Store's province/state — determines which games are visible
-  state String? // e.g. "ON", "BC", "AB"
+  state String? // e.g. "MA", "ME", "NY"
 
   // Commission — store-level rate applied to all lottery sales
   commissionRate Decimal? @db.Decimal(5, 4) // e.g. 0.0540 = 5.4%
@@ -1739,11 +1750,140 @@ model LotterySettings {
   // Shift-end ticket scan mandate
   scanRequiredAtShiftEnd Boolean @default(false) // if true, cashier must scan before closing shift
 
+  // Sell direction — how tickets are loaded in the physical counter dispenser
+  // 'desc' = highest ticket number dispensed first (e.g. 99 → 0)
+  // 'asc'  = lowest ticket number dispensed first (e.g. 0 → 99)
+  sellDirection String @default("desc")
+
+  // Multi-book policy. When false (default), scanning a new book of a game that already has
+  // an active book on the counter auto-soldouts the old book. When true, both stay active.
+  allowMultipleActivePerGame Boolean @default(false)
+
+  // State adapter overrides (null = use state default)
+  weekStartDay             Int? // 0-6, Sunday=0
+  settlementPctThreshold   Int? // e.g. 80 = 80% sold qualifies
+  settlementMaxDaysActive  Int? // e.g. 180 = settle after 180 days regardless of % sold
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("lottery_settings")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY ONLINE TOTAL
+// One row per (store, date) capturing the 3 daily totals
+// entered by the cashier/manager at end of day:
+//   - instantCashing  : scratch-off winnings paid from drawer
+//   - machineSales    : draw-game sales rung on the state terminal (not POS)
+//   - machineCashing  : draw-game winnings paid from drawer
+// ─────────────────────────────────────────────────
+model LotteryOnlineTotal {
+  id             String   @id @default(cuid())
+  orgId          String
+  storeId        String
+  date           DateTime @db.Date
+  instantCashing Decimal  @default(0) @db.Decimal(10, 2)
+  machineSales   Decimal  @default(0) @db.Decimal(10, 2)
+  machineCashing Decimal  @default(0) @db.Decimal(10, 2)
+  enteredById    String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([orgId, storeId, date])
+  @@index([orgId, storeId])
+  @@map("lottery_online_totals")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY SCAN EVENT
+// Audit trail for every ticket/book barcode scan.
+// Helps diagnose auto-activation issues and provides
+// an immutable log for settlement disputes.
+// ─────────────────────────────────────────────────
+model LotteryScanEvent {
+  id        String   @id @default(cuid())
+  orgId     String
+  storeId   String
+  boxId     String? // null if scan didn't match any inventory
+  scannedBy String? // userId
+  raw       String // original barcode string
+  parsed    Json? // { type, gameNumber, bookNumber, ticketNumber, state }
+  action    String // 'activate' | 'update_current' | 'soldout' | 'rejected' | 'auto_soldout'
+  context   String // 'pos' | 'eod' | 'receive' | 'return' | 'admin'
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, storeId, createdAt])
+  @@index([boxId])
+  @@map("lottery_scan_events")
+}
+
+// ─────────────────────────────────────────────────
+// LOTTERY WEEKLY SETTLEMENT (Phase 2)
+// One row per (store, weekStart). Computed on demand — the engine can
+// regenerate it at any time until it's finalized. After finalize, the row
+// is locked (except for paid-at / notes).
+// ─────────────────────────────────────────────────
+model LotteryWeeklySettlement {
+  id        String @id @default(cuid())
+  orgId     String
+  storeId   String
+
+  // Week identification — weekStart is the store's configured start-of-week
+  // (Sunday for MA/ME by default; configurable per state adapter). weekEnd
+  // is 6 days later. dueDate is the settlement due date (typically the
+  // Monday after weekEnd).
+  weekStart DateTime @db.Date
+  weekEnd   DateTime @db.Date
+  dueDate   DateTime @db.Date
+
+  // ─ Online (draw-game terminal) ───────────────────────
+  onlineGross    Decimal @default(0) @db.Decimal(12, 2) // sum of machineSales across the 7 days
+  onlineCashings Decimal @default(0) @db.Decimal(12, 2) // sum of machineCashing + instantCashing
+  onlineCommission Decimal @default(0) @db.Decimal(12, 2) // store commission on online sales
+
+  // ─ Instant (scratchoff) ──────────────────────────────
+  instantSales        Decimal @default(0) @db.Decimal(12, 2) // value of tickets sold from settled + partial-return books
+  instantSalesComm    Decimal @default(0) @db.Decimal(12, 2) // sales commission on instant sales
+  instantCashingComm  Decimal @default(0) @db.Decimal(12, 2) // cashing commission on scratch payouts
+
+  // ─ Eligible books this week ──────────────────────────
+  // IDs of LotteryBox rows that became eligible for settlement this week
+  // based on the state adapter rules (80% sold OR maxDaysActive reached).
+  settledBookIds  Json @default("[]")
+  returnedBookIds Json @default("[]")
+  // Books activated but NOT yet eligible — tracked for transparency
+  unsettledBookIds Json @default("[]")
+
+  // ─ Deductions ────────────────────────────────────────
+  returnsDeduction Decimal @default(0) @db.Decimal(12, 2) // unsold value of books returned this week
+
+  // ─ Adjustments (manager-entered) ─────────────────────
+  bonus         Decimal @default(0) @db.Decimal(12, 2)
+  serviceCharge Decimal @default(0) @db.Decimal(12, 2)
+  adjustments   Decimal @default(0) @db.Decimal(12, 2) // positive or negative
+  notes         String?
+
+  // ─ Final total owed to lottery commission ────────────
+  totalDue Decimal @default(0) @db.Decimal(12, 2)
+
+  // ─ Lifecycle ─────────────────────────────────────────
+  status        String    @default("draft") // draft | finalized | paid
+  computedAt    DateTime? // last time engine recomputed the row
+  finalizedAt   DateTime?
+  finalizedById String?
+  paidAt        DateTime?
+  paidRef       String? // cheque # / ACH ref / etc.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, storeId, weekStart])
+  @@index([orgId, storeId, weekStart])
+  @@map("lottery_weekly_settlements")
 }
 
 // ─────────────────────────────────────────────────
@@ -3284,4 +3424,139 @@ model State {
   stores Store[]
 
   @@map("states")
+}
+
+// ─────────────────────────────────────────────────
+// AI ASSISTANT — Conversational support with live-data tool access.
+//
+// The AI calls server-side tool functions (never raw SQL). Every tool
+// re-checks the caller's RBAC permissions, so the AI can only surface
+// data the user themselves is authorised to see.
+//
+// KB + feedback-review tables land in a follow-up session.
+// ─────────────────────────────────────────────────
+model AiConversation {
+  id            String   @id @default(cuid())
+  orgId         String?        // null for superadmin cross-tenant chats
+  storeId       String?        // active store at conversation start
+  userId        String         // who opened the conversation
+  userRole      String?        // denormalized: effective role at creation time
+  userName      String?        // denormalized for list views
+  title         String?        // auto-summary of first user message (<=80 chars)
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([userId, lastMessageAt])
+  @@index([orgId, lastMessageAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String         // "user" | "assistant"
+  content        String   @db.Text
+  toolCalls      Json?          // [{name, input, output, durationMs}]
+  tokenCount     Int?           // input+output tokens reported by Anthropic
+  model          String?        // e.g. "claude-sonnet-4-6"
+  feedback       String?        // "helpful" | "unhelpful" | null
+  feedbackNote   String?  @db.Text
+  ticketId       String?        // linked SupportTicket.id if escalated
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([feedback])
+  @@map("ai_messages")
+}
+
+// ─────────────────────────────────────────────────
+// AI KNOWLEDGE BASE — curated how-to / troubleshoot articles
+//
+// Embeddings generated via OpenAI text-embedding-3-small (1536-dim).
+// Stored as Float[] (native Postgres array); cosine similarity computed
+// in JavaScript at query time. At <500 articles this is fast enough
+// without needing pgvector. Swap to pgvector if/when the KB grows large.
+// ─────────────────────────────────────────────────
+model AiKnowledgeArticle {
+  id             String   @id @default(cuid())
+  orgId          String?        // null = platform-wide article (default for seeded)
+  category       String         // "feature" | "how-to" | "troubleshoot" | "faq"
+  title          String
+  content        String   @db.Text
+  embedding      Float[]        // 1536-dim vector
+  source         String   @default("curated")  // "seed" | "curated" | "admin"
+  tags           String[] @default([])
+  helpfulCount   Int      @default(0)
+  unhelpfulCount Int      @default(0)
+  createdById    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orgId, active])
+  @@index([category])
+  @@map("ai_knowledge_articles")
+}
+
+// ─────────────────────────────────────────────────
+// AI PRODUCT TOURS — narrated step-by-step walkthroughs
+//
+// The AI recommends a tour when the user asks "walk me through X". The tour
+// runner (global component in the portal Layout) drives a floating step card
+// that walks the user page-by-page through the flow.
+//
+// Steps are structured — no brittle CSS selectors on UI elements. Each step
+// has a title, body, and an optional `url` to navigate to. This works on any
+// page without requiring the page to be "tour-aware".
+// ─────────────────────────────────────────────────
+model ProductTour {
+  id          String   @id @default(cuid())
+  orgId       String?        // null = platform-wide (default for seeded)
+  slug        String         // "add-product", "set-age-verification"
+  name        String         // "Add Your First Product"
+  description String?  @db.Text
+  category    String   @default("onboarding") // "onboarding" | "feature" | "troubleshoot"
+  triggers    String[] @default([])           // phrases the AI uses to match intent
+  steps       Json     @default("[]")         // [{ title, body, url?, highlight? }]
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([active, category])
+  @@map("product_tours")
+}
+
+// ─────────────────────────────────────────────────
+// AI FEEDBACK REVIEW — 👎 queue for admins to curate into the KB
+//
+// Populated when a user marks an assistant response "unhelpful" AND
+// leaves a free-text suggestion. An admin with `ai_assistant.manage`
+// reviews each row in the admin panel and either (a) promotes it to a
+// new KB article (capturing their corrected answer) or (b) dismisses.
+// ─────────────────────────────────────────────────
+model AiFeedbackReview {
+  id              String   @id @default(cuid())
+  orgId           String?        // which org the conversation came from
+  messageId       String   @unique  // denormalized — so we can cascade-delete cleanly
+  conversationId  String?        // for "View conversation" action
+  question        String   @db.Text  // denormalized user message
+  aiResponse      String   @db.Text  // denormalized assistant message
+  userSuggestion  String?  @db.Text  // feedbackNote from the user
+  status          String   @default("pending")  // "pending" | "promoted" | "dismissed"
+  reviewedById    String?
+  reviewedAt      DateTime?
+  articleId       String?        // if promoted to KB
+  ticketId        String?        // if escalated to support ticket alongside review
+  createdAt       DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([orgId, status])
+  @@map("ai_feedback_reviews")
 }

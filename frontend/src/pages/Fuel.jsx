@@ -213,7 +213,7 @@ function TypesTab({ storeId, setErr }) {
     <div className="fuel-types-tab">
       <div className="fuel-card-head">
         <h3>Fuel Types ({types.length})</h3>
-        <button className="fuel-btn fuel-btn-primary" onClick={() => setEditing('new')}>
+        <button className="fuel-btn fuel-btn-primary" onClick={() => setEditing('new')} data-tour="fuel-new-btn">
           <Plus size={13} /> Add Fuel Type
         </button>
       </div>

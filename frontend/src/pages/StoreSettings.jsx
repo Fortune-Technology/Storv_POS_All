@@ -472,7 +472,7 @@ export default function StoreSettings({ embedded }) {
           </div>
 
           {/* ── Section: Age Verification Policy (Tobacco / Alcohol) ── */}
-          <div className="ss-section">
+          <div className="ss-section" data-tour="age-verification-section">
             <div className="ss-section-title">Age Verification Policy</div>
             <div className="ss-section-desc">
               Set the minimum age required to purchase tobacco and alcohol items at this store.
