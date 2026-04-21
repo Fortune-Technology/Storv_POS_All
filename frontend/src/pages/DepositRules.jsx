@@ -393,7 +393,7 @@ export default function DepositRules({ embedded }) {
             </div>
             <div className="p-header-actions">
               {!showForm && (
-                <button className="dr-add-btn" onClick={() => setShowForm('new')}>
+                <button className="p-btn p-btn-primary" onClick={() => setShowForm('new')}>
                   <Plus size={15} /> Add Rule
                 </button>
               )}

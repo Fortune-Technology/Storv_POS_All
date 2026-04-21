@@ -403,17 +403,7 @@ export default function TaxRules({ embedded }) {
         </div>
         <div className="p-header-actions">
           {!showForm && (
-            <button
-              onClick={() => setShowForm('new')}
-              style={{
-                height: 38, padding: '0 1.25rem',
-                background: 'var(--accent-primary)', border: 'none',
-                borderRadius: 8, color: '#fff',
-                fontWeight: 800, fontSize: '0.875rem',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}
-            >
+            <button className="p-btn p-btn-primary" onClick={() => setShowForm('new')}>
               <Plus size={15} /> Add Tax Rule
             </button>
           )}
