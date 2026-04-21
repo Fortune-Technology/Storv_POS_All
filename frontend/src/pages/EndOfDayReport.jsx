@@ -103,6 +103,10 @@ export default function EndOfDayReport() {
     rows.push({ Section: '', Type: '', Count: '', Amount: '' });
     header('TRANSACTIONS');
     report.transactions.forEach(tx => rows.push({ Section: '', Type: tx.label, Count: tx.count, Amount: tx.amount.toFixed(2) }));
+    if (Array.isArray(report.fees) && report.fees.some(f => Math.abs(f.amount) > 0.001 || f.count > 0)) {
+      header('PASS-THROUGH FEES (not revenue / not profit)');
+      report.fees.forEach(f => rows.push({ Section: '', Type: f.label, Count: f.count, Amount: (f.amount || 0).toFixed(2) }));
+    }
     if (report.fuel?.rows?.length) {
       rows.push({ Section: '', Type: '', Count: '', Amount: '' });
       header('FUEL SALES');
@@ -267,6 +271,33 @@ export default function EndOfDayReport() {
             rows={report.transactions}
             totalLabel={null}
           />
+
+          {/* Section 3b: Pass-through fees — bag fees + bottle deposits.
+              These are already in Gross Sales above; this section is purely
+              an accounting breakdown so the retailer can see what they
+              collected on behalf of the state vs charged for bags. */}
+          {report.fees && report.fees.some(f => Math.abs(f.amount) > 0.001) && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">PASS-THROUGH FEES</h3>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                Not revenue or profit — shown separately for reconciliation.
+              </div>
+              <table className="eod-table">
+                <thead>
+                  <tr><th>Type</th><th className="eod-num">Count</th><th className="eod-num">Amount</th></tr>
+                </thead>
+                <tbody>
+                  {report.fees.filter(f => Math.abs(f.amount) > 0.001 || f.count > 0).map(f => (
+                    <tr key={f.key}>
+                      <td>{f.label}</td>
+                      <td className="eod-num">{f.count}</td>
+                      <td className="eod-num">{fmt$(f.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Section 4: Fuel (only when fuel sales exist) */}
           {report.fuel && (report.fuel.rows?.length > 0) && (

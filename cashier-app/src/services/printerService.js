@@ -286,6 +286,20 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     r += pad(tx.label, W - 18) + rpad(String(tx.count), 6) + rpad(money(tx.amount), 12) + LF;
   }
 
+  // ── Section 3b: Pass-through Fees (bag fees + bottle deposits) ────────
+  const feeRows = (report.fees || []).filter(f => Math.abs(f.amount || 0) > 0.001 || (f.count || 0) > 0);
+  if (feeRows.length) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'PASS-THROUGH FEES' + LF + ESCPOS.BOLD_OFF;
+    r += 'Not revenue / not profit' + LF;
+    r += divider;
+    r += pad('Type', W - 18) + rpad('Count', 6) + rpad('Amount', 12) + LF;
+    r += divider;
+    for (const f of feeRows) {
+      r += pad(f.label, W - 18) + rpad(String(f.count), 6) + rpad(money(f.amount), 12) + LF;
+    }
+  }
+
   // ── Section 4: Fuel Sales (only when fuel sales exist) ────────────────
   if (report.fuel?.rows?.length) {
     r += LF + hr;

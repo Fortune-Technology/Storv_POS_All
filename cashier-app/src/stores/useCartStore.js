@@ -478,7 +478,18 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
   return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving, bagTotal: effectiveBagTotal };
 }
 
+// Wildcard rule `appliesTo` values that apply to ANY taxable item. `none` is
+// treated as a wildcard because the default "General Sales Tax" seed ships
+// with `appliesTo='none'` and was historically used as a catch-all. `standard`
+// is the default taxClass on new products, so treating it as a wildcard on
+// rule side too lets retailers create a single rule that catches everything.
+const TAX_RULE_WILDCARDS = new Set(['', 'all', 'any', '*', 'standard', 'none']);
+
 function matchTax(appliesTo, taxClass) {
-  if (!appliesTo || appliesTo === 'all') return true;
-  return appliesTo.split(',').map(s => s.trim()).includes(taxClass);
+  const applied = String(appliesTo || '').toLowerCase().trim();
+  if (TAX_RULE_WILDCARDS.has(applied)) return true;
+  const list = applied.split(',').map(s => s.trim()).filter(Boolean);
+  if (list.includes(String(taxClass || '').toLowerCase().trim())) return true;
+  // If any entry is a wildcard, the rule applies universally
+  return list.some(x => TAX_RULE_WILDCARDS.has(x));
 }

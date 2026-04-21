@@ -248,13 +248,21 @@ export default function QuickButtonBuilder() {
   // ── Product picker ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!showProductPicker) return;
+    // Backend requires a non-empty query; skip the call until user types 2+ chars.
+    if (!productSearch || productSearch.trim().length < 2) {
+      setProductResults([]);
+      setProductLoading(false);
+      return;
+    }
     let cancelled = false;
     setProductLoading(true);
     const t = setTimeout(() => {
-      searchCatalogProducts(productSearch, { storeId, limit: 30 })
+      searchCatalogProducts(productSearch.trim(), { storeId, limit: 30 })
         .then(r => {
           if (cancelled) return;
-          setProductResults(Array.isArray(r) ? r : r?.products || []);
+          // searchCatalogProducts returns { success, data: [...] }
+          const rows = Array.isArray(r) ? r : (Array.isArray(r?.data) ? r.data : (r?.products || []));
+          setProductResults(rows);
         })
         .catch(() => setProductResults([]))
         .finally(() => { if (!cancelled) setProductLoading(false); });

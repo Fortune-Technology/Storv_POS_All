@@ -163,7 +163,7 @@ async function aggregateTransactions(scope) {
   const txns = await prisma.transaction.findMany({
     where,
     select: {
-      id: true, status: true, subtotal: true, taxTotal: true, grandTotal: true,
+      id: true, status: true, subtotal: true, taxTotal: true, depositTotal: true, grandTotal: true,
       changeGiven: true, tenderLines: true, lineItems: true, createdAt: true,
     },
   });
@@ -183,10 +183,20 @@ async function aggregateTransactions(scope) {
   let cashBackTotal  = 0, cashBackCount = 0;
   let tipsTotal      = 0, tipsCount = 0;
 
+  // Pass-through fees — NOT revenue, NOT profit. Reported separately so the
+  // retailer can reconcile what they collected on behalf of the state (deposits)
+  // vs what they charged for disposable bags. Both are already baked into
+  // grandTotal, so nothing else needs to change in the math.
+  let depositsCollected = 0;   // Σ Transaction.depositTotal
+  let depositsRefunded  = 0;   // tracked on refund txs
+  let bagFeeTotal       = 0;   // Σ lineItems where isBagFee
+  let bagFeeQty         = 0;   // Σ bag counts
+
   for (const tx of txns) {
     const gt = Number(tx.grandTotal) || 0;
     const st = Number(tx.subtotal)   || 0;
     const tt = Number(tx.taxTotal)   || 0;
+    const dt = Number(tx.depositTotal) || 0;
     const ch = Number(tx.changeGiven) || 0;
 
     if (tx.status === 'voided') {
@@ -201,11 +211,24 @@ async function aggregateTransactions(scope) {
       grossSales -= Math.abs(gt);
       netSales   -= Math.abs(st);
       taxCollected -= Math.abs(tt);
+      depositsRefunded += Math.abs(dt);
     } else {
       completeCount += 1;
       grossSales   += gt;
       netSales     += st;
       taxCollected += tt;
+      depositsCollected += dt;
+    }
+
+    // Bag fees — stored as synthetic line items with isBagFee:true
+    const liArr = Array.isArray(tx.lineItems) ? tx.lineItems : [];
+    for (const li of liArr) {
+      if (li.isBagFee) {
+        const amt = Number(li.lineTotal) || 0;
+        const q   = Number(li.qty) || 1;
+        if (tx.status === 'refund') { bagFeeTotal -= Math.abs(amt); bagFeeQty -= Math.abs(q); }
+        else                         { bagFeeTotal += amt;          bagFeeQty += q; }
+      }
     }
 
     // Tender breakdown per tenderLines entry
@@ -254,6 +277,7 @@ async function aggregateTransactions(scope) {
     completeCount, refundCount, refundAmount, voidCount, voidAmount,
     grossSales, netSales, taxCollected, cashCollected,
     cashBackCount, cashBackTotal, tipsCount, tipsTotal,
+    depositsCollected, depositsRefunded, bagFeeTotal, bagFeeQty,
   };
 }
 
@@ -440,6 +464,16 @@ export const getEndOfDayReport = async (req, res) => {
       { key: 'cashCollected',  label: 'Cash Collected',      count: txAgg.tenderMap.cash?.count || 0, amount: r2(txAgg.cashCollected) },
     ];
 
+    // Pass-through fees — collected on behalf of the state (deposits) or
+    // as a flat charge per bag. Both are already baked into Gross Sales
+    // (which mirrors customer-facing tender total), so this section is purely
+    // a breakdown for accounting — it does NOT affect profit or revenue math.
+    const feesSection = [
+      { key: 'bagFees',        label: 'Bag Fees (pass-through)',           count: txAgg.bagFeeQty,      amount: r2(txAgg.bagFeeTotal),        passThrough: true },
+      { key: 'bottleDeposits', label: 'Bottle Deposits Collected',         count: txAgg.completeCount,  amount: r2(txAgg.depositsCollected),  passThrough: true },
+      { key: 'depositsRefunded',label:'Bottle Deposits Refunded',          count: txAgg.refundCount,    amount: r2(txAgg.depositsRefunded),   passThrough: true },
+    ];
+
     // ── Totals for reconciliation (only if shift-scope) ──────────────────────
     // Cash flow into the drawer:  opening + cashCollected + paid_in + received_on_acct
     // Cash flow out of the drawer: pickups (drops) + paid_out + loans
@@ -489,6 +523,7 @@ export const getEndOfDayReport = async (req, res) => {
       payouts:      PAYOUT_CATEGORIES.map(c => payoutMap[c.key]),
       tenders:      TENDER_CATEGORIES.map(c => txAgg.tenderMap[c.key]),
       transactions: transactionSection,
+      fees:         feesSection,
       fuel:         fuelAgg,
       reconciliation,
       totals: {

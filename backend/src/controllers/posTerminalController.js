@@ -166,11 +166,17 @@ export const getCatalogSnapshot = async (req, res) => {
         taxClass:       p.taxClass || p.department?.taxClass || 'grocery',
         ebtEligible:    p.ebtEligible || p.department?.ebtEligible || false,
         ageRequired:    p.ageRequired,
-        // Multiply per-container deposit by number of containers in the sell unit
-        // e.g. 6pk 12oz cans: 0.05 × 6 = $0.30 per sell unit
-        depositAmount:  p.depositRule
-          ? Number(p.depositRule.depositAmount) * (p.sellUnitSize || 1)
-          : null,
+        // Deposit priority:
+        //   1. MasterProduct.depositPerUnit — the simplified Session 9 field
+        //      the Product Form now saves. Flat $ per sell unit.
+        //   2. Legacy DepositRule — multiply per-container deposit by number
+        //      of containers in the sell unit (e.g. 6pk × $0.05 = $0.30).
+        // The cashier cart reads this flat `depositAmount`, multiplies by qty,
+        // and shows a "Bottle Deposit" line on each item + a total row.
+        depositAmount:
+          p.depositPerUnit != null ? Number(p.depositPerUnit) :
+          p.depositRule              ? Number(p.depositRule.depositAmount) * (p.sellUnitSize || 1) :
+          null,
         depositRuleId:  p.depositRuleId,
         departmentId:   p.departmentId,
         departmentName: p.department?.name || null,

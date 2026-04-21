@@ -154,14 +154,21 @@
   flex-wrap: wrap;
 }
 
+/* Wrap to 2 lines on wider screens so long names (e.g. wholesale SKUs with
+   vendor + brand + size) are fully visible instead of silently truncated.
+   On narrow / POS-tablet widths the breakpoint below tightens to single-line
+   ellipsis so the cart rail stays compact. */
 .ci-name {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-primary);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
+  word-break: break-word;
+  flex: 1;
+  min-width: 0;
 }
 
 .ci-badge {
@@ -351,6 +358,9 @@
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .ci-name {
-    max-width: 120px;
+    -webkit-line-clamp: 1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 160px;
   }
 }

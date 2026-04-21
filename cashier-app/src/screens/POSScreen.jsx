@@ -1508,11 +1508,6 @@ export default function POSScreen() {
           }}>
             <span style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
               Cart
-              {items.length > 0 && (
-                <span style={{ marginLeft: 6, fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  · {items.length} item{items.length !== 1 ? 's' : ''}
-                </span>
-              )}
             </span>
             {items.length > 0 && (
               <button onClick={clearCart} style={{
