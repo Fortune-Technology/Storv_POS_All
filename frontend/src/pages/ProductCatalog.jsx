@@ -348,6 +348,32 @@ export default function ProductCatalog() {
 
   useEffect(() => { loadSupport(); }, []);
 
+  // Session 39 Round 3 — sort + advanced-filter pipeline
+  // Session 39 Round 4 — sort is now server-side for columns the backend
+  // supports (name, pack, cost, retail, department, vendor, createdAt,
+  // updatedAt). Margin and onHand fall back to client-side-over-current-page
+  // because they're computed/nested fields Prisma can't easily orderBy.
+  // NOTE: declared here (before the debounced reload effect) because that
+  // effect depends on sort.sortKey/sortDir. Moving this below would cause
+  // a TDZ ReferenceError: Cannot access 'sort' before initialization.
+  const filteredProducts = applyAdvancedFilters(products, advFilters, PRODUCT_FILTER_CONFIG);
+  const sort = useTableSort(filteredProducts, {
+    accessors: {
+      name:               (p) => p.name,
+      retail:             (p) => Number(p.defaultRetailPrice || 0),
+      cost:               (p) => Number(p.defaultCostPrice || 0),
+      margin:             (p) => calcMargin(p.defaultCostPrice, p.defaultRetailPrice) ?? -1,
+      department:         (p) => departments.find(d => d.id === p.departmentId)?.name || '',
+      onHand:             (p) => Number(p.quantityOnHand ?? -1),
+      vendor:             (p) => p.vendorName || '',
+      pack:               (p) => Number(p.casePacks || 0),
+    },
+    // When the active sort key is server-backed, skip client-side sorting so
+    // the hook doesn't reorder a page the backend already sorted globally.
+    // For margin/onHand, client-side sort still runs over the current page.
+    serverSide: sortKey => SERVER_SORT_KEYS.has(sortKey),
+  });
+
   useEffect(() => {
     clearTimeout(debounceRef.current);
     // Session 39 Round 4 — include sort state so column-click re-fetches
@@ -394,29 +420,6 @@ export default function ProductCatalog() {
       setExporting(false);
     }
   };
-
-  // Session 39 Round 3 — sort + advanced-filter pipeline
-  // Session 39 Round 4 — sort is now server-side for columns the backend
-  // supports (name, pack, cost, retail, department, vendor, createdAt,
-  // updatedAt). Margin and onHand fall back to client-side-over-current-page
-  // because they're computed/nested fields Prisma can't easily orderBy.
-  const filteredProducts = applyAdvancedFilters(products, advFilters, PRODUCT_FILTER_CONFIG);
-  const sort = useTableSort(filteredProducts, {
-    accessors: {
-      name:               (p) => p.name,
-      retail:             (p) => Number(p.defaultRetailPrice || 0),
-      cost:               (p) => Number(p.defaultCostPrice || 0),
-      margin:             (p) => calcMargin(p.defaultCostPrice, p.defaultRetailPrice) ?? -1,
-      department:         (p) => departments.find(d => d.id === p.departmentId)?.name || '',
-      onHand:             (p) => Number(p.quantityOnHand ?? -1),
-      vendor:             (p) => p.vendorName || '',
-      pack:               (p) => Number(p.casePacks || 0),
-    },
-    // When the active sort key is server-backed, skip client-side sorting so
-    // the hook doesn't reorder a page the backend already sorted globally.
-    // For margin/onHand, client-side sort still runs over the current page.
-    serverSide: sortKey => SERVER_SORT_KEYS.has(sortKey),
-  });
 
   const activePromos = (productId) => {
     const now = new Date();

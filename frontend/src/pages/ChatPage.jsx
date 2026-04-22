@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  MessageSquare, Send, Plus, X, Loader, Users, Hash, User,
+  MessageSquare, Send, Plus, X, Loader, Users, Hash, User, Handshake, Store,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -11,6 +11,11 @@ import {
   markChatRead,
   getChatUnread,
   getChatUsers,
+  listAcceptedPartners,
+  getPartnerChatChannels,
+  getPartnerChatMessages,
+  sendPartnerChatMessage,
+  markPartnerChatRead,
 } from '../services/api';
 import '../styles/portal.css';
 import './ChatPage.css';
@@ -33,23 +38,32 @@ const RoleBadge = ({ role }) => {
 };
 
 /* ── New DM Modal ───────────────────────────────────────────────────────── */
-const NewDMModal = ({ onClose, onSelect }) => {
-  const [users, setUsers]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch]   = useState('');
+const NewDMModal = ({ onClose, onSelectUser, onSelectPartner }) => {
+  const [users, setUsers]       = useState([]);
+  const [partners, setPartners] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState('');
 
   useEffect(() => {
     (async () => {
       try {
-        const data = await getChatUsers();
-        setUsers(Array.isArray(data) ? data : data.users || []);
+        const [uResp, pResp] = await Promise.all([
+          getChatUsers().catch(() => ({ users: [] })),
+          listAcceptedPartners().catch(() => []),
+        ]);
+        setUsers(Array.isArray(uResp) ? uResp : uResp.users || []);
+        setPartners(Array.isArray(pResp) ? pResp : pResp.data || []);
       } catch { toast.error('Failed to load users'); }
       finally { setLoading(false); }
     })();
   }, []);
 
-  const filtered = users.filter(u =>
-    (u.name || u.email || '').toLowerCase().includes(search.toLowerCase()),
+  const q = search.toLowerCase();
+  const filteredUsers = users.filter(u =>
+    (u.name || u.email || '').toLowerCase().includes(q),
+  );
+  const filteredPartners = partners.filter(p =>
+    ((p.name || '') + ' ' + (p.orgName || '') + ' ' + (p.storeCode || '')).toLowerCase().includes(q),
   );
 
   return (
@@ -62,7 +76,7 @@ const NewDMModal = ({ onClose, onSelect }) => {
 
         <input
           className="p-input"
-          placeholder="Search users..."
+          placeholder="Search users or partners..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           autoFocus
@@ -70,18 +84,53 @@ const NewDMModal = ({ onClose, onSelect }) => {
 
         <div className="ch-user-list">
           {loading && <div className="p-loading"><Loader size={14} className="p-spin" /> Loading...</div>}
-          {!loading && filtered.length === 0 && <div className="p-empty">No users found</div>}
-          {filtered.map(u => (
-            <button
-              key={u.id || u._id}
-              className="ch-user-item"
-              onClick={() => { onSelect(u); onClose(); }}
-            >
-              <User size={14} />
-              <span className="ch-user-name">{u.name || u.email}</span>
-              {u.role && <RoleBadge role={u.role} />}
-            </button>
-          ))}
+
+          {!loading && (
+            <>
+              {/* ── Trading Partners (cross-org) ───────────────────────── */}
+              <div className="ch-section-label">
+                <Handshake size={12} /> Trading Partners
+              </div>
+              {filteredPartners.length === 0 && (
+                <div className="ch-section-empty">No accepted trading partners</div>
+              )}
+              {filteredPartners.map(p => (
+                <button
+                  key={p.partnershipId}
+                  className="ch-user-item ch-partner-item"
+                  onClick={() => { onSelectPartner(p); onClose(); }}
+                >
+                  <Store size={14} />
+                  <div className="ch-user-name">
+                    <div>{p.name}</div>
+                    <div className="ch-partner-sub">
+                      {p.orgName}{p.storeCode ? ` · ${p.storeCode}` : ''}
+                    </div>
+                  </div>
+                  <span className="p-badge p-badge-blue">partner</span>
+                </button>
+              ))}
+
+              {/* ── Internal users (same org) ──────────────────────────── */}
+              <div className="ch-section-label">
+                <Users size={12} /> Users in your organisation
+              </div>
+              {filteredUsers.length === 0 && (
+                <div className="ch-section-empty">No users found</div>
+              )}
+              {filteredUsers.map(u => (
+                <button
+                  key={u.id || u._id}
+                  className="ch-user-item"
+                  onClick={() => { onSelectUser(u); onClose(); }}
+                >
+                  <User size={14} />
+                  <span className="ch-user-name">{u.name || u.email}</span>
+                  {u.role && <RoleBadge role={u.role} />}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -104,11 +153,18 @@ const ChatPage = () => {
   const messagesEndRef = useRef(null);
   const pollRef        = useRef(null);
 
-  /* ── Load channels ──────────────────────────────────────────────────── */
+  /* ── Load channels (internal + partner) ─────────────────────────────── */
   const loadChannels = useCallback(async () => {
     try {
-      const data = await getChatChannels();
-      setChannels(Array.isArray(data) ? data : data.channels || []);
+      const [internal, partner] = await Promise.all([
+        getChatChannels().catch(() => ({ channels: [] })),
+        getPartnerChatChannels().catch(() => ({ channels: [] })),
+      ]);
+      const list = [
+        ...(Array.isArray(internal) ? internal : internal.channels || []),
+        ...(Array.isArray(partner)  ? partner  : partner.channels  || []),
+      ];
+      setChannels(list);
     } catch { /* silent */ }
   }, []);
 
@@ -134,25 +190,36 @@ const ChatPage = () => {
   }, [loadChannels, loadUnread]);
 
   /* ── Load messages for active channel ───────────────────────────────── */
-  const loadMessages = useCallback(async (channelId) => {
+  const loadMessages = useCallback(async (channel) => {
+    if (!channel) return;
+    const channelId = channel.id || channel._id;
     if (!channelId) return;
     try {
-      const data = await getChatMessages({ channelId });
+      const isPartner = channel.type === 'partner' || channelId.startsWith('partner:');
+      const data = isPartner
+        ? await getPartnerChatMessages({ partnershipId: channel.partnershipId || channelId.split(':')[1] })
+        : await getChatMessages({ channelId });
       setMessages(Array.isArray(data) ? data : data.messages || []);
     } catch { toast.error('Failed to load messages'); }
   }, []);
 
   useEffect(() => {
     if (!activeChannel) return;
-    loadMessages(activeChannel.id || activeChannel._id);
-    markChatRead({ channelId: activeChannel.id || activeChannel._id }).catch(() => {});
+    loadMessages(activeChannel);
+    const isPartner = activeChannel.type === 'partner' || String(activeChannel.id || '').startsWith('partner:');
+    if (isPartner) {
+      const pid = activeChannel.partnershipId || String(activeChannel.id).split(':')[1];
+      markPartnerChatRead({ partnershipId: pid }).catch(() => {});
+    } else {
+      markChatRead({ channelId: activeChannel.id || activeChannel._id }).catch(() => {});
+    }
     setUnreadMap(prev => ({ ...prev, [activeChannel.id || activeChannel._id]: 0 }));
   }, [activeChannel, loadMessages]);
 
   /* ── Poll every 5 s ─────────────────────────────────────────────────── */
   useEffect(() => {
     pollRef.current = setInterval(() => {
-      if (activeChannel) loadMessages(activeChannel.id || activeChannel._id);
+      if (activeChannel) loadMessages(activeChannel);
       loadUnread();
     }, 5000);
     return () => clearInterval(pollRef.current);
@@ -169,12 +236,18 @@ const ChatPage = () => {
     if (!text.trim() || !activeChannel) return;
     setSending(true);
     try {
-      await sendChatMessage({
-        channelId: activeChannel.id || activeChannel._id,
-        message: text.trim(),
-      });
+      const isPartner = activeChannel.type === 'partner' || String(activeChannel.id || '').startsWith('partner:');
+      if (isPartner) {
+        const pid = activeChannel.partnershipId || String(activeChannel.id).split(':')[1];
+        await sendPartnerChatMessage({ partnershipId: pid, message: text.trim() });
+      } else {
+        await sendChatMessage({
+          channelId: activeChannel.id || activeChannel._id,
+          message: text.trim(),
+        });
+      }
       setText('');
-      await loadMessages(activeChannel.id || activeChannel._id);
+      await loadMessages(activeChannel);
     } catch { toast.error('Failed to send message'); }
     finally { setSending(false); }
   };
@@ -198,6 +271,22 @@ const ChatPage = () => {
       await loadChannels();
       toast.success(`DM started with ${user.name || user.email}`);
     } catch { toast.error('Failed to start conversation'); }
+  };
+
+  /* ── Start partner chat ─────────────────────────────────────────────── */
+  const handleStartPartner = async (partner) => {
+    const existing = channels.find(c => c.partnershipId === partner.partnershipId);
+    if (existing) { setActiveChannel(existing); return; }
+    try {
+      await sendPartnerChatMessage({
+        partnershipId: partner.partnershipId,
+        message: '(started a conversation)',
+      });
+      await loadChannels();
+      toast.success(`Chat started with ${partner.name}`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to start partner chat');
+    }
   };
 
   const chId = (ch) => ch.id || ch._id;
@@ -340,7 +429,13 @@ const ChatPage = () => {
         </div>
       )}
 
-      {showNewDM && <NewDMModal onClose={() => setShowNewDM(false)} onSelect={handleStartDM} />}
+      {showNewDM && (
+        <NewDMModal
+          onClose={() => setShowNewDM(false)}
+          onSelectUser={handleStartDM}
+          onSelectPartner={handleStartPartner}
+        />
+      )}
     </div>
   );
 };

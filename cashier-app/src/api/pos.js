@@ -372,3 +372,8 @@ export const submitAiFeedback      = (msgId, feedback, note = null) =>
   api.post(`/ai-assistant/messages/${msgId}/feedback`, { feedback, note }).then(r => r.data);
 export const escalateAiConversation = (id, subject, priority = 'normal') =>
   api.post(`/ai-assistant/conversations/${id}/escalate`, { subject, priority }).then(r => r.data);
+
+// ── Tasks (assigned from back-office) ──────────────────────────────────────
+export const getMyTasks       = (params = {}) => api.get('/tasks/my', { params }).then(r => r.data);
+export const getTaskCounts    = ()            => api.get('/tasks/counts').then(r => r.data);
+export const updateTaskStatus = (id, data)    => api.put(`/tasks/${id}`, data).then(r => r.data);

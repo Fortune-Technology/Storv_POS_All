@@ -126,6 +126,20 @@
 .cust-search-bar {
   position: relative;
   margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cust-search-bar > .cust-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cust-search-bar > .cam-scan-btn {
+  flex-shrink: 0;
+  height: 42px;
+  width: 42px;
 }
 
 .cust-search-icon {

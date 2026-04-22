@@ -514,11 +514,8 @@ export default function Transactions({ embedded }) {
   // Server-backed sort keys trigger a re-fetch with sortBy/sortDir params;
   // non-server keys (itemCount/tender) don't trigger a reload since they
   // sort locally over the loaded page.
-  useEffect(() => {
-    const serverKey = sort.sortKey && TX_SERVER_SORT_KEYS.has(sort.sortKey) ? sort.sortKey : null;
-    load(serverKey ? { sortKey: serverKey, sortDir: sort.sortDir } : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, sort.sortKey, sort.sortDir]);
+  // NOTE: must come AFTER the `sort` declaration below. Moved below the sort
+  // block to avoid TDZ ReferenceError: Cannot access 'sort' before initialization.
 
   // Auto-refresh every 60 s when viewing today
   useEffect(() => {
@@ -605,6 +602,13 @@ export default function Transactions({ embedded }) {
     },
     serverSide: (key) => TX_SERVER_SORT_KEYS.has(key),
   });
+
+  // Server-side sort re-fetch (moved here from above so `sort` is initialized).
+  useEffect(() => {
+    const serverKey = sort.sortKey && TX_SERVER_SORT_KEYS.has(sort.sortKey) ? sort.sortKey : null;
+    load(serverKey ? { sortKey: serverKey, sortDir: sort.sortDir } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, sort.sortKey, sort.sortDir]);
 
   // ── Summary stats ────────────────────────────────────────────────────────────
   // Revenue convention (matches End-of-Day report):

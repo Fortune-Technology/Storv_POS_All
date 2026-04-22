@@ -1,0 +1,39 @@
+/* CameraScanButton — shared across product-search pages (prefix cam-scan-) */
+
+.cam-scan-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  background: var(--bg-tertiary, #f1f5f9);
+  color: var(--text-primary, #0f172a);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  transition: all 0.15s;
+  font-family: inherit;
+  font-weight: 500;
+}
+.cam-scan-btn:hover:not(:disabled) {
+  background: var(--brand-08, rgba(61, 86, 181, 0.08));
+  border-color: var(--brand-primary, #3d56b5);
+  color: var(--brand-primary, #3d56b5);
+}
+.cam-scan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Icon-only variant — fixed square, fits alongside search inputs */
+.cam-scan-btn--icon {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+/* Chip variant — icon + "Scan" label, for headers */
+.cam-scan-btn--chip {
+  padding: 6px 12px;
+  font-size: 13px;
+  height: 38px;
+}

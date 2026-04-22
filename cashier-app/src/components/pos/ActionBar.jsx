@@ -46,6 +46,7 @@ export default function ActionBar({
   onAdminPortal,
   onCustomerDisplay,
   onTasks,
+  tasksCount = 0,
   onChat,
   chatUnread = 0,
   onOpenShift, onCloseShift, onCashDrop, onPayout,
@@ -112,6 +113,26 @@ export default function ActionBar({
       <div className="ab-scroll">
       <div className="ab-spacer" />
 
+      {/* Tasks — always accessible for the signed-in cashier (no manager PIN required) */}
+      {onTasks && (
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
+          <ACT icon={ClipboardList} label="Tasks" onClick={onTasks} color="var(--green)" />
+          {tasksCount > 0 && (
+            <span style={{
+              position: 'absolute', top: 2, right: 2,
+              minWidth: 16, height: 16, padding: '0 4px',
+              borderRadius: 8, background: '#ef4444', color: '#fff',
+              fontSize: '0.55rem', fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1, pointerEvents: 'none',
+              animation: 'badgePop 0.25s ease',
+            }}>
+              {tasksCount > 99 ? '99+' : tasksCount}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Manager actions */}
       {valid && (
         <>
@@ -122,7 +143,6 @@ export default function ActionBar({
           {shiftOpen && <ACT icon={LockKeyhole} label="Close Shift" onClick={onCloseShift} color="var(--red)" locked={!valid} />}
           <ACT icon={Settings} label="Hardware" onClick={onHardwareSettings} color="var(--text-muted)" />
           {onCustomerDisplay && <ACT icon={Monitor} label="Cust. Display" onClick={onCustomerDisplay} color="var(--blue)" />}
-          {onTasks && <ACT icon={ClipboardList} label="Tasks" onClick={onTasks} color="var(--green)" />}
           {onChat && (
             <div style={{ position: 'relative', display: 'inline-flex' }}>
               <ACT icon={MessageSquare} label="Chat" onClick={onChat} color="#8b5cf6" />

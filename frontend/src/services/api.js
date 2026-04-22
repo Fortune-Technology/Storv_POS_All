@@ -259,6 +259,12 @@ export const markChatRead     = (data)   => api.post('/chat/read', data).then(r 
 export const getChatUnread    = ()       => api.get('/chat/unread').then(r => r.data);
 export const getChatUsers     = ()       => api.get('/chat/users').then(r => r.data);
 
+// ── Chat: partner (cross-org trading-partner DMs) ───────────────────────────
+export const getPartnerChatChannels = ()       => api.get('/chat/partner/channels').then(r => r.data);
+export const getPartnerChatMessages = (params) => api.get('/chat/partner/messages', { params }).then(r => r.data);
+export const sendPartnerChatMessage = (data)   => api.post('/chat/partner/messages', data).then(r => r.data);
+export const markPartnerChatRead    = (data)   => api.post('/chat/partner/read', data).then(r => r.data);
+
 // ── Tasks ───────────────────────────────────────────────────────────────────
 export const getTasks          = (params) => api.get('/tasks', { params }).then(r => r.data);
 export const createTask        = (data)   => api.post('/tasks', data).then(r => r.data);

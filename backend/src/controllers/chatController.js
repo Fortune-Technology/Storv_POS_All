@@ -164,3 +164,171 @@ export const getChatUsers = async (req, res, next) => {
     res.json({ users });
   } catch (err) { next(err); }
 };
+
+// ── Partner (cross-org) chat ────────────────────────────────────────────
+// Uses existing ChatMessage with a `partner:{partnershipId}` channelId.
+// orgId is still stored (sender's org), but queries for partner channels
+// skip the orgId filter so both partner stores can read the same thread.
+
+// Helper — verify caller's active store is a party to the partnership.
+async function loadPartnershipForUser(req, partnershipId) {
+  const userStoreIds = (req.user.stores || []).map(s => s.storeId);
+  const activeStore = req.storeId || (userStoreIds[0] || null);
+  const tp = await prisma.tradingPartner.findUnique({
+    where: { id: partnershipId },
+    select: {
+      id: true, status: true,
+      requesterStoreId: true, partnerStoreId: true,
+      requesterStore: { select: { id: true, name: true, storeCode: true, organization: { select: { id: true, name: true } } } },
+      partnerStore:   { select: { id: true, name: true, storeCode: true, organization: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!tp || tp.status !== 'accepted') return null;
+  // Allow if caller has access to either side's store via UserStore, or is owner/admin in either side's org.
+  const isOwnerAdmin = ['owner', 'admin', 'superadmin'].includes(req.user.role);
+  const ownsStore = userStoreIds.includes(tp.requesterStoreId) || userStoreIds.includes(tp.partnerStoreId);
+  const isSameOrg = isOwnerAdmin && (
+    req.user.orgId === tp.requesterStore.organization?.id ||
+    req.user.orgId === tp.partnerStore.organization?.id
+  );
+  if (!ownsStore && !isSameOrg) return null;
+
+  const mine = userStoreIds.includes(tp.requesterStoreId) || req.user.orgId === tp.requesterStore.organization?.id
+    ? tp.requesterStore : tp.partnerStore;
+  const other = mine.id === tp.requesterStore.id ? tp.partnerStore : tp.requesterStore;
+  return { tp, mine, other, activeStore };
+}
+
+// GET /api/chat/partner/channels
+export const getPartnerChannels = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userStoreIds = (req.user.stores || []).map(s => s.storeId);
+    const isOwnerAdmin = ['owner', 'admin', 'superadmin'].includes(req.user.role);
+    const orgId = req.orgId;
+
+    // Partnerships this user can see: either their store participates OR they
+    // are owner/admin of one of the parties' orgs.
+    const partnerships = await prisma.tradingPartner.findMany({
+      where: {
+        status: 'accepted',
+        OR: [
+          userStoreIds.length > 0 ? { requesterStoreId: { in: userStoreIds } } : undefined,
+          userStoreIds.length > 0 ? { partnerStoreId:   { in: userStoreIds } } : undefined,
+          isOwnerAdmin ? { requesterStore: { orgId } } : undefined,
+          isOwnerAdmin ? { partnerStore:   { orgId } } : undefined,
+        ].filter(Boolean),
+      },
+      include: {
+        requesterStore: { select: { id: true, name: true, storeCode: true, organization: { select: { id: true, name: true } } } },
+        partnerStore:   { select: { id: true, name: true, storeCode: true, organization: { select: { id: true, name: true } } } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const channels = [];
+    for (const p of partnerships) {
+      const isRequesterSide = userStoreIds.includes(p.requesterStoreId) ||
+        req.user.orgId === p.requesterStore.organization?.id;
+      const mine  = isRequesterSide ? p.requesterStore : p.partnerStore;
+      const other = isRequesterSide ? p.partnerStore   : p.requesterStore;
+
+      const channelId = `partner:${p.id}`;
+      const latest = await prisma.chatMessage.findFirst({
+        where: { channelId },
+        orderBy: { createdAt: 'desc' },
+        select: { message: true, senderName: true, createdAt: true },
+      });
+      const unread = await prisma.chatMessage.count({
+        where: { channelId, NOT: { readBy: { has: userId } }, senderId: { not: userId } },
+      });
+      channels.push({
+        id: channelId,
+        name: other.name,
+        type: 'partner',
+        partnershipId: p.id,
+        partner: {
+          storeId: other.id,
+          name: other.name,
+          storeCode: other.storeCode,
+          orgName: other.organization?.name,
+        },
+        mine: { storeId: mine.id, name: mine.name },
+        lastMessage: latest || null,
+        unreadCount: unread,
+      });
+    }
+    res.json({ channels });
+  } catch (err) { next(err); }
+};
+
+// GET /api/chat/partner/messages?partnershipId=X
+export const getPartnerMessages = async (req, res, next) => {
+  try {
+    const { partnershipId, limit = 50, before } = req.query;
+    if (!partnershipId) return res.status(400).json({ error: 'partnershipId required' });
+    const info = await loadPartnershipForUser(req, partnershipId);
+    if (!info) return res.status(403).json({ error: 'Not a party to this partnership' });
+
+    const where = { channelId: `partner:${partnershipId}` };
+    if (before) where.createdAt = { lt: new Date(before) };
+
+    const messages = await prisma.chatMessage.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(parseInt(limit), 100),
+    });
+    res.json({
+      messages: messages.reverse(),
+      partnership: { id: info.tp.id, mine: info.mine, other: info.other },
+    });
+  } catch (err) { next(err); }
+};
+
+// POST /api/chat/partner/messages { partnershipId, message }
+export const sendPartnerMessage = async (req, res, next) => {
+  try {
+    const { partnershipId, message, messageType = 'text' } = req.body;
+    if (!partnershipId || !message?.trim()) {
+      return res.status(400).json({ error: 'partnershipId and message required' });
+    }
+    const info = await loadPartnershipForUser(req, partnershipId);
+    if (!info) return res.status(403).json({ error: 'Not a party to this partnership' });
+
+    const channelId = `partner:${partnershipId}`;
+    const msg = await prisma.chatMessage.create({
+      data: {
+        orgId:       req.orgId,
+        storeId:     info.mine.id,
+        channelId,
+        senderId:    req.user.id,
+        senderName:  req.user.name || req.user.email || 'Unknown',
+        senderRole:  req.user.role,
+        message:     message.trim(),
+        messageType,
+        readBy:      [req.user.id],
+      },
+    });
+    res.status(201).json(msg);
+  } catch (err) { next(err); }
+};
+
+// POST /api/chat/partner/read { partnershipId }
+export const markPartnerRead = async (req, res, next) => {
+  try {
+    const { partnershipId } = req.body;
+    if (!partnershipId) return res.status(400).json({ error: 'partnershipId required' });
+    const info = await loadPartnershipForUser(req, partnershipId);
+    if (!info) return res.status(403).json({ error: 'Not a party to this partnership' });
+
+    const userId = req.user.id;
+    const unread = await prisma.chatMessage.findMany({
+      where: { channelId: `partner:${partnershipId}`, NOT: { readBy: { has: userId } } },
+      select: { id: true, readBy: true },
+    });
+    for (const m of unread) {
+      await prisma.chatMessage.update({ where: { id: m.id }, data: { readBy: [...m.readBy, userId] } });
+    }
+    res.json({ marked: unread.length });
+  } catch (err) { next(err); }
+};

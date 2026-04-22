@@ -21,6 +21,7 @@ export default function Roles() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [surfaceTab, setSurfaceTab] = useState('back-office'); // 'back-office' | 'cashier-app'
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -277,19 +278,57 @@ export default function Roles() {
                 <span className="rl-hint">Choose which actions this role should grant.</span>
               </div>
 
+              {/* Surface tabs — split permissions by the app that enforces them. */}
+              <div className="rl-surface-tabs">
+                {[
+                  { k: 'back-office', label: 'Back Office',  host: 'localhost:5173' },
+                  { k: 'cashier-app', label: 'Cashier App',  host: 'localhost:5174' },
+                ].map(s => {
+                  // Count selected + total perms visible in this surface
+                  const visibleModules = Object.entries(permsGrouped).filter(([, perms]) => {
+                    const surf = perms[0]?.surface || 'back-office';
+                    return surf === s.k || surf === 'both';
+                  });
+                  const allKeys = visibleModules.flatMap(([, perms]) => perms.map(p => p.key));
+                  const selected = allKeys.filter(k => form.permissions.includes(k)).length;
+                  return (
+                    <button
+                      key={s.k}
+                      type="button"
+                      className={`rl-surface-tab${surfaceTab === s.k ? ' rl-surface-tab--active' : ''}`}
+                      onClick={() => setSurfaceTab(s.k)}
+                    >
+                      <div className="rl-surface-tab-label">{s.label}</div>
+                      <div className="rl-surface-tab-meta">
+                        {s.host} · {selected}/{allKeys.length} on
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="rl-perm-grid">
-                {Object.entries(permsGrouped).map(([module, perms]) => {
+                {Object.entries(permsGrouped)
+                  .filter(([, perms]) => {
+                    const surf = perms[0]?.surface || 'back-office';
+                    return surf === surfaceTab || surf === 'both';
+                  })
+                  .map(([module, perms]) => {
                   const keys = perms.map(p => p.key);
                   const allOn = keys.every(k => form.permissions.includes(k));
                   const someOn = !allOn && keys.some(k => form.permissions.includes(k));
+                  const surf = perms[0]?.surface || 'back-office';
                   return (
                     <div key={module} className="rl-perm-module">
                       <div className="rl-perm-module-head" onClick={() => toggleModule(perms)}>
                         <button type="button" className="rl-check">
                           {allOn ? <CheckSquare size={16} /> : someOn ? <Check size={16} style={{ opacity: 0.5 }} /> : <Square size={16} />}
                         </button>
-                        <span className="rl-module-label">{perms[0]?.label.split('—')[1]?.trim() || module}</span>
+                        <span className="rl-module-label">
+                          {perms[0]?.moduleLabel || perms[0]?.label.split('—')[1]?.trim() || module}
+                        </span>
                         <code className="rl-module-key">{module}</code>
+                        {surf === 'both' && <span className="rl-surface-chip">both apps</span>}
                       </div>
                       <div className="rl-perm-rows">
                         {perms.map(p => {
@@ -310,6 +349,12 @@ export default function Roles() {
                     </div>
                   );
                 })}
+                {Object.entries(permsGrouped).filter(([, perms]) => {
+                  const surf = perms[0]?.surface || 'back-office';
+                  return surf === surfaceTab || surf === 'both';
+                }).length === 0 && (
+                  <div className="p-empty">No permissions in this category.</div>
+                )}
               </div>
             </div>
 

@@ -424,6 +424,7 @@ export default function POSScreen() {
   const [showTasks,          setShowTasks]          = useState(false);
   const [showChat,           setShowChat]           = useState(false);
   const [chatUnread,         setChatUnread]         = useState(0);
+  const [tasksOpenCount,     setTasksOpenCount]     = useState(0);
   // Quick Buttons is the default view. If a store has not configured a
   // WYSIWYG layout yet, we fall back to 'catalog' via the effect below.
   const [quickTab,           setQuickTab]           = useState('buttons'); // 'catalog' | 'buttons'
@@ -477,6 +478,19 @@ export default function POSScreen() {
     const iv = setInterval(poll, 15000);
     return () => clearInterval(iv);
   }, [showChat]);
+
+  // ── Poll assigned-task count (cashier badge) ────────────────────────────
+  useEffect(() => {
+    const poll = () => {
+      if (showTasks) return;
+      api.get('/tasks/counts')
+        .then(res => setTasksOpenCount(res.data?.myOpen || 0))
+        .catch(() => {});
+    };
+    poll();
+    const iv = setInterval(poll, 30000);
+    return () => clearInterval(iv);
+  }, [showTasks]);
 
   // Last completed transaction — used by Reprint button to print without opening history
   const [lastCompletedTx, setLastCompletedTx] = useState(null);
@@ -1979,7 +1993,8 @@ export default function POSScreen() {
             window.open(`${window.location.origin}/#/customer-display`, 'customer-display', 'width=1024,height=768');
           }
         }}
-        onTasks={() => setShowTasks(true)}
+        onTasks={() => { setTasksOpenCount(0); setShowTasks(true); }}
+        tasksCount={tasksOpenCount}
         onChat={() => { setChatUnread(0); chatUnreadRef.current = 0; setShowChat(true); }}
         chatUnread={chatUnread}
         onEbtBalance={handleEbtBalance}

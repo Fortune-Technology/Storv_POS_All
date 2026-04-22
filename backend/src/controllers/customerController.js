@@ -17,6 +17,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
 import { validateEmail, validatePhone, parsePrice } from '../utils/validators.js';
 import { tryParseDate } from '../utils/safeDate.js';
+import { logAudit } from '../services/auditService.js';
 
 /**
  * Normalize a phone number to an E.164-ish canonical form for storage.
@@ -169,6 +170,11 @@ export const createCustomer = async (req, res, next) => {
       },
     });
 
+    logAudit(req, 'create', 'customer', customer.id, {
+      name: `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || customer.email || customer.phone,
+      email: customer.email, phone: customer.phone,
+    });
+
     res.status(201).json(customer);
   } catch (err) {
     next(err);
@@ -265,6 +271,25 @@ export const updateCustomer = async (req, res, next) => {
       data,
     });
 
+    // Emit field-level before/after diff so the audit log shows exactly what
+    // changed (e.g. "balance: 0 → 50, discount: null → 0.05").
+    try {
+      const diff = {};
+      for (const k of Object.keys(data)) {
+        if (k === 'passwordHash') { diff[k] = { before: '***', after: '***' }; continue; }
+        const before = existing[k];
+        const after  = data[k];
+        const same = (before == null && after == null) || String(before ?? '') === String(after ?? '');
+        if (!same) diff[k] = { before, after };
+      }
+      if (Object.keys(diff).length > 0) {
+        logAudit(req, 'update', 'customer', customer.id, {
+          name: `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || customer.email,
+          changes: diff,
+        });
+      }
+    } catch {}
+
     res.json(customer);
   } catch (err) {
     next(err);
@@ -283,6 +308,11 @@ export const deleteCustomer = async (req, res, next) => {
     await prisma.customer.update({
       where: { id: req.params.id },
       data:  { deleted: true },
+    });
+
+    logAudit(req, 'delete', 'customer', req.params.id, {
+      name: `${existing.firstName || ''} ${existing.lastName || ''}`.trim() || existing.email || existing.phone,
+      email: existing.email, phone: existing.phone,
     });
 
     res.json({ success: true });

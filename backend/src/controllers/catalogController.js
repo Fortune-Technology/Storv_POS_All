@@ -17,6 +17,7 @@
 import prisma from '../config/postgres.js';
 import { parsePrice } from '../utils/validators.js';
 import * as XLSX from 'xlsx';
+import { logAudit } from '../services/auditService.js';
 
 // ── Safe price coercer ─────────────────────────────────────────────────────
 // Wrap parsePrice so controllers can one-line the transform.
@@ -1336,6 +1337,13 @@ export const createMasterProduct = async (req, res) => {
     // Queue label for new product
     try { await queueLabelForNewProduct(orgId, product.id, product.defaultRetailPrice); } catch {}
 
+    logAudit(req, 'create', 'product', product.id, {
+      name: product.name,
+      upc: product.upc,
+      retailPrice: product.defaultRetailPrice,
+      departmentId: product.departmentId,
+    });
+
     // Populate global image cache if product has both UPC + image
     if (product.upc && product.imageUrl) {
       const { upsertGlobalImage } = await import('../services/globalImageService.js');
@@ -1440,8 +1448,14 @@ export const updateMasterProduct = async (req, res) => {
     if (body.caseDeposit   !== undefined) updates.caseDeposit   = toPrice(body.caseDeposit,    'caseDeposit');
     if (body.itemCode      !== undefined) updates.itemCode       = body.itemCode || null;
 
-    // Fetch old price before update (for label queue)
-    const existing = await prisma.masterProduct.findUnique({ where: { id: parseInt(id) }, select: { defaultRetailPrice: true } });
+    // Fetch old snapshot before update (for audit before/after + label queue)
+    const existing = await prisma.masterProduct.findUnique({
+      where: { id: parseInt(id) },
+      select: {
+        name: true, upc: true, defaultRetailPrice: true, defaultCostPrice: true,
+        taxClass: true, active: true, departmentId: true, vendorId: true,
+      },
+    });
 
     const product = await prisma.masterProduct.update({
       where: { id, orgId },
@@ -1451,6 +1465,21 @@ export const updateMasterProduct = async (req, res) => {
         vendor:     { select: { id: true, name: true } },
       },
     });
+
+    // Compute before/after diff for audit log — only the fields that changed.
+    try {
+      const diff = {};
+      for (const k of Object.keys(updates)) {
+        const before = existing?.[k];
+        const after  = updates[k];
+        // Skip no-ops (numeric 0 vs '0' etc. handled leniently)
+        const same = (before == null && after == null) || String(before ?? '') === String(after ?? '');
+        if (!same) diff[k] = { before, after };
+      }
+      if (Object.keys(diff).length > 0) {
+        logAudit(req, 'update', 'product', product.id, { name: product.name, changes: diff });
+      }
+    } catch {}
 
     // Keep ProductUpc in sync whenever the primary UPC changes (incl. clearing it)
     if (body.upc !== undefined) {
@@ -1501,12 +1530,18 @@ export const deleteMasterProduct = async (req, res) => {
     const orgId = getOrgId(req);
     const id = parseInt(req.params.id);
 
+    // Snapshot for audit trail before soft-delete
+    const snapshot = await prisma.masterProduct.findUnique({
+      where: { id }, select: { name: true, upc: true, defaultRetailPrice: true },
+    });
+
     await prisma.masterProduct.update({
       where: { id, orgId },
       data: { deleted: true, active: false },
     });
 
     emitProductSync(orgId, id, 'delete');
+    logAudit(req, 'delete', 'product', id, snapshot || { id });
     res.json({ success: true, message: 'Product deleted' });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Product not found' });

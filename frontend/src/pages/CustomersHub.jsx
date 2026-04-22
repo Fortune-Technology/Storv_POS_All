@@ -1,23 +1,33 @@
 /**
  * CustomersHub — Tabbed hub for customer management + loyalty program
- * Tabs: Customers, Loyalty Program
+ * Tabs: Customers, Loyalty Settings, Loyalty Earn Rules, Loyalty Rewards
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Users, Star } from 'lucide-react';
+import { Users, Settings, Zap, Gift } from 'lucide-react';
 import Customers from './Customers';
 import LoyaltyProgram from './LoyaltyProgram';
 import '../styles/portal.css';
 
 const TABS = [
-  { key: 'customers', label: 'Customers',       icon: <Users size={14} /> },
-  { key: 'loyalty',   label: 'Loyalty Program',  icon: <Star size={14} /> },
+  { key: 'customers',        label: 'Customers',            icon: <Users size={14} />,    loyaltyTab: null },
+  { key: 'loyalty-settings', label: 'Loyalty Settings',     icon: <Settings size={14} />, loyaltyTab: 'settings' },
+  { key: 'loyalty-earn',     label: 'Loyalty Earn Rules',   icon: <Zap size={14} />,      loyaltyTab: 'earn-rules' },
+  { key: 'loyalty-rewards',  label: 'Loyalty Rewards',      icon: <Gift size={14} />,     loyaltyTab: 'rewards' },
 ];
+
+// Legacy alias — old "loyalty" key lands on Settings
+const LEGACY_MAP = { loyalty: 'loyalty-settings' };
 
 export default function CustomersHub() {
   const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'customers';
-  const [tab, setTab] = useState(initialTab);
+  const rawInitial = searchParams.get('tab') || 'customers';
+  const initialTab = LEGACY_MAP[rawInitial] || rawInitial;
+  const [tab, setTab] = useState(
+    TABS.some(t => t.key === initialTab) ? initialTab : 'customers'
+  );
+
+  const activeTab = TABS.find(t => t.key === tab);
 
   return (
     <div className="p-page">
@@ -40,7 +50,9 @@ export default function CustomersHub() {
       </div>
 
       {tab === 'customers' && <Customers embedded />}
-      {tab === 'loyalty'   && <LoyaltyProgram embedded />}
+      {activeTab?.loyaltyTab && (
+        <LoyaltyProgram embedded hideHeader forceTab={activeTab.loyaltyTab} />
+      )}
     </div>
   );
 }

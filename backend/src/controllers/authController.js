@@ -5,6 +5,7 @@ import prisma from '../config/postgres.js';
 import { sendForgotPassword, sendNewSignupNotifyAdmin, sendPasswordChanged } from '../services/emailService.js';
 import { validateEmail, validatePassword, validatePhone, runValidators } from '../utils/validators.js';
 import { computeUserPermissions, syncUserDefaultRole } from '../rbac/permissionService.js';
+import { logAudit } from '../services/auditService.js';
 
 // ── Token generation ──────────────────────────────────────────────────────────
 // Short-lived access token. A 30-day token combined with XSS or leaked
@@ -92,26 +93,53 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
+      // Synthesize a minimal req-shape so logAudit can still record the attempt
+      await logAudit(
+        { user: { id: 'anonymous', name: normalizedEmail, email: normalizedEmail }, orgId: 'unknown', ip: req.ip, headers: req.headers },
+        'login_failed', 'auth', null,
+        { email: normalizedEmail, reason: 'user_not_found' }
+      );
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
+      await logAudit(
+        { user: { id: user.id, name: user.name, email: user.email, role: user.role }, orgId: user.orgId || 'unknown', ip: req.ip, headers: req.headers },
+        'login_failed', 'auth', user.id,
+        { email: normalizedEmail, reason: 'bad_password' }
+      );
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Check user account status
     if (user.status === 'pending') {
+      await logAudit(
+        { user: { id: user.id, name: user.name, email: user.email, role: user.role }, orgId: user.orgId || 'unknown', ip: req.ip, headers: req.headers },
+        'login_blocked', 'auth', user.id, { reason: 'pending_approval' }
+      );
       return res.status(403).json({ error: 'Your account is pending approval. Please wait for an administrator to activate your account.' });
     }
     if (user.status === 'suspended') {
+      await logAudit(
+        { user: { id: user.id, name: user.name, email: user.email, role: user.role }, orgId: user.orgId || 'unknown', ip: req.ip, headers: req.headers },
+        'login_blocked', 'auth', user.id, { reason: 'suspended' }
+      );
       return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
     }
 
     const permissions = await computeUserPermissions(user);
+
+    // Successful login
+    await logAudit(
+      { user: { id: user.id, name: user.name, email: user.email, role: user.role }, orgId: user.orgId || 'unknown', ip: req.ip, headers: req.headers },
+      'login', 'auth', user.id,
+      { email: user.email, role: user.role }
+    );
 
     res.json({
       id:               user.id,
@@ -197,6 +225,12 @@ export const resetPassword = async (req, res, next) => {
     });
 
     sendPasswordChanged(user.email, user.name);
+
+    await logAudit(
+      { user: { id: user.id, name: user.name, email: user.email, role: user.role }, orgId: user.orgId || 'unknown', ip: req.ip, headers: req.headers },
+      'password_reset', 'auth', user.id,
+      { method: 'reset_token' }
+    );
 
     res.json({ message: 'Password has been reset successfully' });
   } catch (error) {

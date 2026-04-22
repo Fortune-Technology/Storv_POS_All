@@ -694,7 +694,7 @@ export default function Promotions() {
                   onClick={handleSave}
                   disabled={saving || !form.name.trim()}
                   style={{
-                    flex: 2, height: 40, borderRadius: 8, border: 'none',
+                    flex: 1, height: 40, borderRadius: 8, border: 'none',
                     background: saving || !form.name.trim() ? 'var(--bg-card,var(--bg-secondary))' : 'var(--accent-primary)',
                     color: saving || !form.name.trim() ? 'var(--text-muted)' : '#fff',
                     fontWeight: 800, fontSize: '0.88rem',

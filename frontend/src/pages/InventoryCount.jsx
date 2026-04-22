@@ -20,6 +20,7 @@ import {
   getAdjustmentSummary,
 } from '../services/api';
 import { toast } from 'react-toastify';
+import CameraScanButton from '../components/CameraScanButton';
 import {
   Scan, Search, Package, Plus, Minus, CheckCircle,
   RefreshCw, X, ChevronDown, ChevronUp, BarChart2,
@@ -364,6 +365,13 @@ const InventoryCount = () => {
               <X size={16} />
             </button>
           )}
+          <CameraScanButton
+            onScan={(code) => {
+              setQuery(code);
+              search(code);
+            }}
+            title="Scan with camera"
+          />
         </div>
 
         {/* ── Search results ── */}

@@ -26,7 +26,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(245,158,11,0.18);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.18);
 }
 
 .lp-title {
@@ -128,6 +128,7 @@
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);
 }
+
 .lp-empty svg {
   margin: 0 auto 0.875rem;
   display: block;
@@ -139,7 +140,12 @@
   animation: lp-spin 0.8s linear infinite;
   display: inline-block;
 }
-@keyframes lp-spin { to { transform: rotate(360deg); } }
+
+@keyframes lp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ── Section labels & headers ─────────────────────── */
 .lp-section-label {
@@ -216,10 +222,12 @@
   flex-shrink: 0;
   transition: background 0.2s, border-color 0.2s;
 }
+
 .lp-toggle.on {
   background: var(--success);
   border-color: var(--success);
 }
+
 .lp-toggle-knob {
   position: absolute;
   top: 2px;
@@ -228,12 +236,17 @@
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   transition: transform 0.2s;
 }
-.lp-toggle.on .lp-toggle-knob { transform: translateX(20px); }
 
-.lp-toggle-on-icon { color: var(--success); }
+.lp-toggle.on .lp-toggle-knob {
+  transform: translateX(20px);
+}
+
+.lp-toggle-on-icon {
+  color: var(--success);
+}
 
 /* ── Grid layouts ─────────────────────────────────── */
 .lp-grid-2 {
@@ -251,9 +264,17 @@
   margin-bottom: 0.75rem;
 }
 
-.lp-field-expiry { max-width: 280px; }
-.lp-field-sort   { max-width: 160px; }
-.lp-field-target { flex: 2; }
+.lp-field-expiry {
+  max-width: 280px;
+}
+
+.lp-field-sort {
+  max-width: 160px;
+}
+
+.lp-field-target {
+  flex: 2;
+}
 
 .lp-field-label {
   font-size: 0.7rem;
@@ -274,7 +295,11 @@
   flex-wrap: wrap;
   margin-bottom: 0.25rem;
 }
-.lp-field-row .lp-field { flex: 1; min-width: 140px; }
+
+.lp-field-row .lp-field {
+  flex: 1;
+  min-width: 140px;
+}
 
 /* ── Inputs & Selects ─────────────────────────────── */
 .lp-input {
@@ -289,7 +314,9 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.lp-input-md { max-width: 320px; }
+.lp-input-md {
+  max-width: 320px;
+}
 
 .lp-input:focus {
   outline: none;
@@ -297,7 +324,10 @@
   box-shadow: 0 0 0 3px var(--brand-10);
 }
 
-.lp-input::placeholder { color: var(--text-muted); opacity: 0.7; }
+.lp-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
 
 /* ── Settings form ────────────────────────────────── */
 .lp-settings-form {
@@ -310,7 +340,7 @@
   align-items: center;
   gap: 9px;
   background: var(--warning-bg);
-  border: 1px solid rgba(245,158,11,0.22);
+  border: 1px solid rgba(245, 158, 11, 0.22);
   border-radius: var(--radius-sm);
   padding: 0.6rem 0.875rem;
   font-size: 0.8rem;
@@ -318,13 +348,20 @@
   margin: 0.875rem 0;
 }
 
-.lp-example-icon         { color: var(--warning);  flex-shrink: 0; }
-.lp-example-icon--green  { color: var(--success);  flex-shrink: 0; }
+.lp-example-icon {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.lp-example-icon--green {
+  color: var(--success);
+  flex-shrink: 0;
+}
 
 /* ── Feedback ─────────────────────────────────────── */
 .lp-error {
   background: var(--error-bg);
-  border: 1px solid rgba(239,68,68,0.3);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: var(--radius-sm);
   padding: 0.55rem 0.875rem;
   color: var(--error);
@@ -337,7 +374,7 @@
 
 .lp-success {
   background: var(--success-bg);
-  border: 1px solid rgba(16,185,129,0.3);
+  border: 1px solid rgba(16, 185, 129, 0.3);
   border-radius: var(--radius-sm);
   padding: 0.55rem 0.875rem;
   color: var(--success);
@@ -362,17 +399,25 @@
   font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
-  margin-top: 0.875rem;
   box-shadow: var(--shadow-brand);
   transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
 }
+
 .lp-btn-save:hover:not(:disabled) {
   opacity: 0.92;
   transform: translateY(-1px);
   box-shadow: var(--shadow-brand-lg);
 }
-.lp-btn-save:active:not(:disabled) { transform: translateY(0); }
-.lp-btn-save:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+.lp-btn-save:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.lp-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 
 /* Cancel / secondary — outlined brand style */
 .lp-btn-cancel {
@@ -389,6 +434,7 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
+
 .lp-btn-cancel:hover {
   background: var(--brand-08);
   border-color: var(--border-brand-strong);
@@ -411,11 +457,15 @@
   box-shadow: var(--shadow-brand);
   transition: background 0.15s, transform 0.1s;
 }
+
 .lp-btn-add:hover {
   background: var(--brand-dark);
   transform: translateY(-1px);
 }
-.lp-btn-add:active { transform: translateY(0); }
+
+.lp-btn-add:active {
+  transform: translateY(0);
+}
 
 .lp-form-actions {
   display: flex;
@@ -438,6 +488,7 @@
   align-items: center;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
+
 .lp-icon-btn:hover {
   background: var(--brand-08);
   border-color: var(--border-brand);
@@ -446,7 +497,7 @@
 
 .lp-icon-btn-red:hover {
   background: var(--error-bg);
-  border-color: rgba(239,68,68,0.3);
+  border-color: rgba(239, 68, 68, 0.3);
   color: var(--error);
 }
 
@@ -467,19 +518,25 @@
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
 }
+
 .lp-badge-red {
   background: var(--error-bg);
   color: var(--error);
-  border: 1px solid rgba(239,68,68,0.2);
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
+
 .lp-badge-green {
   background: var(--success-bg);
   color: var(--success);
-  border: 1px solid rgba(16,185,129,0.2);
+  border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 /* ── Earn Rules list ──────────────────────────────── */
-.lp-rules-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.lp-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
 
 .lp-rule-row {
   display: flex;
@@ -488,8 +545,14 @@
   padding: 0.8rem 1rem;
   transition: background 0.1s;
 }
-.lp-rule-row:hover { background: var(--brand-05); }
-.lp-rule-row.inactive { opacity: 0.45; }
+
+.lp-rule-row:hover {
+  background: var(--brand-05);
+}
+
+.lp-rule-row.inactive {
+  opacity: 0.45;
+}
 
 .lp-rule-icon {
   width: 34px;
@@ -503,13 +566,34 @@
   flex-shrink: 0;
 }
 
-.lp-rule-info  { flex: 1; min-width: 0; }
-.lp-rule-name  { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); }
-.lp-rule-meta  { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-.lp-rule-actions { display: flex; gap: 4px; }
+.lp-rule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.lp-rule-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lp-rule-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.lp-rule-actions {
+  display: flex;
+  gap: 4px;
+}
 
 /* ── Rule / Reward form ───────────────────────────── */
-.lp-rule-form { padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+.lp-rule-form {
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+}
 
 .lp-rule-form-title {
   display: flex;
@@ -539,7 +623,9 @@
 }
 
 /* ── Product search ───────────────────────────────── */
-.lp-prod-search-wrap { position: relative; }
+.lp-prod-search-wrap {
+  position: relative;
+}
 
 .lp-prod-search-icon {
   position: absolute;
@@ -550,7 +636,9 @@
   pointer-events: none;
 }
 
-.lp-prod-search-input { padding-left: 2.1rem; }
+.lp-prod-search-input {
+  padding-left: 2.1rem;
+}
 
 .lp-prod-dropdown {
   position: absolute;
@@ -581,7 +669,11 @@
   text-align: left;
   transition: background 0.1s;
 }
-.lp-prod-row:hover { background: var(--brand-08); color: var(--accent-primary); }
+
+.lp-prod-row:hover {
+  background: var(--brand-08);
+  color: var(--accent-primary);
+}
 
 .lp-prod-upc {
   color: var(--text-muted);
@@ -623,11 +715,15 @@
   padding: 1.1rem;
   transition: box-shadow 0.15s, transform 0.15s;
 }
+
 .lp-reward-card:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
-.lp-reward-card.inactive { opacity: 0.45; }
+
+.lp-reward-card.inactive {
+  opacity: 0.45;
+}
 
 .lp-reward-top {
   display: flex;
@@ -647,7 +743,10 @@
   justify-content: center;
 }
 
-.lp-reward-actions { display: flex; gap: 3px; }
+.lp-reward-actions {
+  display: flex;
+  gap: 3px;
+}
 
 .lp-reward-name {
   font-size: 0.9rem;
@@ -677,22 +776,44 @@
 }
 
 /* ── Reward form ──────────────────────────────────── */
-.lp-reward-form { margin-bottom: 1rem; }
+.lp-reward-form {
+  margin-bottom: 1rem;
+}
 
 /* ── Earn rules / Rewards containers ─────────────── */
-.lp-earn-rules, .lp-rewards { /* layout context — no extra styles needed */ }
+
 
 /* ── Responsive ───────────────────────────────────── */
 @media (max-width: 700px) {
-  .lp-grid-2        { grid-template-columns: 1fr; }
-  .lp-rewards-grid  { grid-template-columns: 1fr 1fr; }
-  .lp-field-row     { flex-direction: column; }
+  .lp-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .lp-rewards-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lp-field-row {
+    flex-direction: column;
+  }
+
   .lp-field-expiry,
-  .lp-field-sort    { max-width: 100%; }
+  .lp-field-sort {
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 480px) {
-  .lp-rewards-grid { grid-template-columns: 1fr; }
-  .lp-tabs { gap: 2px; }
-  .lp-tab  { padding: 0.45rem 0.6rem; font-size: 0.75rem; }
+  .lp-rewards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lp-tabs {
+    gap: 2px;
+  }
+
+  .lp-tab {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+  }
 }

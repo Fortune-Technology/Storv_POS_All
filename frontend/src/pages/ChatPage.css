@@ -310,3 +310,37 @@
     border-bottom: 1px solid var(--border-color);
   }
 }
+
+/* Session — New Chat modal: trading partners + users sections */
+.ch-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+}
+.ch-section-label:first-child { border-top: 0; margin-top: 0; }
+
+.ch-section-empty {
+  padding: 8px 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ch-partner-item .ch-user-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.ch-partner-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}

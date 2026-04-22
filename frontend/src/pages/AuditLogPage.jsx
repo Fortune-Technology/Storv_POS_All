@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, Loader, Search, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Download, X, Info,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 import { getAuditLogs, getTenantUsers } from '../services/api';
 import SortableHeader from '../components/SortableHeader';
 import { useTableSort } from '../hooks/useTableSort';
+import { downloadCSV } from '../utils/exportUtils';
 import '../styles/portal.css';
 import './AuditLogPage.css';
 
@@ -20,35 +22,110 @@ function fmtDateTime(d) {
 }
 
 const ACTION_META = {
-  create:       { label: 'Create',       cls: 'p-badge-green' },
-  update:       { label: 'Update',       cls: 'p-badge-blue' },
-  delete:       { label: 'Delete',       cls: 'p-badge-red' },
-  void:         { label: 'Void',         cls: 'p-badge-red' },
-  login:        { label: 'Login',        cls: 'p-badge-purple' },
-  price_change: { label: 'Price Change', cls: 'p-badge-amber' },
+  create:          { label: 'Create',           cls: 'p-badge-green' },
+  update:          { label: 'Update',           cls: 'p-badge-blue' },
+  delete:          { label: 'Delete',           cls: 'p-badge-red' },
+  void:            { label: 'Void',             cls: 'p-badge-red' },
+  refund:          { label: 'Refund',           cls: 'p-badge-amber' },
+  login:           { label: 'Login',            cls: 'p-badge-purple' },
+  login_failed:    { label: 'Login Failed',     cls: 'p-badge-red' },
+  login_blocked:   { label: 'Login Blocked',    cls: 'p-badge-red' },
+  logout:          { label: 'Logout',           cls: 'p-badge-gray' },
+  password_reset:  { label: 'Password Reset',   cls: 'p-badge-amber' },
+  price_change:    { label: 'Price Change',     cls: 'p-badge-amber' },
+  shift_open:      { label: 'Shift Open',       cls: 'p-badge-green' },
+  shift_close:     { label: 'Shift Close',      cls: 'p-badge-gray' },
+  settings_change: { label: 'Settings Change',  cls: 'p-badge-blue' },
 };
 
 const ENTITY_OPTS = [
   'product', 'transaction', 'employee', 'customer', 'department',
   'promotion', 'store', 'user', 'setting', 'payout',
+  'role', 'user_roles', 'auth', 'shift', 'task', 'vendor', 'vendor_payment',
+  'lottery', 'fuel', 'invoice', 'tax_rule', 'deposit_rule',
+];
+
+// Modules map to the first URL segment written by the autoAudit middleware.
+const MODULE_OPTS = [
+  'auth', 'catalog', 'customers', 'stores', 'users', 'roles',
+  'pos-terminal', 'tasks', 'chat', 'lottery', 'fuel',
+  'invoice', 'exchange', 'reports', 'sales', 'admin', 'ai-assistant',
 ];
 
 const ACTION_OPTS = Object.keys(ACTION_META);
 
 /* ── Detail Expander ────────────────────────────────────────────────────── */
+// Formats value for display. null/undefined → "(empty)"; objects → short JSON.
+function fmtValue(v) {
+  if (v == null) return <em className="al-muted">(empty)</em>;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'object') return JSON.stringify(v);
+  const s = String(v);
+  return s.length > 120 ? s.substring(0, 117) + '…' : s;
+}
+
 const DetailsCell = ({ details }) => {
   const [open, setOpen] = useState(false);
   if (!details || (typeof details === 'object' && Object.keys(details).length === 0)) {
     return <span className="al-muted">--</span>;
   }
-  const str = typeof details === 'string' ? details : JSON.stringify(details, null, 2);
+
+  // If the detail payload carries a structured `changes` object, render a
+  // before/after diff table. Otherwise fall back to pretty-printed JSON.
+  const hasChanges = typeof details === 'object' && details.changes && typeof details.changes === 'object';
+
   return (
     <div className="al-details-cell">
       <button className="al-details-toggle" onClick={() => setOpen(o => !o)}>
         {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         {open ? 'Hide' : 'View'}
       </button>
-      {open && <pre className="al-details-json">{str}</pre>}
+
+      {open && hasChanges && (
+        <div className="al-diff-wrap">
+          {details.name && (
+            <div className="al-diff-heading"><Info size={11} /> {details.name}</div>
+          )}
+          <table className="al-diff-table">
+            <thead>
+              <tr><th>Field</th><th>Before</th><th>After</th></tr>
+            </thead>
+            <tbody>
+              {Object.entries(details.changes).map(([k, v]) => {
+                // Added/removed lists (e.g. permissions + roles diffs)
+                if (v && typeof v === 'object' && (Array.isArray(v.added) || Array.isArray(v.removed))) {
+                  return (
+                    <tr key={k}>
+                      <td className="al-diff-field">{k}</td>
+                      <td colSpan={2}>
+                        {v.removed?.length > 0 && (
+                          <div><span className="al-diff-badge al-diff-badge--rem">Removed</span> {v.removed.join(', ')}</div>
+                        )}
+                        {v.added?.length > 0 && (
+                          <div><span className="al-diff-badge al-diff-badge--add">Added</span> {v.added.join(', ')}</div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={k}>
+                    <td className="al-diff-field">{k}</td>
+                    <td className="al-diff-before">{fmtValue(v?.before)}</td>
+                    <td className="al-diff-after">{fmtValue(v?.after)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {open && !hasChanges && (
+        <pre className="al-details-json">
+          {typeof details === 'string' ? details : JSON.stringify(details, null, 2)}
+        </pre>
+      )}
     </div>
   );
 };
@@ -69,9 +146,18 @@ const AuditLogPage = () => {
   const [userFilter, setUserFilter] = useState('');
   const [entityFilter, setEntityFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('');
   const [search, setSearch]         = useState('');
 
   const perPage = 25;
+
+  const hasActiveFilters =
+    dateFrom || dateTo || userFilter || entityFilter || actionFilter || moduleFilter || search.trim();
+
+  const clearFilters = () => {
+    setDateFrom(''); setDateTo(''); setUserFilter('');
+    setEntityFilter(''); setActionFilter(''); setModuleFilter(''); setSearch('');
+  };
 
   /* ── Load users for filter dropdown ─────────────────────────────────── */
   useEffect(() => {
@@ -88,11 +174,12 @@ const AuditLogPage = () => {
     setLoading(true);
     try {
       const params = { page, limit: perPage };
-      if (dateFrom)     params.from   = dateFrom;
-      if (dateTo)       params.to     = dateTo;
-      if (userFilter)   params.userId = userFilter;
-      if (entityFilter) params.entity = entityFilter;
-      if (actionFilter) params.action = actionFilter;
+      if (dateFrom)     params.from    = dateFrom;
+      if (dateTo)       params.to      = dateTo;
+      if (userFilter)   params.userId  = userFilter;
+      if (entityFilter) params.entity  = entityFilter;
+      if (actionFilter) params.action  = actionFilter;
+      if (moduleFilter) params.module  = moduleFilter;
       if (search.trim()) params.search = search.trim();
 
       const data = await getAuditLogs(params);
@@ -100,12 +187,48 @@ const AuditLogPage = () => {
       setTotal(data.total || data.count || (Array.isArray(data) ? data.length : 0));
     } catch { toast.error('Failed to load audit logs'); }
     finally { setLoading(false); }
-  }, [page, dateFrom, dateTo, userFilter, entityFilter, actionFilter, search]);
+  }, [page, dateFrom, dateTo, userFilter, entityFilter, actionFilter, moduleFilter, search]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
 
   /* Reset page when filters change */
-  useEffect(() => { setPage(1); }, [dateFrom, dateTo, userFilter, entityFilter, actionFilter, search]);
+  useEffect(() => { setPage(1); }, [dateFrom, dateTo, userFilter, entityFilter, actionFilter, moduleFilter, search]);
+
+  /* ── CSV export ─ pulls up to 5000 matching rows, applies filters ───── */
+  const [exporting, setExporting] = useState(false);
+  const exportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const params = { limit: 5000, page: 1 };
+      if (dateFrom)     params.from    = dateFrom;
+      if (dateTo)       params.to      = dateTo;
+      if (userFilter)   params.userId  = userFilter;
+      if (entityFilter) params.entity  = entityFilter;
+      if (actionFilter) params.action  = actionFilter;
+      if (moduleFilter) params.module  = moduleFilter;
+      if (search.trim()) params.search = search.trim();
+      const data = await getAuditLogs(params);
+      const rows = Array.isArray(data) ? data : data.logs || [];
+      const cols = [
+        { key: 'createdAt',  label: 'Date / Time',  format: (v) => fmtDateTime(v) },
+        { key: 'userName',   label: 'User' },
+        { key: 'userRole',   label: 'Role' },
+        { key: 'action',     label: 'Action' },
+        { key: 'entity',     label: 'Entity' },
+        { key: 'entityId',   label: 'Entity ID' },
+        { key: 'source',     label: 'Source' },
+        { key: 'ipAddress',  label: 'IP' },
+        { key: 'details',    label: 'Details', format: (v) => v ? JSON.stringify(v) : '' },
+      ];
+      downloadCSV(rows, cols, `audit-log-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.success(`Exported ${rows.length} entries`);
+    } catch {
+      toast.error('Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
@@ -137,6 +260,27 @@ const AuditLogPage = () => {
             <p className="p-subtitle">All changes are permanently recorded</p>
           </div>
         </div>
+        <div className="p-header-actions">
+          {hasActiveFilters && (
+            <button
+              className="p-btn p-btn-sm p-btn-ghost"
+              onClick={clearFilters}
+              title="Clear all filters"
+            >
+              <X size={14} /> Clear
+            </button>
+          )}
+          <button
+            className="p-btn p-btn-sm p-btn-secondary"
+            onClick={exportCsv}
+            disabled={exporting}
+            title="Export current view to CSV (up to 5000 rows)"
+          >
+            {exporting
+              ? <><Loader size={14} className="p-spin" /> Exporting…</>
+              : <><Download size={14} /> Export CSV</>}
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -156,6 +300,13 @@ const AuditLogPage = () => {
             {users.map(u => (
               <option key={u.id || u._id} value={u.id || u._id}>{u.name || u.email}</option>
             ))}
+          </select>
+        </div>
+        <div className="al-filter-group">
+          <label className="al-filter-label">Module</label>
+          <select className="p-select al-filter-input" value={moduleFilter} onChange={e => setModuleFilter(e.target.value)}>
+            <option value="">All Modules</option>
+            {MODULE_OPTS.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
         <div className="al-filter-group">

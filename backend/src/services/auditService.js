@@ -47,6 +47,14 @@ export async function logAudit(req, action, entity, entityId = null, details = n
 
 /**
  * Query audit logs with filters.
+ *
+ * Supported filters:
+ *   userId, entity, action, source, module  (exact match)
+ *   from / to                               (ISO date strings)
+ *   search                                  (OR across userName/entity/action/entityId)
+ *   page                                    (1-based; computes skip)
+ *   skip                                    (explicit offset; overrides page)
+ *   limit                                   (default 50, max 500)
  */
 export async function queryAuditLogs(orgId, filters = {}) {
   const where = { orgId };
@@ -55,31 +63,48 @@ export async function queryAuditLogs(orgId, filters = {}) {
   if (filters.entity) where.entity = filters.entity;
   if (filters.action) where.action = filters.action;
   if (filters.source) where.source = filters.source;
+
+  // Module filter is stored inside the JSON `details.module` field for rows
+  // written by autoAudit. Use Prisma's `path`/`equals` JSON query.
+  if (filters.module) {
+    where.details = { path: ['module'], equals: filters.module };
+  }
+
   if (filters.from || filters.to) {
     where.createdAt = {};
     if (filters.from) where.createdAt.gte = new Date(`${filters.from}T00:00:00`);
-    if (filters.to) where.createdAt.lte = new Date(`${filters.to}T23:59:59.999`);
+    if (filters.to)   where.createdAt.lte = new Date(`${filters.to}T23:59:59.999`);
   }
   if (filters.search) {
     where.OR = [
       { userName: { contains: filters.search, mode: 'insensitive' } },
-      { entity: { contains: filters.search, mode: 'insensitive' } },
-      { action: { contains: filters.search, mode: 'insensitive' } },
+      { entity:   { contains: filters.search, mode: 'insensitive' } },
+      { action:   { contains: filters.search, mode: 'insensitive' } },
       { entityId: { contains: filters.search } },
     ];
+  }
+
+  const limit = Math.min(parseInt(filters.limit) || 50, 500);
+  // Prefer explicit skip; otherwise compute from 1-based page.
+  let skip = 0;
+  if (filters.skip != null) {
+    skip = parseInt(filters.skip) || 0;
+  } else if (filters.page != null) {
+    const page = Math.max(1, parseInt(filters.page) || 1);
+    skip = (page - 1) * limit;
   }
 
   const [logs, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: Math.min(parseInt(filters.limit) || 100, 500),
-      skip: parseInt(filters.skip) || 0,
+      take: limit,
+      skip,
     }),
     prisma.auditLog.count({ where }),
   ]);
 
-  return { logs, total };
+  return { logs, total, limit, skip };
 }
 
 export default { logAudit, queryAuditLogs };

@@ -9,6 +9,7 @@ import path from 'path';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.js';
+import { autoAudit } from './middleware/autoAudit.js';
 import authRoutes from './routes/authRoutes.js';
 import tenantRoutes from './routes/tenantRoutes.js';
 import storeRoutes from './routes/storeRoutes.js';
@@ -104,6 +105,10 @@ app.use('/uploads/product-images', express.static(path.join(__dirname, '..', 'up
 app.use('/uploads/quick-buttons', express.static(path.join(__dirname, '..', 'uploads', 'quick-buttons'), {
   maxAge: '1d',
 }));
+
+// Global fire-and-forget audit logger for every POST/PUT/PATCH/DELETE.
+// Runs AFTER the response is sent, so it never blocks the request path.
+app.use('/api', autoAudit({ logFailures: true }));
 
 // API routes
 app.use('/api/auth',         authRoutes);

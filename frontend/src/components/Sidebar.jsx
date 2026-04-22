@@ -119,6 +119,7 @@ const menuGroups = [
       { name: 'Store Setup',     icon: <Settings2 size={13} />,    path: '/portal/ecom/setup' },
       { name: 'Online Orders',   icon: <ShoppingCart size={13} />,  path: '/portal/ecom/orders' },
       { name: 'Analytics',       icon: <BarChart2 size={13} />,    path: '/portal/ecom/analytics' },
+      { name: 'Delivery Platforms', icon: <Globe size={13} />,     path: '/portal/integrations' },
     ],
   },
   {
@@ -126,12 +127,6 @@ const menuGroups = [
     items: [
       { name: 'Exchange',          icon: <Repeat size={13} />,    path: '/portal/exchange' },
       { name: 'New Wholesale Order', icon: <Handshake size={13} />, path: '/portal/exchange/new' },
-    ],
-  },
-  {
-    label: 'Integrations',
-    items: [
-      { name: 'Delivery Platforms', icon: <Globe size={13} />, path: '/portal/integrations' },
     ],
   },
   {

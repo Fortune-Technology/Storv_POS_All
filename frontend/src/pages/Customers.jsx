@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PriceInput from '../components/PriceInput';
+import CameraScanButton from '../components/CameraScanButton';
 
 import './Customers.css';
 import {
@@ -542,6 +543,10 @@ export default function Customers({ embedded }) {
             <X size={13} />
           </button>
         )}
+        <CameraScanButton
+          onScan={(code) => setSearch(code)}
+          title="Scan loyalty card barcode"
+        />
       </div>
 
       {/* Error */}

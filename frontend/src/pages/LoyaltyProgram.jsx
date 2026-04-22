@@ -29,20 +29,26 @@ const fmtMult  = (n) => `${Number(n ?? 1).toFixed(2)}×`;
 /* ══════════════════════════════════════════════════════════════════════════
    Main page
 ══════════════════════════════════════════════════════════════════════════ */
-export default function LoyaltyProgram({ embedded }) {
+export default function LoyaltyProgram({ embedded, forceTab, hideHeader }) {
   const storeId = localStorage.getItem('activeStoreId');
-  const [tab, setTab] = useState('settings');
+  const [tabState, setTabState] = useState('settings');
+  const tab = forceTab || tabState;
+  const setTab = forceTab ? () => {} : setTabState;
+  const showTabs = !forceTab;
+  const showHeader = !hideHeader;
 
   const content = (
     <>
       {/* ── Header ── */}
-      <div className="lp-header">
-        <div className="lp-header-icon"><Star size={18} /></div>
-        <div>
-          <h1 className="lp-title">Loyalty Program</h1>
-          <p className="lp-subtitle">Manage points earning rules and rewards for your customers</p>
+      {showHeader && (
+        <div className="lp-header">
+          <div className="lp-header-icon"><Star size={18} /></div>
+          <div>
+            <h1 className="lp-title">Loyalty Program</h1>
+            <p className="lp-subtitle">Manage points earning rules and rewards for your customers</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {!storeId ? (
         <div className="lp-no-store">
@@ -52,17 +58,19 @@ export default function LoyaltyProgram({ embedded }) {
       ) : (
         <>
           {/* ── Tab bar ── */}
-          <div className="lp-tabs">
-            <button className={`lp-tab${tab === 'settings'   ? ' active' : ''}`} onClick={() => setTab('settings')}>
-              <Settings size={13} /> Settings
-            </button>
-            <button className={`lp-tab${tab === 'earn-rules' ? ' active' : ''}`} onClick={() => setTab('earn-rules')}>
-              <Zap size={13} /> Earn Rules
-            </button>
-            <button className={`lp-tab${tab === 'rewards'    ? ' active' : ''}`} onClick={() => setTab('rewards')}>
-              <Gift size={13} /> Rewards
-            </button>
-          </div>
+          {showTabs && (
+            <div className="lp-tabs">
+              <button className={`lp-tab${tab === 'settings'   ? ' active' : ''}`} onClick={() => setTab('settings')}>
+                <Settings size={13} /> Settings
+              </button>
+              <button className={`lp-tab${tab === 'earn-rules' ? ' active' : ''}`} onClick={() => setTab('earn-rules')}>
+                <Zap size={13} /> Earn Rules
+              </button>
+              <button className={`lp-tab${tab === 'rewards'    ? ' active' : ''}`} onClick={() => setTab('rewards')}>
+                <Gift size={13} /> Rewards
+              </button>
+            </div>
+          )}
 
           {/* ── Body ── */}
           <div className="lp-body">

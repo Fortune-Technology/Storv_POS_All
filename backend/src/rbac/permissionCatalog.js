@@ -12,40 +12,45 @@
 export const ACTIONS = ['view', 'create', 'edit', 'delete'];
 
 // ─── Org-scoped modules (store / manager / cashier / custom roles) ───────
+// `surface` indicates where the permission is enforced in the UI:
+//   - 'back-office'  : portal only (localhost:5173)
+//   - 'cashier-app'  : cashier/POS app only (localhost:5174)
+//   - 'both'         : exposed in BOTH surfaces (the Role editor lists the
+//                      permission under each tab so admins can see it clearly)
 const ORG_MODULES = [
-  { module: 'dashboard',       label: 'Live Dashboard',      actions: ['view'] },
-  { module: 'pos',             label: 'POS Terminal',        actions: ['view', 'manage'], desc: 'Ring up sales on the cashier app' },
-  { module: 'products',        label: 'Products',            actions: ['view','create','edit','delete'] },
-  { module: 'departments',     label: 'Departments',         actions: ['view','create','edit','delete'] },
-  { module: 'promotions',      label: 'Promotions',          actions: ['view','create','edit','delete'] },
-  { module: 'inventory',       label: 'Inventory Count',     actions: ['view','edit'] },
-  { module: 'vendors',         label: 'Vendors',             actions: ['view','create','edit','delete'] },
-  { module: 'vendor_payouts',  label: 'Vendor Payouts',      actions: ['view','create','edit','delete'] },
-  { module: 'vendor_orders',   label: 'Vendor Orders / PO',  actions: ['view','create','edit','delete','manage'] },
-  { module: 'invoices',        label: 'Invoice Import',      actions: ['view','create','edit','delete'] },
-  { module: 'lottery',         label: 'Lottery',             actions: ['view','create','edit','delete','manage'] },
-  { module: 'fuel',            label: 'Fuel',                actions: ['view','create','edit','delete'] },
-  { module: 'customers',       label: 'Customers',           actions: ['view','create','edit','delete'] },
-  { module: 'loyalty',         label: 'Loyalty Program',     actions: ['view','edit'] },
-  { module: 'transactions',    label: 'Transactions',        actions: ['view','manage'], desc: 'View or void/refund past sales' },
-  { module: 'shifts',          label: 'Shifts / Drawer',     actions: ['view','manage'] },
-  { module: 'reports',         label: 'Reports',             actions: ['view','manage'] },
-  { module: 'analytics',       label: 'Analytics',           actions: ['view'] },
-  { module: 'predictions',     label: 'Sales Predictions',   actions: ['view'] },
-  { module: 'users',           label: 'Users',               actions: ['view','create','edit','delete'] },
-  { module: 'roles',           label: 'Roles & Permissions', actions: ['view','create','edit','delete'] },
-  { module: 'stores',          label: 'Stores',              actions: ['view','create','edit','delete'] },
-  { module: 'organization',    label: 'Organization Settings', actions: ['view','edit'] },
-  { module: 'pos_config',      label: 'POS Configuration',   actions: ['view','edit'] },
-  { module: 'rules_fees',      label: 'Rules & Fees',        actions: ['view','edit'] },
-  { module: 'ecom',            label: 'Online Store / E-commerce', actions: ['view','edit','manage'] },
-  { module: 'exchange',        label: 'Storv Exchange (B2B)', actions: ['view','create','receive','settle','manage'], desc: 'Send wholesale POs to trading partners, confirm incoming orders, record settlements' },
-  { module: 'support',         label: 'Support Tickets',     actions: ['view','create','edit'] },
-  { module: 'billing',         label: 'Billing & Plan',      actions: ['view','edit'] },
-  { module: 'audit',           label: 'Audit Log',           actions: ['view'] },
-  { module: 'tasks',           label: 'Tasks',               actions: ['view','create','edit','delete'] },
-  { module: 'chat',            label: 'Chat',                actions: ['view','create'] },
-  { module: 'ai_assistant',    label: 'AI Support Assistant', actions: ['view','manage'], desc: 'Use the AI chatbot for feature help + live-data queries. "manage" grants access to the 👎 feedback review queue.' },
+  { module: 'dashboard',       label: 'Live Dashboard',      actions: ['view'],                                            surface: 'back-office' },
+  { module: 'pos',             label: 'POS Terminal',        actions: ['view', 'manage'],                                  surface: 'cashier-app', desc: 'Ring up sales on the cashier app' },
+  { module: 'products',        label: 'Products',            actions: ['view','create','edit','delete'],                   surface: 'both' },
+  { module: 'departments',     label: 'Departments',         actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'promotions',      label: 'Promotions',          actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'inventory',       label: 'Inventory Count',     actions: ['view','edit'],                                     surface: 'back-office' },
+  { module: 'vendors',         label: 'Vendors',             actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'vendor_payouts',  label: 'Vendor Payouts',      actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'vendor_orders',   label: 'Vendor Orders / PO',  actions: ['view','create','edit','delete','manage'],          surface: 'back-office' },
+  { module: 'invoices',        label: 'Invoice Import',      actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'lottery',         label: 'Lottery',             actions: ['view','create','edit','delete','manage'],          surface: 'both' },
+  { module: 'fuel',            label: 'Fuel',                actions: ['view','create','edit','delete'],                   surface: 'both' },
+  { module: 'customers',       label: 'Customers',           actions: ['view','create','edit','delete'],                   surface: 'both' },
+  { module: 'loyalty',         label: 'Loyalty Program',     actions: ['view','edit'],                                     surface: 'both' },
+  { module: 'transactions',    label: 'Transactions',        actions: ['view','manage'],                                   surface: 'both', desc: 'View or void/refund past sales' },
+  { module: 'shifts',          label: 'Shifts / Drawer',     actions: ['view','manage'],                                   surface: 'both' },
+  { module: 'reports',         label: 'Reports',             actions: ['view','manage'],                                   surface: 'back-office' },
+  { module: 'analytics',       label: 'Analytics',           actions: ['view'],                                            surface: 'back-office' },
+  { module: 'predictions',     label: 'Sales Predictions',   actions: ['view'],                                            surface: 'back-office' },
+  { module: 'users',           label: 'Users',               actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'roles',           label: 'Roles & Permissions', actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'stores',          label: 'Stores',              actions: ['view','create','edit','delete'],                   surface: 'back-office' },
+  { module: 'organization',    label: 'Organization Settings', actions: ['view','edit'],                                   surface: 'back-office' },
+  { module: 'pos_config',      label: 'POS Configuration',   actions: ['view','edit'],                                     surface: 'back-office' },
+  { module: 'rules_fees',      label: 'Rules & Fees',        actions: ['view','edit'],                                     surface: 'back-office' },
+  { module: 'ecom',            label: 'Online Store / E-commerce', actions: ['view','edit','manage'],                      surface: 'back-office' },
+  { module: 'exchange',        label: 'Storv Exchange (B2B)', actions: ['view','create','receive','settle','manage'],       surface: 'back-office', desc: 'Send wholesale POs to trading partners, confirm incoming orders, record settlements' },
+  { module: 'support',         label: 'Support Tickets',     actions: ['view','create','edit'],                            surface: 'back-office' },
+  { module: 'billing',         label: 'Billing & Plan',      actions: ['view','edit'],                                     surface: 'back-office' },
+  { module: 'audit',           label: 'Audit Log',           actions: ['view'],                                            surface: 'back-office' },
+  { module: 'tasks',           label: 'Tasks',               actions: ['view','create','edit','delete'],                   surface: 'both' },
+  { module: 'chat',            label: 'Chat',                actions: ['view','create'],                                   surface: 'both' },
+  { module: 'ai_assistant',    label: 'AI Support Assistant', actions: ['view','manage'],                                   surface: 'both', desc: 'Use the AI chatbot for feature help + live-data queries. "manage" grants access to the 👎 feedback review queue.' },
 ];
 
 // ─── Admin-scoped modules (superadmin panel only) ─────────────────────────
@@ -73,10 +78,15 @@ function expand(modules, scope) {
       out.push({
         key: `${m.module}.${action}`,
         module: m.module,
+        moduleLabel: m.label,
         action,
         label: `${actionLabel(action)} — ${m.label}`,
         description: m.desc || null,
         scope,
+        // surface classifies org-scope permissions as back-office, cashier-app,
+        // or both — used by the Role editor UI to split checkboxes into two
+        // tabs. Admin-scope permissions are always 'back-office' (admin panel).
+        surface: m.surface || (scope === 'admin' ? 'back-office' : 'back-office'),
       });
     }
   }

@@ -22,6 +22,7 @@ const AdminRoles = () => {
   const [modal, setModal] = useState(null); // null | 'create' | { ...role }
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [surfaceTab, setSurfaceTab] = useState('back-office');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -295,19 +296,60 @@ const AdminRoles = () => {
                 <span className="ar-hint">Tick the boxes for actions this role should grant.</span>
               </div>
 
+              {/* Surface tabs — only meaningful for org-scope roles. Admin-scope
+                  roles are all back-office (admin panel) so we hide the tabs. */}
+              {scope === 'org' && (
+                <div className="ar-surface-tabs">
+                  {[
+                    { k: 'back-office', label: 'Back Office',  host: 'localhost:5173' },
+                    { k: 'cashier-app', label: 'Cashier App',  host: 'localhost:5174' },
+                  ].map(s => {
+                    const vis = Object.entries(permsGrouped).filter(([, perms]) => {
+                      const surf = perms[0]?.surface || 'back-office';
+                      return surf === s.k || surf === 'both';
+                    });
+                    const keys = vis.flatMap(([, perms]) => perms.map(p => p.key));
+                    const sel = keys.filter(k => form.permissions.includes(k)).length;
+                    return (
+                      <button
+                        key={s.k}
+                        type="button"
+                        className={`ar-surface-tab${surfaceTab === s.k ? ' ar-surface-tab--active' : ''}`}
+                        onClick={() => setSurfaceTab(s.k)}
+                      >
+                        <div className="ar-surface-tab-label">{s.label}</div>
+                        <div className="ar-surface-tab-meta">{s.host} · {sel}/{keys.length} on</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="ar-perm-grid">
-                {Object.entries(permsGrouped).map(([module, perms]) => {
+                {Object.entries(permsGrouped)
+                  .filter(([, perms]) => {
+                    if (scope !== 'org') return true;
+                    const surf = perms[0]?.surface || 'back-office';
+                    return surf === surfaceTab || surf === 'both';
+                  })
+                  .map(([module, perms]) => {
                   const keys = perms.map(p => p.key);
                   const allOn = keys.every(k => form.permissions.includes(k));
                   const someOn = !allOn && keys.some(k => form.permissions.includes(k));
+                  const surf = perms[0]?.surface || 'back-office';
                   return (
                     <div key={module} className="ar-perm-module">
                       <div className="ar-perm-module-head" onClick={() => toggleModule(perms)}>
                         <button type="button" className="ar-check">
                           {allOn ? <CheckSquare size={16} /> : someOn ? <Check size={16} style={{ opacity: 0.5 }} /> : <Square size={16} />}
                         </button>
-                        <span className="ar-module-label">{perms[0]?.label.split('—')[1]?.trim() || module}</span>
+                        <span className="ar-module-label">
+                          {perms[0]?.moduleLabel || perms[0]?.label.split('—')[1]?.trim() || module}
+                        </span>
                         <code className="ar-module-key">{module}</code>
+                        {scope === 'org' && surf === 'both' && (
+                          <span className="ar-surface-chip">both apps</span>
+                        )}
                       </div>
                       <div className="ar-perm-rows">
                         {perms.map(p => {

@@ -11,6 +11,7 @@
 
 import prisma from '../config/postgres.js';
 import { ALL_PERMISSIONS } from '../rbac/permissionCatalog.js';
+import { logAudit } from '../services/auditService.js';
 
 // ─── Permission catalog (read-only) ──────────────────────────────────────
 export async function listPermissions(req, res, next) {
@@ -20,13 +21,28 @@ export async function listPermissions(req, res, next) {
       where: scope ? { scope } : undefined,
       orderBy: [{ scope: 'asc' }, { module: 'asc' }, { action: 'asc' }],
     });
+
+    // Merge `surface` metadata from the in-memory catalog. The DB `Permission`
+    // table doesn't store surface (no migration needed) — we look it up by key.
+    // This lets the Role editor UI split org-scope permissions into two tabs
+    // ("Back Office" localhost:5173 vs "Cashier App" localhost:5174).
+    const catalogByKey = Object.fromEntries(ALL_PERMISSIONS.map(p => [p.key, p]));
+    const enriched = perms.map(p => {
+      const c = catalogByKey[p.key];
+      return {
+        ...p,
+        surface: c?.surface || (p.scope === 'admin' ? 'back-office' : 'back-office'),
+        moduleLabel: c?.moduleLabel || null,
+      };
+    });
+
     // Group by module for convenience in UI
     const grouped = {};
-    for (const p of perms) {
+    for (const p of enriched) {
       if (!grouped[p.module]) grouped[p.module] = [];
       grouped[p.module].push(p);
     }
-    res.json({ permissions: perms, grouped });
+    res.json({ permissions: enriched, grouped });
   } catch (err) { next(err); }
 }
 
@@ -187,6 +203,12 @@ export async function createRole(req, res, next) {
       },
     });
 
+    logAudit(req, 'create', 'role', role.id, {
+      key: role.key, name: role.name, scope: role.scope,
+      permissionCount: perms.length,
+      permissions,
+    });
+
     res.status(201).json({ id: role.id, key: role.key, name: role.name });
   } catch (err) { next(err); }
 }
@@ -230,6 +252,7 @@ export async function updateRole(req, res, next) {
         .catch(err => console.warn('isCustomized flag update skipped:', err.message));
     }
 
+    let permissionDiff = null;
     if (Array.isArray(permissions)) {
       const perms = await prisma.permission.findMany({
         where: { key: { in: permissions } },
@@ -240,6 +263,19 @@ export async function updateRole(req, res, next) {
         return res.status(400).json({ error: `Permission scope mismatch: ${badScope.map(p=>p.key).join(', ')}` });
       }
 
+      // Snapshot existing permission keys for the diff
+      const existingPerms = await prisma.rolePermission.findMany({
+        where: { roleId: role.id },
+        include: { permission: { select: { key: true } } },
+      });
+      const before = existingPerms.map(rp => rp.permission.key).sort();
+      const after  = perms.map(p => p.key).sort();
+      const added   = after.filter(k => !before.includes(k));
+      const removed = before.filter(k => !after.includes(k));
+      if (added.length || removed.length) {
+        permissionDiff = { added, removed };
+      }
+
       // Replace all permissions
       await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
       if (perms.length) {
@@ -247,6 +283,21 @@ export async function updateRole(req, res, next) {
           data: perms.map(p => ({ roleId: role.id, permissionId: p.id })),
         });
       }
+    }
+
+    // Build before/after diff for role metadata fields
+    const diff = {};
+    for (const k of Object.keys(data)) {
+      if (String(role[k] ?? '') !== String(data[k] ?? '')) {
+        diff[k] = { before: role[k], after: data[k] };
+      }
+    }
+    if (permissionDiff) diff.permissions = permissionDiff;
+
+    if (Object.keys(diff).length > 0) {
+      logAudit(req, 'update', 'role', role.id, {
+        key: role.key, name: role.name, changes: diff,
+      });
     }
 
     res.json({ success: true });
@@ -275,6 +326,7 @@ export async function deleteRole(req, res, next) {
     }
 
     await prisma.role.delete({ where: { id: role.id } });
+    logAudit(req, 'delete', 'role', role.id, { key: role.key, name: role.name });
     res.json({ success: true });
   } catch (err) { next(err); }
 }
@@ -337,12 +389,28 @@ export async function setUserRoles(req, res, next) {
       }
     }
 
+    // Snapshot previous assignment for audit diff
+    const previous = await prisma.userRole.findMany({
+      where: { userId },
+      include: { role: { select: { key: true, name: true } } },
+    });
+    const prevKeys = previous.map(ur => ur.role.key).sort();
+    const nextKeys = targetRoles.map(r => r.key).sort();
+    const added   = nextKeys.filter(k => !prevKeys.includes(k));
+    const removed = prevKeys.filter(k => !nextKeys.includes(k));
+
     // Replace the user's role set
     await prisma.userRole.deleteMany({ where: { userId } });
     if (roleIds.length) {
       await prisma.userRole.createMany({
         data: roleIds.map(roleId => ({ userId, roleId })),
         skipDuplicates: true,
+      });
+    }
+
+    if (added.length || removed.length) {
+      logAudit(req, 'update', 'user_roles', userId, {
+        changes: { roles: { added, removed } },
       });
     }
 
