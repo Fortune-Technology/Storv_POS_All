@@ -123,7 +123,7 @@ const menuGroups = [
     ],
   },
   {
-    label: 'Storv Exchange',
+    label: 'StoreVeu Exchange',
     items: [
       { name: 'Exchange',          icon: <Repeat size={13} />,    path: '/portal/exchange' },
       { name: 'New Wholesale Order', icon: <Handshake size={13} />, path: '/portal/exchange/new' },

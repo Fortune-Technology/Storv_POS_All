@@ -57,7 +57,7 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   '/portal/ecom/analytics':    'ecom.view',
   '/portal/branding':          'ecom.view',
 
-  // Storv Exchange (B2B wholesale)
+  // StoreVeu Exchange (B2B wholesale)
   '/portal/exchange':              'exchange.view',
   '/portal/exchange/new':          'exchange.create',
   '/portal/exchange/orders/:id':   'exchange.view',

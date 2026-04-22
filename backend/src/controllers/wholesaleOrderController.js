@@ -1,5 +1,5 @@
 /**
- * Storv Exchange — wholesale order lifecycle + inventory mover + ledger writer.
+ * StoreVeu Exchange — wholesale order lifecycle + inventory mover + ledger writer.
  *
  *   draft  ─send──▶  sent  ─confirm──▶  confirmed | partially_confirmed
  *                       │                  │

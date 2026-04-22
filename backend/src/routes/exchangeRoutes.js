@@ -1,5 +1,5 @@
 /**
- * Storv Exchange Routes — B2B wholesale between stores.
+ * StoreVeu Exchange Routes — B2B wholesale between stores.
  *
  * Permission model:
  *   exchange.view     — list orders, balances, partners, ledger (manager+)

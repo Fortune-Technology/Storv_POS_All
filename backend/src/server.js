@@ -1,5 +1,5 @@
 /**
- * Express server for the Storv POS Portal
+ * Express server for the StoreVeu POS Portal
  */
 
 import express from 'express';

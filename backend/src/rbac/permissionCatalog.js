@@ -44,7 +44,7 @@ const ORG_MODULES = [
   { module: 'pos_config',      label: 'POS Configuration',   actions: ['view','edit'],                                     surface: 'back-office' },
   { module: 'rules_fees',      label: 'Rules & Fees',        actions: ['view','edit'],                                     surface: 'back-office' },
   { module: 'ecom',            label: 'Online Store / E-commerce', actions: ['view','edit','manage'],                      surface: 'back-office' },
-  { module: 'exchange',        label: 'Storv Exchange (B2B)', actions: ['view','create','receive','settle','manage'],       surface: 'back-office', desc: 'Send wholesale POs to trading partners, confirm incoming orders, record settlements' },
+  { module: 'exchange',        label: 'StoreVeu Exchange (B2B)', actions: ['view','create','receive','settle','manage'],       surface: 'back-office', desc: 'Send wholesale POs to trading partners, confirm incoming orders, record settlements' },
   { module: 'support',         label: 'Support Tickets',     actions: ['view','create','edit'],                            surface: 'back-office' },
   { module: 'billing',         label: 'Billing & Plan',      actions: ['view','edit'],                                     surface: 'back-office' },
   { module: 'audit',           label: 'Audit Log',           actions: ['view'],                                            surface: 'back-office' },

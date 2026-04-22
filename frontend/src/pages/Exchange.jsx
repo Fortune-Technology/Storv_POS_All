@@ -1,5 +1,5 @@
 /**
- * Storv Exchange Hub — top-level page for all B2B wholesale workflow.
+ * StoreVeu Exchange Hub — top-level page for all B2B wholesale workflow.
  *
  * Tabs:
  *   Dashboard   — KPI cards + pending-action callouts
@@ -121,7 +121,7 @@ export default function Exchange() {
         <div className="p-header-left">
           <div className="p-header-icon"><Repeat size={22} /></div>
           <div>
-            <h1 className="p-title">Storv Exchange</h1>
+            <h1 className="p-title">StoreVeu Exchange</h1>
             <p className="p-subtitle">B2B wholesale between trading partners — orders, balances, and settlement.</p>
           </div>
         </div>

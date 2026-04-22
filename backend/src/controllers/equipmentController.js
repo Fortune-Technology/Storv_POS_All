@@ -1,7 +1,7 @@
 /**
  * equipmentController.js
  * Public equipment shop — product listing and order placement.
- * Payments charge through Storv's own CardPointe merchant account (STORV_ORG_ID).
+ * Payments charge through StoreVeu's own CardPointe merchant account (STORV_ORG_ID).
  */
 
 import prisma from '../config/postgres.js';
@@ -79,7 +79,7 @@ export const createOrder = async (req, res, next) => {
 
     const orderNumber = await nextOrderNumber();
 
-    // Charge via Storv's CardPointe merchant
+    // Charge via StoreVeu's CardPointe merchant
     let retref, authcode;
     try {
       const result = await chargeEquipmentOrder(paymentToken, total, orderNumber, customer.name);

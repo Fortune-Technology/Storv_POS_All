@@ -289,7 +289,7 @@ function App() {
           {/* ── Fuel ──────────────────────────────────────────────────── */}
           <Route path="/portal/fuel"             element={gated(<Fuel />)} />
 
-          {/* ── Storv Exchange (B2B wholesale) ────────────────────────── */}
+          {/* ── StoreVeu Exchange (B2B wholesale) ────────────────────────── */}
           <Route path="/portal/exchange"              element={gated(<Exchange />)} />
           <Route path="/portal/exchange/new"          element={gated(<ExchangeOrderDetail />)} />
           <Route path="/portal/exchange/orders/:id"   element={gated(<ExchangeOrderDetail />)} />

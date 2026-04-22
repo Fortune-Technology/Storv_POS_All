@@ -59,7 +59,7 @@ function MerchantStatusCard({ loading, status, onRefresh }) {
         <div className="pms-status-body">
           <div className="pms-status-title">Payment processor not configured</div>
           <div className="pms-status-sub">
-            Contact your Storv administrator to set up card processing for this store.
+            Contact your StoreVeu administrator to set up card processing for this store.
           </div>
         </div>
       </div>

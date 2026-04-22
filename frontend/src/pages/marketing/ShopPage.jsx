@@ -50,7 +50,7 @@ export default function ShopPage() {
       {/* Header */}
       <header className="msp-header">
         <div>
-          <h1 className="msp-heading">Storv Equipment Shop</h1>
+          <h1 className="msp-heading">StoreVeu Equipment Shop</h1>
           <p className="msp-subheading">POS terminals, printers & accessories</p>
         </div>
         <Link to="/shop/cart" className="msp-cart-btn">

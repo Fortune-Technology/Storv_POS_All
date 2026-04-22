@@ -15,7 +15,7 @@ const GROUP_COPY = {
   'Vendors':            'Vendors, payouts, auto-orders, invoice OCR, and CSV transforms.',
   'Reports & Analytics':'Transactions, sales analytics, employee hours, audit logs, and end-of-day reports.',
   'Online Store':       'Your ecommerce storefront — setup, live orders, and online analytics.',
-  'Storv Exchange':     'B2B wholesale between Storv stores.',
+  'StoreVeu Exchange':  'B2B wholesale between StoreVeu stores.',
   'Integrations':       'Third-party delivery platforms and external integrations.',
   'Point of Sale':      'POS layout, Quick Buttons, tax and fee rules.',
   'Support & Billing':  'Open support tickets and manage your subscription.',
@@ -43,7 +43,7 @@ function buildSteps() {
   // overlapping the card).
   steps.push({
     intro:
-      '<strong>Welcome to Storv!</strong><br/>' +
+      '<strong>Welcome to StoreVeu!</strong><br/>' +
       'Take a quick tour of the sidebar. You can exit anytime and restart from the <em>Help · Take the tour</em> button below the logo.',
   });
 

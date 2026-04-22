@@ -171,7 +171,7 @@ export default function BillingPortal() {
             </div>
 
             <p className="bp-footer">
-              To update your payment method or plan, contact Storv support at{' '}
+              To update your payment method or plan, contact StoreVeu support at{' '}
               <a href="mailto:billing@storveu.com">billing@storveu.com</a>.
             </p>
           </>

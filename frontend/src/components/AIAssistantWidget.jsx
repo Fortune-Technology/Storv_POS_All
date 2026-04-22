@@ -335,7 +335,7 @@ export default function AIAssistantWidget() {
           className="aiw-fab"
           onClick={() => setOpen(true)}
           aria-label="Open AI Assistant"
-          title="Storv AI Assistant"
+          title="StoreVeu AI Assistant"
         >
           <Sparkles size={22} />
         </button>
@@ -348,7 +348,7 @@ export default function AIAssistantWidget() {
             <div className="aiw-header-title">
               <span className="aiw-header-icon"><Sparkles size={16} /></span>
               <div>
-                <div className="aiw-header-main">Storv AI Assistant</div>
+                <div className="aiw-header-main">StoreVeu AI Assistant</div>
                 <div className="aiw-header-sub">Ask me about features or your store data</div>
               </div>
             </div>
@@ -432,7 +432,7 @@ export default function AIAssistantWidget() {
                 <div className="aiw-greet-icon"><Sparkles size={28} /></div>
                 <div className="aiw-greet-title">Hi {user?.name?.split(' ')[0] || 'there'}!</div>
                 <div className="aiw-greet-body">
-                  I'm the Storv AI Assistant. I can answer questions, check live store data, or walk you through tasks.
+                  I'm the StoreVeu AI Assistant. I can answer questions, check live store data, or walk you through tasks.
                 </div>
                 <div className="aiw-prompts">
                   {EXAMPLE_PROMPTS.map(p => (
@@ -534,7 +534,7 @@ export default function AIAssistantWidget() {
             <textarea
               ref={inputRef}
               className="aiw-input"
-              placeholder="Ask anything about Storv or your store…"
+              placeholder="Ask anything about StoreVeu or your store…"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={onKeyDown}

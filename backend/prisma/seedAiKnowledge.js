@@ -1,6 +1,6 @@
 /**
  * seedAiKnowledge.js — Seed the AI Support Assistant's knowledge base with
- * curated how-to articles covering Storv POS's core feature set.
+ * curated how-to articles covering StoreVeu POS's core feature set.
  *
  * Idempotent: re-running updates articles with the same title (matched per
  * source='seed' + orgId=null). Safe to run after schema changes.
@@ -20,7 +20,7 @@ const ARTICLES = [
     category: 'how-to',
     title: 'Add a new product to the catalog',
     tags: ['products', 'catalog', 'inventory'],
-    content: `To add a product in Storv:
+    content: `To add a product in StoreVeu:
 
 1. Go to **Catalog → Products** in the portal sidebar.
 2. Click the **+ New Product** button in the top right.
@@ -45,7 +45,7 @@ The product will appear on the POS immediately after save. If a cashier scans th
 4. Confirm → the import runs in the background. You'll see progress and any errors in the import history table below.
 5. Image URLs in the CSV auto-populate the product image on save.
 
-Tip: the Sante template is also supported — download it from the portal and Storv will auto-map Sante column headers.`,
+Tip: the Sante template is also supported — download it from the portal and StoreVeu will auto-map Sante column headers.`,
   },
   {
     category: 'how-to',
@@ -57,7 +57,7 @@ Tip: the Sante template is also supported — download it from the portal and St
 2. Click **+ Start New Count**. Choose a scope: whole store, single department, or a product list.
 3. On the cashier app (or the portal count sheet), scan each product's barcode and enter the counted quantity.
 4. When finished, click **Finalize Count**.
-5. Storv compares counted quantity to system quantity on hand (QOH). Any variance is logged to the **Inventory Adjustments** history with a reason code of "Cycle Count".
+5. StoreVeu compares counted quantity to system quantity on hand (QOH). Any variance is logged to the **Inventory Adjustments** history with a reason code of "Cycle Count".
 6. The QOH for each product updates automatically — no manual adjustment needed.
 
 Tip: for high-value items like cigarettes or liquor, run a weekly spot count rather than full annual counts. This catches shrinkage faster.`,
@@ -100,7 +100,7 @@ For owners: you can set a default float amount per store in **POS Configuration*
 
 1. Tap **End of Shift** in the ActionBar on the cashier app (manager PIN may be required).
 2. Count your physical cash and enter it into the **Cash Count** field.
-3. Storv shows the **Expected** amount: Opening + Cash Sales + Cash In − Drops − Cash Out = Expected.
+3. StoreVeu shows the **Expected** amount: Opening + Cash Sales + Cash In − Drops − Cash Out = Expected.
 4. **Variance** is automatically calculated (counted − expected). Significant variance triggers a manager review.
 5. Optional: tap **Print EoD Receipt** to print the end-of-day summary with tender breakdown.
 6. Click **Close Shift**.
@@ -115,7 +115,7 @@ If the lottery module is enabled and Scan Mandate is on, you must first reconcil
 
 1. On the cashier app, tap **Void** in the ActionBar. Manager PIN required.
 2. The most recent transactions for today are shown. Tap the one to void.
-3. Confirm. Storv reverses the transaction, restores inventory, and voids any lottery sales.
+3. Confirm. StoreVeu reverses the transaction, restores inventory, and voids any lottery sales.
 4. If the original transaction was paid by cash, the cash drawer opens automatically.
 
 Voided transactions still appear in reports but with status="voided" and don't count toward sales totals.
@@ -133,7 +133,7 @@ For transactions from a previous day, use **Refund** instead — void is for sam
 3. Select the transaction. You'll see the original line items.
 4. Check the items being refunded, enter quantities (partial refunds allowed).
 5. Choose refund method: same tender as original, or cash.
-6. Confirm. Storv creates a refund transaction with status="refund", restores inventory, and opens the drawer for cash refunds.
+6. Confirm. StoreVeu creates a refund transaction with status="refund", restores inventory, and opens the drawer for cash refunds.
 
 Refunds appear in reports with REF prefix on the transaction number and subtract from gross sales. The End of Day report shows both refund count and amount separately.`,
   },
@@ -163,7 +163,7 @@ Cashiers will now see a **Lottery** button in the ActionBar. They pick a game, e
 
 1. Tap **Lotto Shift** in the ActionBar (orange button). This opens the Lottery Shift modal.
 2. For each active box, scan or type the **end ticket number**.
-3. Storv calculates tickets sold = end − start, and the expected dollar amount.
+3. StoreVeu calculates tickets sold = end − start, and the expected dollar amount.
 4. Variance is compared against your cart lottery transactions for that shift.
 5. Save the report. If Scan Mandate is on and any box is unscanned, the shift cannot close until reconciled.
 
@@ -178,7 +178,7 @@ The **Lottery → Shift Reports** tab shows the full history of EoD reconciliati
 1. On the cashier app, tap **Fuel Sale** in the ActionBar.
 2. Pick a fuel type (Regular 87, Premium 91, Diesel, etc.).
 3. Choose entry mode: **Amount** (customer wants $20 of gas) or **Gallons** (customer wants 5 gallons).
-4. Enter the amount/gallons on the numpad. Storv calculates the other side live.
+4. Enter the amount/gallons on the numpad. StoreVeu calculates the other side live.
 5. Tap **Add to Cart** — then set the pump at the attached hardware.
 6. Complete the transaction normally.
 
@@ -212,7 +212,7 @@ For back-office vendor payments (e.g., historical entries or payments from a sep
 2. Click **+ Invite User**.
 3. Enter their email, name, role (Cashier, Manager, Owner), and optional phone.
 4. Optionally scope to specific stores (for multi-store orgs).
-5. Click **Send Invitation**. Storv emails them a link that expires in 7 days.
+5. Click **Send Invitation**. StoreVeu emails them a link that expires in 7 days.
 
 Alternative: go to **Account → Invitations** for the full invitation management page (resend, revoke, track acceptance).
 
@@ -265,7 +265,7 @@ The cashier app shows a BUTTONS tab above the product grid when a layout exists.
 
 Products inherit tax rules from their department unless overridden individually. To exempt a specific product (e.g., unprepared grocery), open it in **Catalog → Products**, scroll to **Flags**, and toggle **Tax Exempt** off.
 
-Quickstart: set your store's state in **Store Settings**, then click **Apply State Defaults** — Storv auto-creates the tax rule with your state's default rate.`,
+Quickstart: set your store's state in **Store Settings**, then click **Apply State Defaults** — StoreVeu auto-creates the tax rule with your state's default rate.`,
   },
   {
     category: 'how-to',
@@ -344,7 +344,7 @@ For live monitoring during the day, check **Operations → Live Dashboard** — 
     category: 'how-to',
     title: 'Auto-generate vendor purchase orders',
     tags: ['vendors', 'vendor-orders', 'auto-order'],
-    content: `Storv's 14-factor auto-order engine suggests reorder quantities based on live sales velocity:
+    content: `StoreVeu's 14-factor auto-order engine suggests reorder quantities based on live sales velocity:
 
 1. Go to **Vendors → Vendor Orders**.
 2. Click **Generate Suggestions** — the engine analyzes 90 days of sales, lead times, weather forecasts, holidays, and stockout history to compute optimal reorder quantities per product per vendor.
@@ -363,10 +363,10 @@ Tune the engine in each vendor's profile: **Lead Time (days)**, **Order Frequenc
     content: `To quickly capture received invoice data:
 
 1. Go to **Vendors → Invoice Import**.
-2. Preselect the vendor (optional — Storv will auto-resolve by name if omitted).
+2. Preselect the vendor (optional — StoreVeu will auto-resolve by name if omitted).
 3. Upload a PDF, JPG, or PNG of the invoice. Multi-page PDFs supported.
 4. OCR runs in the background (~30 seconds per page). The invoice appears in the pending list.
-5. Click the invoice to open the review panel. Storv auto-matches line items to your products via distributor itemCode (vendor-scoped for accuracy) + UPC + fuzzy description matching.
+5. Click the invoice to open the review panel. StoreVeu auto-matches line items to your products via distributor itemCode (vendor-scoped for accuracy) + UPC + fuzzy description matching.
 6. For each line, verify the matched product, toggle **Cases vs Units** (5 cases of 24-pack = 120 units), and edit quantity/cost if needed.
 7. Click **Confirm Invoice** — products receive the cases × packUnits quantity into inventory.
 
@@ -382,7 +382,7 @@ If matching is poor (lots of unmatched items), click **Re-run matching** with a 
 2. Enter your register PIN (same PIN as sign-in) and tap **Clock In**.
 3. At the end of your shift, do the same and tap **Clock Out**.
 
-If you try to clock in while already clocked in (or vice versa), Storv shows a friendly warning instead of duplicating the event.
+If you try to clock in while already clocked in (or vice versa), StoreVeu shows a friendly warning instead of duplicating the event.
 
 Managers can:
 - View timesheets in **Reports & Analytics → Employees → Timesheet**
@@ -416,7 +416,7 @@ If all fails, unplug the printer, wait 10 seconds, plug it back in, and restart 
 4. Open the incorrect product, go to **Additional UPCs / Barcodes**, and delete the offending UPC.
 5. Save.
 
-Storv now enforces per-org UPC uniqueness at the database level, so new duplicates can't be created. This only happens with legacy data imported before the constraint was added.
+StoreVeu now enforces per-org UPC uniqueness at the database level, so new duplicates can't be created. This only happens with legacy data imported before the constraint was added.
 
 For cashiers scanning on the go: if a scan adds the wrong item, tap the line item and change quantity to 0 (or tap the × to remove), then scan again or look up manually.`,
   },
@@ -455,7 +455,7 @@ If numbers still don't match, compare the transaction counts, not just the dolla
     category: 'faq',
     title: 'What does "Net Sales" mean vs "Gross Sales"?',
     tags: ['reports', 'accounting', 'terminology'],
-    content: `Storv defines these per the user's accounting convention (April 2026):
+    content: `StoreVeu defines these per the user's accounting convention (April 2026):
 
 - **Gross Sales** = Σ grandTotal — includes tax. This is what customers paid you (the tender total). Refunds subtract.
 
@@ -494,11 +494,11 @@ You need both. The cashier app runs at the register; the portal runs on any web 
   },
   {
     category: 'faq',
-    title: 'How do I contact Storv support?',
+    title: 'How do I contact StoreVeu support?',
     tags: ['support', 'tickets'],
     content: `For help beyond what this assistant can answer:
 
-1. Open a support ticket: **Support & Billing → Support Tickets** in the portal, then click **+ New Ticket**. Describe your issue; the Storv support team will respond.
+1. Open a support ticket: **Support & Billing → Support Tickets** in the portal, then click **+ New Ticket**. Describe your issue; the StoreVeu support team will respond.
 2. You can also ask the AI assistant to file a ticket for you — just say "file a ticket" or agree when the assistant suggests it. The conversation context is attached automatically.
 3. For urgent issues: email support@storeveu.com.
 4. For system status: check https://status.storeveu.com.
@@ -509,7 +509,7 @@ Tickets are tracked in **Support Tickets** — you'll see admin replies there an
     category: 'how-to',
     title: 'Set up age verification for tobacco and alcohol',
     tags: ['age-verification', 'tobacco', 'alcohol', 'compliance', 'store-settings'],
-    content: `Storv has per-store age limits for tobacco and alcohol, used by the cashier app to prompt age-verification on scan.
+    content: `StoreVeu has per-store age limits for tobacco and alcohol, used by the cashier app to prompt age-verification on scan.
 
 **Where to configure:**
 
@@ -743,7 +743,7 @@ The invitee receives an email with a 7-day link. They click → create their acc
 - Seller's UserOrg row is deleted
 - \`Store.ownerId\` flips to the buyer
 - Seller's \`User.orgId\` is cleared (they can still sign in but see no stores unless they own others)
-- You can't undo this — both the seller and Storv admins cannot reverse ownership
+- You can't undo this — both the seller and StoreVeu admins cannot reverse ownership
 
 For multi-store orgs, transferring one store transfers the whole organisation. If you want to move just one store to a new org, contact support for a store-split operation.`,
   },
@@ -753,15 +753,15 @@ For multi-store orgs, transferring one store transfers the whole organisation. I
     tags: ['ai-assistant', 'troubleshoot', 'setup'],
     content: `If the AI assistant returns one of these messages:
 
-- **"⚠ The AI service is temporarily unavailable — the provider account is out of credits"** — the Anthropic (Claude) account funding the assistant is at $0 balance. Contact your Storv administrator to top up at console.anthropic.com.
+- **"⚠ The AI service is temporarily unavailable — the provider account is out of credits"** — the Anthropic (Claude) account funding the assistant is at $0 balance. Contact your StoreVeu administrator to top up at console.anthropic.com.
 
-- **"⚠ The AI service is misconfigured (invalid API key)"** — the \`ANTHROPIC_API_KEY\` env variable on the backend is wrong, missing, or revoked. Storv admin needs to generate a new key in the Anthropic console and update the server \`.env\` file.
+- **"⚠ The AI service is misconfigured (invalid API key)"** — the \`ANTHROPIC_API_KEY\` env variable on the backend is wrong, missing, or revoked. StoreVeu admin needs to generate a new key in the Anthropic console and update the server \`.env\` file.
 
 - **"⚠ The AI service is being rate-limited"** — too many queries in a short window. Wait 1-2 minutes and try again. If persistent, contact support; the account may need a higher tier.
 
 - **"⚠ Anthropic's service is temporarily overloaded"** — Anthropic's infrastructure is under load. This is usually transient — wait a minute and retry.
 
-**These messages don't mean Storv is broken** — they're signals from the AI provider. Your POS, inventory, reports, and all normal operations continue working. The assistant will resume once the underlying issue is fixed.`,
+**These messages don't mean StoreVeu is broken** — they're signals from the AI provider. Your POS, inventory, reports, and all normal operations continue working. The assistant will resume once the underlying issue is fixed.`,
   },
 ];
 

@@ -207,7 +207,7 @@ export async function sendTransferCompleted(to, { formerOwnerName, newOwnerName,
   return sendMail(to, `Ownership transfer complete: ${orgName}`, html);
 }
 
-// ─── Storv Exchange templates ────────────────────────────────────────────────
+// ─── StoreVeu Exchange templates ────────────────────────────────────────────────
 
 const PORTAL_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -216,7 +216,7 @@ export async function sendPartnerHandshakeRequest(to, { requesterName, requester
   const url = `${PORTAL_URL()}/portal/exchange?tab=partners`;
   const html = wrap('New trading partner request', `
     <h2>Hi there,</h2>
-    <p><strong>${escapeHtml(requesterName)}</strong> (${escapeHtml(requesterCode || '')}) has requested to trade with <strong>${escapeHtml(partnerName)}</strong> on Storv Exchange.</p>
+    <p><strong>${escapeHtml(requesterName)}</strong> (${escapeHtml(requesterCode || '')}) has requested to trade with <strong>${escapeHtml(partnerName)}</strong> on StoreVeu Exchange.</p>
     ${requestNote ? `<p style="padding:12px;background:#f8fafc;border-radius:8px;font-style:italic">"${escapeHtml(requestNote)}"</p>` : ''}
     <p>Once you accept, either store can send wholesale purchase orders to the other.</p>
     <p style="text-align:center"><a class="btn" href="${url}">Review Request</a></p>

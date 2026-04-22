@@ -114,7 +114,7 @@ export const seedData = async () => {
     await prisma.user.createMany({
       data: [
         {
-          name:     'Storv Admin',
+          name:     'StoreVeu Admin',
           email:    'admin@storeveu.com',
           phone:    '1234567890',
           password: adminHash,

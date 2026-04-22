@@ -419,7 +419,7 @@ export async function terminalStatus(merchant) {
 // PAYMENT TYPE HELPERS
 // ═════════════════════════════════════════════════════════════════════════════
 
-/** Map Storv tender methods to Dejavoo PaymentType enum */
+/** Map StoreVeu tender methods to Dejavoo PaymentType enum */
 export const PAYMENT_TYPE_MAP = {
   card:      'Card',      // terminal decides credit vs debit based on card
   credit:    'Credit',

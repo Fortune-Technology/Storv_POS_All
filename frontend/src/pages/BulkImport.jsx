@@ -1155,7 +1155,7 @@ export default function BulkImport() {
                       onChange={e => setTemplateId(e.target.value)}
                       style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-tertiary, #f8fafc)', color: 'var(--text-primary)', fontSize: '0.9rem' }}
                     >
-                      <option value="">— Standard format (Storv columns) —</option>
+                      <option value="">— Standard format (StoreVeu columns) —</option>
                       {templates.map(t => (
                         <option key={t.id} value={t.id}>{t.name} ({t._count?.mappings || 0} cols)</option>
                       ))}

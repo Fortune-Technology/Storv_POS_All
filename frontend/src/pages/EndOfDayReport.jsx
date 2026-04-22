@@ -376,7 +376,7 @@ export default function EndOfDayReport() {
 
           {/* Footer */}
           <div className="eod-footer">
-            <span>Storv POS · End of Day Report</span>
+            <span>StoreVeu POS · End of Day Report</span>
             <span>Printed: {new Date(header.printedAt).toLocaleString()}</span>
           </div>
         </div>

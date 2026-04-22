@@ -1,5 +1,5 @@
 /**
- * Storv Exchange — store code + trading partner handshake.
+ * StoreVeu Exchange — store code + trading partner handshake.
  *
  *   Store Code   claimable human-friendly identifier per store.
  *                Editable while no partnerships are accepted AND no wholesale

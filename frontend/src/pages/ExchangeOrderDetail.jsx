@@ -1,5 +1,5 @@
 /**
- * Storv Exchange — polymorphic order detail page.
+ * StoreVeu Exchange — polymorphic order detail page.
  *
  *   URL: /portal/exchange/orders/:id  (or /portal/exchange/new for new draft)
  *

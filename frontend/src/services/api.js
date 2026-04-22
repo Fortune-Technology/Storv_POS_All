@@ -637,7 +637,7 @@ export const getUserRolesApi    = (userId)             => api.get(`/roles/users/
 export const setUserRolesApi    = (userId, roleIds)    => api.put(`/roles/users/${userId}/roles`, { roleIds }).then(r => r.data);
 export const getMyPermissions   = ()                   => api.get('/roles/me/permissions').then(r => r.data);
 
-// ─── Storv Exchange ──────────────────────────────────────────────────────────
+// ─── StoreVeu Exchange ──────────────────────────────────────────────────────────
 const exchangeUnwrap = (r) => r.data?.data ?? r.data;
 const exchangeFull   = (r) => r.data;
 

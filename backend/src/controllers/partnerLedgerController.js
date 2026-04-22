@@ -1,5 +1,5 @@
 /**
- * Storv Exchange — partner balances, ledger, settlements.
+ * StoreVeu Exchange — partner balances, ledger, settlements.
  *
  * Balances are canonicalized (storeAId < storeBId alphabetically).
  * From a caller's perspective, we always return:

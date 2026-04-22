@@ -242,7 +242,7 @@ Do NOT write out the step-by-step instructions in text. The tour overlay IS the 
   },
   {
     name: 'create_support_ticket',
-    description: 'File a support ticket to the Storv support team. ONLY call this tool when (a) the user explicitly asks to file a ticket, or (b) they confirm "yes" after you have proposed filing one. Never file a ticket proactively without the user\'s agreement. The full conversation context will be attached automatically — you only need to provide a clear subject and a body summarizing the issue from the user\'s perspective.',
+    description: 'File a support ticket to the StoreVeu support team. ONLY call this tool when (a) the user explicitly asks to file a ticket, or (b) they confirm "yes" after you have proposed filing one. Never file a ticket proactively without the user\'s agreement. The full conversation context will be attached automatically — you only need to provide a clear subject and a body summarizing the issue from the user\'s perspective.',
     input_schema: {
       type: 'object',
       properties: {
@@ -835,7 +835,7 @@ async function toolCreateSupportTicket(input, orgId, req) {
   return {
     success: true,
     ticketId: ticket.id,
-    message: `Support ticket #${ticket.id.slice(-6)} filed. The Storv team will respond in Support Tickets.`,
+    message: `Support ticket #${ticket.id.slice(-6)} filed. The StoreVeu team will respond in Support Tickets.`,
     ticket,
   };
 }
@@ -1049,7 +1049,7 @@ async function toolSearchTransactions(input, orgId, storeId, req) {
 
 function buildSystemPrompt(ctx, kbBlock = '') {
   const { storeName, userName, userRole, orgName } = ctx;
-  return `You are the Storv POS AI Assistant, helping store staff with features, operations, and live store data.
+  return `You are the StoreVeu POS AI Assistant, helping store staff with features, operations, and live store data.
 
 CURRENT USER:
 - Name: ${userName || 'Unknown'}
@@ -1128,7 +1128,7 @@ For factual questions (sales numbers, counts) keep it brief — bullets + number
 
 TICKET ESCALATION:
 - If the user asks to file a support ticket, use the \`create_support_ticket\` tool.
-- If you cannot confidently answer (no KB match, no applicable tool, edge-case bug), say: "I don't have a confident answer for that. Would you like me to file a support ticket so the Storv team can help?" Then file the ticket only after the user agrees.
+- If you cannot confidently answer (no KB match, no applicable tool, edge-case bug), say: "I don't have a confident answer for that. Would you like me to file a support ticket so the StoreVeu team can help?" Then file the ticket only after the user agrees.
 - Never file a ticket proactively without the user's consent.
 
 GUIDELINES:
@@ -1140,7 +1140,7 @@ GUIDELINES:
 STRICT RULES:
 - Never write, share, or reference source code, SQL, API internals, or environment variables.
 - Never discuss other organizations' data or other stores the user doesn't have access to.
-- If asked about architecture, code, or security internals, respond: "That's handled by the Storv engineering team. Please contact support@storeveu.com."
+- If asked about architecture, code, or security internals, respond: "That's handled by the StoreVeu engineering team. Please contact support@storeveu.com."
 - Never claim features exist if you're not sure — ask the user to clarify or suggest filing a ticket.${kbBlock ? '\n' + kbBlock : ''}`;
 }
 
@@ -1380,13 +1380,13 @@ export const sendMessage = async (req, res, next) => {
 
       // Detect common provider-side errors and surface a helpful message
       // instead of the generic fallback. These are operational issues the
-      // Storv team (or the account owner) needs to resolve, not transient.
+      // StoreVeu team (or the account owner) needs to resolve, not transient.
       const msg = String(err?.message || '').toLowerCase();
       let friendly = 'I ran into an error processing your request. Please try again, or file a support ticket if the problem persists.';
       if (msg.includes('credit balance is too low') || msg.includes('insufficient_credit')) {
-        friendly = '⚠ The AI service is temporarily unavailable — the provider account is out of credits. Please notify your Storv administrator; service will resume once credits are topped up.';
+        friendly = '⚠ The AI service is temporarily unavailable — the provider account is out of credits. Please notify your StoreVeu administrator; service will resume once credits are topped up.';
       } else if (msg.includes('invalid x-api-key') || msg.includes('invalid api key') || msg.includes('authentication_error')) {
-        friendly = '⚠ The AI service is misconfigured (invalid API key). Please contact your Storv administrator.';
+        friendly = '⚠ The AI service is misconfigured (invalid API key). Please contact your StoreVeu administrator.';
       } else if (msg.includes('rate_limit') || msg.includes('rate limit') || msg.includes('too many requests')) {
         friendly = '⚠ The AI service is being rate-limited. Please try again in a minute.';
       } else if (msg.includes('overloaded') || msg.includes('service_unavailable')) {
@@ -1557,7 +1557,7 @@ export const escalateConversation = async (req, res, next) => {
       data: {
         conversationId: conv.id,
         role: 'assistant',
-        content: `✓ Support ticket **#${ticket.id.slice(-6)}** filed. The Storv team will respond in **Support & Billing → Support Tickets**.`,
+        content: `✓ Support ticket **#${ticket.id.slice(-6)}** filed. The StoreVeu team will respond in **Support & Billing → Support Tickets**.`,
         ticketId: ticket.id,
       },
     });

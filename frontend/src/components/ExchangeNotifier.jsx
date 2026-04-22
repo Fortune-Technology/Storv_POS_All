@@ -1,5 +1,5 @@
 /**
- * Storv Exchange real-time bell — polls for:
+ * StoreVeu Exchange real-time bell — polls for:
  *   • New incoming wholesale orders (status=sent, direction=incoming)
  *   • New pending partner requests
  * Plays the same notification sound as ecom orders + shows a toast.

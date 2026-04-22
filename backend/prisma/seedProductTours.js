@@ -147,7 +147,7 @@ const TOURS = [
       },
       {
         title: '6. Send invitation',
-        body: 'Click **Send Invitation**. Storv emails them a 7-day link. They click → create account (or sign in) → land in the portal with your store visible in their StoreSwitcher.',
+        body: 'Click **Send Invitation**. StoreVeu emails them a 7-day link. They click → create account (or sign in) → land in the portal with your store visible in their StoreSwitcher.',
       },
       {
         title: '💡 Track it',

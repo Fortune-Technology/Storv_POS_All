@@ -1,7 +1,7 @@
 /**
  * billingService.js
  * Core billing calculations and charge execution.
- * Storv acts as the merchant for subscription and equipment payments.
+ * StoreVeu acts as the merchant for subscription and equipment payments.
  */
 
 import prisma from '../config/postgres.js';
@@ -66,7 +66,7 @@ export function calculateInvoiceAmount(subscription) {
 }
 
 // ── Subscription + equipment charging ───────────────────────────────────────
-// Platform billing (Storv-level, not merchant-level) is now unimplemented.
+// Platform billing (StoreVeu-level, not merchant-level) is now unimplemented.
 // These were previously wired to CardPointe; will be replaced with Dejavoo
 // iPOS Transact (tokenized card-on-file) in a future sprint.
 // Throwing explicit "not configured" so callers fail loudly instead of silently.
