@@ -93,6 +93,9 @@ const FIELD_DESCRIPTIONS = {
 
   // ── Linked UPC ──
   linkedUpc:          { desc: 'Case barcode or secondary UPC that links to this product',              example: '50081100110010' },
+  // ── Multi-UPC + multi-pack (Session 3) ──
+  additionalUpcs:     { desc: 'Extra barcodes for the same product. Use | to combine in one cell, OR map this field on multiple CSV columns (Pack 1 UPC, Pack 2 UPC, …) — the importer merges them.', example: '0801091234574|0801091234581' },
+  packOptions:        { desc: 'Multiple pack sizes for one product (cashier picker). Format: label@units@price[*] separated by ; — * marks the default.', example: 'Single@1@1.99;6-Pack@6@9.99*;Case@24@32.00' },
 
   // ── Grocery / Scale ──
   wicEligible:        { desc: 'Eligible for WIC (Women, Infants, Children) program',                   example: 'true, Y' },
@@ -107,7 +110,10 @@ const FIELD_DESCRIPTIONS = {
   expirationDate:     { desc: 'Product expiration or best-by date',                                    example: '2026-12-31, 12/31/2026' },
   labelFormatId:      { desc: 'Label format ID for shelf-edge / scale label printing',                 example: '1, 3' },
   byWeight:           { desc: 'Product is sold by weight on a scale',                                  example: 'true, false' },
-  foodstamp:          { desc: 'Eligible for food stamp / SNAP purchase (same as EBT Eligible)',        example: 'true, Y' },
+
+  // ── Inventory tracking + physical weight ──
+  trackInventory:     { desc: 'Deduct stock from on-hand inventory on every sale',                     example: 'true, false' },
+  weight:             { desc: 'Physical product weight in pounds (used for shipping)',                 example: '3.33, 0.5' },
 
   // ── E-commerce ──
   hideFromEcom:       { desc: 'Hide this product from the online storefront',                          example: 'true, false' },
@@ -195,7 +201,8 @@ const FIELD_LABELS = {
   scalePluType: 'Scale PLU Type', ingredients: 'Ingredients', nutritionFacts: 'Nutrition Facts',
   certCode: 'Certification', sectionId: 'Section ID', sectionName: 'Section Name',
   expirationDate: 'Expiration Date', labelFormatId: 'Label Format', byWeight: 'Sold by Weight',
-  foodstamp: 'Food Stamp / SNAP',
+  // Inventory tracking + physical weight
+  trackInventory: 'Track Inventory', weight: 'Product Weight (lbs)',
   // Image
   imageUrl: 'Product Image URL',
   // E-commerce
@@ -216,6 +223,10 @@ const FIELD_LABELS = {
   futureActiveDate: 'Future Active Date', futureMultiple: 'Future Multiple',
   // Deposits
   depositPerUnit: 'Bottle Deposit (unit)', caseDeposit: 'Case Deposit',
+  // Multi-UPC + multi-pack (Session 3) — Additional UPCs supports multi-source
+  // mapping (pick on multiple columns to merge their values)
+  additionalUpcs: 'Additional UPCs (alternates)',
+  packOptions:    'Pack Options (multi-SKU picker)',
   // Stock & Linked
   quantityOnHand: 'Qty on Hand', linkedUpc: 'Linked/Case UPC', productCode: 'Product Code',
   // Other
@@ -239,7 +250,11 @@ const TYPE_FIELDS = {
     'sku','itemCode','plu','reorderPoint','reorderQty',
     // Grocery / Scale
     'wicEligible','tareWeight','scaleByCount','scalePluType','ingredients','nutritionFacts',
-    'certCode','sectionId','sectionName','expirationDate','labelFormatId','byWeight','foodstamp',
+    'certCode','sectionId','sectionName','expirationDate','labelFormatId','byWeight',
+    // Inventory tracking + physical weight
+    'trackInventory','weight',
+    // foodstamp removed — duplicate of ebtEligible (both set MasterProduct.ebtEligible
+    // via alias overlap, resulting in non-deterministic mapping). Use ebtEligible.
     // Image
     'imageUrl',
     // E-commerce
@@ -252,6 +267,8 @@ const TYPE_FIELDS = {
     'futureRetail','futureCost','futureActiveDate','futureMultiple',
     // Deposits
     'depositPerUnit','caseDeposit',
+    // Multi-UPC + multi-pack (Session 3)
+    'additionalUpcs','packOptions',
     // Stock & Links
     'quantityOnHand','linkedUpc','productCode',
     // v2 simplified pack config (preferred)
