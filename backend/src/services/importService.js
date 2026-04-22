@@ -62,7 +62,11 @@ const ALIASES = {
 
   // Compliance
   ageRequired:        ['agerequired','minage','age','agerestriction','ageverification','validage'],
-  ebtEligible:        ['ebt','ebteligible','foodstamp','food_stamp','snap','ebtsnap'],
+  // EBT / SNAP / Food Stamp — all route to ebtEligible (the schema keeps a
+  // `foodstamp` mirror column, but it's populated from this same flag — there
+  // is no separate foodstamp alias entry, which prevents non-deterministic
+  // mapping when a CSV header like "EBT" could match either field.
+  ebtEligible:        ['ebt','ebteligible','foodstamp','food_stamp','snap','ebtsnap','snapeligible'],
   discountEligible:   ['discount','discounteligible','discountable','allowdiscount'],
   taxable:            ['taxable','istaxable','taxed'],
   active:             ['active','status','enabled','isenabled','isactive'],
@@ -188,8 +192,11 @@ const ALIASES = {
   // ── Legacy / misc ──
   quantityOnHand:     ['quantityonhand','qoh','stockqty','onhand','currentstock','inventoryqty','instock','stockcount','inventory'],
   byWeight:           ['scale','byweight','soldbyweight','scalable','weightitem'],
-  foodstamp:          ['foodstamp','food_stamp','snap','ebt','snapeligible'],
+  // (foodstamp alias removed — see ebtEligible above. DB column stays in sync
+  // via the row builder, which mirrors ebtEligible → foodstamp.)
   productCode:        ['productcode','mfrcode','manufacturercode'],
+  trackInventory:     ['trackinventory','track_inventory','deductstock','inventorytracked'],
+  weight:             ['weight','productweight','itemweight','lbs','pounds'],
 };
 
 // ─── Valid enum values ───────────────────────────────────────────────────────
@@ -690,7 +697,10 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
       expirationDate:     get('expirationDate') ? new Date(get('expirationDate')) : null,
       labelFormatId:      parseIntVal(get('labelFormatId')),
       byWeight:           parseBool(get('byWeight')),
-      foodstamp:          parseBool(get('foodstamp')),
+      // `foodstamp` schema column mirrors `ebtEligible` — the CSV never maps
+      // to foodstamp directly anymore (alias collision removed), so we derive
+      // it from the ebtEligible value to keep the mirror column in sync.
+      foodstamp:          parseBool(get('ebtEligible')),
 
       // ── E-commerce extended ──
       hideFromEcom:       parseBool(get('hideFromEcom')),
