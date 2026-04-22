@@ -17,7 +17,7 @@ import {
   ChevronDown, X, Loader, Settings, Copy, RotateCcw, Star, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
-import api from '../services/api';
+import api, { submitLabelPrintJob, getLabelPrintJob } from '../services/api';
 import { connectZebra, getZebraStatus, selectZebraPrinter, printZPL, printTestLabel, isZebraAvailable } from '../services/zebraPrint';
 import { downloadCSV } from '../utils/exportUtils';
 import '../styles/portal.css';
@@ -344,6 +344,17 @@ export default function LabelDesign({ embedded }) {
   const [zebraConnecting, setZebraConnecting] = useState(false);
   const [zebraPrinting, setZebraPrinting] = useState(false);
 
+  // Route via cashier-app (Electron) — needed when portal is on public HTTPS
+  // because Chrome LNA blocks direct calls to localhost:9101 from storeveu.com.
+  // Persisted so the user doesn't have to re-toggle every visit.
+  const [routeViaRegister, setRouteViaRegister] = useState(() => {
+    try { return localStorage.getItem('label_route_via_register') === 'true'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('label_route_via_register', String(routeViaRegister)); } catch {}
+  }, [routeViaRegister]);
+
   const searchTimer = useRef(null);
 
   // Auto-connect to Zebra Browser Print on mount
@@ -494,11 +505,64 @@ export default function LabelDesign({ embedded }) {
     return allZPL;
   };
 
+  // Poll a submitted print job until it reaches a terminal state (or timeout).
+  // Reports progress via toasts so the user knows what's happening.
+  const pollPrintJob = async (jobId, labelCount) => {
+    const DEADLINE_MS = 45_000;
+    const start = Date.now();
+    let lastStatus = 'pending';
+    while (Date.now() - start < DEADLINE_MS) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const { job } = await getLabelPrintJob(jobId);
+        if (!job) continue;
+        if (job.status !== lastStatus) {
+          lastStatus = job.status;
+          if (job.status === 'claimed') {
+            toast.info(`Register picked up the job — printing ${labelCount} label(s)…`);
+          }
+        }
+        if (job.status === 'completed') {
+          toast.success(`Printed ${labelCount} label(s) at the register`);
+          return;
+        }
+        if (job.status === 'failed') {
+          toast.error(`Register print failed: ${job.error || 'unknown error'}`);
+          return;
+        }
+      } catch { /* keep polling */ }
+    }
+    toast.warn('Print job sent but no register has confirmed printing yet. Check the cashier app is online.');
+  };
+
   const handlePrint = async () => {
     const zpl = generateAllZPL();
     const labelCount = (selectedProducts.length || 1) * printQty;
 
-    // 1. Try Zebra Browser Print (preferred for back-office)
+    // 1. Route via cashier-app (for public HTTPS — storeveu.com)
+    if (routeViaRegister) {
+      try {
+        const { job } = await submitLabelPrintJob({
+          zpl,
+          labelCount,
+          source: 'label_design',
+          printerName: zebraSelected || null,
+          metadata: {
+            templateName: activeTemplate?.name,
+            productCount: selectedProducts.length || 1,
+            printQty,
+          },
+        });
+        toast.info(`Queued ${labelCount} label(s) — waiting for register to print…`);
+        pollPrintJob(job.id, labelCount); // fire-and-forget, shows toasts
+        return;
+      } catch (err) {
+        toast.error(`Could not queue print job: ${err?.response?.data?.error || err.message}`);
+        return;
+      }
+    }
+
+    // 2. Try Zebra Browser Print directly (works on localhost dev; blocked on public HTTPS)
     if (zebraConnected && zebraSelected) {
       setZebraPrinting(true);
       const result = await printZPL(zpl, zebraSelected);
@@ -510,7 +574,7 @@ export default function LabelDesign({ embedded }) {
       toast.warn(`Zebra print failed: ${result.error}. ZPL copied to clipboard instead.`);
     }
 
-    // 2. Try Electron (cashier-app)
+    // 3. Try Electron (cashier-app)
     if (window.electronAPI?.printLabelNetwork) {
       try {
         await window.electronAPI.printLabelNetwork('', 9100, zpl);
@@ -519,7 +583,7 @@ export default function LabelDesign({ embedded }) {
       } catch { /* fallback */ }
     }
 
-    // 3. Fallback: copy to clipboard
+    // 4. Fallback: copy to clipboard
     try {
       await navigator.clipboard.writeText(zpl);
       toast.success(`ZPL copied to clipboard (${labelCount} labels)`);
@@ -721,6 +785,33 @@ export default function LabelDesign({ embedded }) {
                 </span>
               </div>
             )}
+
+            {/* Route via Register — required when portal is on public HTTPS (Chrome LNA blocks localhost) */}
+            <div style={{
+              marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-color)',
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+            }}>
+              <input
+                type="checkbox"
+                id="route-via-register"
+                checked={routeViaRegister}
+                onChange={e => setRouteViaRegister(e.target.checked)}
+                style={{ marginTop: 3, flexShrink: 0 }}
+              />
+              <label htmlFor="route-via-register" style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Route via register
+                  {routeViaRegister && (
+                    <span style={{ marginLeft: 6, fontSize: '0.62rem', fontWeight: 700, color: 'var(--accent-primary)' }}>● Active</span>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
+                  Sends print jobs through the cashier-app instead of this browser. Required when storeveu.com
+                  can't reach the local Zebra (Chrome Local Network Access block). A station must be opted-in
+                  as a label printer in cashier-app POS Settings.
+                </div>
+              </label>
+            </div>
           </div>
 
           {/* Preview */}

@@ -87,6 +87,15 @@ export const getPOSConfig = (storeId) =>
 export const getQuickButtonLayout = (storeId) =>
   api.get('/quick-buttons', { params: { storeId } }).then(r => r.data);
 
+// ── Label Print Jobs (Electron-routed Zebra printing) ────────────────────
+// The cashier-app polls /claim, processes jobs via window.electronAPI.zebraPrintZPL,
+// then reports back via /:id/complete.
+export const claimLabelPrintJobs = (stationId, limit = 5) =>
+  api.post('/label-print-jobs/claim', { stationId, limit }).then(r => r.data);
+
+export const completeLabelPrintJob = (id, { success, error, stationId }) =>
+  api.post(`/label-print-jobs/${id}/complete`, { success, error, stationId }).then(r => r.data);
+
 export const getDepartmentsForPOS = () =>
   api.get('/catalog/departments').then(r => {
     const d = r.data;

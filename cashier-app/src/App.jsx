@@ -19,6 +19,7 @@ import PinLoginScreen      from './screens/PinLoginScreen.jsx';
 import POSScreen           from './screens/POSScreen.jsx';
 import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
 import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
+import LabelPrintIndicator from './components/LabelPrintIndicator.jsx';
 import './App.css';
 
 export default function App() {
@@ -170,6 +171,7 @@ export default function App() {
     <>
       <POSScreen />
       <AIAssistantWidget />
+      <LabelPrintIndicator />
     </>
   );
 }

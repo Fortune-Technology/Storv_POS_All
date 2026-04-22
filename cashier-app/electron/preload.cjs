@@ -26,6 +26,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printLabelNetwork: (ip, port, zpl) =>
     ipcRenderer.invoke('printer:print-label-network', { ip, port, zpl }),
 
+  // ── Zebra Browser Print (USB via local Browser Print service) ─────────────
+  /** Returns { connected, printers: [{name, connection, uid, manufacturer}], error? } */
+  zebraListPrinters: () => ipcRenderer.invoke('zebra:list-printers'),
+  /** Send ZPL to local Zebra via Browser Print. Returns { success, error?, printer? } */
+  zebraPrintZPL:     (zpl, printerName) => ipcRenderer.invoke('zebra:print-zpl', { zpl, printerName }),
+  /** Print a diagnostic label. Returns { success, error?, printer? } */
+  zebraTestLabel:    (printerName) => ipcRenderer.invoke('zebra:test-label', { printerName }),
+
   // ── Cash Drawer ───────────────────────────────────────────────────────────
   /**
    * Open drawer connected to a network receipt printer.

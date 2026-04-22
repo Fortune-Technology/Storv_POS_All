@@ -54,6 +54,115 @@ const SCALE_BRANDS = [
   { id: 'generic',   label: 'Generic RS-232 / USB-Serial', baud: 9600 },
 ];
 
+/**
+ * ZebraRoutedPanel — inline helper shown when "Accept routed Zebra jobs" is on.
+ * Lists printers discovered via Electron's zebra:list-printers IPC and offers
+ * a test-print button so the user can confirm the local Zebra is reachable
+ * from the Electron main process (bypassing Chrome's LNA block).
+ */
+function ZebraRoutedPanel({ printerName, onChangeName }) {
+  const [state, setState] = useState({ loading: true, printers: [], error: null });
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const refresh = useCallback(async () => {
+    if (!window.electronAPI?.zebraListPrinters) {
+      setState({ loading: false, printers: [], error: 'Electron runtime unavailable (run the cashier-app, not the web build).' });
+      return;
+    }
+    setState((s) => ({ ...s, loading: true }));
+    try {
+      const res = await window.electronAPI.zebraListPrinters();
+      setState({
+        loading:  false,
+        printers: res?.printers || [],
+        error:    res?.connected ? null : (res?.error || 'Browser Print not reachable'),
+      });
+    } catch (err) {
+      setState({ loading: false, printers: [], error: err?.message || String(err) });
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleTest = async () => {
+    if (!window.electronAPI?.zebraTestLabel) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await window.electronAPI.zebraTestLabel(printerName || undefined);
+      setTestResult(res);
+    } catch (err) {
+      setTestResult({ success: false, error: err?.message || String(err) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div style={{ background: 'rgba(59, 130, 246, 0.04)', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+          Local Zebra Printer
+          {state.error
+            ? <span style={{ marginLeft: 6, fontSize: '0.68rem', color: 'var(--error, #ef4444)' }}>● Unreachable</span>
+            : state.loading
+              ? <span style={{ marginLeft: 6, fontSize: '0.68rem', color: 'var(--text-muted)' }}>Discovering…</span>
+              : <span style={{ marginLeft: 6, fontSize: '0.68rem', color: 'var(--success, #10b981)' }}>● {state.printers.length} found</span>
+          }
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="hsm-save-btn" type="button" onClick={refresh}
+            style={{ padding: '4px 10px', fontSize: '0.75rem', background: 'transparent', color: 'var(--text-primary)', border: '1px solid rgba(148, 163, 184, 0.35)' }}>
+            <RefreshCw size={12} /> Refresh
+          </button>
+          <button className="hsm-save-btn" type="button" onClick={handleTest}
+            disabled={testing || !!state.error || state.printers.length === 0}
+            style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+            {testing ? <Loader size={12} /> : <Printer size={12} />} Test print
+          </button>
+        </div>
+      </div>
+
+      {state.error && (
+        <div style={{ fontSize: '0.72rem', color: 'var(--error, #ef4444)', marginBottom: 6 }}>
+          {state.error}. Install Zebra Browser Print from
+          {' '}<a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html"
+          target="_blank" rel="noreferrer">zebra.com</a> and make sure it's running.
+        </div>
+      )}
+
+      {!state.error && state.printers.length > 0 && (
+        <>
+          <label className="hsm-label" style={{ fontSize: '0.72rem' }}>Preferred printer (optional)</label>
+          <select className="hsm-select"
+            value={printerName}
+            onChange={(e) => onChangeName(e.target.value)}>
+            <option value="">Auto-select first available</option>
+            {state.printers.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}{p.connection && p.connection !== 'unknown' ? ` (${p.connection})` : ''}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      {testResult && (
+        <div style={{
+          marginTop: 8, padding: 6, borderRadius: 6, fontSize: '0.72rem',
+          background: testResult.success ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+          color: testResult.success ? 'var(--success, #10b981)' : 'var(--error, #ef4444)',
+        }}>
+          {testResult.success
+            ? `✓ Test label sent to ${testResult.printer || 'Zebra'}`
+            : `✗ ${testResult.error || 'Print failed'}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HWSection({ icon: Icon, title, status, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const dotCls = status === 'ok' ? 'hsm-hw-dot--ok' : status === 'err' ? 'hsm-hw-dot--err' : 'hsm-hw-dot--idle';
@@ -83,11 +192,21 @@ export default function HardwareSettingsModal({ onClose }) {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [hw, setHW] = useState(() => loadHW() || {
-    receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
-    labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '', comPort: '' },
-    cashDrawer:     { type: 'none' },
+  const [hw, setHW] = useState(() => {
+    const stored = loadHW();
+    const defaults = {
+      receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
+      labelPrinter:   { type: 'none', name: '', ip: '', port: 9100, acceptRoutedJobs: false, zebraName: '' },
+      scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '', comPort: '' },
+      cashDrawer:     { type: 'none' },
+    };
+    if (!stored) return defaults;
+    // Merge to ensure new fields exist on older persisted configs
+    return {
+      ...defaults,
+      ...stored,
+      labelPrinter: { ...defaults.labelPrinter, ...(stored.labelPrinter || {}) },
+    };
   });
 
   const [detectedPrinters, setDetectedPrinters] = useState([]);
@@ -541,6 +660,35 @@ export default function HardwareSettingsModal({ onClose }) {
                       </label>
                     </div>
                   </>
+                )}
+
+                {/* Routed Zebra printing — works independently of the dropdown above */}
+                <div style={{ gridColumn: '1 / -1', marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(148, 163, 184, 0.35)' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input type="checkbox"
+                      style={{ marginTop: 3, flexShrink: 0 }}
+                      checked={!!hw.labelPrinter.acceptRoutedJobs}
+                      onChange={e => updHW('labelPrinter', { acceptRoutedJobs: e.target.checked })} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        Accept routed Zebra jobs from the portal
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
+                        When enabled, this register polls the portal's label print queue and prints ZPL jobs via the local
+                        Zebra Browser Print app. Required when the portal is served from a public HTTPS URL (storeveu.com)
+                        because Chrome blocks direct calls to localhost.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                {hw.labelPrinter.acceptRoutedJobs && (
+                  <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+                    <ZebraRoutedPanel
+                      printerName={hw.labelPrinter.zebraName || ''}
+                      onChangeName={(name) => updHW('labelPrinter', { zebraName: name })}
+                    />
+                  </div>
                 )}
               </div>
             </HWSection>

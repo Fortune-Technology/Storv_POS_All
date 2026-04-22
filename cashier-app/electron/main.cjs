@@ -296,6 +296,36 @@ try {
       socket.on('error',   (err) => reject(err));
     });
   });
+
+  // ── Zebra Browser Print bridge (local USB/network Zebra) ────────────────
+  // Calls https://localhost:9101 or http://localhost:9100 from Node, which
+  // sidesteps the Chrome Local Network Access block when the portal is on
+  // a public HTTPS origin. Requires Zebra Browser Print to be installed.
+  const zebraPrinter = require('./zebraPrinter.cjs');
+
+  ipcMain.handle('zebra:list-printers', async () => {
+    try {
+      return await zebraPrinter.listPrinters();
+    } catch (err) {
+      return { connected: false, printers: [], error: err.message };
+    }
+  });
+
+  ipcMain.handle('zebra:print-zpl', async (_, { zpl, printerName } = {}) => {
+    try {
+      return await zebraPrinter.printZPL({ zpl, printerName });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('zebra:test-label', async (_, { printerName } = {}) => {
+    try {
+      return await zebraPrinter.printTestLabel({ printerName });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════

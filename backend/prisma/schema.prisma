@@ -2756,6 +2756,39 @@ model LabelQueue {
 }
 
 // ─────────────────────────────────────────────────
+// LABEL PRINT JOB — ZPL payloads routed through the cashier-app's
+// Electron bridge. Portal submits ZPL → backend queues → a station
+// (running Electron with local Zebra Browser Print) polls, prints,
+// reports completion. Works around Chrome LNA / CORS restrictions
+// that prevent storeveu.com from calling localhost:9101 directly.
+// ─────────────────────────────────────────────────
+model LabelPrintJob {
+  id                 Int       @id @default(autoincrement())
+  orgId              String
+  storeId            String?
+  stationId          String? // null = any eligible station; non-null = target this station
+  zpl                String    @db.Text
+  printerName        String? // optional Zebra printer name; station decides default if null
+  source             String    @default("label_queue") // "label_queue"|"label_design"|"manual"
+  labelCount         Int       @default(1)
+  metadata           Json? //  productIds?, templateName?, userName?, ...
+  status             String    @default("pending") // "pending"|"claimed"|"completed"|"failed"
+  claimedByStationId String?
+  claimedAt          DateTime?
+  completedAt        DateTime?
+  error              String?   @db.Text
+  attempts           Int       @default(0)
+  submittedByUserId  String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([orgId, storeId, status])
+  @@index([status, createdAt])
+  @@index([claimedByStationId, status])
+  @@map("label_print_jobs")
+}
+
+// ─────────────────────────────────────────────────
 // AUDIT LOG — Immutable record of all user actions
 // Cannot be deleted by any user including admin.
 // ─────────────────────────────────────────────────
