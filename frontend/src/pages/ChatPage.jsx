@@ -248,7 +248,16 @@ const ChatPage = () => {
       }
       setText('');
       await loadMessages(activeChannel);
-    } catch { toast.error('Failed to send message'); }
+    } catch (err) {
+      // 404 on a partner endpoint = server is running a build without the
+      // partner-chat routes. Surface a clearer message than "Failed to send".
+      if (err?.response?.status === 404 &&
+          String(err?.config?.url || '').includes('/chat/partner/')) {
+        toast.error('Partner chat is not yet available on this server. Please ask your admin to redeploy the backend.');
+      } else {
+        toast.error(err?.response?.data?.error || 'Failed to send message');
+      }
+    }
     finally { setSending(false); }
   };
 
@@ -285,7 +294,11 @@ const ChatPage = () => {
       await loadChannels();
       toast.success(`Chat started with ${partner.name}`);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to start partner chat');
+      if (err?.response?.status === 404) {
+        toast.error('Partner chat is not yet available on this server. Please ask your admin to redeploy the backend.');
+      } else {
+        toast.error(err.response?.data?.error || 'Failed to start partner chat');
+      }
     }
   };
 

@@ -41,12 +41,23 @@ const FadeIn = ({ children, className, delay = 0 }) => {
   );
 };
 
-// Swap these to the real hosted installers (GitHub Releases / S3 / R2 / etc).
-// The placeholder path is used until the installer is published; the
-// download CTA still renders correctly and the 404 will be easy to spot.
-const DOWNLOAD_URL_WIN = import.meta.env.VITE_CASHIER_DOWNLOAD_URL || 'https://downloads.storeveu.com/cashier-app/StoreVeu-Cashier-Setup.exe';
+// ── Installer hosting ──────────────────────────────────────────────────
+// Build output comes from cashier-app/package.json (electron-builder with
+// default naming). `productName: "StoreVeu POS"` + `version: "1.0.0"` +
+// NSIS target → filename "StoreVeu POS Setup 1.0.0.exe" (GitHub URL-encodes
+// spaces as dots → "StoreVeu.POS.Setup.1.0.0.exe").
+//
+// The release is published via GitHub Actions to the `latest-desktop` tag,
+// so the "latest" URL is stable across versions:
+//   https://github.com/<org>/<repo>/releases/download/latest-desktop/<file>
+//
+// Overrides (set at frontend build time if you host elsewhere):
+//   VITE_CASHIER_DOWNLOAD_URL        → full Windows installer URL
+//   VITE_CASHIER_DOWNLOAD_URL_MAC    → full Mac .dmg URL (optional)
+//   VITE_CASHIER_DOWNLOAD_VERSION    → version string shown in the hero badge
+const DOWNLOAD_VERSION = import.meta.env.VITE_CASHIER_DOWNLOAD_VERSION || '1.0.0';
+const DOWNLOAD_URL_WIN = import.meta.env.VITE_CASHIER_DOWNLOAD_URL     || `https://github.com/Fortune-Technology/Storv_POS_All/releases/download/latest-desktop/StoreVeu.POS.Setup.${DOWNLOAD_VERSION}.exe`;
 const DOWNLOAD_URL_MAC = import.meta.env.VITE_CASHIER_DOWNLOAD_URL_MAC || '';
-const DOWNLOAD_VERSION = import.meta.env.VITE_CASHIER_DOWNLOAD_VERSION || 'latest';
 
 const REQUIREMENTS = [
   { icon: HardDrive, title: 'Windows 10 or newer (64-bit)', sub: '4 GB RAM minimum, 500 MB disk space' },

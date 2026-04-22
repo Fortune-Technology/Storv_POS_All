@@ -170,10 +170,21 @@ export const getChatUsers = async (req, res, next) => {
 // orgId is still stored (sender's org), but queries for partner channels
 // skip the orgId filter so both partner stores can read the same thread.
 
-// Helper — verify caller's active store is a party to the partnership.
+// Helper — verify the caller is a party to the partnership.
+// Access is granted when EITHER:
+//   (a) the caller's UserStore list contains one of the partnership's stores, OR
+//   (b) the caller is an owner/admin/superadmin in one of the partnership's orgs
+//       (checked against req.orgIds — every org the user holds membership in).
 async function loadPartnershipForUser(req, partnershipId) {
   const userStoreIds = (req.user.stores || []).map(s => s.storeId);
-  const activeStore = req.storeId || (userStoreIds[0] || null);
+  const activeStore  = req.storeId || (userStoreIds[0] || null);
+
+  // All orgs this user has any membership in (Phase 1 multi-org). Fall back
+  // to the legacy single-org field when the middleware didn't populate it.
+  const userOrgIds = Array.isArray(req.orgIds) && req.orgIds.length > 0
+    ? req.orgIds
+    : [req.user.orgId].filter(Boolean);
+
   const tp = await prisma.tradingPartner.findUnique({
     where: { id: partnershipId },
     select: {
@@ -184,17 +195,24 @@ async function loadPartnershipForUser(req, partnershipId) {
     },
   });
   if (!tp || tp.status !== 'accepted') return null;
-  // Allow if caller has access to either side's store via UserStore, or is owner/admin in either side's org.
-  const isOwnerAdmin = ['owner', 'admin', 'superadmin'].includes(req.user.role);
-  const ownsStore = userStoreIds.includes(tp.requesterStoreId) || userStoreIds.includes(tp.partnerStoreId);
-  const isSameOrg = isOwnerAdmin && (
-    req.user.orgId === tp.requesterStore.organization?.id ||
-    req.user.orgId === tp.partnerStore.organization?.id
-  );
-  if (!ownsStore && !isSameOrg) return null;
 
-  const mine = userStoreIds.includes(tp.requesterStoreId) || req.user.orgId === tp.requesterStore.organization?.id
-    ? tp.requesterStore : tp.partnerStore;
+  const requesterOrgId = tp.requesterStore.organization?.id;
+  const partnerOrgId   = tp.partnerStore.organization?.id;
+
+  const isOwnerAdmin = ['owner', 'admin', 'superadmin'].includes(req.user.role);
+  const ownsStore    = userStoreIds.includes(tp.requesterStoreId) || userStoreIds.includes(tp.partnerStoreId);
+  const adminsOrg    = isOwnerAdmin && (
+    userOrgIds.includes(requesterOrgId) || userOrgIds.includes(partnerOrgId)
+  );
+
+  if (!ownsStore && !adminsOrg) return null;
+
+  // Figure out which side is "mine" — prefer UserStore membership; fall back
+  // to org membership for owners/admins who don't hold direct store access.
+  const minesRequester =
+    userStoreIds.includes(tp.requesterStoreId) ||
+    (adminsOrg && userOrgIds.includes(requesterOrgId));
+  const mine  = minesRequester ? tp.requesterStore : tp.partnerStore;
   const other = mine.id === tp.requesterStore.id ? tp.partnerStore : tp.requesterStore;
   return { tp, mine, other, activeStore };
 }
@@ -202,21 +220,24 @@ async function loadPartnershipForUser(req, partnershipId) {
 // GET /api/chat/partner/channels
 export const getPartnerChannels = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    const userId       = req.user.id;
     const userStoreIds = (req.user.stores || []).map(s => s.storeId);
     const isOwnerAdmin = ['owner', 'admin', 'superadmin'].includes(req.user.role);
-    const orgId = req.orgId;
+    const userOrgIds   = Array.isArray(req.orgIds) && req.orgIds.length > 0
+      ? req.orgIds
+      : [req.user.orgId].filter(Boolean);
 
     // Partnerships this user can see: either their store participates OR they
-    // are owner/admin of one of the parties' orgs.
+    // are owner/admin of one of the parties' orgs (matched against every org
+    // the user has a UserOrg row for — multi-org aware).
     const partnerships = await prisma.tradingPartner.findMany({
       where: {
         status: 'accepted',
         OR: [
           userStoreIds.length > 0 ? { requesterStoreId: { in: userStoreIds } } : undefined,
           userStoreIds.length > 0 ? { partnerStoreId:   { in: userStoreIds } } : undefined,
-          isOwnerAdmin ? { requesterStore: { orgId } } : undefined,
-          isOwnerAdmin ? { partnerStore:   { orgId } } : undefined,
+          isOwnerAdmin && userOrgIds.length > 0 ? { requesterStore: { orgId: { in: userOrgIds } } } : undefined,
+          isOwnerAdmin && userOrgIds.length > 0 ? { partnerStore:   { orgId: { in: userOrgIds } } } : undefined,
         ].filter(Boolean),
       },
       include: {
@@ -228,8 +249,9 @@ export const getPartnerChannels = async (req, res, next) => {
 
     const channels = [];
     for (const p of partnerships) {
-      const isRequesterSide = userStoreIds.includes(p.requesterStoreId) ||
-        req.user.orgId === p.requesterStore.organization?.id;
+      const isRequesterSide =
+        userStoreIds.includes(p.requesterStoreId) ||
+        userOrgIds.includes(p.requesterStore.organization?.id);
       const mine  = isRequesterSide ? p.requesterStore : p.partnerStore;
       const other = isRequesterSide ? p.partnerStore   : p.requesterStore;
 
