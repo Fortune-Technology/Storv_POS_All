@@ -51,7 +51,6 @@ import EmployeeManagement from './pages/EmployeeManagement';
 import PayoutsReport   from './pages/PayoutsReport.jsx';
 import VendorPayouts  from './pages/VendorPayouts.jsx';
 import StoreSettings  from './pages/StoreSettings';
-import QuickAccess    from './pages/QuickAccess.jsx';
 import QuickButtonBuilder from './pages/QuickButtonBuilder.jsx';
 import DepositRules    from './pages/DepositRules.jsx';
 import TaxRules        from './pages/TaxRules.jsx';

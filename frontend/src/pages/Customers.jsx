@@ -27,8 +27,25 @@ import {
   createCustomer, updateCustomer, deleteCustomer,
 } from '../services/api';
 import { usePermissions } from '../hooks/usePermissions';
+import { useTableSort } from '../hooks/useTableSort';
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
 import { fmtMoney as fmt, fmtDate as fmtDt, fmtDateTime as fmtTs } from '../utils/formatters';
+
+// Inline sort indicator for div-based tables (used here + Transactions)
+function SortSpan({ sort, k, label, align = 'left' }) {
+  const active = sort.sortKey === k;
+  const Icon = !active ? ArrowUpDown : sort.sortDir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <span onClick={() => sort.toggleSort(k)} style={{
+      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+      justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+      color: active ? 'var(--brand-primary, #3d56b5)' : undefined, userSelect: 'none',
+    }} title={active ? 'Click to flip' : 'Click to sort'}>
+      {label}<Icon size={11} style={{ opacity: active ? 1 : 0.4 }} />
+    </span>
+  );
+}
 
 /* ── Formatters ───────────────────────────────────────────────────────────── */
 const fmtPc = (v) => v != null ? `${parseFloat(v * 100).toFixed(1)}%` : 'N/A';
@@ -341,6 +358,17 @@ export default function Customers({ embedded }) {
   const canEdit = can('customers.edit');
   const canDelete = can('customers.delete');
   const [customers, setCustomers] = useState([]);
+  // Session 39 Round 3 — column sort
+  const customerSort = useTableSort(customers, {
+    accessors: {
+      name:    (c) => (c.name || `${c.firstName || ''} ${c.lastName || ''}`).trim(),
+      contact: (c) => c.phone || c.email || '',
+      loyalty: (c) => Number(c.loyaltyPoints || 0),
+      discount:(c) => Number(c.discount || 0),
+      balance: (c) => Number(c.balance || 0),
+      cardNo:  (c) => c.cardNo || '',
+    },
+  });
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
@@ -526,12 +554,12 @@ export default function Customers({ embedded }) {
       {/* Table */}
       <div className="cust-table-card">
         <div className="cust-table-header">
-          <span>Customer</span>
-          <span>Contact</span>
-          <span>Loyalty</span>
-          <span>Discount</span>
-          <span>Balance</span>
-          <span>Card #</span>
+          <SortSpan sort={customerSort} k="name"     label="Customer" />
+          <SortSpan sort={customerSort} k="contact"  label="Contact" />
+          <SortSpan sort={customerSort} k="loyalty"  label="Loyalty" />
+          <SortSpan sort={customerSort} k="discount" label="Discount" />
+          <SortSpan sort={customerSort} k="balance"  label="Balance" />
+          <SortSpan sort={customerSort} k="cardNo"   label="Card #" />
           <span style={{ textAlign: 'left' }}>Actions</span>
         </div>
 
@@ -546,7 +574,7 @@ export default function Customers({ embedded }) {
             <span>{search ? 'No customers match your search.' : 'No customers yet. Click "Add Customer" to get started.'}</span>
           </div>
         ) : (
-          customers.map(c => (
+          customerSort.sorted.map(c => (
             <div key={c.id} className="cust-table-row">
               {/* Name */}
               <div className="cust-name-cell">

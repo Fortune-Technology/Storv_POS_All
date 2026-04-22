@@ -240,12 +240,39 @@ function SettlementEditModal({ initial, onClose, onSaved }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const previewTotal = useMemo(() => {
-    const onlineDue  = Number(row.onlineGross || 0) - Number(row.onlineCashings || 0) - Number(row.onlineCommission || 0);
-    const instantDue = Number(row.instantSales || 0) - Number(row.instantSalesComm || 0)
-                     - Number(row.instantCashingComm || 0) - Number(row.returnsDeduction || 0);
-    return Math.round((onlineDue + instantDue + Number(form.bonus || 0) + Number(form.serviceCharge || 0) + Number(form.adjustments || 0)) * 100) / 100;
+  // Formula (per user spec):
+  //   Daily Gross        = (instant sales − instant payouts) + (machine sales − machine cashings)
+  //   Weekly Gross       = Σ Daily Gross
+  //   Weekly Net         = Weekly Gross − returns − total commission
+  //   Weekly Payable     = Weekly Net − bonus + service charge − adjustments
+  const calc = useMemo(() => {
+    const instantSales     = Number(row.instantSales || 0);
+    const instantPayouts   = Number(row.instantPayouts ?? 0);
+    const onlineGross      = Number(row.onlineGross || 0);
+    const onlineCashings   = Number(row.onlineCashings || 0);
+    const returnsDeduction = Number(row.returnsDeduction || 0);
+    const totalComm =
+      Number(row.instantSalesComm || 0) +
+      Number(row.instantCashingComm || 0) +
+      Number(row.machineSalesComm || 0) +
+      Number(row.machineCashingComm || 0);
+
+    const weeklyGross = (instantSales - instantPayouts) + (onlineGross - onlineCashings);
+    const weeklyNet   = weeklyGross - returnsDeduction - totalComm;
+    const weeklyPayable = weeklyNet
+                        - Number(form.bonus || 0)
+                        + Number(form.serviceCharge || 0)
+                        - Number(form.adjustments || 0);
+
+    return {
+      weeklyGross:   Math.round(weeklyGross   * 100) / 100,
+      weeklyNet:     Math.round(weeklyNet     * 100) / 100,
+      weeklyPayable: Math.round(weeklyPayable * 100) / 100,
+      totalComm:     Math.round(totalComm     * 100) / 100,
+      instantSales, instantPayouts, onlineGross, onlineCashings, returnsDeduction,
+    };
   }, [row, form]);
+  const previewTotal = calc.weeklyPayable;
 
   const save = async () => {
     setSaving(true); setErr('');
@@ -308,28 +335,58 @@ function SettlementEditModal({ initial, onClose, onSaved }) {
 
         {err && <div className="lws-modal-err">{err}</div>}
 
+        {/* Formula panel — user-visible so the math isn't mysterious */}
+        <div className="lws-formula-box">
+          <div className="lws-formula-head">How this total is calculated</div>
+          <div className="lws-formula-line">
+            <b>Daily:</b> Instant sales − Instant cashings + Machine sales − Machine cashings
+          </div>
+          <div className="lws-formula-line">
+            <b>Weekly gross:</b> Sum of daily
+          </div>
+          <div className="lws-formula-line">
+            <b>Weekly net (after commissions):</b> Weekly gross − returns − total commission
+          </div>
+          <div className="lws-formula-line">
+            <b>Amount due:</b> Weekly net − bonus + service charge − adjustments
+          </div>
+        </div>
+
         <div className="lws-edit-grid">
           <div className="lws-edit-col">
-            <div className="lws-col-title">Online Due</div>
-            <Line label="Sales"      value={fmt(row.onlineGross)} />
-            <Line label="Cashings"   value={fmt(row.onlineCashings)} />
-            <Line label="Sales Comm" value={fmt(row.onlineCommission)} />
-            <div className="lws-subtotal">
-              <span>Online Subtotal</span>
-              <strong>{fmt(Number(row.onlineGross||0) - Number(row.onlineCashings||0) - Number(row.onlineCommission||0))}</strong>
-            </div>
+            <div className="lws-col-title">Instant (Scratch)</div>
+            <Line label="Settled books"     value={row.settledBookIds?.length ?? 0} />
+            <Line label="Sales"             value={fmt(row.instantSales)} />
+            <Line label="Payouts / Cashing" value={fmt(row.instantPayouts ?? 0)} />
+            <Line label="Returns"           value={`−${fmt(row.returnsDeduction)}`} />
+            <Line label="Sales Commission"   value={`−${fmt(row.instantSalesComm)}`} muted />
+            <Line label="Cashing Commission" value={`−${fmt(row.instantCashingComm)}`} muted />
           </div>
           <div className="lws-edit-col">
-            <div className="lws-col-title">Instant Due</div>
-            <Line label="Settled books"   value={row.settledBookIds?.length ?? 0} />
-            <Line label="Sales"           value={fmt(row.instantSales)} />
-            <Line label="Sales Comm"      value={fmt(row.instantSalesComm)} />
-            <Line label="Cashing Comm"    value={fmt(row.instantCashingComm)} />
-            <Line label="Returns"         value={fmt(row.returnsDeduction)} />
-            <div className="lws-subtotal">
-              <span>Instant Subtotal</span>
-              <strong>{fmt(Number(row.instantSales||0) - Number(row.instantSalesComm||0) - Number(row.instantCashingComm||0) - Number(row.returnsDeduction||0))}</strong>
-            </div>
+            <div className="lws-col-title">Machine (Draw)</div>
+            <Line label="Sales"             value={fmt(row.onlineGross)} />
+            <Line label="Cashings"          value={fmt(row.onlineCashings)} />
+            <Line label="Sales Commission"   value={`−${fmt(row.machineSalesComm ?? 0)}`} muted />
+            <Line label="Cashing Commission" value={`−${fmt(row.machineCashingComm ?? 0)}`} muted />
+          </div>
+        </div>
+
+        <div className="lws-preview-strip">
+          <div className="lws-preview-step">
+            <span>Weekly Gross (before commission)</span>
+            <strong>{fmt(calc.weeklyGross)}</strong>
+          </div>
+          <div className="lws-preview-step">
+            <span>− Returns</span>
+            <strong>{fmt(row.returnsDeduction)}</strong>
+          </div>
+          <div className="lws-preview-step">
+            <span>− Total Commission</span>
+            <strong>{fmt(calc.totalComm)}</strong>
+          </div>
+          <div className="lws-preview-step lws-preview-step--net">
+            <span>= Weekly Net (after commission)</span>
+            <strong>{fmt(calc.weeklyNet)}</strong>
           </div>
         </div>
 
@@ -347,8 +404,16 @@ function SettlementEditModal({ initial, onClose, onSaved }) {
 
         <div className="lws-total-row">
           <div>
-            <div className="lws-total-label">Total Due</div>
+            <div className="lws-total-label">Amount Due (after adjustments)</div>
             <div className="lws-total-val">{fmt(previewTotal)}</div>
+            <div className="lws-total-formula">
+              {fmt(calc.weeklyNet)}
+              {Number(form.bonus) > 0 && <> − <span style={{ color: '#dc2626' }}>{fmt(form.bonus)}</span> bonus</>}
+              {Number(form.serviceCharge) > 0 && <> + <span style={{ color: '#b45309' }}>{fmt(form.serviceCharge)}</span> service</>}
+              {Number(form.adjustments) !== 0 && (
+                <> {Number(form.adjustments) >= 0 ? '−' : '+'} <span>{fmt(Math.abs(form.adjustments))}</span> adjustment</>
+              )}
+            </div>
           </div>
           {isFinal && (
             <div className="lws-field" style={{ minWidth: 240 }}>

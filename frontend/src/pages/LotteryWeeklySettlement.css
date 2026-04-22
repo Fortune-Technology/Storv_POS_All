@@ -363,6 +363,69 @@
   color: var(--text-muted);
 }
 
+/* ── Formula transparency (3e) ─────────────────────────────────── */
+.lws-formula-box {
+  padding: 10px 12px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lws-formula-head {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--brand-primary, #3d56b5);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.lws-formula-line b {
+  color: var(--brand-primary, #3d56b5);
+}
+
+.lws-preview-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary, #f1f5f9);
+  border-radius: 8px;
+  margin-top: 10px;
+}
+.lws-preview-step {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.lws-preview-step strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.lws-preview-step--net {
+  border-top: 2px solid var(--text-primary);
+  margin-top: 4px;
+  padding-top: 6px;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.lws-total-formula {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+.lws-total-formula span {
+  font-weight: 700;
+}
+
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .lws-edit-grid { grid-template-columns: 1fr; }

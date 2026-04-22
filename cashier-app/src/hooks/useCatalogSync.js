@@ -7,10 +7,14 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { getCatalogSnapshot, getDepositRules, getTaxRules, getDepartmentsForPOS, getActivePromotionsForPOS } from '../api/pos.js';
+import {
+  getCatalogSnapshot, getCatalogActiveIds,
+  getDepositRules, getTaxRules,
+  getDepartmentsForPOS, getActivePromotionsForPOS,
+} from '../api/pos.js';
 import {
   db, getLastSync, setLastSync,
-  upsertProducts, deleteProducts,
+  upsertProducts, deleteProducts, reconcileProducts,
   upsertDepartments, replaceDepartments,
   upsertPromotions, replacePromotions,
 } from '../db/dexie.js';
@@ -72,6 +76,20 @@ export function useCatalogSync() {
       // Sync promotions — also REPLACE semantics so deactivated promos clear.
       const promos = await getActivePromotionsForPOS().catch(() => []);
       await replacePromotions(promos || []);
+
+      // Reconcile local cache against server truth — prune any product rows
+      // whose id is NOT currently active in the back office. Covers the case
+      // where the incremental tombstone stream missed rows (long offline gap,
+      // Dexie-reseeded across many import batches, etc). Tiny ~50 KB payload.
+      try {
+        const { activeIds } = await getCatalogActiveIds(storeId);
+        const removed = await reconcileProducts(activeIds);
+        if (removed > 0) {
+          console.info(`[CatalogSync] Reconciled cache — pruned ${removed} stale products.`);
+        }
+      } catch (err) {
+        console.warn('[CatalogSync] active-ids reconciliation skipped:', err.message);
+      }
 
       const now = new Date().toISOString();
       await setLastSync('productsLastSync', now);

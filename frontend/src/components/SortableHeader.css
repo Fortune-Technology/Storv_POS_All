@@ -1,0 +1,55 @@
+/* SortableHeader — prefix: sth-
+   Light-weight styling that inherits from whatever table class the parent uses.
+   Keep visual footprint minimal so it slots into existing `.p-table` / admin
+   table / etc without conflicting. */
+
+.sth-th {
+  font-weight: 700;
+  color: var(--text-secondary, #475569);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.sth-th--left   { text-align: left; }
+.sth-th--center { text-align: center; }
+.sth-th--right  { text-align: right; }
+
+.sth-th--sortable {
+  cursor: pointer;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.sth-th--sortable:hover {
+  color: var(--text-primary, #0f172a);
+  background-color: var(--bg-hover, rgba(0,0,0,0.02));
+}
+.sth-th--active {
+  color: var(--brand-primary, #3d56b5);
+}
+
+.sth-th-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sth-th--right .sth-th-inner { justify-content: flex-end; width: 100%; }
+.sth-th--center .sth-th-inner { justify-content: center; width: 100%; }
+
+.sth-th-label {
+  /* inherits font-size/weight from parent .sth-th */
+}
+
+.sth-th-icon {
+  opacity: 0.4;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  flex-shrink: 0;
+}
+.sth-th--sortable:hover .sth-th-icon {
+  opacity: 0.8;
+}
+.sth-th-icon--active {
+  opacity: 1;
+  color: var(--brand-primary, #3d56b5);
+}

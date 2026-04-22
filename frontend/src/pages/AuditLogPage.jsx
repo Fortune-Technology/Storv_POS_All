@@ -5,6 +5,8 @@ import {
 import { toast } from 'react-toastify';
 
 import { getAuditLogs, getTenantUsers } from '../services/api';
+import SortableHeader from '../components/SortableHeader';
+import { useTableSort } from '../hooks/useTableSort';
 import '../styles/portal.css';
 import './AuditLogPage.css';
 
@@ -54,6 +56,8 @@ const DetailsCell = ({ details }) => {
 /* ── Main Page ──────────────────────────────────────────────────────────── */
 const AuditLogPage = () => {
   const [logs, setLogs]     = useState([]);
+  // Session 39 Round 3 — column sort (default: newest first)
+  // `sort` defined after `logs` so it captures updates on each render.
   const [total, setTotal]   = useState(0);
   const [page, setPage]     = useState(1);
   const [loading, setLoading] = useState(true);
@@ -104,6 +108,22 @@ const AuditLogPage = () => {
   useEffect(() => { setPage(1); }, [dateFrom, dateTo, userFilter, entityFilter, actionFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  /* Session 39 Round 3 — column sort */
+  const logSort = useTableSort(logs, {
+    initial: 'date',
+    initialDir: 'desc',
+    accessors: {
+      date:     (l) => new Date(l.createdAt || l.at),
+      userName: (l) => l.userName || l.actorName || '',
+      userRole: (l) => l.userRole || l.actorRole || '',
+      action:   (l) => l.action || '',
+      entity:   (l) => l.entity || l.entityType || '',
+      entityId: (l) => l.entityId || '',
+      source:   (l) => l.source || '',
+      ip:       (l) => l.ip || l.ipAddress || '',
+    },
+  });
 
   /* ── Render ─────────────────────────────────────────────────────────── */
   return (
@@ -181,19 +201,19 @@ const AuditLogPage = () => {
               <table className="p-table">
                 <thead>
                   <tr>
-                    <th>Date / Time</th>
-                    <th>User</th>
-                    <th>Role</th>
-                    <th>Action</th>
-                    <th>Entity</th>
-                    <th>Entity ID</th>
-                    <th>Details</th>
-                    <th>Source</th>
-                    <th>IP</th>
+                    <SortableHeader label="Date / Time" sortKey="date"     sort={logSort} />
+                    <SortableHeader label="User"        sortKey="userName" sort={logSort} />
+                    <SortableHeader label="Role"        sortKey="userRole" sort={logSort} />
+                    <SortableHeader label="Action"      sortKey="action"   sort={logSort} />
+                    <SortableHeader label="Entity"      sortKey="entity"   sort={logSort} />
+                    <SortableHeader label="Entity ID"   sortKey="entityId" sort={logSort} />
+                    <SortableHeader label="Details"     sortable={false} />
+                    <SortableHeader label="Source"      sortKey="source"   sort={logSort} />
+                    <SortableHeader label="IP"          sortKey="ip"       sort={logSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((log, i) => {
+                  {logSort.sorted.map((log, i) => {
                     const action = ACTION_META[log.action] || { label: log.action, cls: 'p-badge-gray' };
                     return (
                       <tr key={log.id || log._id || i}>

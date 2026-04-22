@@ -118,7 +118,25 @@ export async function computeSettlement({ orgId, storeId, weekStart, weekEnd, st
 
   const dayStart = new Date(weekStart); dayStart.setUTCHours(0, 0, 0, 0);
   const dayEnd   = new Date(weekEnd);   dayEnd.setUTCHours(23, 59, 59, 999);
-  const commPct  = Number(commissionRate || 0); // stored as 0.054 for 5.4%
+
+  // ── Commission rates — 3e per-source rates from State, with fallback
+  // to per-store LotterySettings.commissionRate. If the State row has any
+  // per-stream rate set, we use the full 4-rate breakdown; otherwise every
+  // stream gets the legacy flat rate.
+  const state = stateCode
+    ? await prisma.state.findUnique({ where: { code: String(stateCode).toUpperCase() } }).catch(() => null)
+    : null;
+  const legacyRate = Number(commissionRate || state?.defaultLotteryCommission || 0);
+  const rateOf = (streamField) => {
+    const v = state?.[streamField];
+    return v != null ? Number(v) : legacyRate;
+  };
+  const rates = {
+    instantSales:   rateOf('instantSalesCommRate'),
+    instantCashing: rateOf('instantCashingCommRate'),
+    machineSales:   rateOf('machineSalesCommRate'),
+    machineCashing: rateOf('machineCashingCommRate'),
+  };
 
   // ── Online totals (sum of daily LotteryOnlineTotal rows) ──────────
   const onlineRows = await prisma.lotteryOnlineTotal.findMany({
@@ -128,10 +146,14 @@ export async function computeSettlement({ orgId, storeId, weekStart, weekEnd, st
     },
     select: { instantCashing: true, machineSales: true, machineCashing: true },
   });
-  const onlineGross = onlineRows.reduce((s, r) => s + Number(r.machineSales || 0), 0);
-  const onlineCashings = onlineRows.reduce((s, r) =>
-    s + Number(r.machineCashing || 0) + Number(r.instantCashing || 0), 0);
-  const onlineCommission = onlineGross * commPct;
+  const onlineGross    = onlineRows.reduce((s, r) => s + Number(r.machineSales || 0),   0);
+  const machineCashing = onlineRows.reduce((s, r) => s + Number(r.machineCashing || 0), 0);
+  const instantCashingDrawer = onlineRows.reduce((s, r) => s + Number(r.instantCashing || 0), 0);
+  const onlineCashings = machineCashing + instantCashingDrawer;
+  // Commission on online: (machineSales × machineSalesComm) + (machineCashing × machineCashingComm)
+  const machineSalesCommAmt   = onlineGross    * rates.machineSales;
+  const machineCashingCommAmt = machineCashing * rates.machineCashing;
+  const onlineCommission = machineSalesCommAmt + machineCashingCommAmt;
 
   // ── Candidate books: those active-or-settled at any point in the week ─
   const candidateBoxes = await prisma.lotteryBox.findMany({
@@ -170,13 +192,9 @@ export async function computeSettlement({ orgId, storeId, weekStart, weekEnd, st
     returnsDeduction += unsold * Number(b.ticketPrice || 0);
   }
 
-  // ── Commissions ──────────────────────────────────────────────────
-  // Sales commission on instant scratchoff sales.
-  const instantSalesComm = instantSales * commPct;
+  // ── Per-source commission ────────────────────────────────────────
+  const instantSalesComm = instantSales * rates.instantSales;
 
-  // Cashing commission — commission earned by the store for cashing
-  // customer-winning tickets. Approximated here as a flat % of onlineCashings
-  // + instant-ticket payouts recorded as LotteryTransaction type='payout'.
   const payoutRows = await prisma.lotteryTransaction.findMany({
     where: {
       orgId, storeId,
@@ -186,22 +204,45 @@ export async function computeSettlement({ orgId, storeId, weekStart, weekEnd, st
     select: { amount: true },
   });
   const scratchPayouts = payoutRows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const instantCashingComm = scratchPayouts * commPct;
+  const instantCashingComm = (scratchPayouts + instantCashingDrawer) * rates.instantCashing;
 
-  // ── Final total ─────────────────────────────────────────────────
-  const onlineDue  = onlineGross - onlineCashings - onlineCommission;
-  const instantDue = instantSales - instantSalesComm - instantCashingComm - returnsDeduction;
-  const totalDue = Math.round((onlineDue + instantDue) * 100) / 100;
+  // ── Daily & Weekly totals ───────────────────────────────────────
+  //
+  // Daily formula (per user): Total Due = Instant sales − Instant cashings
+  //                                      + Machine sales − Machine cashings
+  // We compute "gross" (before commissions) and "net" (after) for clarity.
+  const grossBeforeCommission = (instantSales - (scratchPayouts + instantCashingDrawer))
+                              + (onlineGross - machineCashing);
+  const totalCommission = instantSalesComm + instantCashingComm + machineSalesCommAmt + machineCashingCommAmt;
+  // Subtract returns (unsold ticket value) from what's owed. Commissions
+  // are earnings so they REDUCE the store's debt to the lottery.
+  const totalDueBeforeAdjustments = grossBeforeCommission - returnsDeduction - totalCommission;
+  const totalDue = Math.round(totalDueBeforeAdjustments * 100) / 100;
 
   return {
-    onlineGross:       round2(onlineGross),
-    onlineCashings:    round2(onlineCashings),
-    onlineCommission:  round2(onlineCommission),
-    instantSales:      round2(instantSales),
-    instantSalesComm:  round2(instantSalesComm),
-    instantCashingComm:round2(instantCashingComm),
-    returnsDeduction:  round2(returnsDeduction),
+    // Online (draw-game) breakdown
+    onlineGross:         round2(onlineGross),
+    onlineCashings:      round2(onlineCashings),
+    onlineCommission:    round2(onlineCommission),
+    machineSalesComm:    round2(machineSalesCommAmt),
+    machineCashingComm:  round2(machineCashingCommAmt),
+
+    // Instant (scratch) breakdown
+    instantSales:        round2(instantSales),
+    instantPayouts:      round2(scratchPayouts + instantCashingDrawer),
+    instantSalesComm:    round2(instantSalesComm),
+    instantCashingComm:  round2(instantCashingComm),
+
+    // Returns + totals
+    returnsDeduction:    round2(returnsDeduction),
+    totalCommission:     round2(totalCommission),
+    grossBeforeCommission: round2(grossBeforeCommission),
     totalDue,
+
+    // Rate sources (for UI transparency)
+    rates,
+
+    // Book lists
     settledBookIds:    settled.map((b) => b.id),
     returnedBookIds:   returned.map((b) => b.id),
     unsettledBookIds:  unsettled.map((b) => b.id),

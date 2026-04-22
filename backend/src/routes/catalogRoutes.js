@@ -107,6 +107,12 @@ import {
   createVendorPayment,
   updateVendorPayment,
 } from '../controllers/vendorPaymentController.js';
+import {
+  listVendorCredits,
+  createVendorCredit,
+  updateVendorCredit,
+  deleteVendorCredit,
+} from '../controllers/vendorCreditController.js';
 
 const router = express.Router();
 
@@ -268,6 +274,12 @@ router.get('/import/history/:id',    requirePermission('products.view'),   getIm
 router.get('/vendor-payments',        requirePermission('vendor_payouts.view'),   listVendorPayments);
 router.post('/vendor-payments',       requirePermission('vendor_payouts.create'), createVendorPayment);
 router.put('/vendor-payments/:id',    requirePermission('vendor_payouts.edit'),   updateVendorPayment);
+
+// Vendor credits — free-case receipts, mix-and-match, damaged-goods allowances
+router.get('/vendor-credits',         requirePermission('vendor_payouts.view'),   listVendorCredits);
+router.post('/vendor-credits',        requirePermission('vendor_payouts.create'), createVendorCredit);
+router.put('/vendor-credits/:id',     requirePermission('vendor_payouts.edit'),   updateVendorCredit);
+router.delete('/vendor-credits/:id',  requirePermission('vendor_payouts.edit'),   deleteVendorCredit);
 
 
 

@@ -626,7 +626,7 @@ export const listOrders = async (req, res) => {
   try {
     const storeId = getStoreId(req);
     if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
-    const { direction = 'all', status, partnerStoreId, limit = 100, offset = 0 } = req.query;
+    const { direction = 'all', status, partnerStoreId, limit = 100, offset = 0, showArchived = 'false' } = req.query;
 
     const where = {};
     if (direction === 'outgoing') where.senderStoreId = storeId;
@@ -643,6 +643,27 @@ export const listOrders = async (req, res) => {
         ],
       };
       where.AND = [{ ...otherCond }];
+    }
+
+    // Session 39 — hide archived orders by default. `showArchived=true` returns
+    // all. Each party archives independently (senderArchived vs receiverArchived)
+    // so an order only disappears from MY list when I've archived it.
+    if (showArchived !== 'true') {
+      const archivedField = (direction === 'incoming') ? 'receiverArchived'
+        : (direction === 'outgoing')                  ? 'senderArchived'
+        : null;
+      if (archivedField) {
+        where[archivedField] = false;
+      } else {
+        // 'all' direction — exclude if I've archived it on whichever side I'm on
+        const notArchived = {
+          OR: [
+            { senderStoreId: storeId,   senderArchived: false },
+            { receiverStoreId: storeId, receiverArchived: false },
+          ],
+        };
+        where.AND = [...(where.AND || []), notArchived];
+      }
     }
 
     const [orders, total] = await Promise.all([
@@ -728,6 +749,119 @@ export const deleteDraft = async (req, res) => {
     }
     await prisma.wholesaleOrder.delete({ where: { id } });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/exchange/orders/:id/archive
+ *
+ * Per-party archive (Session 39). Each side of the order can independently
+ * archive a settled / reconciled order to hide it from the main list. An
+ * archived order is still fully retrievable via `?showArchived=true`.
+ *
+ * Only finalised orders (confirmed | partially_confirmed | rejected |
+ * cancelled | expired) can be archived. Drafts and in-flight orders can't.
+ */
+export const archiveOrder = async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const id = req.params.id;
+    const order = await prisma.wholesaleOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    const isSender   = order.senderStoreId   === storeId;
+    const isReceiver = order.receiverStoreId === storeId;
+    if (!isSender && !isReceiver) return res.status(403).json({ success: false, error: 'Not your order.' });
+
+    const terminal = ['confirmed', 'partially_confirmed', 'rejected', 'cancelled', 'expired'];
+    if (!terminal.includes(order.status)) {
+      return res.status(400).json({ success: false, error: `Cannot archive — status: ${order.status}` });
+    }
+
+    const data = isSender
+      ? { senderArchived: true,   senderArchivedAt: new Date() }
+      : { receiverArchived: true, receiverArchivedAt: new Date() };
+    const updated = await prisma.wholesaleOrder.update({ where: { id }, data });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/** POST /api/exchange/orders/:id/unarchive */
+export const unarchiveOrder = async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const id = req.params.id;
+    const order = await prisma.wholesaleOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    const isSender   = order.senderStoreId   === storeId;
+    const isReceiver = order.receiverStoreId === storeId;
+    if (!isSender && !isReceiver) return res.status(403).json({ success: false, error: 'Not your order.' });
+
+    const data = isSender
+      ? { senderArchived: false,   senderArchivedAt: null }
+      : { receiverArchived: false, receiverArchivedAt: null };
+    const updated = await prisma.wholesaleOrder.update({ where: { id }, data });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * POST /api/exchange/orders/:id/dispute-message
+ * body: { message, requestedQty? (per-line mapping) }
+ *
+ * Either party posts a dispute message against the order. Messages live as
+ * `eventType='dispute_message'` events in the order's event log so the UI
+ * can render a threaded back-and-forth. Auto-flips `disputeStatus` to 'open'
+ * if not already set. Session 39 — enables multi-round dispute loops per Q6.
+ */
+export const addDisputeMessage = async (req, res) => {
+  try {
+    const storeId = getStoreId(req);
+    const userId  = req.user?.id;
+    const id = req.params.id;
+    const { message, requestedQty, resolve } = req.body || {};
+
+    const order = await prisma.wholesaleOrder.findUnique({ where: { id } });
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    const isSender   = order.senderStoreId   === storeId;
+    const isReceiver = order.receiverStoreId === storeId;
+    if (!isSender && !isReceiver) return res.status(403).json({ success: false, error: 'Not your order.' });
+
+    if (!message && !resolve) return res.status(400).json({ success: false, error: 'message required' });
+
+    const ev = await prisma.$transaction(async (tx) => {
+      const event = await tx.wholesaleOrderEvent.create({
+        data: {
+          orderId: id,
+          eventType: resolve ? 'dispute_resolved' : 'dispute_message',
+          description: message || (resolve ? 'Dispute marked resolved.' : ''),
+          actorId:   userId,
+          actorName: userLabel(req),
+          payload:   { requestedQty: requestedQty || null, side: isSender ? 'sender' : 'receiver' },
+        },
+      });
+
+      const updateData = {};
+      if (resolve) {
+        updateData.disputeStatus     = 'resolved';
+        updateData.disputeResolvedAt = new Date();
+      } else if (!order.disputeStatus || order.disputeStatus === 'resolved') {
+        updateData.disputeStatus   = 'open';
+        updateData.disputeOpenedAt = order.disputeOpenedAt || new Date();
+        updateData.disputeResolvedAt = null;
+      }
+      if (Object.keys(updateData).length) {
+        await tx.wholesaleOrder.update({ where: { id }, data: updateData });
+      }
+      return event;
+    });
+
+    res.json({ success: true, data: ev });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -23,6 +23,7 @@ import {
 import {
   createDraftOrder, updateOrder, sendOrder, cancelOrder, rejectOrder,
   confirmOrder, listOrders, getOrder, deleteDraft,
+  archiveOrder, unarchiveOrder, addDisputeMessage,
 } from '../controllers/wholesaleOrderController.js';
 
 import {
@@ -59,6 +60,11 @@ router.post  ('/orders/:id/send',     requirePermission('exchange.create'),  sen
 router.post  ('/orders/:id/cancel',   requirePermission('exchange.create'),  cancelOrder);
 router.post  ('/orders/:id/reject',   requirePermission('exchange.receive'), rejectOrder);
 router.post  ('/orders/:id/confirm',  requirePermission('exchange.receive'), confirmOrder);
+
+// Session 39 — archive + multi-round dispute
+router.post  ('/orders/:id/archive',          requirePermission('exchange.view'),    archiveOrder);
+router.post  ('/orders/:id/unarchive',        requirePermission('exchange.view'),    unarchiveOrder);
+router.post  ('/orders/:id/dispute-message',  requirePermission('exchange.view'),    addDisputeMessage);
 
 // ── Partner Balances + Ledger ──────────────────────────────────────
 router.get('/balances',                          requirePermission('exchange.view'), listBalances);

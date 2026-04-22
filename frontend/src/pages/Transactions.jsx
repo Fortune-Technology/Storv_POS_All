@@ -16,9 +16,67 @@ import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import {
   Receipt, Search, ChevronLeft, ChevronRight, RefreshCw, X,
   AlertCircle, Filter, ChevronDown, ChevronUp, Printer,
-  Download, FileText,
+  Download, FileText, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
+import { useTableSort } from '../hooks/useTableSort';
+import AdvancedFilter, { applyAdvancedFilters } from '../components/AdvancedFilter';
 import './Transactions.css';
+
+// Session 39 Round 3 — Advanced filter field config for Transactions.
+// Accessor is passed inline where needed (nested tenderLines/lineItems).
+const TXN_FILTER_FIELDS = (cashiers) => [
+  { key: 'txNumber',    label: 'Txn #',          type: 'string' },
+  { key: 'cashierName', label: 'Cashier',        type: 'enum',
+    options: [{ value: '', label: '— Any —' }, ...(cashiers || []).map(c => ({ value: c.name, label: c.name }))] },
+  { key: 'stationId',   label: 'Station',        type: 'string' },
+  { key: 'status',      label: 'Status',         type: 'enum',
+    options: ['complete','refund','voided','pending'].map(s => ({ value: s, label: s })) },
+  { key: 'grandTotal',  label: 'Grand Total',    type: 'number', step: '0.01' },
+  { key: 'taxTotal',    label: 'Tax',            type: 'number', step: '0.01' },
+  { key: 'itemCount',   label: 'Item Count',     type: 'number' },
+  { key: 'hasTender',   label: 'Has Tender',     type: 'enum',
+    options: ['cash','credit_card','debit_card','ebt','check','other'].map(s => ({ value: s, label: s })) },
+  { key: 'createdAt',   label: 'Date',           type: 'date' },
+  { key: 'hasProduct',  label: 'Contains Product', type: 'string', placeholder: 'product name' },
+];
+
+const TXN_FILTER_CONFIG = {
+  itemCount:  { accessor: (t) => (t.lineItems || []).reduce((s, i) => s + Number(i.qty || 0), 0) },
+  hasTender:  { accessor: (t) => (t.tenderLines || []).map(x => x.method).join(',') },
+  hasProduct: { accessor: (t) => (t.lineItems || []).map(i => i.name || '').join(' ') },
+};
+
+// Session 39 Round 4 — server-backed sort keys. Must stay in sync with
+// TX_SORT_MAP in backend/src/controllers/posTerminalController.js.
+// Keys NOT in this set still sort via client-side useTableSort (over the
+// currently-loaded page of transactions).
+const TX_SERVER_SORT_KEYS = new Set(['date', 'txNumber', 'cashierName', 'stationId', 'total', 'status']);
+
+// Session 39 Round 3 — inline sort indicator for the div-based table header.
+// Used instead of <SortableHeader> because this table uses CSS grid, not <th>.
+function SortSpan({ sort, k, label, align = 'left' }) {
+  const active = sort.sortKey === k;
+  const Icon = !active ? ArrowUpDown : sort.sortDir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <span
+      onClick={() => sort.toggleSort(k)}
+      style={{
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        gap: 5,
+        color: active ? 'var(--brand-primary, #3d56b5)' : undefined,
+        userSelect: 'none',
+        textAlign: align,
+      }}
+      title={active ? (sort.sortDir === 'asc' ? 'Sorted ascending — click to flip' : 'Sorted descending — click again to clear') : 'Click to sort'}
+    >
+      {label}
+      <Icon size={11} style={{ opacity: active ? 1 : 0.4, flexShrink: 0 }} />
+    </span>
+  );
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -389,6 +447,8 @@ export default function Transactions({ embedded }) {
   const [fTender,     setFTender]     = useState('');
   const [fDept,       setFDept]       = useState('');
   const [fProduct,    setFProduct]    = useState('');
+  // Session 39 Round 3 — advanced multi-field filter layered on top
+  const [advFilters,  setAdvFilters]  = useState([]);
 
   // ── Data state ───────────────────────────────────────────────────────────────
   const [txs,      setTxs]      = useState([]);
@@ -421,7 +481,7 @@ export default function Transactions({ embedded }) {
   }, []);
 
   // ── Server fetch ─────────────────────────────────────────────────────────────
-  const load = useCallback(async () => {
+  const load = useCallback(async (sortParams) => {
     setLoading(true);
     setError(null);
     setPage(1);
@@ -432,10 +492,16 @@ export default function Transactions({ embedded }) {
       if (fStatus)    params.status    = fStatus;
       if (fAmountMin) params.amountMin = fAmountMin;
       if (fAmountMax) params.amountMax = fAmountMax;
+      // Session 39 Round 4 — server-side sort across the full tx set
+      if (sortParams?.sortKey) {
+        params.sortBy  = sortParams.sortKey;
+        params.sortDir = sortParams.sortDir || 'desc';
+      }
 
       const data = await getTransactions(params);
       const list = Array.isArray(data) ? data : (data.transactions || data.data || []);
-      setTxs([...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      // Only apply a safety fallback sort when no explicit server sort was requested
+      setTxs(sortParams?.sortKey ? list : [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch (err) {
       setError(err?.response?.data?.error || err.message || 'Failed to load transactions');
       setTxs([]);
@@ -444,7 +510,15 @@ export default function Transactions({ embedded }) {
     }
   }, [dateFrom, dateTo, fCashierId, fStation, fStatus, fAmountMin, fAmountMax]);
 
-  useEffect(() => { load(); }, [load]);
+  // Session 39 Round 4 — re-load when load() callback OR sort state changes.
+  // Server-backed sort keys trigger a re-fetch with sortBy/sortDir params;
+  // non-server keys (itemCount/tender) don't trigger a reload since they
+  // sort locally over the loaded page.
+  useEffect(() => {
+    const serverKey = sort.sortKey && TX_SERVER_SORT_KEYS.has(sort.sortKey) ? sort.sortKey : null;
+    load(serverKey ? { sortKey: serverKey, sortDir: sort.sortDir } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, sort.sortKey, sort.sortDir]);
 
   // Auto-refresh every 60 s when viewing today
   useEffect(() => {
@@ -507,6 +581,31 @@ export default function Transactions({ embedded }) {
     });
   }, [txs, search, fTimeFrom, fTimeTo, fTender, fDept, fProduct]);
 
+  // Session 39 Round 3 — layer advanced filter on top of the basic filter set
+  const advFiltered = useMemo(
+    () => applyAdvancedFilters(filtered, advFilters, TXN_FILTER_CONFIG),
+    [filtered, advFilters]
+  );
+
+  // Session 39 Round 3 — column sort.
+  // Session 39 Round 4 — server-side for date/txNumber/cashier/station/total;
+  // itemCount and tender stay client-side (computed/nested fields Prisma
+  // can't orderBy without raw SQL).
+  const sort = useTableSort(advFiltered, {
+    initial: 'date',
+    initialDir: 'desc',
+    accessors: {
+      date:        (t) => new Date(t.createdAt),
+      txNumber:    (t) => t.txNumber || '',
+      cashierName: (t) => t.cashierName || '',
+      stationId:   (t) => t.stationId || '',
+      itemCount:   (t) => (t.lineItems || []).reduce((s, i) => s + Number(i.qty || 0), 0),
+      total:       (t) => Number(t.grandTotal || 0),
+      tender:      (t) => (t.tenderLines || []).map(x => x.method).join(','),
+    },
+    serverSide: (key) => TX_SERVER_SORT_KEYS.has(key),
+  });
+
   // ── Summary stats ────────────────────────────────────────────────────────────
   // Revenue convention (matches End-of-Day report):
   //   • Completed sales add their grandTotal
@@ -514,7 +613,7 @@ export default function Transactions({ embedded }) {
   //   • Voids are excluded entirely
   // Tender breakdown: cash refund tender lines subtract from net cash collected.
   const stats = useMemo(() => {
-    const sales       = filtered.filter(t => t.status !== 'voided');
+    const sales       = advFiltered.filter(t => t.status !== 'voided');
     const completes   = sales.filter(t => t.status !== 'refund');
     const refunds     = sales.filter(t => t.status === 'refund');
     const grossSales  = completes.reduce((s, t) => s + Number(t.grandTotal || 0), 0);
@@ -531,18 +630,19 @@ export default function Transactions({ embedded }) {
     const card = tenderSum(l => l.method === 'card' || l.method === 'manual_card' || l.method === 'credit' || l.method === 'debit');
     const ebt  = tenderSum(l => l.method === 'ebt' || l.method === 'manual_ebt' || l.method === 'efs');
     return {
-      count:    filtered.length,
+      count:    advFiltered.length,
       revenue:  netRevenue,
       avg:      completes.length ? grossSales / completes.length : 0,
       cash, card, ebt,
       refunds:  refunds.length,
-      voided:   filtered.filter(t => t.status === 'voided').length,
+      voided:   advFiltered.filter(t => t.status === 'voided').length,
     };
   }, [filtered]);
 
   // ── Pagination ───────────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
-  const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(advFiltered.length / PER_PAGE));
+  // Use sort.sorted (same rows, reordered) so column header clicks re-order the visible page.
+  const paginated  = sort.sorted.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   // ── Active advanced filters (for chips) ───────────────────────────────────────
   const advChips = useMemo(() => {
@@ -612,7 +712,7 @@ export default function Transactions({ embedded }) {
               {loading ? 'Loading…' : 'Refresh'}
             </button>
             <button className="txn-btn" onClick={() => {
-              const rows = filtered.map(t => ({
+              const rows = advFiltered.map(t => ({
                 'Txn #':       t.txNumber || t.id,
                 'Date':        new Date(t.createdAt).toLocaleString(),
                 'Cashier':     t.cashierName || t.cashierId || '',
@@ -626,11 +726,11 @@ export default function Transactions({ embedded }) {
                 'Tender':      Array.isArray(t.tenderLines) ? t.tenderLines.map(tl => tl.method).join(',') : '',
               }));
               downloadCSV(rows, `transactions_${dateFrom}_${dateTo}`);
-            }} disabled={loading || filtered.length === 0} title="Export CSV">
+            }} disabled={loading || advFiltered.length === 0} title="Export CSV">
               <Download size={13} /> CSV
             </button>
             <button className="txn-btn" onClick={() => {
-              const rows = filtered.map(t => ({
+              const rows = advFiltered.map(t => ({
                 'Txn #':   t.txNumber || t.id,
                 'Date':    new Date(t.createdAt).toLocaleDateString(),
                 'Cashier': t.cashierName || '',
@@ -641,8 +741,8 @@ export default function Transactions({ embedded }) {
                 title: 'Transactions Report',
                 subtitle: `${dateFrom} → ${dateTo}`,
                 summary: [
-                  { label: 'Total Transactions', value: String(filtered.length) },
-                  { label: 'Total Sales', value: '$' + filtered.reduce((s, t) => s + Number(t.grandTotal || 0), 0).toFixed(2) },
+                  { label: 'Total Transactions', value: String(advFiltered.length) },
+                  { label: 'Total Sales', value: '$' + advFiltered.reduce((s, t) => s + Number(t.grandTotal || 0), 0).toFixed(2) },
                 ],
                 columns: [
                   { key: 'Txn #', label: 'Txn #' },
@@ -654,7 +754,7 @@ export default function Transactions({ embedded }) {
                 data: rows,
                 filename: `transactions_${dateFrom}_${dateTo}.pdf`,
               });
-            }} disabled={loading || filtered.length === 0} title="Export PDF">
+            }} disabled={loading || advFiltered.length === 0} title="Export PDF">
               <FileText size={13} /> PDF
             </button>
           </div>
@@ -863,6 +963,13 @@ export default function Transactions({ embedded }) {
               <button className="txn-clear-all" onClick={clearAll}>Clear all</button>
             </div>
           )}
+
+          {/* Session 39 Round 3 — advanced multi-criteria filter */}
+          <AdvancedFilter
+            fields={TXN_FILTER_FIELDS(cashiers)}
+            filters={advFilters}
+            onChange={setAdvFilters}
+          />
         </div>
 
         {/* Error */}
@@ -927,13 +1034,13 @@ export default function Transactions({ embedded }) {
           ) : (
             <>
               <div className="txn-table-header">
-                <span>Date / Time</span>
-                <span>TXN #</span>
-                <span>Cashier</span>
-                <span>Station</span>
-                <span>Items</span>
-                <span>Payment</span>
-                <span style={{ textAlign: 'right' }}>Total</span>
+                <SortSpan sort={sort} k="date"        label="Date / Time" />
+                <SortSpan sort={sort} k="txNumber"    label="TXN #" />
+                <SortSpan sort={sort} k="cashierName" label="Cashier" />
+                <SortSpan sort={sort} k="stationId"   label="Station" />
+                <SortSpan sort={sort} k="itemCount"   label="Items" />
+                <SortSpan sort={sort} k="tender"      label="Payment" />
+                <SortSpan sort={sort} k="total"       label="Total" align="right" />
               </div>
 
               {paginated.map(tx => (
@@ -986,7 +1093,7 @@ export default function Transactions({ embedded }) {
                     <ChevronLeft size={14} />
                   </button>
                   <span className="txn-page-info">
-                    Page {page} of {totalPages} · {filtered.length} results
+                    Page {page} of {totalPages} · {advFiltered.length} results
                   </span>
                   <button
                     className="txn-btn txn-btn-icon"

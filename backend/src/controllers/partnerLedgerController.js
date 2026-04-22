@@ -351,11 +351,14 @@ export const disputeSettlement = async (req, res) => {
     if (s.storeAId !== myStoreId && s.storeBId !== myStoreId) {
       return res.status(403).json({ success: false, error: 'Not your settlement.' });
     }
-    if (s.status !== 'pending') {
-      return res.status(400).json({ success: false, error: `Cannot dispute — status: ${s.status}` });
-    }
-    if (new Date() > s.disputeWindowEndsAt) {
-      return res.status(400).json({ success: false, error: 'Dispute window has closed.' });
+    // Session 39 — allow disputes on pending OR already-disputed settlements
+    // (multi-round dispute loop per user's Q6). The 7-day window cap was
+    // removed so parties can keep pushing back-and-forth until both agree.
+    // 'accepted' is the only terminal state that can't be disputed further —
+    // if a party wants to re-open, the accept action can be reversed via
+    // the dispute endpoint (status goes back to 'disputed').
+    if (s.status === 'accepted') {
+      return res.status(400).json({ success: false, error: 'Settlement already accepted. Ask the other party to re-open if you want to dispute.' });
     }
 
     const updated = await prisma.settlement.update({

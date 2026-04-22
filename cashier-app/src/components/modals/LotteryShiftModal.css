@@ -348,3 +348,599 @@
   .lsm-summary-grid { grid-template-columns: 1fr 1fr; }
   .lsm-modal { border-radius: 16px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Phase 3g — End-of-Shift Wizard (3-step flow)
+   Wider modal, step pills, counter-scan table, online sales grid,
+   confirm summary with formula.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Wider modal for the book table */
+.lsm-modal--wide {
+  max-width: 780px;
+}
+
+/* ── Step indicator bar ─────────────────────────────────────────────── */
+.lsm-steps-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px 0;
+  border-bottom: 1px solid #f3f4f6;
+  padding-bottom: 12px;
+}
+
+.lsm-step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1.5px solid transparent;
+  cursor: default;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.lsm-step-pill--active {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.lsm-step-pill--done {
+  background: #ffffff;
+  color: #16a34a;
+  border-color: #d1fae5;
+  cursor: pointer;
+}
+
+.lsm-step-pill--done:hover {
+  background: #f0fdf4;
+}
+
+.lsm-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: currentColor;
+  font-size: 0.65rem;
+  font-weight: 800;
+  border: 1.5px solid currentColor;
+}
+
+.lsm-step-pill--active .lsm-step-num {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #16a34a;
+}
+
+/* ── Step 1: Scan bar at top ─────────────────────────────────────────── */
+.lsm-scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 8px 10px 8px 14px;
+  margin-bottom: 10px;
+  color: #166534;
+}
+
+.lsm-scan-input-main {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #bbf7d0;
+  background: #ffffff;
+  font-size: 0.9rem;
+  color: #111827;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.lsm-scan-input-main:focus { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
+.lsm-scan-input-main::placeholder { color: #86efac; }
+
+.lsm-scan-submit {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.lsm-scan-submit:hover:not(:disabled) { background: #15803d; }
+.lsm-scan-submit:disabled { background: #bbf7d0; color: #166534; cursor: not-allowed; opacity: 0.6; }
+
+/* Scan log (operator feedback) */
+.lsm-scan-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.lsm-scan-log-row {
+  display: flex;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  line-height: 1.25;
+}
+
+.lsm-scan-log-row > span:first-child {
+  color: #9ca3af;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.lsm-scan-log-row--ok > span:last-child  { color: #166534; }
+.lsm-scan-log-row--err > span:last-child { color: #b91c1c; }
+
+/* Sort hint */
+.lsm-sort-hint {
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+
+/* ── Step 1: Book table ──────────────────────────────────────────────── */
+.lsm-book-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 6px;
+  margin-bottom: 10px;
+}
+
+/* Column grid: Game (flex) | Price | Yesterday | Today input | Sold | Amount | Action */
+.lsm-book-head,
+.lsm-book-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 60px 80px 110px 60px 90px 50px;
+  gap: 8px;
+  align-items: center;
+}
+
+.lsm-book-head {
+  padding: 8px 10px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #6b7280;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.lsm-book-row {
+  padding: 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1.5px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.lsm-book-row:hover { background: #f9fafb; }
+
+.lsm-book-row--done {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.lsm-book-row--soldout {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.lsm-book-game {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lsm-book-game strong {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lsm-book-game small {
+  font-size: 0.66rem;
+  color: #9ca3af;
+  font-weight: 500;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lsm-book-price {
+  font-size: 0.8rem;
+  color: #374151;
+  font-weight: 600;
+}
+
+.lsm-book-yest {
+  font-size: 0.8rem;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lsm-book-today input {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1.5px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.12s;
+}
+
+.lsm-book-today input:focus { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22,163,74,.12); }
+.lsm-book-today input:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+.lsm-book-today input::placeholder { color: #d1d5db; font-size: 0.72rem; }
+
+.lsm-book-sold {
+  font-size: 0.8rem;
+  color: #374151;
+  font-weight: 600;
+  text-align: right;
+}
+
+.lsm-book-row--soldout .lsm-book-sold { color: #c2410c; font-weight: 800; }
+
+.lsm-book-amt {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #16a34a;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.lsm-book-row--soldout .lsm-book-amt { color: #c2410c; }
+
+.lsm-book-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lsm-soldout-btn {
+  width: 40px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1.5px solid #fdba74;
+  background: #ffffff;
+  color: #c2410c;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.lsm-soldout-btn:hover { background: #fff7ed; }
+
+.lsm-soldout-btn--active {
+  background: #f97316;
+  color: #ffffff;
+  border-color: #f97316;
+}
+
+/* Running instant total strip */
+.lsm-total-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #166534;
+}
+
+.lsm-total-strip strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #16a34a;
+}
+
+/* ── Step 2: Online Sales Grid ──────────────────────────────────────── */
+.lsm-online-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lsm-online-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lsm-online-field > label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.lsm-online-field > small {
+  font-size: 0.7rem;
+  color: #6b7280;
+  line-height: 1.35;
+}
+
+.lsm-online-input {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0 12px;
+  transition: border-color 0.12s;
+}
+
+.lsm-online-input:focus-within {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22,163,74,.12);
+}
+
+.lsm-online-input > span {
+  color: #6b7280;
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.lsm-online-input > input {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lsm-online-input > input::-webkit-outer-spin-button,
+.lsm-online-input > input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.lsm-online-preview {
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 4px;
+}
+
+.lsm-online-preview > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lsm-online-preview > div:first-child > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #166534;
+}
+
+.lsm-online-preview > div:first-child > strong {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #16a34a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Step 3: Confirm ───────────────────────────────────────────────── */
+.lsm-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lsm-confirm-head {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #111827;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.lsm-confirm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.lsm-report-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.lsm-report-row > span {
+  font-size: 0.74rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.lsm-report-row > strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.lsm-report-row--good { border-color: #bbf7d0; background: #f0fdf4; }
+.lsm-report-row--good > span { color: #166534; }
+.lsm-report-row--good > strong { color: #16a34a; }
+
+.lsm-report-row--warn { border-color: #fed7aa; background: #fff7ed; }
+.lsm-report-row--warn > span { color: #9a3412; }
+.lsm-report-row--warn > strong { color: #c2410c; }
+
+.lsm-formula {
+  text-align: center;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  color: #6b7280;
+  font-style: italic;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lsm-grand-due {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  border-radius: 12px;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2);
+}
+
+.lsm-grand-due > span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.lsm-grand-due > strong {
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.lsm-grand-due--neg {
+  /* Negative daily due (unusual — e.g. high cashings) shown in warn color */
+  color: #fef3c7;
+}
+
+/* ── Wizard navigation ─────────────────────────────────────────────── */
+.lsm-wizard-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.lsm-nav-spacer { flex: 1; }
+
+.lsm-btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1.5px solid #e5e7eb;
+  background: #ffffff;
+  color: #6b7280;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.lsm-btn-back:hover:not(:disabled) { background: #f9fafb; color: #111827; }
+.lsm-btn-back:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lsm-btn-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #16a34a;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.lsm-btn-next:hover:not(:disabled) { background: #15803d; }
+
+.lsm-btn-next--disabled,
+.lsm-btn-next:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .lsm-modal--wide { max-width: 100%; }
+  .lsm-book-head,
+  .lsm-book-row {
+    grid-template-columns: minmax(0, 1.1fr) 50px 70px 90px 48px 70px 40px;
+    gap: 5px;
+    font-size: 0.78rem;
+  }
+  .lsm-book-head { font-size: 0.6rem; }
+  .lsm-book-game strong { font-size: 0.78rem; }
+  .lsm-book-game small { font-size: 0.62rem; }
+}
+
+@media (max-width: 560px) {
+  /* Collapse table to stacked cards on phones */
+  .lsm-book-head { display: none; }
+  .lsm-book-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .lsm-book-game { grid-column: 1 / -1; }
+  .lsm-book-actions { grid-column: 2; justify-self: end; }
+  .lsm-steps-bar { overflow-x: auto; padding-bottom: 8px; }
+  .lsm-step-pill { flex-shrink: 0; }
+  .lsm-confirm-grid { grid-template-columns: 1fr; }
+}

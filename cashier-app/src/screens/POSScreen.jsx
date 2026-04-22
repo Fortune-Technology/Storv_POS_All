@@ -23,7 +23,6 @@ import TenderModal          from '../components/tender/TenderModal.jsx';
 import AgeVerificationModal from '../components/modals/AgeVerificationModal.jsx';
 import ActionBar            from '../components/pos/ActionBar.jsx';
 import CategoryPanel        from '../components/pos/CategoryPanel.jsx';
-import QuickFoldersPanel    from '../components/pos/QuickFoldersPanel.jsx';
 import QuickButtonRenderer  from '../components/pos/QuickButtonRenderer.jsx';
 import { useQuickButtonLayout } from '../hooks/useQuickButtonLayout.js';
 import NumpadModal          from '../components/pos/NumpadModal.jsx';
@@ -46,7 +45,11 @@ import FuelModal                from '../components/modals/FuelModal.jsx';
 import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
 import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
+// Session 39 Round 3 — 1:1 visual port of portal ProductForm replaces the
+// older AddProductModal. The old modal is still in the tree for any code
+// still referencing it, but the scan-not-found flow now uses the full form.
 import AddProductModal from '../components/modals/AddProductModal.jsx';
+import ProductFormModal from '../components/modals/ProductFormModal.jsx';
 import BarcodeScannerModal from '../components/BarcodeScannerModal.jsx';
 import ProductEditModal from '../components/modals/ProductEditModal.jsx';
 import OpenItemModal from '../components/modals/OpenItemModal.jsx';
@@ -421,11 +424,16 @@ export default function POSScreen() {
   const [showTasks,          setShowTasks]          = useState(false);
   const [showChat,           setShowChat]           = useState(false);
   const [chatUnread,         setChatUnread]         = useState(0);
-  const [quickTab,           setQuickTab]           = useState('catalog'); // 'catalog' | 'quick' | 'buttons'
-  // WYSIWYG quick-button layout (new iPhone-home-screen style). When this
-  // layout has tiles, the BUTTONS tab appears and auto-activates.
+  // Quick Buttons is the default view. If a store has not configured a
+  // WYSIWYG layout yet, we fall back to 'catalog' via the effect below.
+  const [quickTab,           setQuickTab]           = useState('buttons'); // 'catalog' | 'buttons'
   const { layout: quickButtonLayout } = useQuickButtonLayout(storeId);
   const hasQuickButtons = Array.isArray(quickButtonLayout?.tree) && quickButtonLayout.tree.length > 0;
+  // When hasQuickButtons becomes false (store hasn't configured Quick Buttons
+  // yet), ensure we're not stuck on an empty BUTTONS tab — fall back to catalog.
+  useEffect(() => {
+    if (!hasQuickButtons && quickTab === 'buttons') setQuickTab('catalog');
+  }, [hasQuickButtons, quickTab]);
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Lottery shift reconciliation state
   const [lotteryShiftDone,   setLotteryShiftDone]   = useState(false);
@@ -738,15 +746,21 @@ export default function POSScreen() {
   const openOrderDiscount = () => requireManager('Order Discount', () => setDiscountTarget(null));
 
   // ── Lottery handlers ─────────────────────────────────────────────────────
+  // 3f — pending-action dispatch after the lottery shift is reconciled.
+  // Previously only handled 'closeShift'; now also supports 'endOfDay' so
+  // both actions can gate on the scanRequiredAtShiftEnd flag.
+  const [pendingAfterLottery, setPendingAfterLottery] = useState(null); // null | 'closeShift' | 'endOfDay'
+
   const handleLotteryShiftSave = async (data) => {
     await saveLotteryShiftReport(data);
     setLotteryShiftDone(true);
     setShowLotteryShift(false);
-    // If this reconciliation was triggered by a shift-close request, proceed now
-    if (pendingShiftClose) {
-      setPendingShiftClose(false);
-      setShowCloseShift(true);
-    }
+    // If reconciliation was triggered by a gated action, proceed now.
+    const next = pendingAfterLottery;
+    setPendingAfterLottery(null);
+    setPendingShiftClose(false);  // legacy alias
+    if (next === 'closeShift')    setShowCloseShift(true);
+    else if (next === 'endOfDay') setShowEndOfDay(true);
   };
 
   // Opens LotteryShiftModal after refreshing active boxes (standalone button)
@@ -756,6 +770,28 @@ export default function POSScreen() {
       .catch(() => {});
     setShowLotteryShift(true);
   };
+
+  /**
+   * 3f — shared gate for shift-end actions that must reconcile lottery first.
+   * Call with the intent ('closeShift' | 'endOfDay') and a fallback action.
+   * If the gate is OFF or lottery is already reconciled, runs the fallback.
+   * Otherwise opens LotteryShiftModal and remembers the intent to resume.
+   */
+  const withLotteryReconciliationGate = useCallback((intent, fallback) => {
+    const scanReq   = posConfig.lottery?.scanRequiredAtShiftEnd;
+    const lotteryOn = posConfig.lottery?.enabled ?? true;
+    const hasBoxes  = lotteryActiveBoxes.length > 0;
+    if (scanReq && lotteryOn && hasBoxes && !lotteryShiftDone) {
+      getLotteryBoxes({ storeId, status: 'active' })
+        .then(r => setLotteryActiveBoxes(r?.data || r || []))
+        .catch(() => {});
+      setPendingAfterLottery(intent);
+      setPendingShiftClose(intent === 'closeShift');  // legacy alias
+      setShowLotteryShift(true);
+    } else {
+      fallback();
+    }
+  }, [posConfig.lottery, lotteryActiveBoxes, lotteryShiftDone, storeId]);
 
   // ── Quick-button action dispatch ─────────────────────────────────────────
   // The WYSIWYG builder lets admins drop "Action" tiles onto the home grid.
@@ -857,7 +893,12 @@ export default function POSScreen() {
       setChangeDueAmt(refund ? Math.abs(tx.grandTotal) : (change || 0));
       setChangeDueRefund(refund);
     }
-  }, [hasCashDrawer, hasReceiptPrinter, openDrawer, publishDisplay, storeBranding, handlePrintTx]);
+
+    // Snap back to Quick Buttons after every transaction — Quick Buttons is
+    // the canonical default view. Cashier may have drilled into the Catalog
+    // during the sale; this resets them for the next customer.
+    if (hasQuickButtons) setQuickTab('buttons');
+  }, [hasCashDrawer, hasReceiptPrinter, openDrawer, publishDisplay, storeBranding, handlePrintTx, hasQuickButtons]);
 
   // Quick-cash submit — bypasses TenderModal entirely.
   // Used by on-screen quick-cash buttons and the plain CASH button (exact total).
@@ -952,18 +993,27 @@ export default function POSScreen() {
     handleSaleCompleted(savedTx, change);
   }, [items, totals, storeId, bagCount, bagPrice, posConfig.bagFee, customer, loyaltyRedemption, isOnline, enqueueTx, clearCart, handleSaleCompleted]);
 
-  // ── Flash background ─────────────────────────────────────────────────────
-  const flashBg = flashState === 'hit'
-    ? { animation: 'flashGreen .32s ease forwards' }
-    : flashState === 'miss'
-    ? { animation: 'flashRed .32s ease forwards' }
-    : {};
+  // Flash animation — driven by the className on `.pos-left-pane`
+  // (see POSScreen.css keyframes). The previous inline-style copy was
+  // removed in Session 39 to avoid duplicate animation triggers that
+  // caused visible "blinking" on some offline scan paths.
 
   // ── Show EBT quick-tender button only when there are EBT-eligible items ──
   const showEbtButton = totals.ebtTotal > 0;
 
-  // ── Lottery cash-only: disable Card / EBT quick-tender when enforced ──
-  const cashOnlyEnforced = (posConfig.lottery?.cashOnly ?? false) && items.some(i => i.isLottery);
+  // ── Lottery cash-only enforcement (3f) ─────────────────────────────────
+  // Card quick-tender is only fully disabled when the cart is PURE lottery
+  // (all items are lottery). For MIXED carts we now allow the cashier to
+  // open TenderModal — the modal enforces a cash-floor for the lottery
+  // portion and allows card to cover the non-lottery remainder.
+  const lotteryCashOnlyActive = !!(posConfig.lottery?.cashOnly ?? false) && items.some(i => i.isLottery);
+  const lotteryLineTotal = items.filter(i => i.isLottery)
+    .reduce((s, i) => s + Math.abs(Number(i.lineTotal || 0)), 0);
+  const nonLotteryLineTotal = items.filter(i => !i.isLottery)
+    .reduce((s, i) => s + Math.abs(Number(i.lineTotal || 0)), 0);
+  const isPureLotteryCart = lotteryCashOnlyActive && nonLotteryLineTotal < 0.005 && lotteryLineTotal > 0;
+  // Legacy alias — only TRULY block card when the cart is 100% lottery.
+  const cashOnlyEnforced = isPureLotteryCart;
 
   // ── Layout preset config ──────────────────────────────────────────────────
   const layoutCfg = useMemo(() => {
@@ -1164,18 +1214,17 @@ export default function POSScreen() {
             )}
           </div>
 
-          {/* ── Quick Access tab bar ── shown only when Quick-Folders
-              (legacy) OR the new WYSIWYG Buttons layout has content. */}
-          {(posConfig.quickFolders?.length > 0 || hasQuickButtons) && (
+          {/* ── POS tab bar ── shown only when a Quick Buttons layout
+              exists. Stores without one see the catalog full-height. */}
+          {hasQuickButtons && (
             <div style={{
               display: 'flex', borderBottom: '1px solid var(--border)',
               flexShrink: 0, background: 'var(--bg-panel)',
             }}>
               {[
-                { key: 'catalog', label: 'CATALOG', show: true },
-                { key: 'buttons', label: '▦ BUTTONS', show: hasQuickButtons },
-                { key: 'quick',   label: '⚡ FOLDERS', show: (posConfig.quickFolders?.length > 0) },
-              ].filter(t => t.show).map(tab => (
+                { key: 'buttons', label: '▦ QUICK BUTTONS', show: true },
+                { key: 'catalog', label: 'CATALOG',        show: true },
+              ].map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setQuickTab(tab.key)}
@@ -1213,9 +1262,6 @@ export default function POSScreen() {
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <QuickButtonRenderer layout={quickButtonLayout} onAction={handleQuickAction} />
             </div>
-          )}
-          {quickTab === 'quick' && (
-            <QuickFoldersPanel folders={posConfig.quickFolders || []} />
           )}
 
           {/* ── Selected-item action strip (bottom, only when item selected) ── */}
@@ -1870,23 +1916,11 @@ export default function POSScreen() {
         onDiscount={openOrderDiscount}
         onRefund={() => setShowRefund(true)}
         onVoidTx={() => setShowVoid(true)}
-        onEndOfDay={() => setShowEndOfDay(true)}
+        onEndOfDay={() => withLotteryReconciliationGate('endOfDay', () => setShowEndOfDay(true))}
         onOpenCustomer={() => setShowCustomer(true)}
         onOpenShift={() => setShowOpenShift(true)}
         onCloseShift={() => requireManager('Close Shift', () => {
-          const scanReq     = posConfig.lottery?.scanRequiredAtShiftEnd;
-          const lotteryOn   = posConfig.lottery?.enabled ?? true;
-          const hasBoxes    = lotteryActiveBoxes.length > 0;
-          if (scanReq && lotteryOn && hasBoxes && !lotteryShiftDone) {
-            // Must reconcile lottery first — refresh boxes then show modal
-            getLotteryBoxes({ storeId, status: 'active' })
-              .then(r => setLotteryActiveBoxes(r?.data || r || []))
-              .catch(() => {});
-            setPendingShiftClose(true);
-            setShowLotteryShift(true);
-          } else {
-            setShowCloseShift(true);
-          }
+          withLotteryReconciliationGate('closeShift', () => setShowCloseShift(true));
         })}
         onCashDrop={() => { setCashDrawerTab('drop'); setShowCashDrawer(true); }}
         onPayout={() => setShowVendorPayout(true)}
@@ -2239,14 +2273,16 @@ export default function POSScreen() {
       {/* ── Open Item / Manual Entry Modal ── */}
       {showOpenItem && <OpenItemModal onClose={() => setShowOpenItem(false)} />}
 
-      {/* ── Add Product Modal (manager only, triggered from scan-not-found) ── */}
+      {/* ── Add Product Modal (manager only, triggered from scan-not-found) ──
+          Session 39 — swapped from AddProductModal to the full 1:1 ported
+          ProductFormModal so cashiers see the exact same form as back-office. */}
       {addProductUpc && (
-        <AddProductModal
+        <ProductFormModal
           scannedUpc={addProductUpc}
-          hasLabelPrinter={hasLabelPrinter}
-          onPrintLabel={hasLabelPrinter ? printShelfLabel : null}
-          onCreated={(product) => {
+          onClose={() => setAddProductUpc(null)}
+          onSaved={(product) => {
             setAddProductUpc(null);
+            if (!product) return;
             // Add newly created product to cart immediately
             addWithAgeCheck({
               ...product,
@@ -2254,7 +2290,6 @@ export default function POSScreen() {
             });
             flash('hit');
           }}
-          onClose={() => setAddProductUpc(null)}
         />
       )}
 

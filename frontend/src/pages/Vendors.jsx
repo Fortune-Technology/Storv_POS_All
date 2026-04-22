@@ -19,6 +19,23 @@ import {
   Building2, Eye, Package, Copy,
 } from 'lucide-react';
 import './Vendors.css';
+import { useTableSort } from '../hooks/useTableSort';
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+
+// Session 39 Round 3 — inline sort indicator for div-based table header
+function SortSpan({ sort, k, label, align = 'left' }) {
+  const active = sort.sortKey === k;
+  const Icon = !active ? ArrowUpDown : sort.sortDir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <span onClick={() => sort.toggleSort(k)} style={{
+      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+      justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+      color: active ? 'var(--brand-primary, #3d56b5)' : undefined, userSelect: 'none',
+    }} title={active ? 'Click to flip' : 'Click to sort'}>
+      {label}<Icon size={11} style={{ opacity: active ? 1 : 0.4 }} />
+    </span>
+  );
+}
 
 // ─── ID Chip (click to copy) ──────────────────────────────────────────────────
 function IdChip({ id }) {
@@ -556,6 +573,19 @@ export default function Vendors() {
       })
     : vendors;
 
+  // Session 39 Round 3 — column sort
+  const vendorSort = useTableSort(filtered, {
+    accessors: {
+      id:     (v) => Number(v.id),
+      name:   (v) => v.name || '',
+      email:  (v) => v.email || '',
+      phone:  (v) => v.phone || '',
+      terms:  (v) => v.terms || '',
+      active: (v) => (v.active ? 1 : 0),
+      status: (v) => v.status || '',
+    },
+  });
+
   const handleSave = async (payload) => {
     if (!payload.name) return;
     setSaving(true);
@@ -670,13 +700,13 @@ export default function Vendors() {
             fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted, #6b7280)',
             letterSpacing: '0.07em', background: 'var(--bg-tertiary, #0f172a)',
           }}>
-            <span style={{ color: '#3d56b5' }}>ID</span>
-            <span>VENDOR</span>
-            <span>EMAIL</span>
-            <span>PHONE</span>
-            <span>TERMS</span>
-            <span>ACTIVE</span>
-            <span>STATUS</span>
+            <SortSpan sort={vendorSort} k="id"     label="ID" />
+            <SortSpan sort={vendorSort} k="name"   label="VENDOR" />
+            <SortSpan sort={vendorSort} k="email"  label="EMAIL" />
+            <SortSpan sort={vendorSort} k="phone"  label="PHONE" />
+            <SortSpan sort={vendorSort} k="terms"  label="TERMS" />
+            <SortSpan sort={vendorSort} k="active" label="ACTIVE" />
+            <SortSpan sort={vendorSort} k="status" label="STATUS" />
             <span style={{ textAlign: 'right' }}>ACTIONS</span>
           </div>
 
@@ -690,7 +720,7 @@ export default function Vendors() {
               </div>
             </div>
           ) : (
-            filtered.map(vendor => (
+            vendorSort.sorted.map(vendor => (
               <VendorRow
                 key={vendor.id}
                 vendor={vendor}

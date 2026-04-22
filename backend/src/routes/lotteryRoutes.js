@@ -23,7 +23,7 @@ import {
   getCatalogTickets, getAllCatalogTickets, createCatalogTicket, updateCatalogTicket, deleteCatalogTicket,
   getTicketRequests, createTicketRequest, reviewTicketRequest, getPendingRequestCount,
   receiveFromCatalog,
-  scanLotteryBarcode, moveBoxToSafe, markBoxSoldout, returnBoxToLotto,
+  scanLotteryBarcode, parseLotteryScan, moveBoxToSafe, markBoxSoldout, returnBoxToLotto,
   cancelPendingMove, runPendingMovesNow,
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
   getDailyLotteryInventory, closeLotteryDay,
@@ -89,6 +89,11 @@ router.post('/boxes/receive-catalog', requirePermission('lottery.manage'), recei
 // Scan a ticket/book barcode and let the engine decide whether to activate,
 // update currentTicket, or auto-soldout an old book.
 router.post('/scan', requirePermission('lottery.manage'), scanLotteryBarcode);
+
+// Parse-only: decode a barcode via the state adapters WITHOUT a DB lookup.
+// Used by the Receive Books scan flow where we intentionally want new books
+// (which don't exist in inventory yet) to parse successfully.
+router.post('/scan/parse', requirePermission('lottery.manage'), parseLotteryScan);
 
 // Book lifecycle actions (context menu on Counter/Safe/Soldout tabs)
 router.post(  '/boxes/:id/move-to-safe',     requirePermission('lottery.manage'), moveBoxToSafe);

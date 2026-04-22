@@ -157,6 +157,24 @@ export async function deleteProducts(ids) {
   await db.products.bulkDelete(ids);
 }
 
+// Reconcile the local products table against the authoritative list of active
+// product IDs from the backend. Any local row whose id is NOT in the active
+// set is removed. Complement to the tombstone stream — the tombstone stream
+// only covers products updated since the last sync, while this reconciliation
+// covers the "cashier has been offline for weeks / cleared Dexie and re-seeded
+// across multiple import batches" case. Called on every sign-in so the local
+// cache never drifts.
+//
+// Returns the number of stale rows removed.
+export async function reconcileProducts(activeIds) {
+  if (!Array.isArray(activeIds)) return 0;
+  const activeSet = new Set(activeIds);
+  const localIds = await db.products.toCollection().primaryKeys();
+  const stale = localIds.filter(id => !activeSet.has(id));
+  if (stale.length) await db.products.bulkDelete(stale);
+  return stale.length;
+}
+
 export async function enqueueTransaction(tx) {
   return db.txQueue.add({ ...tx, status: 'pending', createdAt: new Date().toISOString() });
 }

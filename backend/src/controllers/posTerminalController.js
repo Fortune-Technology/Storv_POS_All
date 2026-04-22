@@ -206,6 +206,33 @@ export const getCatalogSnapshot = async (req, res) => {
   }
 };
 
+// ── GET /api/pos-terminal/catalog/active-ids ──────────────────────────────
+// Returns ONLY the IDs of currently-active, non-deleted products for this
+// org. Used by the cashier-app on every sign-in to reconcile the local
+// IndexedDB cache against server truth — prune any local rows whose ID is
+// not in the active set. Fixes the case where a store admin deletes 27k
+// products on the back-office but the cashier cache still shows them in
+// the product counter.
+//
+// Payload is tiny (~7 bytes per id × 7k products ≈ 50 KB), much cheaper
+// than wiping + re-downloading all product data.
+export const getCatalogActiveIds = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const rows = await prisma.masterProduct.findMany({
+      where:  { orgId, active: true, deleted: false },
+      select: { id: true },
+    });
+    res.json({
+      activeIds: rows.map(r => r.id),
+      count:     rows.length,
+      syncedAt:  new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // ── GET /api/pos-terminal/deposit-rules ────────────────────────────────────
 export const getDepositRules = async (req, res) => {
   try {
@@ -684,11 +711,25 @@ export const listTransactions = async (req, res) => {
       where.createdAt = { gte: startOfLocalDay(date), lte: endOfLocalDay(date) };
     }
 
+    // Session 39 Round 4 — server-side sort across the full transaction set.
+    // UI column clicks pass ?sortBy=<key>&sortDir=asc|desc. Unknown keys
+    // fall back to createdAt-desc so the response shape stays stable.
+    const sortDir = req.query.sortDir === 'asc' ? 'asc' : 'desc';
+    const TX_SORT_MAP = {
+      date:        { createdAt: sortDir },
+      txNumber:    { txNumber:  sortDir },
+      cashierName: { cashierName: sortDir },
+      stationId:   { stationId: sortDir },
+      total:       { grandTotal: sortDir },
+      status:      { status: sortDir },
+    };
+    const orderBy = TX_SORT_MAP[req.query.sortBy] || { createdAt: 'desc' };
+
     const [total, txs] = await Promise.all([
       prisma.transaction.count({ where }),
       prisma.transaction.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take:    Math.min(parseInt(limit) || 200, 1000),
         skip:    parseInt(offset) || 0,
         select: {

@@ -27,10 +27,21 @@ export default function CustomerLookupModal({ onClose }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Richer create form — mirrors the back-office Customers.jsx CustomerForm
+  // so cashiers and managers see the exact same fields in the same layout.
+  // Session 39 — "New customer form = back-office form" requirement.
   const [newFirst, setNewFirst] = useState('');
   const [newLast, setNewLast] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [newCardNo, setNewCardNo] = useState('');
+  const [newLoyaltyPoints, setNewLoyaltyPoints] = useState('');
+  const [newDiscount, setNewDiscount] = useState('');
+  const [newBalance, setNewBalance] = useState('');
+  const [newBalanceLimit, setNewBalanceLimit] = useState('');
+  const [newInstoreCharge, setNewInstoreCharge] = useState(false);
+  const [newBirthDate, setNewBirthDate] = useState('');
+  const [newExpDate, setNewExpDate] = useState('');
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState('');
 
@@ -90,13 +101,30 @@ export default function CustomerLookupModal({ onClose }) {
   const handleCreate = async (e) => {
     e.preventDefault();
     setCreateErr('');
-    if (!newFirst.trim() && !newLast.trim() && !newPhone.trim()) { setCreateErr('Enter at least a name or phone number.'); return; }
+    // Q7 — name required, at least one of {phone, email} required, everything else optional
+    const hasName = !!(newFirst.trim() || newLast.trim());
+    const hasContact = !!(newPhone.trim() || newEmail.trim());
+    if (!hasName) { setCreateErr('First or last name is required.'); return; }
+    if (!hasContact) { setCreateErr('Enter a phone number or email.'); return; }
     setCreating(true);
     try {
-      const customer = await createCustomer({
-        firstName: newFirst.trim() || undefined, lastName: newLast.trim() || undefined,
-        phone: newPhone.trim() || undefined, email: newEmail.trim() || undefined, storeId: storeId || undefined,
-      });
+      const payload = {
+        firstName:     newFirst.trim() || undefined,
+        lastName:      newLast.trim()  || undefined,
+        phone:         newPhone.trim() || undefined,
+        email:         newEmail.trim() || undefined,
+        cardNo:        newCardNo.trim() || undefined,
+        loyaltyPoints: newLoyaltyPoints !== '' ? parseInt(newLoyaltyPoints, 10) : 0,
+        // discount stored as decimal — matches back-office convention (5% → 0.05)
+        discount:      newDiscount !== ''     ? parseFloat(newDiscount) / 100 : null,
+        balance:       newBalance !== ''      ? parseFloat(newBalance)      : null,
+        balanceLimit:  newBalanceLimit !== '' ? parseFloat(newBalanceLimit) : null,
+        instoreChargeEnabled: newInstoreCharge,
+        birthDate:     newBirthDate || undefined,
+        expirationDate: newExpDate  || undefined,
+        storeId:       storeId || undefined,
+      };
+      const customer = await createCustomer(payload);
       attach(customer);
     } catch (err) {
       setCreateErr(err?.response?.data?.error || 'Failed to create customer.');
@@ -204,19 +232,101 @@ export default function CustomerLookupModal({ onClose }) {
             </>
           )}
 
-          {/* CREATE TAB */}
+          {/* CREATE TAB — mirrors the back-office Customers form layout.
+              Required: name (first or last) + (phone OR email). Everything
+              else is optional. */}
           {tab === 'create' && (
             <form onSubmit={handleCreate}>
+              {/* Name row */}
               <div className="clm-form-row">
-                <label className="clm-form-label">First Name <input ref={inputRef} className="clm-form-input" value={newFirst} onChange={e => setNewFirst(e.target.value)} placeholder="Jane" /></label>
-                <label className="clm-form-label">Last Name <input className="clm-form-input" value={newLast} onChange={e => setNewLast(e.target.value)} placeholder="Smith" /></label>
+                <label className="clm-form-label">First Name
+                  <input ref={inputRef} className="clm-form-input" value={newFirst}
+                    onChange={e => setNewFirst(e.target.value)} placeholder="Jane" />
+                </label>
+                <label className="clm-form-label">Last Name
+                  <input className="clm-form-input" value={newLast}
+                    onChange={e => setNewLast(e.target.value)} placeholder="Smith" />
+                </label>
               </div>
-              <label className="clm-form-label">Phone <input className="clm-form-input" value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="555-000-1234" type="tel" /></label>
-              <label className="clm-form-label">Email (optional) <input className="clm-form-input" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="jane@example.com" type="email" /></label>
+
+              {/* Contact row — at least one required */}
+              <div className="clm-form-row">
+                <label className="clm-form-label">Phone
+                  <input className="clm-form-input" value={newPhone}
+                    onChange={e => setNewPhone(e.target.value)}
+                    placeholder="555-000-1234" type="tel" />
+                </label>
+                <label className="clm-form-label">Email
+                  <input className="clm-form-input" value={newEmail}
+                    onChange={e => setNewEmail(e.target.value)}
+                    placeholder="jane@example.com" type="email" />
+                </label>
+              </div>
+
+              {/* Card + loyalty points */}
+              <div className="clm-form-row">
+                <label className="clm-form-label">Card Number (optional)
+                  <input className="clm-form-input" value={newCardNo}
+                    onChange={e => setNewCardNo(e.target.value)}
+                    placeholder="Loyalty card #" />
+                </label>
+                <label className="clm-form-label">Loyalty Points
+                  <input className="clm-form-input" value={newLoyaltyPoints}
+                    onChange={e => setNewLoyaltyPoints(e.target.value)}
+                    type="number" min="0" step="1" placeholder="0" />
+                </label>
+              </div>
+
+              {/* Discount + balance + balance limit */}
+              <div className="clm-form-row">
+                <label className="clm-form-label">Discount (%)
+                  <input className="clm-form-input" value={newDiscount}
+                    onChange={e => setNewDiscount(e.target.value)}
+                    type="number" min="0" max="100" step="0.1" placeholder="e.g. 5" />
+                </label>
+                <label className="clm-form-label">Balance ($)
+                  <input className="clm-form-input" value={newBalance}
+                    onChange={e => setNewBalance(e.target.value)}
+                    type="number" step="0.01" placeholder="0.00" />
+                </label>
+                <label className="clm-form-label">Balance Limit ($)
+                  <input className="clm-form-input" value={newBalanceLimit}
+                    onChange={e => setNewBalanceLimit(e.target.value)}
+                    type="number" step="0.01" min="0" placeholder="0.00" />
+                </label>
+              </div>
+
+              {/* Dates */}
+              <div className="clm-form-row">
+                <label className="clm-form-label">Birth Date
+                  <input className="clm-form-input" value={newBirthDate}
+                    min="1900-01-01" max="2100-12-31"
+                    onChange={e => setNewBirthDate(e.target.value)} type="date" />
+                </label>
+                <label className="clm-form-label">Expiration Date
+                  <input className="clm-form-input" value={newExpDate}
+                    min="1900-01-01" max="2100-12-31"
+                    onChange={e => setNewExpDate(e.target.value)} type="date" />
+                </label>
+              </div>
+
+              {/* In-store charge toggle */}
+              <div className="clm-toggle-row">
+                <span>In-Store Charge Account</span>
+                <button type="button"
+                  className={`clm-toggle${newInstoreCharge ? ' clm-toggle--on' : ''}`}
+                  onClick={() => setNewInstoreCharge(v => !v)}>
+                  <span className="clm-toggle-knob" />
+                </button>
+                <span className="clm-toggle-state">
+                  {newInstoreCharge ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+
               {createErr && <div className="clm-err-box">{createErr}</div>}
               <button type="submit" className="clm-submit-btn" disabled={creating}>
                 {creating ? <RefreshCw size={15} /> : <Check size={15} />}
-                {creating ? 'Creating...' : 'Add & Attach Customer'}
+                {creating ? 'Creating…' : 'Add & Attach Customer'}
               </button>
             </form>
           )}

@@ -9,6 +9,7 @@ import { requireTenant } from '../middleware/scopeToTenant.js';
 import { pinLimiter } from '../middleware/rateLimit.js';
 import {
   getCatalogSnapshot,
+  getCatalogActiveIds,
   getDepositRules,
   getTaxRules,
   createTransaction,
@@ -54,6 +55,7 @@ const guard = [protect, requireTenant, authorize('cashier', 'manager', 'owner', 
 
 // Catalog sync
 router.get('/catalog/snapshot',          ...guard, getCatalogSnapshot);
+router.get('/catalog/active-ids',        ...guard, getCatalogActiveIds);
 router.get('/deposit-rules',             ...guard, getDepositRules);
 router.get('/tax-rules',                 ...guard, getTaxRules);
 
