@@ -194,7 +194,8 @@ const ALIASES = {
   byWeight:           ['scale','byweight','soldbyweight','scalable','weightitem'],
   // (foodstamp alias removed — see ebtEligible above. DB column stays in sync
   // via the row builder, which mirrors ebtEligible → foodstamp.)
-  productCode:        ['productcode','mfrcode','manufacturercode'],
+  // (productCode alias removed — was never persisted to a MasterProduct column;
+  // manufacturer codes should map to `itemCode` or a custom attribute instead.)
   trackInventory:     ['trackinventory','track_inventory','deductstock','inventorytracked'],
   weight:             ['weight','productweight','itemweight','lbs','pounds'],
 };

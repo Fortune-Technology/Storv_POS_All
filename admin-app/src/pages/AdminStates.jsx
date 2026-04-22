@@ -23,10 +23,25 @@ const BLANK = {
   alcoholAgeLimit: 21, tobaccoAgeLimit: 21,
   bottleDepositRules: [],
   lotteryGameStubs: [],
+  lotteryPackSizeRules: [],
   notes: '', active: true,
 };
 
-const BLANK_DEPOSIT = { containerType: 'bottle', material: 'glass', minVolumeOz: '', maxVolumeOz: '', depositAmount: 0.05 };
+const BLANK_DEPOSIT  = { containerType: 'bottle', material: 'glass', minVolumeOz: '', maxVolumeOz: '', depositAmount: 0.05 };
+const BLANK_PACK_RULE = { maxPrice: '', packSize: '' };
+
+// Default pack-size rules for the US — prefilled when superadmin picks
+// "Use default" on an empty list. Matches the backend DEFAULT_PACK_SIZE_RULES.
+const DEFAULT_US_PACK_RULES = [
+  { maxPrice: 1,    packSize: 300 },
+  { maxPrice: 2,    packSize: 200 },
+  { maxPrice: 3,    packSize: 200 },
+  { maxPrice: 5,    packSize: 100 },
+  { maxPrice: 10,   packSize: 50  },
+  { maxPrice: 20,   packSize: 30  },
+  { maxPrice: 30,   packSize: 20  },
+  { maxPrice: 9999, packSize: 10  },
+];
 
 export default function AdminStates() {
   const [states,      setStates]   = useState([]);
@@ -75,6 +90,7 @@ export default function AdminStates() {
       tobaccoAgeLimit:          s.tobaccoAgeLimit || 21,
       bottleDepositRules:       Array.isArray(s.bottleDepositRules) ? s.bottleDepositRules : [],
       lotteryGameStubs:         Array.isArray(s.lotteryGameStubs) ? s.lotteryGameStubs : [],
+      lotteryPackSizeRules:     Array.isArray(s.lotteryPackSizeRules) ? s.lotteryPackSizeRules : [],
       notes:                    s.notes || '',
       active:                   s.active !== false,
     });
@@ -91,6 +107,18 @@ export default function AdminStates() {
     setField({ bottleDepositRules: next });
   };
   const removeDeposit = (idx) => setField({ bottleDepositRules: form.bottleDepositRules.filter((_, i) => i !== idx) });
+
+  // Lottery pack-size rule helpers
+  const addPackRule     = () => setField({ lotteryPackSizeRules: [...form.lotteryPackSizeRules, { ...BLANK_PACK_RULE }] });
+  const updatePackRule  = (idx, patch) => {
+    const next = [...form.lotteryPackSizeRules];
+    next[idx] = { ...next[idx], ...patch };
+    setField({ lotteryPackSizeRules: next });
+  };
+  const removePackRule  = (idx) => setField({ lotteryPackSizeRules: form.lotteryPackSizeRules.filter((_, i) => i !== idx) });
+  const loadDefaultPackRules = () => setField({
+    lotteryPackSizeRules: DEFAULT_US_PACK_RULES.map(r => ({ ...r })),
+  });
 
   const handleSave = async () => {
     if (!form.code || !/^[A-Z]{2}$/.test(form.code.toUpperCase())) {
@@ -123,6 +151,12 @@ export default function AdminStates() {
           depositAmount: Number(r.depositAmount) || 0,
         })),
         lotteryGameStubs:         form.lotteryGameStubs,
+        // Pack-size rules: strip any blank rows, coerce numbers, order by
+        // maxPrice asc so the lookup picks the smallest bracket first.
+        lotteryPackSizeRules:     form.lotteryPackSizeRules
+          .filter(r => r.maxPrice !== '' && r.packSize !== '')
+          .map(r => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
+          .sort((a, b) => a.maxPrice - b.maxPrice),
         notes:                    form.notes || null,
         active:                   !!form.active,
       };
@@ -367,6 +401,47 @@ export default function AdminStates() {
                       <input type="number" step="0.1" placeholder="Max oz" value={r.maxVolumeOz ?? ''} onChange={e => updateDeposit(i, { maxVolumeOz: e.target.value })} />
                       <input type="number" step="0.01" placeholder="Deposit $" value={r.depositAmount ?? ''} onChange={e => updateDeposit(i, { depositAmount: e.target.value })} />
                       <button className="as-icon-btn as-icon-btn--danger" onClick={() => removeDeposit(i)}><Trash2 size={12} /></button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="as-section">
+                <div className="as-section-head">
+                  <span>Lottery Pack-Size Rules</span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {form.lotteryPackSizeRules.length === 0 && (
+                      <button className="as-btn-ghost" onClick={loadDefaultPackRules} title="Prefill with MA / US-standard pack sizes">
+                        Use US default
+                      </button>
+                    )}
+                    <button className="as-btn-ghost" onClick={addPackRule}><Plus size={12} /> Add rule</button>
+                  </div>
+                </div>
+                <div className="as-subtle" style={{ marginBottom: 8 }}>
+                  State lottery APIs don't expose pack size — we infer it from the ticket price.
+                  First rule with <strong>maxPrice ≥ ticket price</strong> wins. For each new game,
+                  the scan/receive flow picks this pack size as the default (cashier can override per scan).
+                </div>
+                {form.lotteryPackSizeRules.length === 0 ? (
+                  <div className="as-subtle">Empty — backend default applies (MA/US conventions: $1→300, $5→100, $10→50, $20→30, $30→20, $50+→10).</div>
+                ) : (
+                  form.lotteryPackSizeRules.map((r, i) => (
+                    <div key={i} className="as-deposit-row" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Max ticket price ($)"
+                        value={r.maxPrice ?? ''}
+                        onChange={e => updatePackRule(i, { maxPrice: e.target.value })}
+                      />
+                      <input
+                        type="number"
+                        placeholder="Pack size (tickets)"
+                        value={r.packSize ?? ''}
+                        onChange={e => updatePackRule(i, { packSize: e.target.value })}
+                      />
+                      <button className="as-icon-btn as-icon-btn--danger" onClick={() => removePackRule(i)}><Trash2 size={12} /></button>
                     </div>
                   ))
                 )}

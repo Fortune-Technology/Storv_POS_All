@@ -204,6 +204,101 @@ describe('guessPackSize — price-based heuristic (MA feed omits pack size)', ()
   });
 });
 
+describe('Smart pack-size inference (ticket-number constraint)', () => {
+  // Mirror of inferPackSize in frontend/src/pages/Lottery.jsx
+  const PACK_SIZE_CHOICES = [10, 20, 30, 40, 50, 60, 100, 120, 150, 200, 250, 300];
+  function inferPackSize(price, scannedTicket, rules = null) {
+    const heuristic = guessPackSize(price, rules);
+    const t = Number(scannedTicket);
+    if (!Number.isFinite(t) || t <= 0) return heuristic;
+    if (t < heuristic) return heuristic;
+    for (const size of PACK_SIZE_CHOICES) if (size > t) return size;
+    return Math.ceil((t + 1) / 50) * 50;
+  }
+
+  test('Ticket 0 gives no info → use heuristic unchanged', () => {
+    assert.equal(inferPackSize(5, 0), 100);  // $5 heuristic
+  });
+  test('Ticket within heuristic range → keep heuristic', () => {
+    assert.equal(inferPackSize(5, 50), 100);
+    assert.equal(inferPackSize(10, 20), 50);
+  });
+  test('Ticket 128 on $5 game (heuristic 100) → bumps to 150', () => {
+    // Key example from the user's scan — game 498 ticket 128 proves pack is 150, not 100
+    assert.equal(inferPackSize(5, 128), 150);
+  });
+  test('Ticket 99 on $5 game → stays at heuristic 100 (99 < 100 fits)', () => {
+    assert.equal(inferPackSize(5, 99), 100);
+  });
+  test('Ticket 100 on $5 game → bumps to 120 (100 needs pack > 100)', () => {
+    assert.equal(inferPackSize(5, 100), 120);
+  });
+  test('Ticket 199 on $5 game → bumps to 200', () => {
+    assert.equal(inferPackSize(5, 199), 200);
+  });
+  test('Ticket 299 on $1 game → stays at heuristic 300', () => {
+    assert.equal(inferPackSize(1, 299), 300);
+  });
+  test('Ticket 301 on $1 game → rounds up to 350 (no standard fits)', () => {
+    assert.equal(inferPackSize(1, 301), 350);
+  });
+  test('Works with per-state rules too — Maine $5 → 60, ticket 100 → bumps to 120', () => {
+    const MAINE_RULES = [
+      { maxPrice: 5,    packSize: 60 },
+      { maxPrice: 9999, packSize: 10 },
+    ];
+    assert.equal(inferPackSize(5, 100, MAINE_RULES), 120);
+  });
+});
+
+describe('guessPackSize — per-state rules override the default', () => {
+  // Maine uses smaller packs than MA for cheaper tickets; custom rule set
+  const MAINE_RULES = [
+    { maxPrice: 1,  packSize: 200 },   // ME $1 → 200 not 300
+    { maxPrice: 5,  packSize: 60  },   // ME $5 → 60 not 100
+    { maxPrice: 10, packSize: 40  },   // ME $10 → 40 not 50
+    { maxPrice: 30, packSize: 20  },
+    { maxPrice: 9999, packSize: 10 },
+  ];
+
+  test('Uses Maine rule set for $5 → 60 (not MA default 100)', () => {
+    assert.equal(guessPackSize(5, MAINE_RULES), 60);
+  });
+  test('Uses Maine rule set for $10 → 40', () => {
+    assert.equal(guessPackSize(10, MAINE_RULES), 40);
+  });
+  test('Uses Maine rule set for $1 → 200', () => {
+    assert.equal(guessPackSize(1, MAINE_RULES), 200);
+  });
+  test('Falls back to last rule when price exceeds every bucket', () => {
+    const CAPPED = [
+      { maxPrice: 5,  packSize: 100 },
+      { maxPrice: 10, packSize: 50  },
+    ];
+    // $50 exceeds both; return highest-tier (smallest) pack size
+    assert.equal(guessPackSize(50, CAPPED), 50);
+  });
+  test('Null / empty rules → fall back to hardcoded US defaults', () => {
+    assert.equal(guessPackSize(5, null), 100);
+    assert.equal(guessPackSize(5, []),   100);
+  });
+  test('Out-of-order rules are sorted defensively', () => {
+    const UNORDERED = [
+      { maxPrice: 9999, packSize: 10 },
+      { maxPrice: 5,    packSize: 100 },
+      { maxPrice: 1,    packSize: 300 },
+    ];
+    assert.equal(guessPackSize(1, UNORDERED), 300);  // $1 matches the maxPrice:1 rule
+    assert.equal(guessPackSize(5, UNORDERED), 100);
+    assert.equal(guessPackSize(20, UNORDERED), 10);  // $20 exceeds 5, hits the 9999 catch-all
+  });
+  test('Custom rule set with string values coerces via Number()', () => {
+    const WEIRD = [{ maxPrice: '5', packSize: '60' }, { maxPrice: '9999', packSize: '10' }];
+    assert.equal(guessPackSize(5, WEIRD),  60);
+    assert.equal(guessPackSize(10, WEIRD), 10);
+  });
+});
+
 describe('parseScan (registry router)', () => {
   test('uses preferred state first', () => {
     const r = parseScan('498-027632-128', 'MA');

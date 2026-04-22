@@ -3534,6 +3534,17 @@ model State {
   bottleDepositRules       Json?    @default("[]")
   // Lottery game catalog stubs (for reference; actual games created in LotteryGame)
   lotteryGameStubs         Json?    @default("[]")
+  // Per-state pack-size heuristic for lottery scratch tickets.
+  // State lottery APIs don't expose pack size (MA's /games endpoint omits
+  // it entirely), so we default the ticketsPerBook from ticket price via
+  // an ordered rule list: the first rule whose maxPrice >= ticketPrice
+  // wins. Superadmin edits these per state to match that state's convention
+  // (MA $5 → 100 or 150; Maine $5 → 60; etc.).
+  // Shape: [{ maxPrice: number, packSize: number }, …] ordered by maxPrice asc.
+  // A final catch-all rule with a very high maxPrice is recommended so
+  // every price has a match. Null/empty → backend falls back to a hardcoded
+  // US-standard default.
+  lotteryPackSizeRules     Json?    @default("[]")
   notes                    String?
   active                   Boolean  @default(true)
   createdAt                DateTime @default(now())

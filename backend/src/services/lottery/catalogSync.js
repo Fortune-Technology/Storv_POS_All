@@ -20,42 +20,44 @@ const USER_AGENT = 'Storv-POS-CatalogSync/1.0';
 const FETCH_TIMEOUT_MS = 15_000;
 
 /**
- * Guess the pack (book) size for a scratch ticket based on ticket price.
- *
- * State lottery feeds (MA's /api/v1/games specifically) do NOT include the
- * pack size in their response — the field simply doesn't exist in the JSON.
- * The pack size is printed on the physical book and published in each game's
- * rules PDF, but not exposed via API. Since every book at the receive stage
- * needs a valid pack size (to compute startTicket for sell-direction-aware
- * activation and to validate scanned ticket numbers), we fall back to the
- * industry-standard sizing that MA + most US state lotteries follow:
- *
- *   $1 tickets  → 300/pack    (high-volume cheap stock)
- *   $2 tickets  → 200/pack
- *   $3 tickets  → 200/pack
- *   $5 tickets  → 100/pack    (sometimes 150 in newer games)
- *   $10 tickets → 50/pack
- *   $20 tickets → 30/pack
- *   $25 tickets → 30/pack
- *   $30 tickets → 20/pack
- *   $50 tickets → 10/pack
- *
- * Falls back to 50 for unrecognised prices (mid-range safe default).
- * Admins MUST be able to override per-game — both via Lottery Catalog edit in
- * the admin-app (preserved on re-sync) and per-book in the Receive Books
- * scan flow (before Confirm).
+ * Default pack-size rules when a state has none configured.
+ * Matches MA + most US-state scratch-ticket conventions. Superadmins can
+ * override per state via the State.lotteryPackSizeRules JSON field.
  */
-export function guessPackSize(ticketPrice) {
+export const DEFAULT_PACK_SIZE_RULES = [
+  { maxPrice: 1,    packSize: 300 },
+  { maxPrice: 2,    packSize: 200 },
+  { maxPrice: 3,    packSize: 200 },
+  { maxPrice: 5,    packSize: 100 },
+  { maxPrice: 10,   packSize: 50  },
+  { maxPrice: 20,   packSize: 30  },
+  { maxPrice: 30,   packSize: 20  },
+  { maxPrice: 9999, packSize: 10  },
+];
+
+/**
+ * Guess the pack (book) size for a scratch ticket based on ticket price,
+ * optionally using a per-state rule list. State lottery APIs don't expose
+ * pack size, so we look it up from an ordered rule list: the first rule
+ * whose maxPrice >= ticketPrice wins.
+ *
+ * @param {number} ticketPrice - The game's ticket price ($)
+ * @param {Array<{maxPrice: number, packSize: number}>} [rules] - Per-state
+ *   rules from State.lotteryPackSizeRules. Null / empty → use default rules.
+ * @returns {number} - Pack size (defaults to 50 for invalid input)
+ */
+export function guessPackSize(ticketPrice, rules = null) {
   const p = Number(ticketPrice);
   if (!Number.isFinite(p) || p <= 0) return 50;
-  if (p <= 1)  return 300;
-  if (p <= 2)  return 200;
-  if (p <= 3)  return 200;
-  if (p <= 5)  return 100;
-  if (p <= 10) return 50;
-  if (p <= 20) return 30;
-  if (p <= 30) return 20;
-  return 10;   // $50 and up
+  const ruleList = (Array.isArray(rules) && rules.length > 0) ? rules : DEFAULT_PACK_SIZE_RULES;
+  // Rules should already be ordered maxPrice ascending; sort defensively
+  // so an admin's unordered edit still resolves correctly.
+  const sorted = [...ruleList].sort((a, b) => Number(a.maxPrice) - Number(b.maxPrice));
+  for (const r of sorted) {
+    if (p <= Number(r.maxPrice)) return Number(r.packSize);
+  }
+  // Price exceeds every rule's maxPrice — return the highest-tier size.
+  return Number(sorted[sorted.length - 1]?.packSize) || 50;
 }
 
 // ── Massachusetts ─────────────────────────────────────────────────────────
@@ -134,6 +136,14 @@ async function upsertCatalog({ state, fetched }) {
   const twentyFourMonthsAgo = new Date(now);
   twentyFourMonthsAgo.setMonth(twentyFourMonthsAgo.getMonth() - 24);
 
+  // Pull this state's per-state pack-size rules from the State catalog.
+  // Falls back to DEFAULT_PACK_SIZE_RULES inside guessPackSize if null.
+  const stateRow = await prisma.state.findUnique({
+    where: { code: state },
+    select: { lotteryPackSizeRules: true },
+  }).catch(() => null);
+  const packRules = stateRow?.lotteryPackSizeRules || null;
+
   // Load everything currently in the catalog for this state
   const existing = await prisma.lotteryTicketCatalog.findMany({
     where: { state },
@@ -158,7 +168,7 @@ async function upsertCatalog({ state, fetched }) {
             gameNumber:     row.gameNumber,
             name:           row.name,
             ticketPrice:    row.ticketPrice,
-            ticketsPerBook: guessPackSize(row.ticketPrice),
+            ticketsPerBook: guessPackSize(row.ticketPrice, packRules),
             category:       row.category || 'instant',
             active:         shouldBeActive,
           },

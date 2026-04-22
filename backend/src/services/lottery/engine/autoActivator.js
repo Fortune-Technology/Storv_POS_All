@@ -21,6 +21,46 @@
 
 import prisma from '../../../config/postgres.js';
 
+// Standard pack sizes shared with the Receive-Books UI. Mirror of
+// PACK_SIZE_CHOICES in frontend/src/pages/Lottery.jsx so both sides agree
+// on what "the next-larger standard pack" means.
+const STANDARD_PACK_SIZES = [10, 20, 30, 40, 50, 60, 100, 120, 150, 200, 250, 300];
+
+/**
+ * Sanity-check a scanned ticket number against the book's stored
+ * totalTickets. If the ticket number exceeds totalTickets (e.g. ticket 128
+ * in a book we believe has only 100 tickets), the pack size was stored
+ * wrong at receive time — bump it up to the smallest standard size that
+ * fits. Also recomputes totalValue.
+ *
+ * Returns the (possibly-updated) box. Never downgrades totalTickets.
+ */
+async function ensurePackSizeFits(box, scannedTicketNum) {
+  const t = Number(scannedTicketNum);
+  const total = Number(box.totalTickets || 0);
+  if (!Number.isFinite(t) || t <= 0) return box;
+  if (total > 0 && t < total) return box; // already consistent
+
+  // Find smallest standard pack that can hold this ticket
+  let bumped = null;
+  for (const s of STANDARD_PACK_SIZES) {
+    if (s > t) { bumped = s; break; }
+  }
+  if (!bumped) {
+    // Bigger than any standard — round up to next 50
+    bumped = Math.ceil((t + 1) / 50) * 50;
+  }
+
+  return prisma.lotteryBox.update({
+    where: { id: box.id },
+    data: {
+      totalTickets: bumped,
+      totalValue:   bumped * Number(box.ticketPrice || 0),
+    },
+    include: { game: true },
+  });
+}
+
 /**
  * Detect a gap in the book-number sequence for the game being activated.
  *
@@ -177,7 +217,8 @@ export async function processScan({
     ? `${parsed.gameNumber}-${parsed.bookNumber}`
     : parsed?.bookCode || 'this book';
 
-  const box = await findBox(orgId, storeId, parsed);
+  // eslint-disable-next-line prefer-const -- reassigned below via ensurePackSizeFits
+  let box = await findBox(orgId, storeId, parsed);
   if (!box) {
     return {
       action: 'rejected',
@@ -196,6 +237,12 @@ export async function processScan({
   }
 
   const ticketNumber = parsed.type === 'ticket' ? String(parsed.ticketNumber) : null;
+
+  // Sanity-check the box's stored totalTickets against the scanned ticket.
+  // If the ticket number is larger than totalTickets, the pack size was
+  // wrong at receive time — auto-bump now. No-op if already consistent.
+  // Applies to BOTH active-update and inventory-activate paths below.
+  box = await ensurePackSizeFits(box, parsed?.ticketNumber);
 
   if (box.status === 'active') {
     if (ticketNumber != null) {

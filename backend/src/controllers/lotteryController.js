@@ -258,7 +258,7 @@ export const receiveBoxOrder = async (req, res) => {
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'No boxes to receive' });
 
     const created = await Promise.all(items.map(async (b) => {
-      const game = await resolveOrCreateStoreGame({
+      let game = await resolveOrCreateStoreGame({
         orgId, storeId,
         gameId:          b.gameId,
         catalogTicketId: b.catalogTicketId,
@@ -266,6 +266,20 @@ export const receiveBoxOrder = async (req, res) => {
         gameNumber:      b.gameNumber,
       });
       const total = Number(b.totalTickets || game.ticketsPerBox);
+
+      // Persist the user's pack-size correction back to the store-level
+      // LotteryGame so future receives of the same game default to the
+      // correct size (no need to re-pick every time). Every book of the
+      // same game has the same pack size — this is the natural home for
+      // the value. We only update if the caller explicitly supplied
+      // totalTickets and it disagrees with what the game currently holds.
+      if (b.totalTickets != null && Number.isFinite(total) && total > 0 && total !== game.ticketsPerBox) {
+        game = await prisma.lotteryGame.update({
+          where: { id: game.id },
+          data:  { ticketsPerBox: total },
+        });
+      }
+
       return prisma.lotteryBox.create({
         data: {
           orgId, storeId,

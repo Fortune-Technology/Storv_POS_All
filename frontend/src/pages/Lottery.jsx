@@ -506,7 +506,7 @@ function ReceiveManualTab({ games, onSave, onClose }) {
 const PACK_SIZE_CHOICES = [10, 20, 30, 40, 50, 60, 100, 120, 150, 200, 250, 300];
 
 // Industry-standard pack-size heuristic mirroring the backend guess.
-// Used only as the DEFAULT value when the catalog's ticketsPerBook is
+// Used as the DEFAULT value when the catalog's ticketsPerBook is
 // obviously-wrong (the legacy 50 for every game) or missing.
 function guessPackSizeClient(price) {
   const p = Number(price);
@@ -519,6 +519,33 @@ function guessPackSizeClient(price) {
   if (p <= 20) return 30;
   if (p <= 30) return 20;
   return 10;
+}
+
+/**
+ * Smart pack-size inference.
+ *
+ * Combines the price-based heuristic with a key physical constraint: the
+ * scanned ticket number MUST be in range [0, packSize − 1], regardless of
+ * whether the store sells ascending or descending. If the heuristic says
+ * 100 but the cashier just scanned ticket 128, the pack can't be 100 —
+ * ticket 128 doesn't exist in a 100-pack. We bump to the smallest standard
+ * choice above the ticket number.
+ *
+ * Skips the bump when scannedTicket is 0 (info-free — ticket 0 fits every
+ * pack size) or when it's less than the heuristic.
+ */
+function inferPackSize(price, scannedTicket) {
+  const heuristic = guessPackSizeClient(price);
+  const t = Number(scannedTicket);
+  if (!Number.isFinite(t) || t <= 0) return heuristic;
+  if (t < heuristic) return heuristic;
+  // Ticket exceeds heuristic — find smallest standard pack that fits.
+  for (const size of PACK_SIZE_CHOICES) {
+    if (size > t) return size;
+  }
+  // Larger than any standard choice (extreme edge case) — round up to
+  // the next multiple of 50 so the stored value is still clean.
+  return Math.ceil((t + 1) / 50) * 50;
 }
 
 /* Scan-to-receive tab — scan each book's barcode, build a running list, confirm all.
@@ -593,14 +620,23 @@ function ReceiveScanTab({ games, onSave, onClose }) {
       }
 
       // Build item record — same shape whether sourced from game or catalog.
-      // Pack-size default: prefer the catalog/game value, but if it's the
-      // legacy hardcoded 50 AND the price-based heuristic suggests a
-      // different size, use the heuristic. User can still override per-book.
+      // Pack-size default cascade:
+      //   1. Smart inference from price AND scanned ticket number
+      //      (if ticket ≥ heuristic, bump to smallest standard pack that fits)
+      //   2. Catalog/store game's stored ticketsPerBox (if it's not the
+      //      obviously-wrong legacy 50)
+      //   3. Price-based heuristic alone
+      // Takes the LARGEST of these so a big ticket number or an admin-set
+      // catalog size wins over a stale heuristic.
       const gameName    = game?.name          || catRow?.name          || `Game ${parsed.gameNumber}`;
       const ticketPrice = Number(game?.ticketPrice   || catRow?.ticketPrice   || 0);
       const catSize     = Number(game?.ticketsPerBox || catRow?.ticketsPerBook || 0);
-      const heuristic   = guessPackSizeClient(ticketPrice);
-      const totalTickets = (catSize === 50 && heuristic !== 50) ? heuristic : (catSize || heuristic);
+      const smartSize   = inferPackSize(ticketPrice, parsed.ticketNumber);
+      // Prefer catalog size when it's a non-legacy (not 50) admin-set value
+      // that already satisfies the scanned ticket. Otherwise let the smart
+      // inference win.
+      const catSizeOk    = catSize > 0 && catSize !== 50 && catSize > Number(parsed.ticketNumber || 0);
+      const totalTickets = catSizeOk ? catSize : smartSize;
       const value        = totalTickets * ticketPrice;
 
       // De-dup: gameId (if we have one) + bookNumber OR catalog+bookNumber
@@ -612,24 +648,52 @@ function ReceiveScanTab({ games, onSave, onClose }) {
         return;
       }
 
-      setItems(arr => [
-        ...arr,
-        {
-          key:             dedupKey,
-          source:          game ? 'game' : 'catalog',
-          gameId:          game?.id,
-          catalogTicketId: catRow?.id,
-          state:           state || catRow?.state,
-          gameNumber:      parsed.gameNumber,
-          gameName,
-          bookNumber:      parsed.bookNumber,
-          ticketPrice,
-          totalTickets,
-          value,
-        },
-      ]);
+      // Same-game consistency: every book of the same game has the same
+      // pack size in reality. If the new scan implies a larger pack than
+      // the existing group holds, bump every prior book in the group to
+      // match (otherwise the earlier 100-pack book and this 150-pack book
+      // would disagree in the UI).
+      const gameSig = game ? `g:${game.id}` : `c:${catRow.id}`;
+      const existingInGroup = items.filter(it =>
+        (it.gameId ? `g:${it.gameId}` : `c:${it.catalogTicketId}`) === gameSig
+      );
+      const bumpGroupTo = existingInGroup.length > 0 && totalTickets > existingInGroup[0].totalTickets
+        ? totalTickets
+        : null;
+      const newRowSize = existingInGroup.length > 0
+        ? Math.max(existingInGroup[0].totalTickets, totalTickets)
+        : totalTickets;
+      const newRowValue = newRowSize * ticketPrice;
+
+      setItems(arr => {
+        // Bump every book in the same group up to the larger size if needed
+        const bumped = bumpGroupTo != null
+          ? arr.map(it => {
+              const sig = it.gameId ? `g:${it.gameId}` : `c:${it.catalogTicketId}`;
+              if (sig !== gameSig) return it;
+              return { ...it, totalTickets: bumpGroupTo, value: bumpGroupTo * Number(it.ticketPrice || 0) };
+            })
+          : arr;
+        return [
+          ...bumped,
+          {
+            key:             dedupKey,
+            source:          game ? 'game' : 'catalog',
+            gameId:          game?.id,
+            catalogTicketId: catRow?.id,
+            state:           state || catRow?.state,
+            gameNumber:      parsed.gameNumber,
+            gameName,
+            bookNumber:      parsed.bookNumber,
+            ticketPrice,
+            totalTickets:    newRowSize,
+            value:           newRowValue,
+          },
+        ];
+      });
       const sourceBadge = game ? '' : ' (from master catalog)';
-      setInfo(`✓ Added ${gameName} — Book ${parsed.bookNumber} (${fmt(value)})${sourceBadge}`);
+      const bumpNote    = bumpGroupTo != null ? ` — Pack bumped to ${bumpGroupTo} (ticket ${parsed.ticketNumber} needs larger pack)` : '';
+      setInfo(`✓ Added ${gameName} — Book ${parsed.bookNumber} (${fmt(newRowValue)})${sourceBadge}${bumpNote}`);
     } catch (e) {
       setErr(e.response?.data?.error || e.message || 'Scan failed');
     } finally {
@@ -641,16 +705,45 @@ function ReceiveScanTab({ games, onSave, onClose }) {
     setItems(arr => arr.filter(it => it.key !== key));
   };
 
-  // Inline pack-size correction — cashier looks at the book and sets the
-  // right pack size before confirming. Live-recomputes book value.
-  const changePackSize = (key, newSize) => {
+  // Per-GAME pack-size correction. Every book of the same game has the same
+  // pack size (intrinsic to the game), so correcting once for game 498
+  // updates ALL scanned books of game 498 in this session — no need to
+  // re-pick the size for each book. The game "signature" matches either by
+  // gameId (store-level game) or catalogTicketId (master catalog fallback).
+  const changePackSize = (signatureKey, newSize) => {
     const sz = Number(newSize);
     if (!Number.isFinite(sz) || sz <= 0) return;
-    setItems(arr => arr.map(it => it.key === key
-      ? { ...it, totalTickets: sz, value: sz * Number(it.ticketPrice || 0) }
-      : it
-    ));
+    setItems(arr => arr.map(it => {
+      const itSig = it.gameId ? `g:${it.gameId}` : `c:${it.catalogTicketId}`;
+      if (itSig !== signatureKey) return it;
+      return { ...it, totalTickets: sz, value: sz * Number(it.ticketPrice || 0) };
+    }));
   };
+
+  // Group items by game for rendering — one pack-size editor per game,
+  // all books of that game listed under it. Preserves original scan order.
+  const gameGroups = React.useMemo(() => {
+    const groups = new Map(); // signatureKey → { signatureKey, gameName, gameNumber, state, source, ticketPrice, totalTickets, books: [] }
+    for (const it of items) {
+      const sig = it.gameId ? `g:${it.gameId}` : `c:${it.catalogTicketId}`;
+      if (!groups.has(sig)) {
+        groups.set(sig, {
+          signatureKey: sig,
+          gameId:       it.gameId,
+          catalogTicketId: it.catalogTicketId,
+          gameName:     it.gameName,
+          gameNumber:   it.gameNumber,
+          state:        it.state,
+          source:       it.source,
+          ticketPrice:  it.ticketPrice,
+          totalTickets: it.totalTickets,
+          books:        [],
+        });
+      }
+      groups.get(sig).books.push(it);
+    }
+    return Array.from(groups.values());
+  }, [items]);
 
   const clearAll = () => {
     if (items.length === 0) return;
@@ -722,9 +815,10 @@ function ReceiveScanTab({ games, onSave, onClose }) {
 
       <div className="lt-scan-hint">
         Scan each book you just received. Duplicates are ignored automatically.
-        Games you haven't received before are auto-pulled from the master catalog.
-        On Confirm, every book lands in the <strong>Safe</strong> (status=Inventory)
-        and is ready to activate at EoD.
+        Books are grouped by game — if the pack size looks wrong, change it
+        once and it applies to every book of that game. On Confirm, every
+        book lands in the <strong>Safe</strong> (status=Inventory) and is
+        ready to activate at EoD.
       </div>
 
       {items.length === 0 ? (
@@ -735,52 +829,62 @@ function ReceiveScanTab({ games, onSave, onClose }) {
       ) : (
         <>
           <div className="lt-scan-list">
-            <div className="lt-scan-list-head">
-              <span>Game</span>
-              <span>Book #</span>
-              <span>Pack</span>
-              <span>Value</span>
-              <span></span>
-            </div>
-            {items.map((it) => (
-              <div key={it.key} className="lt-scan-list-row">
-                <span>
-                  <strong>{it.gameName}</strong>
-                  <small style={{ display: 'block', color: '#6b7280', fontSize: '0.68rem' }}>
-                    #{it.gameNumber}
-                    {it.source === 'catalog' && (
-                      <span className="lt-scan-source-tag" title="Sourced from master catalog — store game will auto-create on confirm">
-                        from catalog
+            {gameGroups.map((grp) => {
+              const grpTotal = grp.books.reduce((s, b) => s + b.value, 0);
+              const packChoices = PACK_SIZE_CHOICES.includes(grp.totalTickets)
+                ? PACK_SIZE_CHOICES
+                : [...PACK_SIZE_CHOICES, grp.totalTickets].sort((a,b) => a - b);
+              return (
+                <div key={grp.signatureKey} className="lt-scan-group">
+                  {/* Game header — game name, number, pack-size editor.
+                      Editing pack size here applies to every book below. */}
+                  <div className="lt-scan-group-head">
+                    <div className="lt-scan-group-meta">
+                      <strong>{grp.gameName}</strong>
+                      <span className="lt-scan-group-num">#{grp.gameNumber}</span>
+                      {grp.source === 'catalog' && (
+                        <span className="lt-scan-source-tag" title="Sourced from master catalog — store game will auto-create on confirm">
+                          from catalog
+                        </span>
+                      )}
+                      <span className="lt-scan-group-books">
+                        {grp.books.length} book{grp.books.length === 1 ? '' : 's'}
                       </span>
-                    )}
-                  </small>
-                </span>
-                <span style={{ fontFamily: 'monospace' }}>{it.bookNumber}</span>
-                <span className="lt-scan-pack-cell">
-                  <select
-                    className="lt-scan-pack-select"
-                    value={it.totalTickets}
-                    onChange={e => changePackSize(it.key, e.target.value)}
-                    title="Pack size — verify from the physical book"
-                  >
-                    {/* Ensure the current value is always an option even if
-                        it isn't in the standard choices list */}
-                    {(PACK_SIZE_CHOICES.includes(it.totalTickets) ? PACK_SIZE_CHOICES : [...PACK_SIZE_CHOICES, it.totalTickets].sort((a,b)=>a-b))
-                      .map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                  <small style={{ color: '#6b7280', fontSize: '0.68rem' }}>× {fmt(it.ticketPrice)}</small>
-                </span>
-                <span style={{ fontWeight: 700, color: '#16a34a' }}>{fmt(it.value)}</span>
-                <button
-                  type="button"
-                  className="lt-scan-remove"
-                  onClick={() => removeItem(it.key)}
-                  title="Remove from list"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
+                    </div>
+                    <div className="lt-scan-group-pack">
+                      <label className="lt-scan-pack-label">Pack size:</label>
+                      <select
+                        className="lt-scan-pack-select"
+                        value={grp.totalTickets}
+                        onChange={e => changePackSize(grp.signatureKey, e.target.value)}
+                        title="Pack size — verify from the physical book. Applies to every book of this game."
+                      >
+                        {packChoices.map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                      <span className="lt-scan-pack-price">× {fmt(grp.ticketPrice)}</span>
+                      <span className="lt-scan-group-total">= {fmt(grpTotal)}</span>
+                    </div>
+                  </div>
+                  {/* Book list under this game */}
+                  <div className="lt-scan-group-books-list">
+                    {grp.books.map(it => (
+                      <div key={it.key} className="lt-scan-book-row">
+                        <span className="lt-scan-book-num">Book {it.bookNumber}</span>
+                        <span className="lt-scan-book-val">{fmt(it.value)}</span>
+                        <button
+                          type="button"
+                          className="lt-scan-remove"
+                          onClick={() => removeItem(it.key)}
+                          title="Remove this book from the list"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="lt-scan-total">

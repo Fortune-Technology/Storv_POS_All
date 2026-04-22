@@ -48,7 +48,6 @@ const FIELD_DESCRIPTIONS = {
   plu:                { desc: 'Produce/scale lookup number (4–5 digits)',                              example: '4011, 94011' },
   sku:                { desc: 'Your internal stock-keeping number',                                   example: 'BEV-001' },
   itemCode:           { desc: 'Distributor / vendor item number for reordering',                      example: '84483, 111398' },
-  productCode:        { desc: 'Manufacturer product code',                                             example: 'MFR-12345' },
 
   // ── Product display ──
   name:               { desc: 'Full product name shown to cashier and customer',                      example: '19 CRIME AMERIKAZ RED 750 ML' },
@@ -228,7 +227,7 @@ const FIELD_LABELS = {
   additionalUpcs: 'Additional UPCs (alternates)',
   packOptions:    'Pack Options (multi-SKU picker)',
   // Stock & Linked
-  quantityOnHand: 'Qty on Hand', linkedUpc: 'Linked/Case UPC', productCode: 'Product Code',
+  quantityOnHand: 'Qty on Hand', linkedUpc: 'Linked/Case UPC',
   // Other
   id: 'ID (update)', code: 'Code', color: 'Color',
   sortOrder: 'Sort Order', showInPOS: 'Show in POS', bottleDeposit: 'Bottle Deposit',
@@ -242,39 +241,77 @@ const FIELD_LABELS = {
   receivedQty: 'Received Qty',
 };
 
+// ── TYPE_FIELDS ──────────────────────────────────────────────────────────────
+// Every import entity lists the schema fields the CSV can map to.
+//
+// PRODUCTS is structured as `{ group, fields }[]` so the dropdown can render
+// HTML <optgroup>s — this gives users a clear visual layout and, in particular,
+// makes it obvious which fields are direct MasterProduct attributes vs. fields
+// that stage into a related row (promotion / alt barcode / per-store qty).
+//
+// Other entities (departments/vendors/promotions/deposits/invoice_costs) are
+// small enough to stay flat.
+//
+// Philosophy: we only expose fields that this system actually persists. Foreign
+// POS / vendor formats are normalized into these fields via VendorImportTemplate
+// (see `/admin/import-templates` for AGNE, Sante, Pine State presets).
 const TYPE_FIELDS = {
-  products:      [
-    'upc','name','brand','description','size','sizeUnit','pack','departmentId','vendorId',
-    'defaultCostPrice','defaultRetailPrice','defaultCasePrice',
-    'taxClass','ebtEligible','ageRequired','discountEligible','taxable','active',
-    'sku','itemCode','plu','reorderPoint','reorderQty',
-    // Grocery / Scale
-    'wicEligible','tareWeight','scaleByCount','scalePluType','ingredients','nutritionFacts',
-    'certCode','sectionId','sectionName','expirationDate','labelFormatId','byWeight',
-    // Inventory tracking + physical weight
-    'trackInventory','weight',
-    // foodstamp removed — duplicate of ebtEligible (both set MasterProduct.ebtEligible
-    // via alias overlap, resulting in non-deterministic mapping). Use ebtEligible.
-    // Image
-    'imageUrl',
-    // E-commerce
-    'hideFromEcom','ecomExternalId','ecomPackWeight','ecomPrice','ecomSalePrice','ecomOnSale','ecomDescription','ecomSummary',
-    // Sale Promotions
-    'specialPrice','specialCost','saleMultiple','regMultiple','priceMethod','groupPrice','groupQty','startDate','endDate',
-    // TPR (Temporary Price Reduction)
-    'tprRetail','tprCost','tprMultiple','tprStartDate','tprEndDate',
-    // Future Pricing
-    'futureRetail','futureCost','futureActiveDate','futureMultiple',
-    // Deposits
-    'depositPerUnit','caseDeposit',
-    // Multi-UPC + multi-pack (Session 3)
-    'additionalUpcs','packOptions',
-    // Stock & Links
-    'quantityOnHand','linkedUpc','productCode',
-    // v2 simplified pack config (preferred)
-    'unitPack','packInCase',
-    // Legacy pack fields (kept for backward compatibility on older CSVs)
-    'casePacks','sellUnitSize',
+  products: [
+    { group: 'Identifiers', fields: [
+      'upc','sku','itemCode','plu',
+    ]},
+    { group: 'Product Display', fields: [
+      'name','brand','description','size','sizeUnit','imageUrl',
+    ]},
+    { group: 'Classification', fields: [
+      'departmentId','vendorId','taxClass',
+    ]},
+    { group: 'Pack Configuration', fields: [
+      'unitPack','packInCase','pack',
+      // Legacy mirror columns — kept for older vendor CSVs that still ship
+      // "Case Packs" / "Sell Unit Size". Auto-written from unitPack/packInCase.
+      'casePacks','sellUnitSize',
+    ]},
+    { group: 'Pricing', fields: [
+      'defaultCostPrice','defaultRetailPrice','defaultCasePrice',
+    ]},
+    { group: 'Compliance & Flags', fields: [
+      'ebtEligible','ageRequired','discountEligible','taxable','active','wicEligible',
+    ]},
+    { group: 'Inventory', fields: [
+      'trackInventory','reorderPoint','reorderQty','quantityOnHand','weight',
+    ]},
+    { group: 'Container Deposits', fields: [
+      'depositPerUnit','caseDeposit',
+    ]},
+    { group: 'Alt Barcodes & Pack Options', fields: [
+      // additionalUpcs → ProductUpc rows (multi-source: one field, several cols)
+      // packOptions    → ProductPackSize rows (cashier pack-size picker)
+      // linkedUpc      → single alternate ProductUpc row
+      'additionalUpcs','packOptions','linkedUpc',
+    ]},
+    { group: 'Grocery / Scale', fields: [
+      'byWeight','scaleByCount','tareWeight','scalePluType','ingredients','nutritionFacts',
+      'certCode','sectionId','sectionName','expirationDate','labelFormatId',
+    ]},
+    { group: 'E-Commerce', fields: [
+      'hideFromEcom','ecomPrice','ecomSalePrice','ecomOnSale','ecomPackWeight',
+      'ecomExternalId','ecomDescription','ecomSummary',
+    ]},
+    // These three groups don't populate MasterProduct — they stage into a
+    // Promotion row linked to the product. Useful when a vendor CSV carries
+    // both master catalog data AND a sale price in the same file (AGNE,
+    // Pine State Monthly Specials).
+    { group: 'Inline Promotion — creates Promotion record', fields: [
+      'specialPrice','specialCost','saleMultiple','regMultiple','priceMethod',
+      'groupPrice','groupQty','startDate','endDate',
+    ]},
+    { group: 'Inline TPR (Temporary Price Reduction)', fields: [
+      'tprRetail','tprCost','tprMultiple','tprStartDate','tprEndDate',
+    ]},
+    { group: 'Inline Future Pricing', fields: [
+      'futureRetail','futureCost','futureActiveDate','futureMultiple',
+    ]},
   ],
   departments:   ['id','name','code','description','taxClass','ebtEligible','ageRequired','bottleDeposit','sortOrder','color','showInPOS','active'],
   vendors:       ['id','name','code','contactName','email','phone','website','terms','accountNo','active'],
@@ -282,6 +319,20 @@ const TYPE_FIELDS = {
   deposits:      ['name','depositAmount','minVolumeOz','maxVolumeOz','containerTypes','state','active'],
   invoice_costs: ['upc','defaultCostPrice','defaultCasePrice','receivedQty','vendorId'],
 };
+
+// Helper: flatten grouped TYPE_FIELDS back into a simple string[] for code
+// paths that don't care about grouping (required-field checks, etc.).
+function flattenTypeFields(entry) {
+  if (!entry) return [];
+  if (entry.length > 0 && typeof entry[0] === 'object' && 'fields' in entry[0]) {
+    return entry.flatMap(g => g.fields);
+  }
+  return entry;
+}
+function isGroupedTypeFields(entry) {
+  return Array.isArray(entry) && entry.length > 0 &&
+         typeof entry[0] === 'object' && 'fields' in entry[0];
+}
 
 const REQUIRED_FIELDS = {
   products:      ['upc','name'],
@@ -541,8 +592,13 @@ const MULTI_SOURCE_FIELDS = new Set(['additionalUpcs']);
 
 function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange, sampleRows }) {
   const [showPreview, setShowPreview] = useState(false);
-  const fields    = TYPE_FIELDS[importType] || [];
-  const required  = REQUIRED_FIELDS[importType] || [];
+  // `rawFields` may be flat string[] (departments/vendors/promotions/deposits/
+  // invoice_costs) or grouped [{group, fields}, ...] (products). `flatFields`
+  // is always a flat string[] for code that needs to iterate every option.
+  const rawFields  = TYPE_FIELDS[importType] || [];
+  const grouped    = isGroupedTypeFields(rawFields);
+  const flatFields = flattenTypeFields(rawFields);
+  const required   = REQUIRED_FIELDS[importType] || [];
 
   // Build reverse map (header → field). For multi-source fields the array
   // of headers all map to the same field.
@@ -640,9 +696,21 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
                       className={`bi-input bi-input--sm ${mapped ? 'bi-input--mapped' : ''}`}
                     >
                       <option value="">— Skip —</option>
-                      {fields.map(f => (
-                        <option key={f} value={f}>{FIELD_LABELS[f] || f}{required.includes(f) ? ' *' : ''}</option>
-                      ))}
+                      {grouped
+                        ? rawFields.map(grp => (
+                            <optgroup key={grp.group} label={grp.group}>
+                              {grp.fields.map(f => (
+                                <option key={f} value={f}>
+                                  {FIELD_LABELS[f] || f}{required.includes(f) ? ' *' : ''}
+                                  {MULTI_SOURCE_FIELDS.has(f) && multiCounts[f] > 0 ? `  (merged ×${multiCounts[f]})` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : flatFields.map(f => (
+                            <option key={f} value={f}>{FIELD_LABELS[f] || f}{required.includes(f) ? ' *' : ''}</option>
+                          ))
+                      }
                     </select>
                   </td>
                   <td className="bi-map-status">

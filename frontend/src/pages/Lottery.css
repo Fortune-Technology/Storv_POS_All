@@ -1402,46 +1402,123 @@
 
 .lt-scan-hint strong { color: var(--text-primary, #111827); }
 
-/* Scanned-item list */
+/* ── Scanned-item list ── grouped by game (per-game pack-size editor) */
 .lt-scan-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  background: #ffffff;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 10px;
-  padding: 6px;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
-.lt-scan-list-head,
-.lt-scan-list-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) 110px 120px 100px 32px;
-  gap: 8px;
+.lt-scan-group {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Game-level header: name, number, pack-size editor (applies to all books) */
+.lt-scan-group-head {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  padding: 8px 10px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #bbf7d0;
 }
 
-.lt-scan-list-head {
-  font-size: 0.64rem;
+.lt-scan-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.lt-scan-group-meta strong {
+  font-size: 0.92rem;
   font-weight: 700;
-  color: var(--text-muted, #6b7280);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-bottom: 1px solid var(--border-color, #f3f4f6);
-  padding-bottom: 6px;
+  color: var(--text-primary, #111827);
 }
 
-.lt-scan-list-row {
-  border-radius: 8px;
-  font-size: 0.85rem;
+.lt-scan-group-num {
+  font-size: 0.72rem;
+  color: var(--text-muted, #6b7280);
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lt-scan-group-books {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  background: #ffffff;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: #166534;
+  font-weight: 600;
+}
+
+.lt-scan-group-pack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lt-scan-pack-label {
+  font-size: 0.75rem;
+  color: #166534;
+  font-weight: 600;
+}
+
+.lt-scan-pack-price {
+  font-size: 0.78rem;
+  color: var(--text-muted, #6b7280);
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-scan-group-total {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #16a34a;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+/* Per-game book list */
+.lt-scan-group-books-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 10px;
+}
+
+.lt-scan-book-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 32px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.84rem;
   transition: background 0.12s;
 }
 
-.lt-scan-list-row:hover { background: #f9fafb; }
+.lt-scan-book-row:hover { background: #f9fafb; }
 
-.lt-scan-list-row > span:first-child strong { color: var(--text-primary, #111827); }
+.lt-scan-book-num {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--text-primary, #111827);
+}
+
+.lt-scan-book-val {
+  font-weight: 700;
+  color: #16a34a;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 
 .lt-scan-remove {
   width: 26px;
@@ -1527,21 +1604,19 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Responsive: collapse the 5-col grid on narrow screens */
+/* Responsive: wrap game header into two rows on narrow screens */
 @media (max-width: 640px) {
-  .lt-scan-list-head { display: none; }
-  .lt-scan-list-row {
-    grid-template-columns: 1fr auto;
-    gap: 4px;
-    padding: 10px 12px;
+  .lt-scan-group-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
-  .lt-scan-list-row > span:nth-child(2),
-  .lt-scan-list-row > span:nth-child(3),
-  .lt-scan-list-row > span:nth-child(4) {
-    grid-column: 1;
-    font-size: 0.78rem;
-    color: var(--text-muted, #6b7280);
+  .lt-scan-group-pack {
+    width: 100%;
+    justify-content: flex-start;
   }
-  .lt-scan-list-row > span:nth-child(4) { color: #16a34a; font-weight: 700; }
-  .lt-scan-remove { grid-column: 2; grid-row: 1 / span 4; align-self: center; }
+  .lt-scan-book-row {
+    grid-template-columns: minmax(0, 1fr) 80px 32px;
+    gap: 6px;
+    font-size: 0.8rem;
+  }
 }

@@ -50,6 +50,7 @@ export const createState = async (req, res) => {
       code, name, country, defaultTaxRate, defaultLotteryCommission,
       instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
+      lotteryPackSizeRules,
       notes, active,
     } = req.body;
 
@@ -75,6 +76,12 @@ export const createState = async (req, res) => {
         tobaccoAgeLimit:          tobaccoAgeLimit != null ? Number(tobaccoAgeLimit) : 21,
         bottleDepositRules:       Array.isArray(bottleDepositRules) ? bottleDepositRules : [],
         lotteryGameStubs:         Array.isArray(lotteryGameStubs) ? lotteryGameStubs : [],
+        // Pack-size rules must be an array of { maxPrice, packSize } objects.
+        // Empty array = use backend default (DEFAULT_PACK_SIZE_RULES).
+        lotteryPackSizeRules:     Array.isArray(lotteryPackSizeRules)
+          ? lotteryPackSizeRules.filter(r => Number.isFinite(Number(r?.maxPrice)) && Number.isFinite(Number(r?.packSize)))
+                                 .map(r => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
+          : [],
         notes:                    notes ? String(notes) : null,
         active:                   active !== false,
       },
@@ -97,6 +104,7 @@ export const updateState = async (req, res) => {
       name, country, defaultTaxRate, defaultLotteryCommission,
       instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
+      lotteryPackSizeRules,
       notes, active,
     } = req.body;
 
@@ -115,6 +123,13 @@ export const updateState = async (req, res) => {
         ...(tobaccoAgeLimit !== undefined && { tobaccoAgeLimit: Number(tobaccoAgeLimit) }),
         ...(bottleDepositRules !== undefined && { bottleDepositRules: Array.isArray(bottleDepositRules) ? bottleDepositRules : [] }),
         ...(lotteryGameStubs !== undefined && { lotteryGameStubs: Array.isArray(lotteryGameStubs) ? lotteryGameStubs : [] }),
+        ...(lotteryPackSizeRules !== undefined && {
+          lotteryPackSizeRules: Array.isArray(lotteryPackSizeRules)
+            ? lotteryPackSizeRules
+                .filter(r => Number.isFinite(Number(r?.maxPrice)) && Number.isFinite(Number(r?.packSize)))
+                .map(r => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
+            : [],
+        }),
         ...(notes !== undefined && { notes: notes ? String(notes) : null }),
         ...(active !== undefined && { active: Boolean(active) }),
       },
