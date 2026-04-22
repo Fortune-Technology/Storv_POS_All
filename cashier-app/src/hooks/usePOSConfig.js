@@ -65,6 +65,12 @@ export const DEFAULT_POS_CONFIG = {
       name:   '',
       ip:     '',
       port:   9100,
+      // If true, this station polls the backend queue and prints routed ZPL
+      // jobs via Zebra Browser Print (local). Required when the portal is
+      // served from a public HTTPS origin (Chrome LNA block).
+      acceptRoutedJobs: false,
+      // Preferred Zebra Browser Print printer name. Empty = use first available.
+      zebraName: '',
     },
     scale: {
       type:      'none',    // 'cas' | 'mettler' | 'avery' | 'datalogic' | 'generic' | 'none'

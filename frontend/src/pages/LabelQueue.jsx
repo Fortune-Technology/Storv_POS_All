@@ -13,6 +13,7 @@ import {
   addToLabelQueue,
   printLabelQueue,
   dismissLabelQueue,
+  submitLabelPrintJob,
 } from '../services/api';
 import api from '../services/api';
 import { toast } from 'react-toastify';
@@ -315,49 +316,83 @@ export default function LabelQueue({ embedded }) {
     setCollapsed(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
+  // Shares the persisted toggle with Label Design — if the user opted into
+  // routed printing there, the queue should route too.
+  const routeViaRegister = (() => {
+    try { return localStorage.getItem('label_route_via_register') === 'true'; }
+    catch { return false; }
+  })();
+
+  const buildBatchZPL = (selectedItems) => {
+    const template = getDefaultTemplate();
+    let allZPL = '';
+    for (const item of selectedItems) {
+      const productData = {
+        name: item.product?.name || '',
+        brand: item.product?.brand || '',
+        size: item.product?.size || '',
+        sizeUnit: item.product?.sizeUnit || '',
+        upc: item.product?.upc || '',
+        retailPrice: Number(item.newPrice || item.product?.defaultRetailPrice) || 0,
+        salePrice: item.reason === 'sale_started' ? Number(item.newPrice) || null : null,
+        departmentName: item.product?.department?.name || '',
+      };
+      allZPL += generateZPL(template, productData, template.labelSize);
+    }
+    return allZPL;
+  };
+
   // ── Bulk actions ─────────────────────────────────────────────────────────
   const handlePrint = async () => {
     if (selected.size === 0) { toast.warn('Select items to print'); return; }
 
     const selectedItems = items.filter(i => selected.has(i._id || i.id));
     const ids = Array.from(selected);
+    let printedOk = false;
 
-    // Try Zebra Browser Print — generate ZPL from default template
-    let zebraSent = false;
-    try {
-      const zebraOk = await isZebraAvailable();
-      if (zebraOk) {
-        const { connected, selectedPrinter } = await connectZebra();
-        if (connected && selectedPrinter) {
-          const template = getDefaultTemplate();
-          let allZPL = '';
-          for (const item of selectedItems) {
-            const productData = {
-              name: item.product?.name || '',
-              brand: item.product?.brand || '',
-              size: item.product?.size || '',
-              sizeUnit: item.product?.sizeUnit || '',
-              upc: item.product?.upc || '',
-              retailPrice: Number(item.newPrice || item.product?.defaultRetailPrice) || 0,
-              salePrice: item.reason === 'sale_started' ? Number(item.newPrice) || null : null,
-              departmentName: item.product?.department?.name || '',
-            };
-            allZPL += generateZPL(template, productData, template.labelSize);
-          }
-          const result = await printZPL(allZPL, selectedPrinter);
-          if (result.success) {
-            toast.success(`Printed ${selectedItems.length} label(s) to ${selectedPrinter}`);
-            zebraSent = true;
+    // 1. Route via cashier-app (required on public HTTPS)
+    if (routeViaRegister) {
+      try {
+        const zpl = buildBatchZPL(selectedItems);
+        await submitLabelPrintJob({
+          zpl,
+          labelCount: selectedItems.length,
+          source: 'label_queue',
+          metadata: {
+            productIds: selectedItems.map(i => i.product?.id).filter(Boolean),
+            queueItemIds: ids,
+          },
+        });
+        toast.info(`Queued ${selectedItems.length} label(s) — register will print shortly`);
+        printedOk = true;
+      } catch (err) {
+        toast.error(`Could not queue print: ${err?.response?.data?.error || err.message}`);
+      }
+    }
+
+    // 2. Direct Zebra Browser Print (works on localhost dev; blocked on public HTTPS)
+    if (!printedOk) {
+      try {
+        const zebraOk = await isZebraAvailable();
+        if (zebraOk) {
+          const { connected, selectedPrinter } = await connectZebra();
+          if (connected && selectedPrinter) {
+            const zpl = buildBatchZPL(selectedItems);
+            const result = await printZPL(zpl, selectedPrinter);
+            if (result.success) {
+              toast.success(`Printed ${selectedItems.length} label(s) to ${selectedPrinter}`);
+              printedOk = true;
+            }
           }
         }
-      }
-    } catch { /* Zebra not available — fallback below */ }
+      } catch { /* fallback below */ }
+    }
 
-    if (!zebraSent) {
+    if (!printedOk) {
       toast.info(`${selectedItems.length} label(s) marked as printed (no Zebra printer connected)`);
     }
 
-    // Mark as printed in the database regardless
+    // Mark as printed in the database regardless so the queue clears.
     try {
       await printLabelQueue({ ids });
       setSelected(new Set());

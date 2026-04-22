@@ -241,6 +241,14 @@ export const addToLabelQueue    = (data)   => api.post('/label-queue/add', data)
 export const printLabelQueue    = (data)   => api.post('/label-queue/print', data).then(r => r.data);
 export const dismissLabelQueue  = (data)   => api.post('/label-queue/dismiss', data).then(r => r.data);
 
+// ── Label Print Jobs (routed via cashier-app Electron bridge) ───────────────
+// Portal submits ZPL here when direct Zebra Browser Print is blocked by
+// Chrome LNA on public HTTPS origins.
+export const submitLabelPrintJob    = (data)   => api.post('/label-print-jobs', data).then(r => r.data);
+export const getLabelPrintJobs      = (params) => api.get('/label-print-jobs', { params }).then(r => r.data);
+export const getLabelPrintJob       = (id)     => api.get(`/label-print-jobs/${id}`).then(r => r.data);
+export const retryLabelPrintJob     = (id)     => api.post(`/label-print-jobs/${id}/retry`).then(r => r.data);
+
 // ── Reports Hub ─────────────────────────────────────────────────────────────
 export const getReportSummary       = (params) => api.get('/reports/hub/summary', { params }).then(r => r.data);
 export const getReportTax           = (params) => api.get('/reports/hub/tax', { params }).then(r => r.data);
