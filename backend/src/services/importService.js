@@ -472,7 +472,41 @@ function resolveVendor(value, ctx, strategy = 'skip') {
 function validateProductRow(raw, mapping, ctx, opts = {}) {
   const errors = [];
   const warnings = [];
-  const get = (field) => (mapping[field] ? String(raw[mapping[field]] || '').trim() : '');
+  // Single-source lookup: mapping[field] is a column name
+  const get = (field) => {
+    const m = mapping[field];
+    if (!m) return '';
+    if (Array.isArray(m)) {
+      // Multi-source mapping — pick the first non-empty value so regular
+      // single-value lookups (get('name') etc.) still behave sanely. Use
+      // getMulti below to collect ALL values.
+      for (const col of m) {
+        const v = String(raw[col] || '').trim();
+        if (v) return v;
+      }
+      return '';
+    }
+    return String(raw[m] || '').trim();
+  };
+  // Multi-source lookup: for fields like additionalUpcs where a single canonical
+  // field is fed by several vendor columns (Sante's Pack 1 UPC … Pack 6 UPC).
+  // Returns the joined non-empty values separated by `joinWith`.
+  const getMulti = (field, joinWith = '|') => {
+    const m = mapping[field];
+    if (!m) return '';
+    const cols = Array.isArray(m) ? m : [m];
+    const parts = [];
+    for (const col of cols) {
+      const v = String(raw[col] || '').trim();
+      if (v) parts.push(v);
+    }
+    return parts.join(joinWith);
+  };
+  const hasMapping = (field) => {
+    const m = mapping[field];
+    if (Array.isArray(m)) return m.length > 0;
+    return !!m;
+  };
   const deptStrategy   = opts.unknownDeptStrategy   || 'skip';
   const vendorStrategy = opts.unknownVendorStrategy || 'skip';
 
@@ -678,9 +712,14 @@ function validateProductRow(raw, mapping, ctx, opts = {}) {
       // `_has*` flags distinguish "column absent" (undefined) from "column present
       // but empty" (''), so REPLACE semantics only fire when the column was
       // explicitly supplied in the CSV.
-      _hasAdditionalUpcs: !!mapping['additionalUpcs'],
-      _additionalUpcs:    get('additionalUpcs') || '',
-      _hasPackOptions:    !!mapping['packOptions'],
+      //
+      // additionalUpcs supports MULTI-SOURCE mapping — one canonical field
+      // can be fed by many vendor columns (e.g. Sante's Pack 1 UPC … Pack 6
+      // UPC). `getMulti` joins all non-empty values with '|' so the existing
+      // downstream splitter keeps working unchanged.
+      _hasAdditionalUpcs: hasMapping('additionalUpcs'),
+      _additionalUpcs:    getMulti('additionalUpcs', '|') || '',
+      _hasPackOptions:    hasMapping('packOptions'),
       _packOptions:       get('packOptions') || '',
 
       // ── Deposits ──

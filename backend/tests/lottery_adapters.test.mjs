@@ -9,6 +9,7 @@ import MA from '../src/services/lottery/adapters/MA.js';
 import ME from '../src/services/lottery/adapters/ME.js';
 import { getAdapter, supportedStates } from '../src/services/lottery/adapters/_registry.js';
 import { parseScan } from '../src/services/lottery/engine/scanParser.js';
+import { guessPackSize } from '../src/services/lottery/catalogSync.js';
 
 describe('State adapter registry', () => {
   test('exposes MA and ME', () => {
@@ -171,6 +172,35 @@ describe('Maine adapter', () => {
     assert.equal(ME.parseAny('710-015744'), null);
     assert.equal(ME.parseAny(''), null);
     assert.equal(ME.parseAny('not a barcode'), null);
+  });
+});
+
+describe('guessPackSize — price-based heuristic (MA feed omits pack size)', () => {
+  test('$1 ticket → 300 pack', () => assert.equal(guessPackSize(1), 300));
+  test('$2 ticket → 200 pack', () => assert.equal(guessPackSize(2), 200));
+  test('$3 ticket → 200 pack', () => assert.equal(guessPackSize(3), 200));
+  test('$5 ticket → 100 pack (MA common size)', () => assert.equal(guessPackSize(5), 100));
+  test('$10 ticket → 50 pack (MA common size)', () => assert.equal(guessPackSize(10), 50));
+  test('$20 ticket → 30 pack', () => assert.equal(guessPackSize(20), 30));
+  test('$25 ticket → 20 pack (fallback from >20 bucket)', () => assert.equal(guessPackSize(25), 20));
+  test('$30 ticket → 20 pack', () => assert.equal(guessPackSize(30), 20));
+  test('$50 ticket → 10 pack', () => assert.equal(guessPackSize(50), 10));
+  test('$100 ticket → 10 pack (highest tier)', () => assert.equal(guessPackSize(100), 10));
+
+  test('Price between buckets rounds UP (e.g. $1.50 → 200 pack, not 300)', () => {
+    assert.equal(guessPackSize(1.5), 200);
+  });
+  test('Invalid input (NaN/negative/zero) → safe default 50', () => {
+    assert.equal(guessPackSize(NaN),       50);
+    assert.equal(guessPackSize(-5),        50);
+    assert.equal(guessPackSize(0),         50);
+    assert.equal(guessPackSize(null),      50);
+    assert.equal(guessPackSize(undefined), 50);
+    assert.equal(guessPackSize('banana'),  50);
+  });
+  test('String price coerces via Number()', () => {
+    assert.equal(guessPackSize('5'),  100);
+    assert.equal(guessPackSize('10'), 50);
   });
 });
 

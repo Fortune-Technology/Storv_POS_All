@@ -1476,6 +1476,35 @@
   vertical-align: middle;
 }
 
+/* Editable Pack size dropdown — MA feed doesn't expose real pack size,
+ * so cashier corrects per-book before Confirm. Live-recomputes value. */
+.lt-scan-pack-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.lt-scan-pack-select {
+  padding: 3px 24px 3px 6px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color, #e5e7eb);
+  background: #ffffff;
+  color: var(--text-primary, #111827);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.lt-scan-pack-select:focus,
+.lt-scan-pack-select:hover {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12);
+}
+
 /* Footer total strip — count + grand total */
 .lt-scan-total {
   display: flex;

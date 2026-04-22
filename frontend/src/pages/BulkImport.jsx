@@ -516,22 +516,64 @@ function DropZone({ file, onFile, onClear }) {
 
 // ─── Mapping Table ────────────────────────────────────────────────────────────
 
+// Fields where a single canonical target can accept MULTIPLE source columns
+// (e.g. Sante's Pack 1 UPC … Pack 6 UPC all feed additionalUpcs). When the
+// user maps several headers to one of these fields, the mapping value becomes
+// an array and the backend merges the values with '|' at import time.
+const MULTI_SOURCE_FIELDS = new Set(['additionalUpcs']);
+
 function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange, sampleRows }) {
   const [showPreview, setShowPreview] = useState(false);
   const fields    = TYPE_FIELDS[importType] || [];
   const required  = REQUIRED_FIELDS[importType] || [];
 
+  // Build reverse map (header → field). For multi-source fields the array
+  // of headers all map to the same field.
   const reverseMap = {};
-  Object.entries(mapping).forEach(([f, h]) => { reverseMap[h] = f; });
+  Object.entries(mapping).forEach(([f, h]) => {
+    if (Array.isArray(h)) h.forEach(col => { reverseMap[col] = f; });
+    else if (h) reverseMap[h] = f;
+  });
 
-  const mappedCount = Object.keys(mapping).length;
+  // Count how many headers feed each multi-source field — shown as a badge
+  // next to "Additional UPCs" etc. so the user sees "×3" when 3 cols map.
+  const multiCounts = {};
+  for (const f of MULTI_SOURCE_FIELDS) {
+    const v = mapping[f];
+    multiCounts[f] = Array.isArray(v) ? v.length : (v ? 1 : 0);
+  }
+
+  const mappedCount = Object.keys(mapping).filter(f => {
+    const v = mapping[f];
+    return Array.isArray(v) ? v.length > 0 : !!v;
+  }).length;
 
   const handleHeaderChange = (csvHeader, schemaField) => {
     const m = { ...mapping };
-    Object.keys(m).forEach(f => { if (m[f] === csvHeader) delete m[f]; });
-    if (schemaField && m[schemaField]) delete m[schemaField];
-    if (schemaField) m[schemaField] = csvHeader;
-    // Pass the header the user touched so the parent can PIN it
+    // Step 1: remove csvHeader from wherever it currently lives
+    for (const f of Object.keys(m)) {
+      const cur = m[f];
+      if (Array.isArray(cur)) {
+        const kept = cur.filter(h => h !== csvHeader);
+        if (kept.length === 0) delete m[f];
+        else m[f] = kept;
+      } else if (cur === csvHeader) {
+        delete m[f];
+      }
+    }
+    // Step 2: claim the new target
+    if (schemaField) {
+      if (MULTI_SOURCE_FIELDS.has(schemaField)) {
+        // Multi-source: append to existing array (or start one)
+        const existing = Array.isArray(m[schemaField]) ? m[schemaField] : (m[schemaField] ? [m[schemaField]] : []);
+        if (!existing.includes(csvHeader)) existing.push(csvHeader);
+        m[schemaField] = existing;
+      } else {
+        // Single-source: displace any prior claimer
+        if (m[schemaField]) delete m[schemaField];
+        m[schemaField] = csvHeader;
+      }
+    }
     onChange(m, csvHeader);
   };
 
@@ -594,6 +636,15 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
                       : <span className="bi-map-unmapped">not mapped</span>
                     }
                     {isReq && <span className="bi-req-tag">REQ</span>}
+                    {mapped && MULTI_SOURCE_FIELDS.has(mapped) && multiCounts[mapped] > 1 && (
+                      <span
+                        className="bi-badge bi-badge--blue"
+                        style={{ marginLeft: 6 }}
+                        title={`Merged with ${multiCounts[mapped] - 1} other column${multiCounts[mapped] === 2 ? '' : 's'} into this field (values combined).`}
+                      >
+                        merged ×{multiCounts[mapped]}
+                      </span>
+                    )}
                   </td>
                   <td className="bi-map-guide">
                     {guide ? (

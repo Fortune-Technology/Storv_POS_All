@@ -58,10 +58,13 @@ const VALID_TYPES = ['products','departments','vendors','promotions','deposits',
  * header can only be claimed by ONE schema field.
  */
 function mergeMapping(detectedMapping, manualMappingRaw) {
+  // Helper — a mapping value is "skipped" if it's null/empty/[].
+  const isSkipped = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+
   const manualMapping = {};
   const skippedFields = new Set();
   for (const [field, header] of Object.entries(manualMappingRaw || {})) {
-    if (header == null || header === '') {
+    if (isSkipped(header)) {
       skippedFields.add(field);
     } else {
       manualMapping[field] = header;
@@ -69,18 +72,27 @@ function mergeMapping(detectedMapping, manualMappingRaw) {
   }
   const mapping = { ...detectedMapping, ...manualMapping };
   for (const f of skippedFields) delete mapping[f];
-  // Prevent a raw header from being claimed twice (manual-first priority)
+  // Prevent a raw header from being claimed twice (manual-first priority).
+  // For array-valued mappings (multi-source like additionalUpcs), claim EACH
+  // header in the array; if one is already claimed by a different field, drop
+  // it from the array but keep the rest.
   const seenHeaders = new Set();
   const manualFields = new Set(Object.keys(manualMapping));
-  // Walk manual fields first so they win
   const ordered = [...manualFields, ...Object.keys(mapping).filter(k => !manualFields.has(k))];
   const final = {};
   for (const field of ordered) {
     const h = mapping[field];
-    if (h == null || h === '') continue;
-    if (seenHeaders.has(h)) continue;
-    seenHeaders.add(h);
-    final[field] = h;
+    if (isSkipped(h)) continue;
+    if (Array.isArray(h)) {
+      const kept = h.filter(col => col && !seenHeaders.has(col));
+      if (kept.length === 0) continue;
+      kept.forEach(col => seenHeaders.add(col));
+      final[field] = kept;
+    } else {
+      if (seenHeaders.has(h)) continue;
+      seenHeaders.add(h);
+      final[field] = h;
+    }
   }
   return final;
 }

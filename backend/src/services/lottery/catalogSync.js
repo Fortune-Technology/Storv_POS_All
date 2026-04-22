@@ -19,6 +19,45 @@ import prisma from '../../config/postgres.js';
 const USER_AGENT = 'Storv-POS-CatalogSync/1.0';
 const FETCH_TIMEOUT_MS = 15_000;
 
+/**
+ * Guess the pack (book) size for a scratch ticket based on ticket price.
+ *
+ * State lottery feeds (MA's /api/v1/games specifically) do NOT include the
+ * pack size in their response — the field simply doesn't exist in the JSON.
+ * The pack size is printed on the physical book and published in each game's
+ * rules PDF, but not exposed via API. Since every book at the receive stage
+ * needs a valid pack size (to compute startTicket for sell-direction-aware
+ * activation and to validate scanned ticket numbers), we fall back to the
+ * industry-standard sizing that MA + most US state lotteries follow:
+ *
+ *   $1 tickets  → 300/pack    (high-volume cheap stock)
+ *   $2 tickets  → 200/pack
+ *   $3 tickets  → 200/pack
+ *   $5 tickets  → 100/pack    (sometimes 150 in newer games)
+ *   $10 tickets → 50/pack
+ *   $20 tickets → 30/pack
+ *   $25 tickets → 30/pack
+ *   $30 tickets → 20/pack
+ *   $50 tickets → 10/pack
+ *
+ * Falls back to 50 for unrecognised prices (mid-range safe default).
+ * Admins MUST be able to override per-game — both via Lottery Catalog edit in
+ * the admin-app (preserved on re-sync) and per-book in the Receive Books
+ * scan flow (before Confirm).
+ */
+export function guessPackSize(ticketPrice) {
+  const p = Number(ticketPrice);
+  if (!Number.isFinite(p) || p <= 0) return 50;
+  if (p <= 1)  return 300;
+  if (p <= 2)  return 200;
+  if (p <= 3)  return 200;
+  if (p <= 5)  return 100;
+  if (p <= 10) return 50;
+  if (p <= 20) return 30;
+  if (p <= 30) return 20;
+  return 10;   // $50 and up
+}
+
 // ── Massachusetts ─────────────────────────────────────────────────────────
 
 /**
@@ -119,7 +158,7 @@ async function upsertCatalog({ state, fetched }) {
             gameNumber:     row.gameNumber,
             name:           row.name,
             ticketPrice:    row.ticketPrice,
-            ticketsPerBook: 50,  // MA default; admin can adjust
+            ticketsPerBook: guessPackSize(row.ticketPrice),
             category:       row.category || 'instant',
             active:         shouldBeActive,
           },

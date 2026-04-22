@@ -345,18 +345,41 @@ export const updateBox = async (req, res) => {
     const { id }  = req.params;
     const box = await prisma.lotteryBox.findFirst({ where: { id, orgId, storeId } });
     if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
-    const { slotNumber, status, currentTicket } = req.body;
+    const {
+      slotNumber, status, currentTicket,
+      // Additional fields: used to fix pack-size / pricing mistakes on books
+      // that were received with the wrong metadata. totalValue is auto-
+      // recomputed when totalTickets or ticketPrice change so reports stay
+      // consistent. startTicket is accepted for EoD corrections.
+      totalTickets, ticketPrice, startTicket, boxNumber,
+    } = req.body;
+
+    const patch = {
+      ...(slotNumber     != null && { slotNumber:     Number(slotNumber) }),
+      ...(status         != null && { status }),
+      ...(currentTicket  != null && { currentTicket: String(currentTicket) }),
+      ...(startTicket    != null && { startTicket:   String(startTicket) }),
+      ...(boxNumber      != null && { boxNumber:     String(boxNumber) }),
+      ...(status === 'depleted' && !box.depletedAt && { depletedAt: new Date() }),
+    };
+
+    // Recompute totalValue whenever totalTickets or ticketPrice change so
+    // Counter/Safe value totals stay accurate.
+    if (totalTickets != null || ticketPrice != null) {
+      const newTotal = totalTickets != null ? Number(totalTickets) : Number(box.totalTickets || 0);
+      const newPrice = ticketPrice  != null ? Number(ticketPrice)  : Number(box.ticketPrice  || 0);
+      if (totalTickets != null) patch.totalTickets = newTotal;
+      if (ticketPrice  != null) patch.ticketPrice  = newPrice;
+      patch.totalValue = newTotal * newPrice;
+    }
+
     const updated = await prisma.lotteryBox.update({
       where: { id },
-      data: {
-        ...(slotNumber     != null && { slotNumber:     Number(slotNumber) }),
-        ...(status         != null && { status }),
-        ...(currentTicket  != null && { currentTicket: String(currentTicket) }),
-        ...(status === 'depleted' && !box.depletedAt && { depletedAt: new Date() }),
-      },
+      data: patch,
     });
     res.json({ success: true, data: updated });
   } catch (err) {
+    console.error('[lottery.updateBox]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };

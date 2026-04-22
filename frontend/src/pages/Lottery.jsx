@@ -500,6 +500,27 @@ function ReceiveManualTab({ games, onSave, onClose }) {
   );
 }
 
+// MA + most US state lotteries standardise pack sizes at these values.
+// The user physically sees the pack size printed on each book so should be
+// able to correct it inline if the catalog default is wrong.
+const PACK_SIZE_CHOICES = [10, 20, 30, 40, 50, 60, 100, 120, 150, 200, 250, 300];
+
+// Industry-standard pack-size heuristic mirroring the backend guess.
+// Used only as the DEFAULT value when the catalog's ticketsPerBook is
+// obviously-wrong (the legacy 50 for every game) or missing.
+function guessPackSizeClient(price) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return 50;
+  if (p <= 1)  return 300;
+  if (p <= 2)  return 200;
+  if (p <= 3)  return 200;
+  if (p <= 5)  return 100;
+  if (p <= 10) return 50;
+  if (p <= 20) return 30;
+  if (p <= 30) return 20;
+  return 10;
+}
+
 /* Scan-to-receive tab — scan each book's barcode, build a running list, confirm all.
  *
  * Game lookup cascade (most → least direct):
@@ -509,6 +530,11 @@ function ReceiveManualTab({ games, onSave, onClose }) {
  *      games the superadmin has synced/seeded but this store hasn't received
  *      from yet. Backend auto-creates the store-level game on confirm.
  *   3. No match → error "Game not in catalog".
+ *
+ * Pack size per item: defaults from the catalog's ticketsPerBook, BUT since
+ * MA's public feed doesn't expose pack size, the admin catalog may hold a
+ * stale/heuristic value. The cashier has the physical book in hand — they
+ * should correct it inline via the dropdown before confirming.
  */
 function ReceiveScanTab({ games, onSave, onClose }) {
   const [scanValue, setScanValue] = useState('');
@@ -566,10 +592,15 @@ function ReceiveScanTab({ games, onSave, onClose }) {
         return;
       }
 
-      // Build item record — same shape whether sourced from game or catalog
-      const gameName     = game?.name          || catRow?.name          || `Game ${parsed.gameNumber}`;
-      const totalTickets = Number(game?.ticketsPerBox || catRow?.ticketsPerBook || 150);
-      const ticketPrice  = Number(game?.ticketPrice   || catRow?.ticketPrice   || 0);
+      // Build item record — same shape whether sourced from game or catalog.
+      // Pack-size default: prefer the catalog/game value, but if it's the
+      // legacy hardcoded 50 AND the price-based heuristic suggests a
+      // different size, use the heuristic. User can still override per-book.
+      const gameName    = game?.name          || catRow?.name          || `Game ${parsed.gameNumber}`;
+      const ticketPrice = Number(game?.ticketPrice   || catRow?.ticketPrice   || 0);
+      const catSize     = Number(game?.ticketsPerBox || catRow?.ticketsPerBook || 0);
+      const heuristic   = guessPackSizeClient(ticketPrice);
+      const totalTickets = (catSize === 50 && heuristic !== 50) ? heuristic : (catSize || heuristic);
       const value        = totalTickets * ticketPrice;
 
       // De-dup: gameId (if we have one) + bookNumber OR catalog+bookNumber
@@ -610,6 +641,17 @@ function ReceiveScanTab({ games, onSave, onClose }) {
     setItems(arr => arr.filter(it => it.key !== key));
   };
 
+  // Inline pack-size correction — cashier looks at the book and sets the
+  // right pack size before confirming. Live-recomputes book value.
+  const changePackSize = (key, newSize) => {
+    const sz = Number(newSize);
+    if (!Number.isFinite(sz) || sz <= 0) return;
+    setItems(arr => arr.map(it => it.key === key
+      ? { ...it, totalTickets: sz, value: sz * Number(it.ticketPrice || 0) }
+      : it
+    ));
+  };
+
   const clearAll = () => {
     if (items.length === 0) return;
     if (!window.confirm(`Clear all ${items.length} scanned book${items.length === 1 ? '' : 's'}?`)) return;
@@ -628,8 +670,12 @@ function ReceiveScanTab({ games, onSave, onClose }) {
           // Backend's resolveOrCreateStoreGame prefers direct gameId, then
           // catalogTicketId, then (state, gameNumber). Send whichever we have —
           // multiple is fine, the resolver tries them in order.
+          // totalTickets is sent explicitly per-book so the user's inline
+          // pack-size correction flows through to LotteryBox.totalTickets,
+          // which drives startTicket calculation on activation.
           const payload = {
-            boxNumber:  it.bookNumber,
+            boxNumber:    it.bookNumber,
+            totalTickets: it.totalTickets,
             // startTicket intentionally omitted — derived from store.sellDirection
             // on first activation via autoActivator (see Phase 3g notes).
           };
@@ -710,7 +756,20 @@ function ReceiveScanTab({ games, onSave, onClose }) {
                   </small>
                 </span>
                 <span style={{ fontFamily: 'monospace' }}>{it.bookNumber}</span>
-                <span>{it.totalTickets} × {fmt(it.ticketPrice)}</span>
+                <span className="lt-scan-pack-cell">
+                  <select
+                    className="lt-scan-pack-select"
+                    value={it.totalTickets}
+                    onChange={e => changePackSize(it.key, e.target.value)}
+                    title="Pack size — verify from the physical book"
+                  >
+                    {/* Ensure the current value is always an option even if
+                        it isn't in the standard choices list */}
+                    {(PACK_SIZE_CHOICES.includes(it.totalTickets) ? PACK_SIZE_CHOICES : [...PACK_SIZE_CHOICES, it.totalTickets].sort((a,b)=>a-b))
+                      .map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <small style={{ color: '#6b7280', fontSize: '0.68rem' }}>× {fmt(it.ticketPrice)}</small>
+                </span>
                 <span style={{ fontWeight: 700, color: '#16a34a' }}>{fmt(it.value)}</span>
                 <button
                   type="button"
