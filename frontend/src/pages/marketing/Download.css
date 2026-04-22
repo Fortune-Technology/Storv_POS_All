@@ -1,0 +1,282 @@
+/** Download Page — matches About / Features / Contact hero pattern */
+
+.download-page { overflow-x: hidden; }
+
+/* ════════════════════════════════════════════════════════
+   HERO
+   Canonical pattern: 150px top padding, centered, radial
+   brand-10 glow from the top. Same structure as Features.
+════════════════════════════════════════════════════════ */
+.dl-hero {
+  position: relative;
+  padding: 150px 1.5rem 80px;
+  text-align: center;
+  overflow: hidden;
+}
+
+.dl-hero-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 0%, var(--brand-10) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.dl-hero-content {
+  position: relative;
+  z-index: 1;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.dl-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-primary, #3d56b5);
+  background: var(--brand-08, rgba(61, 86, 181, 0.08));
+  border-radius: 999px;
+  margin-bottom: 1.25rem;
+}
+
+.dl-hero-content h1 {
+  font-size: var(--mkt-heading-xl);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  margin-bottom: 1.25rem;
+  color: var(--text-primary);
+}
+
+.dl-hero-content > p {
+  font-size: var(--mkt-body-lg);
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin: 0 auto 2rem;
+  max-width: 620px;
+}
+
+.dl-hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dl-hero-actions--center {
+  margin-top: 1.5rem;
+}
+
+.dl-mac-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+  padding: 0 0.5rem;
+}
+
+.dl-hero-trust {
+  margin-top: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+}
+.dl-hero-trust a {
+  color: var(--brand-primary, #3d56b5);
+  text-decoration: underline;
+}
+
+/* ════════════════════════════════════════════════════════
+   SECTION HEADS (shared with other marketing pages)
+════════════════════════════════════════════════════════ */
+.dl-section-head {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 3rem;
+}
+
+.dl-section-head h2 {
+  font-size: var(--mkt-heading-lg);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.dl-section-head p {
+  font-size: var(--mkt-body-lg);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ════════════════════════════════════════════════════════
+   REQUIREMENTS GRID
+════════════════════════════════════════════════════════ */
+.dl-req-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.dl-req-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 16px);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.dl-req-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  border-color: var(--brand-25, rgba(61, 86, 181, 0.25));
+}
+
+.dl-req-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  background: var(--brand-08, rgba(61, 86, 181, 0.08));
+  color: var(--brand-primary, #3d56b5);
+  border-radius: 14px;
+  margin-bottom: 1rem;
+}
+
+.dl-req-card h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem;
+}
+
+.dl-req-card p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ════════════════════════════════════════════════════════
+   FEATURE LIST + CARDS
+════════════════════════════════════════════════════════ */
+.dl-feature-list-wrap {
+  max-width: 720px;
+  margin: 0 auto 2.5rem;
+}
+
+.dl-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dl-feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0.9rem 1.1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md, 12px);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.dl-feature-list li svg {
+  flex-shrink: 0;
+  color: #16a34a;
+  margin-top: 2px;
+}
+
+.dl-feature-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.dl-feature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 1.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 16px);
+  transition: transform 0.25s ease, border-color 0.25s ease;
+}
+.dl-feature-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--brand-25, rgba(61, 86, 181, 0.25));
+}
+
+.dl-feature-card svg {
+  color: var(--brand-primary, #3d56b5);
+}
+
+.dl-feature-card strong {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.dl-feature-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ════════════════════════════════════════════════════════
+   FINAL CTA
+════════════════════════════════════════════════════════ */
+.dl-final-inner {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.dl-final-inner h2 {
+  font-size: var(--mkt-heading-lg);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem;
+}
+
+.dl-final-inner > p {
+  font-size: var(--mkt-body-lg);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 0;
+}
+
+/* ════════════════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .dl-req-grid { grid-template-columns: 1fr; }
+  .dl-feature-cards { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .dl-hero { padding: 120px 1rem 60px; }
+  .dl-hero-actions { width: 100%; }
+  .dl-hero-actions > a, .dl-hero-actions > button { flex: 1 1 auto; }
+  .dl-req-card { padding: 1.5rem 1.25rem; }
+  .dl-feature-list li { padding: 0.75rem 0.9rem; font-size: 0.9rem; }
+}

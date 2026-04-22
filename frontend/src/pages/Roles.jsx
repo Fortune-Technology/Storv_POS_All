@@ -273,39 +273,77 @@ export default function Roles() {
                 </div>
               </div>
 
-              <div className="rl-perm-header">
-                <h3>Permissions</h3>
-                <span className="rl-hint">Choose which actions this role should grant.</span>
-              </div>
+              {/* ── Select-all scope ──
+                  Compute once per render: which permissions are currently
+                  visible in the active surface tab, and are all/some selected.
+                  A single checkbox toggles the entire visible set. */}
+              {(() => {
+                const visibleModules = Object.entries(permsGrouped).filter(([, perms]) => {
+                  const surf = perms[0]?.surface || 'back-office';
+                  return surf === surfaceTab || surf === 'both';
+                });
+                const visibleKeys = visibleModules.flatMap(([, perms]) => perms.map(p => p.key));
+                const selectedVisible = visibleKeys.filter(k => form.permissions.includes(k)).length;
+                const allSelected = visibleKeys.length > 0 && selectedVisible === visibleKeys.length;
+                const someSelected = !allSelected && selectedVisible > 0;
 
-              {/* Surface tabs — split permissions by the app that enforces them. */}
-              <div className="rl-surface-tabs">
-                {[
-                  { k: 'back-office', label: 'Back Office',  host: 'localhost:5173' },
-                  { k: 'cashier-app', label: 'Cashier App',  host: 'localhost:5174' },
-                ].map(s => {
-                  // Count selected + total perms visible in this surface
-                  const visibleModules = Object.entries(permsGrouped).filter(([, perms]) => {
-                    const surf = perms[0]?.surface || 'back-office';
-                    return surf === s.k || surf === 'both';
-                  });
-                  const allKeys = visibleModules.flatMap(([, perms]) => perms.map(p => p.key));
-                  const selected = allKeys.filter(k => form.permissions.includes(k)).length;
-                  return (
-                    <button
-                      key={s.k}
-                      type="button"
-                      className={`rl-surface-tab${surfaceTab === s.k ? ' rl-surface-tab--active' : ''}`}
-                      onClick={() => setSurfaceTab(s.k)}
-                    >
-                      <div className="rl-surface-tab-label">{s.label}</div>
-                      <div className="rl-surface-tab-meta">
-                        {s.host} · {selected}/{allKeys.length} on
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                const toggleAllVisible = () => {
+                  setForm(f => ({
+                    ...f,
+                    permissions: allSelected
+                      ? f.permissions.filter(k => !visibleKeys.includes(k))
+                      : [...new Set([...f.permissions, ...visibleKeys])],
+                  }));
+                };
+
+                return (
+                  <>
+                    <div className="rl-perm-header">
+                      <h3>Permissions</h3>
+                      <label className="rl-select-all" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          ref={el => { if (el) el.indeterminate = someSelected; }}
+                          onChange={toggleAllVisible}
+                        />
+                        <span>
+                          {allSelected ? 'Deselect all' : 'Select all'}
+                          <span className="rl-select-all-count">
+                            {' '}({selectedVisible}/{visibleKeys.length})
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Surface tabs — split permissions by the app that enforces them */}
+                    <div className="rl-surface-tabs">
+                      {[
+                        { k: 'back-office', label: 'Back Office' },
+                        { k: 'cashier-app', label: 'Cashier App' },
+                      ].map(s => {
+                        const vm = Object.entries(permsGrouped).filter(([, perms]) => {
+                          const surf = perms[0]?.surface || 'back-office';
+                          return surf === s.k || surf === 'both';
+                        });
+                        const allKeys = vm.flatMap(([, perms]) => perms.map(p => p.key));
+                        const sel = allKeys.filter(k => form.permissions.includes(k)).length;
+                        return (
+                          <button
+                            key={s.k}
+                            type="button"
+                            className={`rl-surface-tab${surfaceTab === s.k ? ' rl-surface-tab--active' : ''}`}
+                            onClick={() => setSurfaceTab(s.k)}
+                          >
+                            <div className="rl-surface-tab-label">{s.label}</div>
+                            <div className="rl-surface-tab-meta">{sel}/{allKeys.length} on</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
 
               <div className="rl-perm-grid">
                 {Object.entries(permsGrouped)

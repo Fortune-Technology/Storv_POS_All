@@ -14,7 +14,7 @@ import ssVendorOrders from '../../assets/Store_Dashboard/VendorOrder.png';
 import {
   ArrowRight, WifiOff, BarChart3, TrendingUp, ShoppingCart,
   Package, Building2, ShieldCheck, Activity, LayoutDashboard,
-  FileText, Users, Truck, Star, Check, X,
+  FileText, Users, Truck, Star, Check, X, Download,
 } from 'lucide-react';
 import SEO from '../../components/SEO';
 import './Home.css';
@@ -111,7 +111,7 @@ const Home = () => {
             </p>
             <div className="hm-hero-actions">
               <MarketingButton href="/contact" size="lg" icon={ArrowRight}>Book a Free Demo</MarketingButton>
-              <MarketingButton href="/features" variant="secondary" size="lg">Explore Features</MarketingButton>
+              <MarketingButton href="/download" variant="secondary" size="lg" icon={Download}>Download Cashier App</MarketingButton>
             </div>
             <p className="hm-hero-trust">
               <ShieldCheck size={16} />

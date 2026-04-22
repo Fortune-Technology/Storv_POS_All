@@ -291,39 +291,81 @@ const AdminRoles = () => {
                 </div>
               </div>
 
-              <div className="ar-perm-header">
-                <h3>Permissions</h3>
-                <span className="ar-hint">Tick the boxes for actions this role should grant.</span>
-              </div>
+              {/* ── Select-all + header + surface tabs ──
+                  Single checkbox toggles every permission currently visible
+                  in the active surface tab (or every permission for admin-
+                  scope roles where no tab filtering applies). */}
+              {(() => {
+                const visibleEntries = Object.entries(permsGrouped).filter(([, perms]) => {
+                  if (scope !== 'org') return true;
+                  const surf = perms[0]?.surface || 'back-office';
+                  return surf === surfaceTab || surf === 'both';
+                });
+                const visibleKeys = visibleEntries.flatMap(([, perms]) => perms.map(p => p.key));
+                const selectedVisible = visibleKeys.filter(k => form.permissions.includes(k)).length;
+                const allSelected = visibleKeys.length > 0 && selectedVisible === visibleKeys.length;
+                const someSelected = !allSelected && selectedVisible > 0;
 
-              {/* Surface tabs — only meaningful for org-scope roles. Admin-scope
-                  roles are all back-office (admin panel) so we hide the tabs. */}
-              {scope === 'org' && (
-                <div className="ar-surface-tabs">
-                  {[
-                    { k: 'back-office', label: 'Back Office',  host: 'localhost:5173' },
-                    { k: 'cashier-app', label: 'Cashier App',  host: 'localhost:5174' },
-                  ].map(s => {
-                    const vis = Object.entries(permsGrouped).filter(([, perms]) => {
-                      const surf = perms[0]?.surface || 'back-office';
-                      return surf === s.k || surf === 'both';
-                    });
-                    const keys = vis.flatMap(([, perms]) => perms.map(p => p.key));
-                    const sel = keys.filter(k => form.permissions.includes(k)).length;
-                    return (
-                      <button
-                        key={s.k}
-                        type="button"
-                        className={`ar-surface-tab${surfaceTab === s.k ? ' ar-surface-tab--active' : ''}`}
-                        onClick={() => setSurfaceTab(s.k)}
-                      >
-                        <div className="ar-surface-tab-label">{s.label}</div>
-                        <div className="ar-surface-tab-meta">{s.host} · {sel}/{keys.length} on</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                const toggleAllVisible = () => {
+                  setForm(f => ({
+                    ...f,
+                    permissions: allSelected
+                      ? f.permissions.filter(k => !visibleKeys.includes(k))
+                      : [...new Set([...f.permissions, ...visibleKeys])],
+                  }));
+                };
+
+                return (
+                  <>
+                    <div className="ar-perm-header">
+                      <h3>Permissions</h3>
+                      <label className="ar-select-all" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          ref={el => { if (el) el.indeterminate = someSelected; }}
+                          onChange={toggleAllVisible}
+                        />
+                        <span>
+                          {allSelected ? 'Deselect all' : 'Select all'}
+                          <span className="ar-select-all-count">
+                            {' '}({selectedVisible}/{visibleKeys.length})
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Surface tabs — org-scope only. Admin-scope roles are
+                        all back-office (admin panel) so we hide the tabs. */}
+                    {scope === 'org' && (
+                      <div className="ar-surface-tabs">
+                        {[
+                          { k: 'back-office', label: 'Back Office' },
+                          { k: 'cashier-app', label: 'Cashier App' },
+                        ].map(s => {
+                          const vis = Object.entries(permsGrouped).filter(([, perms]) => {
+                            const surf = perms[0]?.surface || 'back-office';
+                            return surf === s.k || surf === 'both';
+                          });
+                          const keys = vis.flatMap(([, perms]) => perms.map(p => p.key));
+                          const sel = keys.filter(k => form.permissions.includes(k)).length;
+                          return (
+                            <button
+                              key={s.k}
+                              type="button"
+                              className={`ar-surface-tab${surfaceTab === s.k ? ' ar-surface-tab--active' : ''}`}
+                              onClick={() => setSurfaceTab(s.k)}
+                            >
+                              <div className="ar-surface-tab-label">{s.label}</div>
+                              <div className="ar-surface-tab-meta">{sel}/{keys.length} on</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="ar-perm-grid">
                 {Object.entries(permsGrouped)
