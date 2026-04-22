@@ -500,10 +500,20 @@ function ReceiveManualTab({ games, onSave, onClose }) {
   );
 }
 
-/* Scan-to-receive tab — scan each book's barcode, build a running list, confirm all. */
+/* Scan-to-receive tab — scan each book's barcode, build a running list, confirm all.
+ *
+ * Game lookup cascade (most → least direct):
+ *   1. Store-level LotteryGame with matching real gameNumber (already received
+ *      games at this store)
+ *   2. Admin-level LotteryTicketCatalog with matching (state, gameNumber) —
+ *      games the superadmin has synced/seeded but this store hasn't received
+ *      from yet. Backend auto-creates the store-level game on confirm.
+ *   3. No match → error "Game not in catalog".
+ */
 function ReceiveScanTab({ games, onSave, onClose }) {
   const [scanValue, setScanValue] = useState('');
-  const [items, setItems]         = useState([]);   // [{ key, gameId, gameName, gameNumber, boxNumber, ticketPrice, totalTickets, value }]
+  const [items, setItems]         = useState([]);   // [{ key, source, gameId?, catalogTicketId?, state?, gameNumber, gameName, bookNumber, ticketPrice, totalTickets, value }]
+  const [catalog, setCatalog]     = useState([]);   // LotteryTicketCatalog rows for fallback lookup
   const [err, setErr]             = useState('');
   const [info, setInfo]           = useState('');
   const [saving, setSaving]       = useState(false);
@@ -511,6 +521,18 @@ function ReceiveScanTab({ games, onSave, onClose }) {
 
   React.useEffect(() => {
     setTimeout(() => scanRef.current?.focus(), 50);
+    // Pull the master catalog once on modal open for fallback matching.
+    (async () => {
+      try {
+        const r = await getLotteryCatalog();
+        const rows = Array.isArray(r) ? r : (r?.data ?? []);
+        setCatalog(rows);
+      } catch {
+        // Catalog fetch failure is non-fatal — scan can still match against
+        // games the store already has.
+        setCatalog([]);
+      }
+    })();
   }, []);
 
   const handleScan = async (rawArg) => {
@@ -520,40 +542,63 @@ function ReceiveScanTab({ games, onSave, onClose }) {
     setErr(''); setInfo('');
     try {
       const res = await parseLotteryBarcode(v);
-      const parsed = res?.parsed || res?.data?.parsed;   // lotteryUnwrap forgiveness
+      const parsed = res?.parsed || res?.data?.parsed;
+      const state  = res?.state  || res?.data?.state || parsed?.state;
       if (!parsed || !parsed.gameNumber || !parsed.bookNumber) {
         setErr(`Barcode not recognised: ${v}`);
         return;
       }
-      // Look up a matching game in the local catalog by gameNumber
-      const game = games.find(g => String(g.gameNumber) === String(parsed.gameNumber));
-      if (!game) {
-        setErr(`Game ${parsed.gameNumber} not found in catalog. Add it to Games first, then re-scan.`);
+
+      // 1. Try store-level game (real gameNumber)
+      let game = games.find(g => String(g.gameNumber) === String(parsed.gameNumber));
+
+      // 2. Fall back to admin catalog
+      let catRow = null;
+      if (!game && catalog.length > 0) {
+        catRow = catalog.find(c =>
+          String(c.gameNumber) === String(parsed.gameNumber) &&
+          (!state || String(c.state).toUpperCase() === String(state).toUpperCase())
+        );
+      }
+
+      if (!game && !catRow) {
+        setErr(`Game ${parsed.gameNumber} (${state || 'unknown state'}) not found in store games or master catalog. Sync the state catalog or add the game manually first.`);
         return;
       }
-      // De-dup against the pending list (game+book unique)
-      const key = `${game.id}:${parsed.bookNumber}`;
-      if (items.some(it => it.key === key)) {
-        setInfo(`Already added: ${game.name} — Book ${parsed.bookNumber}`);
-        return;
-      }
-      const totalTickets = Number(game.ticketsPerBox || 150);
-      const ticketPrice  = Number(game.ticketPrice   || 0);
+
+      // Build item record — same shape whether sourced from game or catalog
+      const gameName     = game?.name          || catRow?.name          || `Game ${parsed.gameNumber}`;
+      const totalTickets = Number(game?.ticketsPerBox || catRow?.ticketsPerBook || 150);
+      const ticketPrice  = Number(game?.ticketPrice   || catRow?.ticketPrice   || 0);
       const value        = totalTickets * ticketPrice;
+
+      // De-dup: gameId (if we have one) + bookNumber OR catalog+bookNumber
+      const dedupKey = game
+        ? `g:${game.id}:${parsed.bookNumber}`
+        : `c:${catRow.id}:${parsed.bookNumber}`;
+      if (items.some(it => it.key === dedupKey)) {
+        setInfo(`Already added: ${gameName} — Book ${parsed.bookNumber}`);
+        return;
+      }
+
       setItems(arr => [
         ...arr,
         {
-          key,
-          gameId:       game.id,
-          gameName:     game.name,
-          gameNumber:   parsed.gameNumber,
-          bookNumber:   parsed.bookNumber,
+          key:             dedupKey,
+          source:          game ? 'game' : 'catalog',
+          gameId:          game?.id,
+          catalogTicketId: catRow?.id,
+          state:           state || catRow?.state,
+          gameNumber:      parsed.gameNumber,
+          gameName,
+          bookNumber:      parsed.bookNumber,
           ticketPrice,
           totalTickets,
           value,
         },
       ]);
-      setInfo(`✓ Added ${game.name} — Book ${parsed.bookNumber} (${fmt(value)})`);
+      const sourceBadge = game ? '' : ' (from master catalog)';
+      setInfo(`✓ Added ${gameName} — Book ${parsed.bookNumber} (${fmt(value)})${sourceBadge}`);
     } catch (e) {
       setErr(e.response?.data?.error || e.message || 'Scan failed');
     } finally {
@@ -579,12 +624,21 @@ function ReceiveScanTab({ games, onSave, onClose }) {
     setSaving(true); setErr('');
     try {
       await onSave({
-        boxes: items.map(it => ({
-          gameId:     it.gameId,
-          boxNumber:  it.bookNumber,
-          // startTicket intentionally omitted — derived from store.sellDirection
-          // on first activation via autoActivator (see Phase 3g notes).
-        })),
+        boxes: items.map(it => {
+          // Backend's resolveOrCreateStoreGame prefers direct gameId, then
+          // catalogTicketId, then (state, gameNumber). Send whichever we have —
+          // multiple is fine, the resolver tries them in order.
+          const payload = {
+            boxNumber:  it.bookNumber,
+            // startTicket intentionally omitted — derived from store.sellDirection
+            // on first activation via autoActivator (see Phase 3g notes).
+          };
+          if (it.gameId)          payload.gameId          = it.gameId;
+          if (it.catalogTicketId) payload.catalogTicketId = it.catalogTicketId;
+          if (it.state)           payload.state           = it.state;
+          if (it.gameNumber)      payload.gameNumber      = it.gameNumber;
+          return payload;
+        }),
       });
       // onSave closes the modal + reloads the Safe
     } catch (e) {
@@ -622,6 +676,7 @@ function ReceiveScanTab({ games, onSave, onClose }) {
 
       <div className="lt-scan-hint">
         Scan each book you just received. Duplicates are ignored automatically.
+        Games you haven't received before are auto-pulled from the master catalog.
         On Confirm, every book lands in the <strong>Safe</strong> (status=Inventory)
         and is ready to activate at EoD.
       </div>
@@ -641,11 +696,18 @@ function ReceiveScanTab({ games, onSave, onClose }) {
               <span>Value</span>
               <span></span>
             </div>
-            {items.map((it, idx) => (
+            {items.map((it) => (
               <div key={it.key} className="lt-scan-list-row">
                 <span>
                   <strong>{it.gameName}</strong>
-                  <small style={{ display: 'block', color: '#6b7280', fontSize: '0.68rem' }}>#{it.gameNumber}</small>
+                  <small style={{ display: 'block', color: '#6b7280', fontSize: '0.68rem' }}>
+                    #{it.gameNumber}
+                    {it.source === 'catalog' && (
+                      <span className="lt-scan-source-tag" title="Sourced from master catalog — store game will auto-create on confirm">
+                        from catalog
+                      </span>
+                    )}
+                  </small>
                 </span>
                 <span style={{ fontFamily: 'monospace' }}>{it.bookNumber}</span>
                 <span>{it.totalTickets} × {fmt(it.ticketPrice)}</span>

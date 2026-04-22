@@ -1459,6 +1459,23 @@
 
 .lt-scan-remove:hover { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
 
+/* Badge that flags an item sourced from the master catalog (not yet in
+ * the store's game list — backend auto-creates the store game on confirm) */
+.lt-scan-source-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 /* Footer total strip — count + grand total */
 .lt-scan-total {
   display: flex;

@@ -148,27 +148,128 @@ export const getLotteryBoxes = async (req, res) => {
   }
 };
 
+/**
+ * Resolve (or create) a store-level LotteryGame given either a direct
+ * gameId, an admin-catalog catalogTicketId, or a scanned (state + gameNumber)
+ * pair. Centralises the "does this store have this game yet?" logic so the
+ * same fallback chain is used by every receive path.
+ *
+ * Lookup order:
+ *   1. Direct gameId (already store-scoped).
+ *   2. Real gameNumber match inside this store.
+ *   3. catalogTicketId → look up LotteryTicketCatalog, then match by
+ *      real gameNumber in store, or create a store LotteryGame from the
+ *      catalog entry (storing the REAL gameNumber, not a synthetic ref).
+ *   4. (state, gameNumber) from a scan → same as #3 but via state lookup
+ *      in the catalog.
+ *
+ * Returns the resolved LotteryGame row (with state, gameNumber, name,
+ * ticketPrice, ticketsPerBox populated).
+ */
+async function resolveOrCreateStoreGame({ orgId, storeId, gameId, catalogTicketId, state, gameNumber }) {
+  // 1. Direct gameId
+  if (gameId) {
+    const g = await prisma.lotteryGame.findFirst({ where: { id: gameId, orgId, storeId, deleted: false } });
+    if (g) return g;
+  }
+
+  // 2. Real gameNumber match at this store (scan-driven receive will hit this
+  //    after the store has the game in its own list from a prior receive)
+  if (gameNumber) {
+    const g = await prisma.lotteryGame.findFirst({
+      where: {
+        orgId, storeId,
+        gameNumber: String(gameNumber),
+        deleted: false,
+        ...(state ? { state } : {}),
+      },
+    });
+    if (g) return g;
+  }
+
+  // 3. Catalog lookup (via explicit id)
+  let cat = null;
+  if (catalogTicketId) {
+    cat = await prisma.lotteryTicketCatalog.findUnique({ where: { id: catalogTicketId } });
+    if (!cat) throw new Error(`Catalog ticket ${catalogTicketId} not found`);
+  }
+
+  // 4. Catalog lookup (via state + gameNumber from a scan)
+  if (!cat && state && gameNumber) {
+    cat = await prisma.lotteryTicketCatalog.findFirst({
+      where: { state: String(state).toUpperCase(), gameNumber: String(gameNumber) },
+    });
+  }
+
+  if (!cat) {
+    // Last-chance: a game might already exist in store with the ref format
+    // (legacy data from pre-fix receiveFromCatalog). Try that too.
+    if (catalogTicketId) {
+      const legacy = await prisma.lotteryGame.findFirst({
+        where: { orgId, storeId, gameNumber: `catalog:${catalogTicketId}`, deleted: false },
+      });
+      if (legacy) return legacy;
+    }
+    throw new Error('Game not found in catalog or store');
+  }
+
+  // Create the store-level game from the catalog entry, using the REAL
+  // gameNumber (fixes the legacy "catalog:xxx" synthetic-ref bug).
+  // Double-check there isn't already one (race condition, manual creation, etc.)
+  const existing = await prisma.lotteryGame.findFirst({
+    where: {
+      orgId, storeId,
+      gameNumber: cat.gameNumber,
+      state:      cat.state,
+      deleted:    false,
+    },
+  });
+  if (existing) return existing;
+
+  return prisma.lotteryGame.create({
+    data: {
+      orgId, storeId,
+      name:          cat.name,
+      gameNumber:    cat.gameNumber,
+      ticketPrice:   Number(cat.ticketPrice),
+      ticketsPerBox: cat.ticketsPerBook,
+      state:         cat.state,
+      isGlobal:      false,
+      active:        true,
+    },
+  });
+}
+
 export const receiveBoxOrder = async (req, res) => {
   try {
     const orgId   = getOrgId(req);
     const storeId = getStore(req);
-    // Support both: { gameId, quantity, startTicket } (portal form) and { boxes: [...] } (bulk)
+    // Support multiple request shapes:
+    //   1. { boxes: [{ gameId, boxNumber, ... }, ...] }        — bulk by gameId
+    //   2. { boxes: [{ catalogTicketId, boxNumber, ... }, ...] } — bulk by catalog
+    //   3. { boxes: [{ state, gameNumber, boxNumber, ... }] } — scan-driven bulk
+    //   4. { gameId, quantity, startTicket, boxNumber }       — legacy portal form
     let items = req.body.boxes;
     if (!items) {
       const { gameId, quantity = 1, startTicket, boxNumber } = req.body;
       if (!gameId) return res.status(400).json({ success: false, error: 'gameId is required' });
-      items = Array.from({ length: Number(quantity) }, (_, i) => ({ gameId, startTicket, boxNumber: boxNumber || null }));
+      items = Array.from({ length: Number(quantity) }, () => ({ gameId, startTicket, boxNumber: boxNumber || null }));
     }
     if (!Array.isArray(items) || !items.length) return res.status(400).json({ success: false, error: 'No boxes to receive' });
 
     const created = await Promise.all(items.map(async (b) => {
-      const game = await prisma.lotteryGame.findFirst({ where: { id: b.gameId, orgId, storeId } });
-      if (!game) throw new Error(`Game ${b.gameId} not found`);
+      const game = await resolveOrCreateStoreGame({
+        orgId, storeId,
+        gameId:          b.gameId,
+        catalogTicketId: b.catalogTicketId,
+        state:           b.state,
+        gameNumber:      b.gameNumber,
+      });
       const total = Number(b.totalTickets || game.ticketsPerBox);
       return prisma.lotteryBox.create({
         data: {
           orgId, storeId,
-          gameId:       b.gameId,
+          gameId:       game.id,
           boxNumber:    b.boxNumber   || null,
           totalTickets: total,
           ticketPrice:  Number(game.ticketPrice),
@@ -180,6 +281,7 @@ export const receiveBoxOrder = async (req, res) => {
     }));
     res.json({ success: true, data: created, count: created.length });
   } catch (err) {
+    console.error('[lottery.receiveBoxOrder]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -889,28 +991,12 @@ export const receiveFromCatalog = async (req, res) => {
     if (!catalogTicketId || !qty || Number(qty) < 1)
       return res.status(400).json({ success: false, error: 'catalogTicketId and qty (≥1) are required' });
 
-    const cat = await prisma.lotteryTicketCatalog.findUnique({ where: { id: catalogTicketId } });
-    if (!cat) return res.status(404).json({ success: false, error: 'Catalog ticket not found' });
-
-    // Use a stable reference key so we can reuse the game across multiple receive orders
-    const ref = `catalog:${catalogTicketId}`;
-    let game = await prisma.lotteryGame.findFirst({
-      where: { orgId, storeId, gameNumber: ref, deleted: false },
-    });
-    if (!game) {
-      game = await prisma.lotteryGame.create({
-        data: {
-          orgId, storeId,
-          name:         cat.name,
-          gameNumber:   ref,
-          ticketPrice:  Number(cat.ticketPrice),
-          ticketsPerBox: cat.ticketsPerBook,
-          state:        cat.state,
-          isGlobal:     false,
-          active:       true,
-        },
-      });
-    }
+    // Route through the shared resolver — stores the REAL gameNumber on the
+    // store-level LotteryGame (fixes the legacy "catalog:xxx" synthetic-ref
+    // bug that prevented scan-driven receive from matching the catalog).
+    // If a legacy row already exists with the synthetic ref, the resolver
+    // returns that existing row unchanged so we don't create a duplicate.
+    const game = await resolveOrCreateStoreGame({ orgId, storeId, catalogTicketId });
 
     const boxes = await Promise.all(
       Array.from({ length: Number(qty) }, () =>
@@ -929,6 +1015,7 @@ export const receiveFromCatalog = async (req, res) => {
 
     res.json({ success: true, data: boxes, game, count: boxes.length });
   } catch (err) {
+    console.error('[lottery.receiveFromCatalog]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
