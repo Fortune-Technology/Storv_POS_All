@@ -14,6 +14,8 @@ import {
 import { toast } from 'react-toastify';
 import EmployeeReports from './EmployeeReports';
 import ShiftManagement from './ShiftManagement';
+import SortableHeader from '../components/SortableHeader';
+import { useTableSort } from '../hooks/useTableSort';
 
 /* ── Validation helpers ─────────────────────────────────────────────── */
 const validateEmail    = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -561,6 +563,19 @@ function TeamTab() {
     return matchSearch && matchRole && matchStatus;
   });
 
+  /* Session 39 Round 3 — column sort */
+  const userSort = useTableSort(filtered, {
+    accessors: {
+      name:       (u) => u.name || '',
+      role:       (u) => u.role || '',
+      status:     (u) => u.status || '',
+      stores:     (u) => (u.storeIds || []).length,
+      phone:      (u) => u.phone || '',
+      lastActive: (u) => u.lastActiveAt ? new Date(u.lastActiveAt) : null,
+      pin:        (u) => u.posPin ? 1 : 0,
+    },
+  });
+
   /* ── Stats ── */
   const totalEmployees = users.length;
   const activeCount    = users.filter(u => u.status === 'active').length;
@@ -694,18 +709,18 @@ function TeamTab() {
             <table className="p-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Stores</th>
-                  <th>Phone</th>
-                  <th>Last Active</th>
-                  <th>PIN</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <SortableHeader label="Employee"    sortKey="name"       sort={userSort} />
+                  <SortableHeader label="Role"        sortKey="role"       sort={userSort} />
+                  <SortableHeader label="Status"      sortKey="status"     sort={userSort} />
+                  <SortableHeader label="Stores"      sortKey="stores"     sort={userSort} />
+                  <SortableHeader label="Phone"       sortKey="phone"      sort={userSort} />
+                  <SortableHeader label="Last Active" sortKey="lastActive" sort={userSort} />
+                  <SortableHeader label="PIN"         sortKey="pin"        sort={userSort} />
+                  <SortableHeader label="Actions" sortable={false} align="right" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(user => {
+                {userSort.sorted.map(user => {
                   const uid = user._id || user.id;
                   const isFixed = FIXED_ROLES.includes(user.role);
                   const isSelf = uid === currentUser.id || uid === currentUser._id;

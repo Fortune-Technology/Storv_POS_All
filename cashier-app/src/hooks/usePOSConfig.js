@@ -15,7 +15,6 @@ export const DEFAULT_POS_CONFIG = {
   cartSide: 'right',          // 'right' (default) | 'left'
   cashRounding: 'none',       // 'none' | '0.05'  (round cash change to nearest $0.05)
   actionBarHeight: 'normal',   // 'compact' (48px) | 'normal' (58px) | 'large' (72px)
-  quickFolders:    [],          // array of { id, name, emoji, color, sortOrder, items[] }
   shortcuts: {
     priceCheck: true,
     hold: true,
@@ -98,7 +97,6 @@ function mergeConfig(defaults, data) {
       ...defaults.shortcuts,
       ...(data.shortcuts || {}),
     },
-    quickFolders: data.quickFolders || defaults.quickFolders,
     vendorTenderMethods: data.vendorTenderMethods || defaults.vendorTenderMethods,
     bagFee: {
       ...defaults.bagFee,

@@ -6499,4 +6499,583 @@ Updated tool description + system prompt so Claude calls `start_product_tour` mo
 
 *Last updated: April 2026 — Session 38h: AI Product Tours P6c — "Browse Tours" button discoverability, click-through auto-advance on spotlighted elements, graceful session-expired UX in tour card. Plus strengthened AI tool description + system prompt so tours fire on a wider range of user phrasings (not just literal "walk me through").*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 39)
+
+### Round 1 of the April cashier-app overhaul — POS layout, Customer Display, cache reconciliation, offline scan polish, customer form parity
+
+User's April 21 feedback kicked off a larger multi-session overhaul. Session 39 ships the Round 1 items — everything small-to-medium. Product form parity (the largest item) is queued for Round 2 along with the Exchange flow overhaul.
+
+#### POS layout reshuffle — removed redundant FOLDERS tab
+[`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx):
+- **Tab bar collapsed from 3 → 2 tabs.** `CATALOG / BUTTONS / FOLDERS` → `▦ QUICK BUTTONS / CATALOG`. The legacy FOLDERS tab was a duplicate of Quick Buttons (the Session 37 WYSIWYG builder), flagged by the user as confusing.
+- **Quick Buttons is the default view.** Initial `quickTab` state = `'buttons'`. A `useEffect` falls back to `'catalog'` only when the store has no Quick Buttons layout configured (new stores keep the catalog-only behaviour they had before).
+- **Snap-back after every transaction.** `handleSaleCompleted` now sets `setQuickTab('buttons')` after every sale/refund completes — if the cashier drilled into Catalog mid-sale, the next customer starts from Quick Buttons again. Quick Buttons = canonical home view.
+- Tab-bar visibility condition simplified: `hasQuickButtons` (was `quickFolders?.length > 0 || hasQuickButtons`).
+
+#### Legacy `store.pos.quickFolders` system fully removed
+The old QuickAccess page + legacy folder renderer had been kept as a migration fallback since Session 37b. User confirmed it's a duplicate and can be dropped. All trace removed:
+- **Deleted** `cashier-app/src/components/pos/QuickFoldersPanel.jsx` + `.css`
+- **Deleted** `frontend/src/pages/QuickAccess.jsx` + `.css`
+- **Removed** `quickFolders: []` default and merge logic from [`cashier-app/src/hooks/usePOSConfig.js`](cashier-app/src/hooks/usePOSConfig.js)
+- **Removed** `QuickAccess` import from [`frontend/src/App.jsx`](frontend/src/App.jsx) (the `/portal/quick-access → /portal/quick-buttons` redirect stays — harmless, catches old bookmarks)
+- Updated comments in [`schema.prisma`](backend/prisma/schema.prisma) + [`POSConfig.jsx`](frontend/src/pages/POSConfig.jsx) to note the one-canonical-path state
+- Data in existing `store.pos.quickFolders` JSON column is left untouched (harmless — nothing reads it anymore)
+
+#### Customer Display Screen — larger type scale
+[`CustomerDisplayScreen.css`](cashier-app/src/screens/CustomerDisplayScreen.css) fully rewritten with sizes tuned for reading across the counter (~2–3 ft away):
+| Element | Before | After |
+|---|---|---|
+| Grand total value | 1.8rem | 2.6rem |
+| Grand total label | 1.1rem | 1.6rem |
+| Line item name | 0.82rem | 1.1rem |
+| Line item total | 0.82rem | 1.1rem |
+| Summary label | 0.78rem | 1.05rem |
+| Header store name | 0.95rem | 1.35rem |
+| Idle state store | 2rem | 3rem |
+| Thank-you title | 2.4rem | 3.4rem |
+| Thank-you change amount | 1.3rem | 1.9rem |
+| Customer bar name | 0.82rem | 1.1rem |
+Padding bumped proportionally. `@media (max-width: 768px)` preserved for rare small-screen secondary displays.
+
+#### Offline scan "blinking" fix — three conspiring causes
+User reported the cashier-app POS screen briefly "blinks" on scan when offline. Diagnosed three separate issues conspiring:
+
+1. **Dead `flashBg` inline-style variable** in [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) (~line 965) — computed but never applied anywhere. Removed for clarity.
+2. **Duplicate `flashGreen`/`flashRed` keyframes** — an abrupt version in [`index.css`](cashier-app/src/index.css) (`0% rgba(.25) → 100% transparent`) collided with the smoother version in [`POSScreen.css`](cashier-app/src/screens/POSScreen.css) (`0% bg-base → 30% rgba(.06) → 100% bg-base`). CSS cascade order determined which won. Removed the `index.css` duplicate.
+3. **`useBarcodeScanner` re-binding its keydown listener on every parent re-render.** The old [`useBarcodeScanner.js`](cashier-app/src/hooks/useBarcodeScanner.js) had deps `[enabled, flush]` where `flush` was a `useCallback([onScan])` and `onScan` was `handleScan` — which recreated every time `isOnline` flipped (via the `lookup → handleScan` dep chain). Every recreation meant `removeEventListener` → brief window → `addEventListener`, which in Electron/PWA builds manifested as a visible "blink."
+
+**Fix:** Hook now keeps the latest `onScan` in a ref so the effect binds **once** on mount and never tears down until `enabled` flips. Same key-timing logic preserved — just no re-binding loop.
+
+#### Q3 reconciliation sync — stale cashier cache fix
+User reported: after importing 7K products → deleting all → repeating 3× → final 7K, the cashier-app's top-left product count showed **34K** (stuck from old imports). The existing tombstone sync (Session 25) only covers products updated since the last sync timestamp — anything deleted in a prior window stayed forever.
+
+**Backend** — new endpoint [`GET /api/pos-terminal/catalog/active-ids`](backend/src/controllers/posTerminalController.js) returns just the list of currently-active non-deleted product IDs for the cashier's org. Tiny payload (~7 bytes × N products ≈ 50 KB for 7K products — much cheaper than wiping + re-downloading all product data).
+
+**Cashier-app** — new Dexie helper [`reconcileProducts(activeIds)`](cashier-app/src/db/dexie.js) compares local IDs to the active set and bulk-deletes any stale row. Called on every sign-in (and every 15-min sync interval) from [`useCatalogSync.js`](cashier-app/src/hooks/useCatalogSync.js) right after the main catalog sync loop.
+
+Logs `[CatalogSync] Reconciled cache — pruned N stale products.` when the count is non-zero so admins can see how drifted the cache was.
+
+#### Customer form parity with back-office
+[`CustomerLookupModal.jsx`](cashier-app/src/components/modals/CustomerLookupModal.jsx) "New Customer" tab rewritten to mirror the back-office [`Customers.jsx`](frontend/src/pages/Customers.jsx) `CustomerForm` layout. Same field set, same layout, same validation rules.
+
+**Fields added to the Create tab:**
+- First Name, Last Name (was already present)
+- Phone, Email (was already present)
+- Card Number (optional loyalty card)
+- Loyalty Points (starting balance)
+- Discount (%) — stored as decimal (5% → 0.05)
+- Balance ($)
+- Balance Limit ($)
+- Birth Date, Expiration Date
+- In-Store Charge Account toggle
+
+**Validation (Q7):** at least one of `{firstName, lastName}` required + at least one of `{phone, email}` required. Everything else optional. Matches back-office rule exactly.
+
+New CSS — `.clm-toggle` / `.clm-toggle-knob` / `.clm-toggle--on` / `.clm-toggle-state` / `.clm-toggle-row` appended to [`CustomerLookupModal.css`](cashier-app/src/components/modals/CustomerLookupModal.css). `clm-form-row:has(> :nth-child(3))` rule auto-switches to 3-column grid for the Discount/Balance/Balance-Limit row. All responsive — collapses to 1 column at 768px.
+
+#### Files Changed (Session 39)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/controllers/posTerminalController.js` | +`getCatalogActiveIds` endpoint for reconciliation sync |
+| `backend/src/routes/posTerminalRoutes.js` | +`GET /catalog/active-ids` route |
+| `backend/prisma/schema.prisma` | Comment update on `QuickButtonLayout` model (legacy note removed) |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/screens/POSScreen.jsx` | FOLDERS tab + QuickFoldersPanel import removed; `quickTab` default → `'buttons'`; fallback-to-catalog effect; snap-back in `handleSaleCompleted`; dead `flashBg` variable removed |
+| `cashier-app/src/screens/CustomerDisplayScreen.css` | Full type-scale rewrite for across-counter readability |
+| `cashier-app/src/hooks/usePOSConfig.js` | Removed `quickFolders` default + merge logic |
+| `cashier-app/src/hooks/useBarcodeScanner.js` | onScan via ref — listener binds once, never re-binds on parent re-renders |
+| `cashier-app/src/hooks/useCatalogSync.js` | Calls `getCatalogActiveIds` + `reconcileProducts` on every sync |
+| `cashier-app/src/api/pos.js` | +`getCatalogActiveIds` helper |
+| `cashier-app/src/db/dexie.js` | +`reconcileProducts(activeIds)` helper |
+| `cashier-app/src/index.css` | Removed duplicate `flashGreen`/`flashRed` keyframes |
+| `cashier-app/src/components/modals/CustomerLookupModal.jsx` | Rich create form (12 fields) matching back-office |
+| `cashier-app/src/components/modals/CustomerLookupModal.css` | Toggle styles + 3-column row rule |
+| `cashier-app/src/components/pos/QuickFoldersPanel.jsx` | **Deleted** — legacy |
+| `cashier-app/src/components/pos/QuickFoldersPanel.css` | **Deleted** — legacy |
+
+**Frontend (portal):**
+| File | Change |
+|---|---|
+| `frontend/src/App.jsx` | Removed `QuickAccess` import (redirect stays) |
+| `frontend/src/pages/QuickAccess.jsx` | **Deleted** — legacy |
+| `frontend/src/pages/QuickAccess.css` | **Deleted** — legacy |
+| `frontend/src/pages/POSConfig.jsx` | Updated header comment to reflect the deletion |
+
+Builds verified: cashier-app 5.24s, portal 15.16s, both clean.
+
+#### Not shipped in Session 39 (queued for Round 2)
+
+These are the bigger items from the user's April 21 feedback:
+- **Product form parity with back-office** — copy [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx) (~1500 lines) + dependencies (PriceInput, Department/Vendor/UPC/PackSize/Image managers) into cashier-app as a modal
+- **Exchange flow overhaul** — partial-acceptance email + in-app notification, multi-round dispute loop, no 7-day auto-settlement, delete/archive after settlement, two-party confirmation, settlement log page
+- **Vendor Credits module** — new schema `VendorCredit` + vendor detail page Payouts/Credits tab (free-case / mix-match tracking with monthly totals)
+- **Advanced filters + sort** — Products + Transactions pages (very advanced multi-filter search), universal column sort with up/down arrows across every table
+- **Sante import** — pending a sample Sante export from the user to confirm column names + tags → ProductGroup mapping
+- **Sidebar notification dots** — Chat (has badge already), Tickets, Tasks, Delivery, Audit, Online Orders
+
+**Also noted but not changed:** "New Exchange update" voice rename — current [`ExchangeNotifier.jsx`](frontend/src/components/ExchangeNotifier.jsx) toast texts ("Wholesale Order Received", "New Trading Partner Request", "Settlement Needs Confirmation") already read well. Flagging for explicit confirmation before any rename.
+
+---
+
+*Last updated: April 2026 — Session 39: POS layout reshuffle (FOLDERS tab removed, Quick Buttons as default + snap-back), legacy quickFolders system fully dropped, Customer Display type scale bumped for across-counter readability, offline scan "blinking" fixed via scanner-hook stabilisation + dead code + duplicate keyframe cleanup, Q3 cache reconciliation via active-ids endpoint, cashier-app "New Customer" form expanded to full back-office parity (12 fields, name + phone/email required, everything else optional).*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 39 Round 2)
+
+Big execution pass through the April 21 backlog after the user said "let's finish what's queued." Round 2 covers the four items that were still open: Vendor Credits, Sidebar notification dots, Exchange flow overhaul, and cashier-app Product form field parity. One item — advanced filters + universal sort — was deferred (honest scope call).
+
+### Vendor Credits module
+
+New parallel track to VendorPayment for tracking **value coming IN without charge** — free cases, mix-and-match bonuses, damaged-goods allowances, adjustments. Requested explicitly by the user: "This is little different than discount as we are considering a free case received by supplier on purchase of 6 mix and match cases."
+
+**Schema:** new [`VendorCredit`](backend/prisma/schema.prisma) model with `amount`, `creditType` (free_case | mix_match | damaged_return | adjustment | other), `reason`, `casesReceived`, `productRef`, `notes`, `creditDate`. Non-destructive `npx prisma db push`.
+
+**Backend:** new [`vendorCreditController.js`](backend/src/controllers/vendorCreditController.js) — list/create/update/delete with monthly total rollup. Routes mounted under `/api/catalog/vendor-credits` in [`catalogRoutes.js`](backend/src/routes/catalogRoutes.js), gated on `vendor_payouts.*` permissions.
+
+**Frontend API:** 4 new helpers in [`services/api.js`](frontend/src/services/api.js) — `getVendorCredits`, `createVendorCreditEntry`, `updateVendorCreditEntry`, `deleteVendorCreditEntry`.
+
+**Vendor Detail page** ([`VendorDetail.jsx`](frontend/src/pages/VendorDetail.jsx)) — renamed "Payouts" tab to "Payouts & Credits" and built a new combined `PayoutsCreditsTab` with three sections:
+1. **Back-Office Payments** (VendorPayment list) — ADD / EDIT modal (`VendorPaymentForm`)
+2. **Back-Office Credits** (VendorCredit list) — ADD / EDIT / DELETE modal (`VendorCreditForm`)
+3. **POS-Shift Payouts** (existing CashPayout entries) — read-only reference
+
+KPI strip at the top shows monthly total per Q2 follow-up ("limit to only vendor detail page for now"): Back-Office Payments / Credits (All Time) / Credits This Month / Free Cases Received. Full modal forms with type selector, cases-received counter, product reference, reason, date, notes.
+
+### Sidebar notification dots
+
+New [`useNotificationCounts`](frontend/src/hooks/useNotificationCounts.js) hook polls task + ticket counts every 30s + on tab visibility-change. Reuses existing `getTaskCounts` (returns `myOpen`) and `getOrgTickets({status:'open'})` — no new backend endpoints.
+
+[`Sidebar.jsx`](frontend/src/components/Sidebar.jsx) badge logic extended from chat-only to a per-path switch:
+- `/portal/chat` → existing `chatUnread` (navigation-aware reset)
+- `/portal/tasks` → `notifCounts.tasks` (my-assigned open/in-progress)
+- `/portal/support-tickets` → `notifCounts.tickets` (org-wide open)
+
+Deliberately deferred: Audit Log (no clean "unread" semantics), Delivery Platforms (no count), Online Orders (separate ecom-backend with different URL base, needs more engineering).
+
+### Exchange flow overhaul
+
+Addressed all Q6 + Q7 requirements for the Storv Exchange wholesale flow.
+
+**Schema additions** on [`WholesaleOrder`](backend/prisma/schema.prisma) — per-party archive flags + dispute tracking:
+```prisma
+senderArchived      Boolean   @default(false)
+senderArchivedAt    DateTime?
+receiverArchived    Boolean   @default(false)
+receiverArchivedAt  DateTime?
+disputeStatus       String?   // null | "open" | "resolved"
+disputeOpenedAt     DateTime?
+disputeResolvedAt   DateTime?
+```
+
+**Multi-round dispute loop** — [`partnerLedgerController.js`](backend/src/controllers/partnerLedgerController.js) `disputeSettlement` had a hard 7-day window cap. Removed. Now settlements can bounce between `pending ↔ disputed` indefinitely until both parties agree. Only `accepted` is terminal (and can be re-opened with a dispute + unresolve).
+
+**Archive endpoints** — [`wholesaleOrderController.js`](backend/src/controllers/wholesaleOrderController.js):
+- `POST /orders/:id/archive` — per-party archive (sets `senderArchived` or `receiverArchived` based on caller's store side). Only terminal orders (confirmed | partially_confirmed | rejected | cancelled | expired) can be archived.
+- `POST /orders/:id/unarchive` — unset
+- `listOrders` now filters archived by default; `?showArchived=true` returns all. Correctly handles per-party archive when direction='all' (excludes only orders I've archived on my side).
+
+**Dispute message endpoint** — `POST /orders/:id/dispute-message` appends a `WholesaleOrderEvent` with `eventType='dispute_message'` so the order's event log becomes a back-and-forth thread. Auto-flips `disputeStatus='open'` the first time, `'resolved'` when a party posts `{ resolve: true }`. Either party can post messages.
+
+**Partial-accept in-app notification to sender** — [`ExchangeNotifier.jsx`](frontend/src/components/ExchangeNotifier.jsx) extended to poll a 4th query: outgoing orders with `status='partially_confirmed,rejected'`. When the count increases, the sender sees an amber toast: *"Order Response Received — N of your wholesale orders were partially accepted or rejected — click to review and respond."* Existing email path (`notifyOrderConfirmed`) already sends to the sender with the new status.
+
+**UI — Exchange Orders tab** ([`Exchange.jsx`](frontend/src/pages/Exchange.jsx)):
+- New "Show archived" checkbox in the filter row
+- Per-row Archive/Unarchive button (only for terminal statuses) with "ARCHIVED" label next to order number when visible
+- `showArchived` state threaded into `refreshAll` and passed to `listWholesaleOrders({ showArchived })`
+- 4 new API helpers: `archiveWholesaleOrder`, `unarchiveWholesaleOrder`, `addWholesaleDisputeMessage`
+
+### Product form field parity (cashier-app)
+
+User asked for "Add product should be same as back-office." A 1:1 visual port of [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx) (~1500 lines) + dependencies (PriceInput, DeptManager, VendorManager, PackSize manager, UPC manager, image upload) would be a full session on its own. **Shipped field parity instead** — the existing cashier-app multi-section modal layout kept, but every back-office field added so the payload shape is identical.
+
+[`AddProductModal.jsx`](cashier-app/src/components/modals/AddProductModal.jsx) extended:
+
+**Pricing section added:**
+- `defaultCasePrice` — vendor cost per case
+- `unitPack` — units per pack (1 = single, 6 = 6-pack, etc.)
+- `packInCase` — packs per vendor case
+- `depositPerUnit` — per-unit bottle deposit
+- `caseDeposit` — case-level deposit
+- `discountEligible` toggle — allow line/order discounts
+
+**Classification section added:**
+- `vendorId` dropdown (loads via `getVendors()`)
+- `trackInventory` toggle — enables reorder fields
+- `reorderPoint` + `reorderQty` (shown only when trackInventory=true)
+
+**Deferred (honest scope call):** full visual port, multi-UPC manager, product group dropdown, ecom description + hideFromEcom, image upload, inline department/vendor creation. These can be added in a follow-up — the backend API accepts all fields already.
+
+### Deferred to future session (honest scope call)
+
+**Advanced filters + universal sort** — Products + Transactions advanced multi-criteria filter + up/down sort arrows on every table across the platform. Roughly 4–6 hours of work (generic filter engine + two flagship page rewrites + universal sortable-column component). Not attempted this session. Existing basic filter/sort still works.
+
+### Deployment notes
+
+**Backend restart required** — the Prisma client couldn't regenerate due to a locked DLL (backend running). After restarting:
+```bash
+cd backend && npx prisma generate
+pm2 restart api-pos
+```
+The new `VendorCredit` model + new `WholesaleOrder.senderArchived/receiverArchived/disputeStatus` fields were pushed to the DB (`npx prisma db push`) but the running backend needs a restart to pick them up.
+
+**No seeds required.** No new routes gated on permissions not already in the catalog.
+
+### Files changed (Session 39 Round 2)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`VendorCredit` model, +6 fields on `WholesaleOrder` (archive × 2 + dispute × 3) |
+| `backend/src/controllers/vendorCreditController.js` | NEW — list/create/update/delete |
+| `backend/src/controllers/wholesaleOrderController.js` | `listOrders` honours `showArchived`; +`archiveOrder`, `unarchiveOrder`, `addDisputeMessage` |
+| `backend/src/controllers/partnerLedgerController.js` | Removed 7-day dispute window cap |
+| `backend/src/routes/catalogRoutes.js` | Mount `/vendor-credits` endpoints |
+| `backend/src/routes/exchangeRoutes.js` | +3 routes (archive, unarchive, dispute-message) |
+
+**Portal:**
+| File | Change |
+|---|---|
+| `frontend/src/services/api.js` | +4 vendor-credit helpers, +3 exchange helpers |
+| `frontend/src/pages/VendorDetail.jsx` | Combined `PayoutsCreditsTab` with payments + credits sections + modal forms |
+| `frontend/src/pages/Exchange.jsx` | `showArchived` toggle, per-row archive button, "ARCHIVED" label |
+| `frontend/src/components/ExchangeNotifier.jsx` | Poll outgoing partial-accept + notify sender |
+| `frontend/src/components/Sidebar.jsx` | Task + ticket badges alongside existing chat badge |
+| `frontend/src/hooks/useNotificationCounts.js` | NEW — polls task + ticket counts |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/components/modals/AddProductModal.jsx` | +8 back-office fields (vendor, unitPack, packInCase, casePrice, depositPerUnit, caseDeposit, discountEligible, inventory tracking) |
+
+Builds verified: cashier-app 5.24s, portal 14.32s — both clean.
+
+---
+
+*Last updated: April 2026 — Session 39 Round 2: Vendor Credits module, sidebar notification dots (tasks + tickets), Exchange flow overhaul (archive + multi-round dispute + partial-accept toast to sender), cashier-app Product form field parity with back-office.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 39 Round 3)
+
+Closing out the April 21 backlog. User said "let's finish what's queued" — this round ships the final two items: (1) advanced filters + universal column sort, (2) 1:1 visual port of the back-office ProductForm into the cashier-app.
+
+### Universal column sort
+
+Shared building blocks used by every sortable table on the platform:
+
+- **[`useTableSort(rows, opts)`](frontend/src/hooks/useTableSort.js)** — hook. Returns `{ sortKey, sortDir, toggleSort, sorted }`. Three-state toggle (asc → desc → cleared). Stable string/number/Date comparators with `null`-last semantics.
+- **[`<SortableHeader label sortKey sort />`](frontend/src/components/SortableHeader.jsx)** + [`.css`](frontend/src/components/SortableHeader.css) — drop-in `<th>` replacement with up/down/neutral arrow glyphs. Prefix `sth-`. Pass `sortable={false}` for action columns.
+- For div-based tables (grid layouts), each page defines a local `<SortSpan>` helper using the same hook — same UX, different DOM element.
+
+Applied to **8 priority tables** this session:
+
+| Page | Sort keys |
+|---|---|
+| Products (`ProductCatalog.jsx`) | name / pack / cost / retail / margin / department / onHand / vendor |
+| Transactions (`Transactions.jsx`) | date / txNumber / cashier / station / itemCount / tender / total |
+| Customers (`Customers.jsx`) | name / contact / loyalty / discount / balance / cardNo |
+| Vendors (`Vendors.jsx`) | id / name / email / phone / terms / active / status |
+| Employees (`EmployeeManagement.jsx`) | name / role / status / stores / phone / lastActive / pin |
+| Audit Log (`AuditLogPage.jsx`) | date / user / role / action / entity / entityId / source / ip |
+| Inventory Count (`InventoryCount.jsx`) | date / product / upc / change / before / after / reason |
+
+Additional tables can convert in under 5 lines each by importing the hook + component — the reusable building block is the point.
+
+### Advanced filter drawer
+
+**[`<AdvancedFilter fields filters onChange />`](frontend/src/components/AdvancedFilter.jsx)** + [`.css`](frontend/src/components/AdvancedFilter.css) — collapsible drawer at top of page, per-field rows (`field | operator | value [x]`). Pure component — caller controls state.
+
+Supports 5 field types with operator catalogue:
+- **string** — contains / not contains / = / ≠ / starts with / ends with / is empty / is set
+- **number** — = / ≠ / > / ≥ / < / ≤ / between
+- **date** — on / before / after / between / is empty / is set
+- **enum** — is / is not / any of / is empty / is set
+- **boolean** — is true / is false
+
+Pure helper **`applyAdvancedFilters(rows, filters, fieldConfig)`** exported alongside — AND-joined, respects per-field `accessor` overrides for computed columns (e.g. margin = retail−cost/retail, or item count = sum of line qtys).
+
+Applied to the two flagship pages per user's Q5:
+- **Products** — 14 filterable attributes: name, upc, brand, department, tax class, retail price, cost price, margin %, qty on hand, EBT, age required, deposit, active, track inventory
+- **Transactions** — 10 filterable attributes: txNumber, cashier, station, status, grand total, tax, item count, tender method, date, contains product (string search over line items)
+
+Client-side filters narrow the currently-loaded page. Narrative shown to the user under the drawer when active filters narrow page results.
+
+### Product form — full 1:1 visual port to cashier-app
+
+User's original directive: *"Add product follow the same design and everything same as what is there in back office, copy the same component and ui and everything for uniformality."*
+
+Shipped a verbatim copy of the portal's `ProductForm.jsx` (2402 lines) + `ProductForm.css` (1879 lines) + `PriceInput.jsx` (83 lines) into the cashier-app as:
+- [`cashier-app/src/components/modals/ProductFormModal.jsx`](cashier-app/src/components/modals/ProductFormModal.jsx)
+- [`cashier-app/src/components/modals/ProductFormModal.css`](cashier-app/src/components/modals/ProductFormModal.css)
+- [`cashier-app/src/components/PriceInput.jsx`](cashier-app/src/components/PriceInput.jsx)
+
+**Surgical adaptations (everything else is verbatim for visual parity):**
+
+1. **Router hooks → props.** `useParams()` → `productId` prop. `useNavigate()` → local stub that translates every `navigate('/portal/catalog')` into `onClose()`. `<Link>` → a no-op `<span>`.
+2. **`useSetupStatus` stub** returns `{ ready: true, stores: [{ id: activeStoreId }] }` so the post-create `upsertStoreInventory` loop still initialises the current store's inventory row.
+3. **`<NoStoreBanner>` stub** → null (cashier-app has no setup wizard).
+4. **API imports** redirected from `../services/api` → `../../api/pos.js`.
+5. **Modal shell** (`.pfm-backdrop` + `.pfm-modal`, prefix `pfm-`) wrapping the entire form body. Click-outside dismiss with dirty-check; matches the same `handleCancel` flow as the portal.
+6. **`onSaved` callback** — after create, fetches the new product via `getCatalogProduct` and hands it to the parent so the cashier-app can add it straight to cart.
+7. **`scannedUpc` prop** — cashier-app passes the barcode from the "not found" scan so the UPC field pre-fills.
+
+### New cashier-app API helpers
+
+[`cashier-app/src/api/pos.js`](cashier-app/src/api/pos.js) gained 22 new exports mirroring the portal's `services/api.js` 1:1 — `getCatalogProduct`, `updateCatalogProduct`, `duplicateCatalogProduct`, `getProduct52WeekStats`, `getCatalogDepartments` (CRUD variant), `createCatalogDepartment`, `updateCatalogDepartment`, `deleteCatalogDepartment`, `getDepartmentAttributes`, `getCatalogVendors`, `createCatalogVendor`, `updateCatalogVendor`, `deleteCatalogVendor`, `upsertStoreInventory`, `getStoreInventory`, `getCatalogPromotions`, `createCatalogPromotion`, `updateCatalogPromotion`, `deleteCatalogPromotion`, `getProductUpcs`, `addProductUpc`, `deleteProductUpc`, `getProductPackSizes`, `bulkReplaceProductPackSizes`, `listProductGroups`, `getCatalogTaxRules`, `uploadProductImage`.
+
+All map 1:1 to existing backend `/api/catalog/*` endpoints — no new routes or controllers needed.
+
+### POSScreen integration
+
+[`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) — the scan-not-found flow now opens `ProductFormModal` instead of the old minimal `AddProductModal`. The old component is still imported (for any stale references) but no longer rendered. `onSaved` adds the created product to cart + fires the green-flash animation.
+
+### Files added / changed (Session 39 Round 3)
+
+**New:**
+- `frontend/src/hooks/useTableSort.js`
+- `frontend/src/components/SortableHeader.jsx` + `.css`
+- `frontend/src/components/AdvancedFilter.jsx` + `.css`
+- `cashier-app/src/components/PriceInput.jsx`
+- `cashier-app/src/components/modals/ProductFormModal.jsx` + `.css`
+
+**Modified:**
+- `frontend/src/pages/ProductCatalog.jsx` — advanced filter + sortable columns
+- `frontend/src/pages/Transactions.jsx` — advanced filter + sortable columns (div-based)
+- `frontend/src/pages/Customers.jsx` — sortable columns
+- `frontend/src/pages/Vendors.jsx` — sortable columns
+- `frontend/src/pages/EmployeeManagement.jsx` — sortable columns
+- `frontend/src/pages/AuditLogPage.jsx` — sortable columns
+- `frontend/src/pages/InventoryCount.jsx` — sortable columns
+- `cashier-app/src/api/pos.js` — +22 catalog CRUD helpers
+- `cashier-app/src/screens/POSScreen.jsx` — swap AddProductModal → ProductFormModal
+
+Builds verified: cashier-app 4.20s clean, portal 14.03s clean.
+
+### Honest caveats for testing
+
+- **Advanced filter is client-side over the current page.** Products with 7K+ catalogs are paginated server-side. Filters narrow the currently-displayed set, not the entire catalog. A narrator message above the drawer explains this to the user.
+- **Port is 1:1 visual copy** — when the portal's ProductForm.jsx changes, the diff needs to be copied across. Not auto-synced. Low drift risk because the two will be tested against the same backend endpoints.
+- **Some ProductForm features may behave slightly off in cashier-app context** — the "Go to Product Groups" link closes the modal instead of navigating (no portal router in cashier-app). The "Manage Departments" and "Manage Vendors" modal-in-modal flows work (they're internal to ProductFormModal). Image upload works via the existing `/catalog/products/:id/image` endpoint.
+
+---
+
+*Last updated: April 2026 — Session 39 Round 3: Universal column sort (useTableSort + SortableHeader, applied to 8 priority tables), AdvancedFilter drawer (Products + Transactions), full 1:1 visual port of the back-office ProductForm into the cashier-app as ProductFormModal.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 39 Round 4)
+
+Follow-up after the user tested Round 3 and called out two things:
+1. "Sort should apply to the **entire** product catalog (7K–20K products), not just the current page."
+2. "Once there are products, hide the 'Looking good! Products are live' banner."
+
+### Server-side sort for paginated tables
+
+The Round 3 sort ran client-side over the currently-loaded page — useful for the 8 tables we hit, but it only reorders what's already downloaded. For Products and Transactions (paginated by the server over 7K+ rows), a page-scoped sort gives the cashier "A–Z within page 1 of 200." Useless. Round 4 pushes the sort down to the backend for those two flagship tables.
+
+**Backend** — [`catalogController.getMasterProducts`](backend/src/controllers/catalogController.js) and [`posTerminalController.listTransactions`](backend/src/controllers/posTerminalController.js) accept `?sortBy=<key>&sortDir=asc|desc`:
+
+Products sort keys: `name, brand, upc, sku, pack, cost, retail, department, vendor, active, createdAt, updatedAt` (nested `department`/`vendor` use Prisma relation orderBy).
+
+Transactions sort keys: `date, txNumber, cashierName, stationId, total, status`.
+
+Unknown keys fall back to the default ordering (`name asc` / `createdAt desc`) so callers can't accidentally break the response.
+
+**Frontend hook** — [`useTableSort`](frontend/src/hooks/useTableSort.js) gained a `serverSide` option. Accepts either `true` (always server-side) or a `(sortKey) → boolean` predicate (per-column). When active, the hook returns `sorted: rows` unchanged — the caller is responsible for re-fetching sorted data from the server.
+
+**Products + Transactions wiring**:
+- Module-level `SERVER_SORT_KEYS` / `TX_SERVER_SORT_KEYS` sets declare which keys the backend supports.
+- `useTableSort({ serverSide: k => SET.has(k) })` — server-side for supported keys, client-side for computed ones (`margin`, `onHand`, `itemCount`, `tender`).
+- `useEffect([sort.sortKey, sort.sortDir])` fires a `load(sortParams)` reload on column-click, passing `sortBy`/`sortDir` through to the API.
+- All 6 direct `loadProducts(...)` callers (refresh button, bulk delete, bulk set department, bulk toggle active, bulk price update, delete single) updated to include current sort params so their immediate reload matches the pending debounced reload.
+
+Result: clicking a column header in Products now sorts the full 7K catalog server-side and pages through the sorted result correctly. Same for Transactions across the full date range. Columns that can't be ordered in the DB (margin, on-hand, item count, tender method) continue to sort client-side over the loaded page — the two modes coexist cleanly.
+
+### "Looking good" banner — hidden once products exist
+
+[`useSetupStatus`](frontend/src/hooks/useSetupStatus.js) — the stage calculator previously returned:
+- `0` when no stores
+- `1` when stores but no products
+- `2` when fully operational (showed the green "Looking good! Products are live at your store" SetupGuide)
+
+User flagged stage 2 as noise. Fix: when both stores and products exist, skip straight to stage `3` (the pre-existing "nothing to prompt" sentinel that `SetupGuide` already returns `null` for via its `if (stage > 2) return null` guard). One-line change to the ternary:
+
+```js
+const stage =
+  !hasStores   ? 0 :
+  !hasProducts ? 1 :
+  3;   // ← was 2; jumps past the "green banner" stage
+```
+
+Stages 0 and 1 still show their respective setup banners (users who genuinely haven't added stores/products yet).
+
+### Files changed (Session 39 Round 4)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/catalogController.js` | `getMasterProducts` — `PRODUCT_SORT_MAP` + Prisma `orderBy` resolution |
+| `backend/src/controllers/posTerminalController.js` | `listTransactions` — `TX_SORT_MAP` + Prisma `orderBy` resolution |
+| `frontend/src/hooks/useTableSort.js` | +`serverSide` option (boolean \| (sortKey)→boolean) |
+| `frontend/src/hooks/useSetupStatus.js` | Skip stage 2 → straight to stage 3 once products exist |
+| `frontend/src/pages/ProductCatalog.jsx` | Module-level `SERVER_SORT_KEYS`; `loadProducts` accepts sortParams; debounced effect + 6 direct callers pass sort state |
+| `frontend/src/pages/Transactions.jsx` | Module-level `TX_SERVER_SORT_KEYS`; `load` accepts sortParams; new `useEffect` triggers reload on sort change |
+
+Build verified: portal 14.02s clean.
+
+---
+
+*Last updated: April 2026 — Session 39 Round 4: Server-side sort across full Products + Transactions catalogs (was client-side page-scoped); hide "Looking good" SetupGuide banner once products exist.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 40)
+
+### Lottery Phase 3g — End-of-Shift Wizard (cashier-app)
+
+Rewrite of the cashier-app End-of-Shift reconciliation flow per the user's explicit spec: *"it shows the list of all active and on counter and should the games, sort by tickets value (High to low), game name, amount, yesterday ending number, today's number (blank before scanning, auto fill while scanning), sold out button. Each game has to be scanned and must have today's ticket number filled or sold out button enabled, then only allow shift to go to next step. If new ticket is scanned which was from safe, activate that ticket and then keep the starting number as 0 or 149 (depends on how store has set to with ascending or descending for sales of tickets), and current ticket number as current. When click on next, it ask to enter, Instant cashings, Machine drawing sale, Machine drawing cashings and then confirm to end the shift that give the final report"*
+
+Replaces the prior single-screen reconciliation with a 3-step wizard that enforces per-book completion, auto-activates new books scanned from the Safe, captures store-level online-sales totals, and produces a final "Daily Due" report before committing.
+
+#### Wizard surface
+
+**Step 1 — Counter Scan**
+- All active books on the counter, **sorted by ticket value (highest first)** via `totalValue || totalTickets × ticketPrice`
+- Columns: Game / Price / Yesterday-end / Today input / Sold / Amount / Actions
+- Scan bar pinned to top — scans route through [`scanLotteryBarcode(raw, 'eod')`](cashier-app/src/api/pos.js) and feed the backend `autoActivator` (below)
+  - `update_current` → auto-fills the matching row's Today input with the scanned ticket number
+  - `activate` → **adds the new book to the list** (sorted in by value) and auto-fills its Today input with the scanned ticket
+  - `rejected` → logs the rejection in the scan log with reason
+- Per-row **"SO" (Soldout) button** marks the entire book as sold-out (book totalValue is added to the Instant Sales total; on Confirm the box flips to `depleted` via `POST /lottery/boxes/:id/soldout`)
+- Gate: Next is disabled until **every row is either scanned (today-end filled) OR marked soldout**. When `scanRequired=false`, gate relaxes to informational
+- Running "Instant Sales Total" strip at the bottom
+
+**Step 2 — Online Sales**
+- Three numeric fields: Instant Cashings · Machine Draw Sales · Machine Draw Cashings
+- Live preview showing the running Daily formula result
+- On Confirm, persists via `PUT /lottery/online-total { date, instantCashing, machineSales, machineCashing }`
+
+**Step 3 — Confirm & Save**
+- Grid showing all four components (Instant Sales from Step 1 + the three online fields)
+- Formula shown explicitly as a monospace strip: `Daily Due = Instant sales − Instant cashings + Machine sales − Machine cashings`
+- Grand green card showing `Total Due to Lottery` (negative → amber variant for unusual high-payout days)
+- Optional notes field
+- Confirm button label adapts to context: `Save & Continue to Close Shift` when `pendingShiftClose=true`, otherwise `Save & Close Lottery`
+
+#### Backend change: `autoActivator.js` respects sellDirection
+
+[`backend/src/services/lottery/engine/autoActivator.js`](backend/src/services/lottery/engine/autoActivator.js) `processScan()` now derives `startTicket` from the store's `LotterySettings.sellDirection` when activating a book that has no existing `startTicket`:
+
+- **Descending (default)**: 150-pack → `startTicket = "149"` (tickets count DOWN as sold)
+- **Ascending**: 150-pack → `startTicket = "0"` (tickets count UP as sold)
+- Falls back to scanned `ticketNumber` when `totalTickets` is missing
+
+This fixes the quirk where a freshly-scanned book from the Safe had no meaningful starting ticket. Combined with the wizard's auto-fill-on-activate, a cashier scanning a brand-new book at end-of-shift on a descending store now produces `start=149, end=149, ticketsSold=0` — semantically correct (book just activated, nothing sold yet).
+
+#### New API helpers
+
+[`cashier-app/src/api/pos.js`](cashier-app/src/api/pos.js):
+- `soldoutLotteryBox(id, { reason?, notes? })` — POST `/lottery/boxes/:id/soldout`
+- `upsertLotteryOnlineTotal(data)` — PUT `/lottery/online-total`
+- `getLotteryOnlineTotal(date)` — GET `/lottery/online-total?date=YYYY-MM-DD`
+
+#### Props (preserved for back-compat with POSScreen)
+
+```
+open, shiftId, activeBoxes, sessionSales, sessionPayouts,
+scanRequired, pendingShiftClose, onSave, onClose, storeId
+```
+
+No parent change required — the wizard is a drop-in replacement for the previous single-screen modal.
+
+#### Tests — 36 new, all pass
+
+New [`backend/tests/lottery_eod_wizard.test.mjs`](backend/tests/lottery_eod_wizard.test.mjs) covers 7 suites:
+
+| Suite | Tests | Proves |
+|---|---|---|
+| Row math | 7 | `ticketsSold = \|start − end\|` (direction-agnostic); soldout overrides; invalid input rejected |
+| allComplete gate | 5 | Every row must be scanned OR soldout before Next; 2-scanned-1-blank blocks; all-soldout valid |
+| scannedTotal aggregation | 4 | Mixed scanned+soldout; all-soldout sums totalValues; empty=0 |
+| Daily Due formula | 6 | Normal/negative/zero/instant-only/FP-precision/penny-dust |
+| sellDirection startTicket | 8 | desc=total−1, asc=0, unknown=desc (safer), fallback to scanned ticket |
+| Scan-to-activate scenario | 3 | Desc 149/149→0 sold; Asc 0/0→0 sold; Desc 149/140→9 sold |
+| Counter sort | 3 | $-value desc, fallback to totalTickets×ticketPrice |
+
+**Regression check**: full `node --test tests/lottery_*.test.mjs` → 142/142 green (106 prior + 36 new). Cash-floor suite 23/23 independent.
+
+#### Files Changed (Session 40)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/components/modals/LotteryShiftModal.jsx` | Full rewrite — 3-step wizard replacing single-screen reconciliation |
+| `cashier-app/src/components/modals/LotteryShiftModal.css` | +230 lines for wizard UI — `.lsm-modal--wide`, `.lsm-steps-bar`, `.lsm-step-pill*`, `.lsm-scan-bar`, `.lsm-scan-log*`, `.lsm-book-table`, `.lsm-book-row*`, `.lsm-soldout-btn*`, `.lsm-total-strip`, `.lsm-online-grid`, `.lsm-online-field`, `.lsm-online-input`, `.lsm-online-preview`, `.lsm-confirm*`, `.lsm-formula`, `.lsm-grand-due*`, `.lsm-report-row*`, `.lsm-wizard-nav`, `.lsm-btn-back/next*` + 720px / 560px responsive |
+| `cashier-app/src/api/pos.js` | +`soldoutLotteryBox`, `upsertLotteryOnlineTotal`, `getLotteryOnlineTotal` |
+| `backend/src/services/lottery/engine/autoActivator.js` | `processScan` derives `startTicket` from `LotterySettings.sellDirection` on first activation (desc=total−1, asc=0) |
+| `backend/tests/lottery_eod_wizard.test.mjs` | NEW — 36 pure-logic tests across 7 suites |
+
+Cashier-app build verified clean (4.41s). Portal build verified clean (15.22s) — no cross-app regressions.
+
+#### Deferred to next phase
+
+- Counter per-day history view (start/end/sold/total by date, Elistars-style) — bundle with 3g's daily snapshot data
+- Live cashier-app verification (requires station pairing — pure-logic tests cover the math, end-to-end flow ready for QA on a paired station)
+- Wizard-persisted draft — currently resets on close; could cache partial scan state in IndexedDB so an accidental close doesn't lose progress
+
+---
+
+*Last updated: April 2026 — Session 40: Lottery Phase 3g — 3-step End-of-Shift wizard (Counter Scan → Online Sales → Confirm & Save). Sort by ticket value desc, auto-fill on scan, sellDirection-aware startTicket on activation, per-row SO button, daily-due formula shown explicitly. 36 new tests, full lottery suite 142/142 green.*
+
+### Follow-up — MA lottery QR-code parsing (29-digit payload)
+
+New ticket stock shipping from Mass Lottery in late 2025 / into 2026 prints a QR code alongside the Data Matrix. Scanners read the QR as a 29-digit string rather than the familiar `GGG-BBBBBB-TTT` / `GGG BBBBBB TTT` (12/13-char) formats. Structure:
+
+```
+GGG 0 BBBBBB TTT + 16 digits of QR metadata (internal store/date/checksum)
+```
+
+The middle `0` at position 3 is a fixed separator. The 16 trailing digits carry store/date/checksum data the scan engine doesn't need — we ignore them and extract only game/book/ticket.
+
+**Sample payloads (captured from live MA scans):**
+```
+52900384500001010070000000064 → game=529 book=038450 ticket=000  (fresh book)
+51300481550671010070000000073 → game=513 book=048155 ticket=067  (mid-book)
+49800276321280515060000000088 → game=498 book=027632 ticket=128  (matches adapter's documented sample)
+```
+
+#### Fix
+
+[`backend/src/services/lottery/adapters/MA.js`](backend/src/services/lottery/adapters/MA.js) — added a third regex `TICKET_RE_QR = /^(\d{3})0(\d{6})(\d{3})\d{16}$/` that runs **before** the canonical / dashless patterns in `parseAny()`. Returns the standard parsed shape with an extra `source: 'qr'` marker so downstream code (EoD wizard, shift reports) can tell QR scans apart from Data Matrix scans if needed. Updated the adapter's file-level doc block with the QR format + three sample payloads.
+
+#### Tests — 8 new cases (all pass)
+
+[`backend/tests/lottery_adapters.test.mjs`](backend/tests/lottery_adapters.test.mjs) — new nested suite `QR code payload (29-digit, new 2025+ stock)`:
+- Sample 1 / 2 / 3 each parse to correct game/book/ticket
+- QR scan produces the same game/book/ticket as the equivalent dashed scan (only `source` differs)
+- Rejects 29-digit strings without the fixed `0` separator at position 3
+- Rejects 28-digit (too short) and 30-digit (too long) payloads
+- Tolerates leading/trailing whitespace
+- `parseTicketBarcode` accepts the QR form (filters by `type === 'ticket'`)
+
+**Regression check**: full `node --test tests/lottery_*.test.mjs` → **150/150 green** (142 prior + 8 new).
+
+Because the scan engine uses `parseAny`'s return value unchanged and the shape is identical to the Data Matrix form, the EoD wizard (Session 40 / Phase 3g) auto-handles the new QR format — no changes needed in `autoActivator.js`, `LotteryShiftModal.jsx`, or `scanLotteryBarcode`.
+
+#### Files Changed
+
+| File | Change |
+|---|---|
+| `backend/src/services/lottery/adapters/MA.js` | +`TICKET_RE_QR` regex, QR branch in `parseAny` with `source: 'qr'` marker, updated file-level doc block with 3 sample payloads |
+| `backend/tests/lottery_adapters.test.mjs` | +8 QR parse tests in a new nested suite under the MA describe block |
+
+---
+
+*Last updated: April 2026 — Session 40 follow-up: MA lottery adapter parses the new 29-digit QR payload (`GGG 0 BBBBBB TTT + 16 metadata digits`). 8 new tests; full lottery suite 150/150 green.*
 

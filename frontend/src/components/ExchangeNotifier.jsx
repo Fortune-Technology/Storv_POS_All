@@ -55,9 +55,12 @@ function playSound() {
 }
 
 export default function ExchangeNotifier() {
-  const lastOrdersRef = useRef(null);
-  const lastPartnersRef = useRef(null);
-  const lastSettlementsRef = useRef(null);
+  const lastOrdersRef         = useRef(null);
+  const lastPartnersRef       = useRef(null);
+  const lastSettlementsRef    = useRef(null);
+  // Session 39 — track outgoing orders that have been partially_confirmed
+  // or rejected so we can notify the SENDER when the receiver responds.
+  const lastOutgoingShortRef  = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -67,15 +70,21 @@ export default function ExchangeNotifier() {
         const u = JSON.parse(localStorage.getItem('user') || '{}');
         if (!u.token) return;
 
-        const [ordersRes, partnersRes, settlementsRes] = await Promise.all([
+        const [ordersRes, partnersRes, settlementsRes, outgoingShortRes] = await Promise.all([
           listWholesaleOrders({ direction: 'incoming', status: 'sent', limit: 50 }).catch(() => ({ data: [] })),
           listPendingPartnerRequests().catch(() => ({ data: [], count: 0 })),
           listSettlements().catch(() => []),
+          // Session 39 — outgoing orders the receiver has partially accepted
+          // or rejected. Polling these drives the "your PO was short-shipped"
+          // toast for the sender.
+          listWholesaleOrders({ direction: 'outgoing', status: 'partially_confirmed,rejected', limit: 50 })
+            .catch(() => ({ data: [] })),
         ]);
 
         const pendingOrders = ordersRes.data?.length || 0;
         const pendingPartners = partnersRes.count || 0;
         const pendingSettlementsForMe = (settlementsRes || []).filter(s => s.needsMyConfirmation).length;
+        const outgoingShortCount = outgoingShortRes.data?.length || 0;
 
         if (lastOrdersRef.current !== null && pendingOrders > lastOrdersRef.current) {
           const diff = pendingOrders - lastOrdersRef.current;
@@ -112,9 +121,24 @@ export default function ExchangeNotifier() {
             { autoClose: 10000 }
           );
         }
+        // Session 39 — notify sender when receiver partially accepts / rejects
+        if (lastOutgoingShortRef.current !== null && outgoingShortCount > lastOutgoingShortRef.current) {
+          const diff = outgoingShortCount - lastOutgoingShortRef.current;
+          playSound();
+          toast.warning(
+            <div onClick={() => navigate('/portal/exchange?tab=orders&direction=outgoing')} style={{ cursor: 'pointer' }}>
+              <strong>Order Response Received</strong>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                {diff} of your wholesale order{diff > 1 ? 's were' : ' was'} partially accepted or rejected — click to review and respond
+              </div>
+            </div>,
+            { autoClose: 12000 }
+          );
+        }
         lastOrdersRef.current = pendingOrders;
         lastPartnersRef.current = pendingPartners;
         lastSettlementsRef.current = pendingSettlementsForMe;
+        lastOutgoingShortRef.current = outgoingShortCount;
       } catch { /* silent */ }
     };
 

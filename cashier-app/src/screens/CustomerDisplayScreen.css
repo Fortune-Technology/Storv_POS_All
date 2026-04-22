@@ -2,12 +2,16 @@
    CustomerDisplayScreen.css — prefix: cds-
    Uses POS theme variables from index.css (--bg-*, --text-*, --green, etc.)
    Matches the main POS screen's branding and color palette.
+
+   Type scale bumped in Session 39 — this display is read by customers
+   from across the counter (~2–3 ft away), so every value is sized for
+   comfortable reading at that distance.
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Reset ── */
 .cds-root * { box-sizing: border-box; margin: 0; padding: 0; }
 .cds-root { overflow: hidden; }
-.cds-root ::-webkit-scrollbar { width: 3px; }
+.cds-root ::-webkit-scrollbar { width: 4px; }
 .cds-root ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 .cds-root ::-webkit-scrollbar-track { background: transparent; }
 
@@ -39,29 +43,30 @@
    Thank You state
 ══════════════════════════════════════════════════════════════ */
 .cds-thankyou-icon {
-  width: 72px;
-  height: 72px;
+  width: 110px;
+  height: 110px;
   border-radius: 50%;
   background: var(--green-dim);
-  border: 3px solid var(--green);
+  border: 4px solid var(--green);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
   animation: cds-scaleIn 0.4s ease;
 }
 
 .cds-thankyou-title {
-  font-size: 2.4rem;
+  font-size: 3.4rem;
   font-weight: 800;
   color: var(--green);
+  letter-spacing: -0.02em;
 }
 
 .cds-thankyou-change {
-  font-size: 1.3rem;
+  font-size: 1.9rem;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-top: 10px;
+  margin-top: 18px;
 }
 .cds-thankyou-change-amt {
   color: var(--amber);
@@ -69,26 +74,26 @@
 }
 
 .cds-thankyou-bye {
-  font-size: 0.85rem;
+  font-size: 1.15rem;
   color: var(--text-muted);
-  margin-top: 20px;
+  margin-top: 28px;
 }
 
 /* ══════════════════════════════════════════════════════════════
    Idle state
 ══════════════════════════════════════════════════════════════ */
 .cds-idle-store {
-  font-size: 2rem;
+  font-size: 3rem;
   font-weight: 800;
   color: var(--green);
   letter-spacing: -0.02em;
 }
 
 .cds-idle-clock {
-  font-size: 1rem;
+  font-size: 1.4rem;
   color: var(--text-muted);
   font-weight: 500;
-  margin-top: 6px;
+  margin-top: 10px;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -109,18 +114,20 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 1rem;
+  padding: 0.75rem 1.25rem;
   background: var(--bg-panel);
   flex-shrink: 0;
 }
 .cds-header-store {
-  font-size: 0.95rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: var(--green);
+  letter-spacing: -0.01em;
 }
 .cds-header-clock {
-  font-size: 0.78rem;
+  font-size: 1.05rem;
   color: var(--text-muted);
+  font-weight: 500;
 }
 
 /* Customer bar */
@@ -128,42 +135,42 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.4rem 1rem;
+  padding: 0.6rem 1.25rem;
   background: var(--green-dim);
   flex-shrink: 0;
 }
 .cds-customer-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 .cds-customer-avatar {
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: rgba(122, 193, 67, 0.2);
   border: 1px solid var(--green-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--green);
 }
 .cds-customer-name {
-  font-size: 0.82rem;
+  font-size: 1.1rem;
   font-weight: 600;
 }
 .cds-customer-phone {
-  font-size: 0.68rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
 }
 .cds-customer-points {
-  padding: 2px 10px;
-  border-radius: 14px;
+  padding: 4px 14px;
+  border-radius: 16px;
   background: rgba(122, 193, 67, 0.12);
   border: 1px solid var(--green-border);
-  font-size: 0.72rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--green);
 }
@@ -172,14 +179,14 @@
 .cds-items {
   flex: 1;
   overflow-y: auto;
-  padding: 0.25rem 0;
+  padding: 0.4rem 0;
 }
 
 .cds-line-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.3rem 1rem;
+  padding: 0.5rem 1.25rem;
   animation: cds-fadeSlide 0.15s ease;
 }
 .cds-line-item:nth-child(odd) {
@@ -191,11 +198,11 @@
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 
 .cds-line-name {
-  font-size: 0.82rem;
+  font-size: 1.1rem;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -204,35 +211,35 @@
 }
 
 .cds-line-qty {
-  font-size: 0.68rem;
+  font-size: 0.95rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .cds-line-promo {
-  font-size: 0.65rem;
+  font-size: 0.9rem;
   color: var(--green);
   font-weight: 600;
   flex-shrink: 0;
 }
 
 .cds-line-discount {
-  font-size: 0.65rem;
+  font-size: 0.9rem;
   color: var(--amber);
   font-weight: 600;
   flex-shrink: 0;
 }
 
 .cds-line-deposit {
-  font-size: 0.65rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .cds-line-total {
-  font-size: 0.82rem;
+  font-size: 1.1rem;
   font-weight: 600;
-  margin-left: 8px;
+  margin-left: 10px;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -242,7 +249,7 @@
 /* ── Summary panel ─────────────────────────────────────────── */
 .cds-summary {
   flex-shrink: 0;
-  padding: 0.6rem 1rem 0.5rem;
+  padding: 0.85rem 1.25rem 0.75rem;
   background: var(--bg-panel);
 }
 
@@ -250,12 +257,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1px 0;
+  padding: 2px 0;
 }
 
 .cds-summary-label {
-  font-size: 0.78rem;
-  font-weight: 400;
+  font-size: 1.05rem;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 .cds-summary-label--colored {
@@ -266,7 +273,7 @@
 }
 
 .cds-summary-value {
-  font-size: 0.82rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -276,27 +283,32 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.4rem;
-  padding-top: 0.4rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
   border-top: 1px solid var(--border-light);
 }
 .cds-grand-label {
-  font-size: 1.1rem;
+  font-size: 1.6rem;
   font-weight: 800;
   color: var(--text-primary);
 }
 .cds-grand-value {
-  font-size: 1.8rem;
+  font-size: 2.6rem;
   font-weight: 900;
   color: var(--green);
   font-family: 'Inter', sans-serif;
+  letter-spacing: -0.01em;
 }
 
-/* ── Responsive ── */
+/* ── Responsive — preserves big-screen type scale, shrinks
+   only for <768px auxiliary displays (rare). ── */
 @media (max-width: 768px) {
-  .cds-grand-value { font-size: 1.5rem; }
-  .cds-idle-store { font-size: 1.5rem; }
-  .cds-thankyou-title { font-size: 1.8rem; }
-  .cds-line-name { font-size: 0.78rem; }
-  .cds-line-total { font-size: 0.78rem; }
+  .cds-grand-value { font-size: 2rem; }
+  .cds-grand-label { font-size: 1.2rem; }
+  .cds-idle-store { font-size: 2rem; }
+  .cds-thankyou-title { font-size: 2.4rem; }
+  .cds-line-name { font-size: 0.95rem; }
+  .cds-line-total { font-size: 0.95rem; }
+  .cds-summary-label { font-size: 0.9rem; }
+  .cds-summary-value { font-size: 0.95rem; }
 }

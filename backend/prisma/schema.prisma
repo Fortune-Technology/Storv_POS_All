@@ -1535,6 +1535,43 @@ model VendorPayment {
 }
 
 // ─────────────────────────────────────────────────
+// VENDOR CREDIT
+// Free-case receipts, mix-and-match bonuses, damaged-goods allowances,
+// and other non-cash credits from a vendor. Distinct from VendorPayment
+// (which tracks cash going OUT to the vendor) — credits are goods or
+// equivalent value coming IN from the vendor without charge.
+//
+// Example: "Buy 6 cases of Coke, get 1 free" → 1 VendorCredit row with
+// creditType='free_case', casesReceived=1, amount=48.00 (the retail/whole
+// sale value of the free case), reason="Mix-and-match 6+1 promo".
+//
+// Monthly totals surface on the vendor-detail page. No automatic
+// invoice linkage — admins enter credits manually after receiving goods.
+model VendorCredit {
+  id             String   @id @default(cuid())
+  orgId          String
+  storeId        String?
+  vendorId       Int?
+  vendorName     String?  // denormalised fallback when vendorId is null
+  amount         Decimal  @db.Decimal(10, 4)   // credit value in $
+  creditType     String   @default("free_case")
+  // "free_case" | "mix_match" | "damaged_return" | "adjustment" | "other"
+  reason         String?  // short user-entered description
+  casesReceived  Int?     // optional — how many free cases came with this credit
+  productRef     String?  // optional — product name / UPC / SKU reference
+  notes          String?
+  creditDate     DateTime @default(now())
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@index([orgId, creditDate])
+  @@index([orgId, vendorId])
+  @@map("vendor_credits")
+}
+
+// ─────────────────────────────────────────────────
 // CLOCK EVENT
 // Employee clock in / clock out records.
 // Identified by PIN without requiring a full JWT session.
@@ -3121,6 +3158,23 @@ model WholesaleOrder {
   editedAt      DateTime?
   editedById    String?
 
+  // Archive state (Session 39) — both parties must agree the order is
+  // fully reconciled / settled before archiving. Archived orders are
+  // hidden from the main Exchange view but retained for history via the
+  // "Show archived" toggle.
+  senderArchived      Boolean   @default(false)
+  senderArchivedAt    DateTime?
+  receiverArchived    Boolean   @default(false)
+  receiverArchivedAt  DateTime?
+
+  // Dispute tracking (Session 39) — multi-round back-and-forth between
+  // parties when the receiver partially accepts. The messages themselves
+  // live in `events` as `eventType='dispute_message'`. These fields track
+  // the overall dispute state.
+  disputeStatus      String?   // null | "open" | "resolved"
+  disputeOpenedAt    DateTime?
+  disputeResolvedAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3369,10 +3423,9 @@ model PriceScenario {
 //
 // Freeform drag-and-drop "iPhone home screen" style tile grid that the
 // cashier sees on the POS. Shared across all cashiers at the store (the
-// user's original request — per-store, not per-station). Supersedes the
-// older `store.pos.quickFolders` JSON when this row exists and `tree` is
-// non-empty; legacy quickFolders still load as a fallback so existing
-// setups keep working until migrated.
+// user's original request — per-store, not per-station). This is the
+// canonical system for POS home-screen customisation; the legacy
+// `store.pos.quickFolders` JSON is no longer read.
 //
 // `tree` JSON shape (flat array — folder children render in drill-in view):
 //   [
@@ -3431,7 +3484,17 @@ model State {
   name                     String          // "Massachusetts"
   country                  String   @default("US")
   defaultTaxRate           Decimal? @db.Decimal(6, 4)  // e.g. 0.0625 = 6.25%
+  // Legacy single-rate commission — kept for backward-compat. New stores
+  // should use the 4-source rates below. If state-level rates are null, the
+  // settlement engine falls back to LotterySettings.commissionRate per store.
   defaultLotteryCommission Decimal? @db.Decimal(6, 4)  // 0.05 = 5%
+  // Phase 3e — per-revenue-stream commission rates. Set by superadmin for
+  // each state and applied to all stores in that state. Decimal like 0.054
+  // means 5.4%. Null means "use defaultLotteryCommission fallback."
+  instantSalesCommRate     Decimal? @db.Decimal(6, 4) // e.g. 0.054 = 5.4% on scratch sales
+  instantCashingCommRate   Decimal? @db.Decimal(6, 4) // e.g. 0.01 = 1% on scratch payouts
+  machineSalesCommRate     Decimal? @db.Decimal(6, 4) // e.g. 0.054 on draw-game sales
+  machineCashingCommRate   Decimal? @db.Decimal(6, 4) // e.g. 0.01 on draw-game payouts
   alcoholAgeLimit          Int      @default(21)
   tobaccoAgeLimit          Int      @default(21)
   // Deposit rules as JSON (varies widely by state — 10 states have mandates)

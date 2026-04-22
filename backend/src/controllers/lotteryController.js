@@ -1014,6 +1014,35 @@ async function logScanEvent({ orgId, storeId, boxId, userId, raw, parsed, action
  * inventory, and auto-activates / updates currentTicket / auto-soldouts as
  * needed. Returns a structured result the UI can react to.
  */
+/**
+ * POST /api/lottery/scan/parse
+ * Body: { raw: string }
+ *
+ * Pure parse — runs the barcode through the state adapters and returns the
+ * decoded { gameNumber, bookNumber, ticketNumber?, state }. Does NOT touch
+ * the DB or try to resolve against an existing LotteryBox. Used by the
+ * Receive Books scan flow where we want to collect parsed metadata for
+ * books that intentionally do NOT exist in inventory yet.
+ */
+export const parseLotteryScan = async (req, res) => {
+  try {
+    const storeId = getStore(req);
+    const { raw } = req.body || {};
+    if (!raw || typeof raw !== 'string') {
+      return res.status(400).json({ success: false, error: 'raw barcode string is required' });
+    }
+    const settings = await prisma.lotterySettings.findUnique({ where: { storeId } }).catch(() => null);
+    const parsed = _parseScan(raw, settings?.state || null);
+    if (!parsed) {
+      return res.status(400).json({ success: false, error: 'Barcode format not recognised for any supported state' });
+    }
+    return res.json({ success: true, state: parsed.adapter.code, parsed: parsed.parsed });
+  } catch (err) {
+    console.error('[lottery.parseScan]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 export const scanLotteryBarcode = async (req, res) => {
   try {
     const orgId   = getOrgId(req);
@@ -1083,6 +1112,7 @@ export const scanLotteryBarcode = async (req, res) => {
       success: true,
       action:       result.action,
       reason:       result.reason || null,
+      message:      result.message || null,
       box:          result.box || null,
       autoSoldout:  result.autoSoldout || null,
       warnings:     result.warnings || [],
@@ -1640,25 +1670,36 @@ export const getLotterySettlement = async (req, res) => {
       return res.json({ success: true, data: existing, snapshot });
     }
 
-    // Otherwise merge persisted adjustments onto the fresh snapshot
+    // Merge persisted adjustments onto the fresh snapshot.
+    //
+    // Formula (per user spec):
+    //   Daily Due      = Instant sales − Instant cashings + Machine sales − Machine cashings
+    //   Weekly Gross   = Σ Daily Due         (already in snapshot.grossBeforeCommission)
+    //   Weekly Net     = Weekly Gross − returns − commissions
+    //   Weekly Payable = Weekly Net − bonus + service − adjustments
+    const bonus         = Number(existing?.bonus || 0);
+    const serviceCharge = Number(existing?.serviceCharge || 0);
+    const adjustments   = Number(existing?.adjustments || 0);
+
+    const weeklyNet = snapshot.grossBeforeCommission - snapshot.returnsDeduction - snapshot.totalCommission;
+    const weeklyPayable = weeklyNet - bonus + serviceCharge - adjustments;
+
     const merged = {
       id: existing?.id || null,
       orgId, storeId,
       weekStart: start, weekEnd: end, dueDate: due,
       ...snapshot,
-      bonus:         Number(existing?.bonus || 0),
-      serviceCharge: Number(existing?.serviceCharge || 0),
-      adjustments:   Number(existing?.adjustments || 0),
-      notes:         existing?.notes || null,
-      status:        existing?.status || 'draft',
-      persisted:     !!existing,
+      bonus, serviceCharge, adjustments,
+      notes:     existing?.notes || null,
+      status:    existing?.status || 'draft',
+      persisted: !!existing,
+
+      // Explicit totals — frontend displays both with/without commission
+      weeklyGross:   Math.round(snapshot.grossBeforeCommission * 100) / 100,
+      weeklyNet:     Math.round(weeklyNet * 100) / 100,
+      weeklyPayable: Math.round(weeklyPayable * 100) / 100,
+      totalDue:      Math.round(weeklyPayable * 100) / 100,   // canonical
     };
-    // Reapply total with adjustments
-    merged.totalDue = Math.round(
-      ((snapshot.onlineGross - snapshot.onlineCashings - snapshot.onlineCommission) +
-       (snapshot.instantSales - snapshot.instantSalesComm - snapshot.instantCashingComm - snapshot.returnsDeduction) +
-       merged.bonus + merged.serviceCharge + merged.adjustments) * 100
-    ) / 100;
 
     res.json({ success: true, data: merged });
   } catch (err) {
@@ -1714,10 +1755,20 @@ export const upsertLotterySettlement = async (req, res) => {
     const s = serviceCharge != null ? Number(serviceCharge) : Number(existing?.serviceCharge || 0);
     const a = adjustments != null ? Number(adjustments) : Number(existing?.adjustments || 0);
 
+    // Match the unified formula — user spec:
+    //   Weekly Payable = Σ daily − bonus + service − adjustments − returns − commissions
+    const snapGross =
+      (Number(totalSnapshot.instantSales || 0) - Number(totalSnapshot.instantPayouts || totalSnapshot.instantCashingComm || 0)) +
+      (Number(totalSnapshot.onlineGross || 0)  - Number(totalSnapshot.onlineCashings || 0));
+    const snapCommission =
+      Number(totalSnapshot.instantSalesComm || 0) +
+      Number(totalSnapshot.instantCashingComm || 0) +
+      Number(totalSnapshot.machineSalesComm || 0) +
+      Number(totalSnapshot.machineCashingComm || 0);
+    const snapReturns = Number(totalSnapshot.returnsDeduction || 0);
+
     const totalDue = Math.round(
-      ((totalSnapshot.onlineGross - totalSnapshot.onlineCashings - totalSnapshot.onlineCommission) +
-       (totalSnapshot.instantSales - totalSnapshot.instantSalesComm - totalSnapshot.instantCashingComm - totalSnapshot.returnsDeduction) +
-       b + s + a) * 100
+      (snapGross - snapReturns - snapCommission - b + s - a) * 100
     ) / 100;
 
     const data = {

@@ -105,15 +105,10 @@ input, select {
 }
 input:focus, select:focus { border-color: var(--green); }
 
-/* Scan flash animations */
-@keyframes flashGreen {
-  0%   { background: rgba(122,193,67,.25); }
-  100% { background: transparent; }
-}
-@keyframes flashRed {
-  0%   { background: rgba(224,63,63,.25); }
-  100% { background: transparent; }
-}
+/* flashGreen / flashRed keyframes are defined in POSScreen.css.
+   Duplicate abrupt versions previously here were removed in Session 39
+   — they conflicted with the smoother POSScreen.css versions via
+   CSS-cascade order and caused a visible "blink" on every scan. */
 
 /* Modal backdrop */
 .modal-backdrop {

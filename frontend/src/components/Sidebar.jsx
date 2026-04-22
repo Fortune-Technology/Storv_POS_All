@@ -48,6 +48,7 @@ import {
 import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
 import { useStoreModules } from '../hooks/useStoreModules';
+import { useNotificationCounts } from '../hooks/useNotificationCounts';
 import { getRoutePermission } from '../rbac/routePermissions';
 
 const menuGroups = [
@@ -164,6 +165,8 @@ const Sidebar = () => {
   const [chatUnread, setChatUnread] = useState(0);
   const { can } = usePermissions();
   const { modules } = useStoreModules();
+  // Session 39 — additional badge counts (tasks, tickets)
+  const notifCounts = useNotificationCounts();
 
   // Filter menu items against (a) the user's effective permissions and (b)
   // the active store's enabled modules. Items without a mapped permission
@@ -312,7 +315,17 @@ const Sidebar = () => {
             <div key={group.label} className="nav-group">
               <span className="nav-group-label">{group.label}</span>
               {group.items.map((item) => {
-                const badge = item.path === '/portal/chat' && chatUnread > 0 ? chatUnread : 0;
+                // Compute per-path badge count. Chat keeps its navigation-aware
+                // reset logic (clears on visit). Other paths pull from polled
+                // notification counts.
+                let badge = 0;
+                if (item.path === '/portal/chat') {
+                  badge = chatUnread;
+                } else if (item.path === '/portal/tasks') {
+                  badge = notifCounts.tasks;
+                } else if (item.path === '/portal/support-tickets') {
+                  badge = notifCounts.tickets;
+                }
                 return (
                   <NavLink
                     key={item.path}

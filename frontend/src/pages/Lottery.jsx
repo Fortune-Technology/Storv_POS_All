@@ -17,6 +17,7 @@ import {
   Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw,
   Package, BarChart2, Search, MapPin, AlertCircle,
   ChevronUp, ChevronDown, Bell, BookOpen, Layers,
+  ScanLine,
 } from 'lucide-react';
 
 import {
@@ -26,7 +27,7 @@ import {
   getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
   getLotterySettings, updateLotterySettings,
   // Phase 1a: scan + lifecycle
-  scanLotteryBarcode, moveLotteryBoxToSafe, soldoutLotteryBox,
+  scanLotteryBarcode, parseLotteryBarcode, moveLotteryBoxToSafe, soldoutLotteryBox,
   returnLotteryBoxToLotto, cancelLotteryPendingMove,
   // Catalog
   getLotteryCatalog, getAllLotteryCatalog,
@@ -415,8 +416,48 @@ function TimelineRow({ label, at, active }) {
   );
 }
 
-/* Receive Box Modal (manual / local game) */
+/* Receive Box Modal — two tabs:
+ *   Manual: pick game + quantity (original flow)
+ *   Scan:   scan each book barcode; list accumulates; running total; confirm
+ *           creates all LotteryBox rows in status='inventory' (the Safe).
+ */
 function ReceiveBoxModal({ games, onSave, onClose }) {
+  const [mode, setMode] = useState('scan');   // default to the faster flow
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal lt-modal-lg">
+        <div className="lt-modal-header">
+          <h3 className="lt-modal-title">Receive Ticket Order</h3>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="lt-receive-tabs">
+          <button
+            type="button"
+            className={`lt-receive-tab ${mode === 'scan' ? 'lt-receive-tab--active' : ''}`}
+            onClick={() => setMode('scan')}
+          >
+            <ScanLine size={14} /> Scan Books
+          </button>
+          <button
+            type="button"
+            className={`lt-receive-tab ${mode === 'manual' ? 'lt-receive-tab--active' : ''}`}
+            onClick={() => setMode('manual')}
+          >
+            Manual Entry
+          </button>
+        </div>
+        {mode === 'scan' ? (
+          <ReceiveScanTab games={games} onSave={onSave} onClose={onClose} />
+        ) : (
+          <ReceiveManualTab games={games} onSave={onSave} onClose={onClose} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Manual-entry tab (original simple form). */
+function ReceiveManualTab({ games, onSave, onClose }) {
   const [gameId, setGameId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [startTicket, setStartTicket] = useState('');
@@ -430,38 +471,222 @@ function ReceiveBoxModal({ games, onSave, onClose }) {
     setSaving(false);
   };
   return (
-    <div className="lt-modal-overlay">
-      <div className="lt-modal">
-        <div className="lt-modal-header">
-          <h3 className="lt-modal-title">Receive Ticket Order</h3>
-          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
-        </div>
-        {err && <div className="lt-error">{err}</div>}
+    <>
+      {err && <div className="lt-error">{err}</div>}
+      <div className="lt-field">
+        <label className="lt-field-label">Game</label>
+        <select className="lt-select" value={gameId} onChange={e => setGameId(e.target.value)}>
+          <option value="">— Select Game —</option>
+          {games.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+      </div>
+      <div className="lt-field-row">
         <div className="lt-field">
-          <label className="lt-field-label">Game</label>
-          <select className="lt-select" value={gameId} onChange={e => setGameId(e.target.value)}>
-            <option value="">— Select Game —</option>
-            {games.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
+          <label className="lt-field-label">Qty (Boxes)</label>
+          <input className="lt-input" type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} />
         </div>
-        <div className="lt-field-row">
-          <div className="lt-field">
-            <label className="lt-field-label">Qty (Boxes)</label>
-            <input className="lt-input" type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} />
-          </div>
-          <div className="lt-field">
-            <label className="lt-field-label">Start Ticket #</label>
-            <input className="lt-input" value={startTicket} onChange={e => setStartTicket(e.target.value)} placeholder="Optional" />
-          </div>
-        </div>
-        <div className="lt-form-actions">
-          <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
-            {saving ? 'Saving…' : 'Receive'}
-          </button>
+        <div className="lt-field">
+          <label className="lt-field-label">Start Ticket #</label>
+          <input className="lt-input" value={startTicket} onChange={e => setStartTicket(e.target.value)} placeholder="Optional" />
         </div>
       </div>
-    </div>
+      <div className="lt-form-actions">
+        <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="lt-btn lt-btn-primary" onClick={submit} disabled={saving}>
+          {saving ? 'Saving…' : 'Receive'}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/* Scan-to-receive tab — scan each book's barcode, build a running list, confirm all. */
+function ReceiveScanTab({ games, onSave, onClose }) {
+  const [scanValue, setScanValue] = useState('');
+  const [items, setItems]         = useState([]);   // [{ key, gameId, gameName, gameNumber, boxNumber, ticketPrice, totalTickets, value }]
+  const [err, setErr]             = useState('');
+  const [info, setInfo]           = useState('');
+  const [saving, setSaving]       = useState(false);
+  const scanRef = React.useRef(null);
+
+  React.useEffect(() => {
+    setTimeout(() => scanRef.current?.focus(), 50);
+  }, []);
+
+  const handleScan = async (rawArg) => {
+    const v = String(rawArg ?? scanValue ?? '').trim();
+    if (!v) return;
+    setScanValue('');
+    setErr(''); setInfo('');
+    try {
+      const res = await parseLotteryBarcode(v);
+      const parsed = res?.parsed || res?.data?.parsed;   // lotteryUnwrap forgiveness
+      if (!parsed || !parsed.gameNumber || !parsed.bookNumber) {
+        setErr(`Barcode not recognised: ${v}`);
+        return;
+      }
+      // Look up a matching game in the local catalog by gameNumber
+      const game = games.find(g => String(g.gameNumber) === String(parsed.gameNumber));
+      if (!game) {
+        setErr(`Game ${parsed.gameNumber} not found in catalog. Add it to Games first, then re-scan.`);
+        return;
+      }
+      // De-dup against the pending list (game+book unique)
+      const key = `${game.id}:${parsed.bookNumber}`;
+      if (items.some(it => it.key === key)) {
+        setInfo(`Already added: ${game.name} — Book ${parsed.bookNumber}`);
+        return;
+      }
+      const totalTickets = Number(game.ticketsPerBox || 150);
+      const ticketPrice  = Number(game.ticketPrice   || 0);
+      const value        = totalTickets * ticketPrice;
+      setItems(arr => [
+        ...arr,
+        {
+          key,
+          gameId:       game.id,
+          gameName:     game.name,
+          gameNumber:   parsed.gameNumber,
+          bookNumber:   parsed.bookNumber,
+          ticketPrice,
+          totalTickets,
+          value,
+        },
+      ]);
+      setInfo(`✓ Added ${game.name} — Book ${parsed.bookNumber} (${fmt(value)})`);
+    } catch (e) {
+      setErr(e.response?.data?.error || e.message || 'Scan failed');
+    } finally {
+      setTimeout(() => scanRef.current?.focus(), 0);
+    }
+  };
+
+  const removeItem = (key) => {
+    setItems(arr => arr.filter(it => it.key !== key));
+  };
+
+  const clearAll = () => {
+    if (items.length === 0) return;
+    if (!window.confirm(`Clear all ${items.length} scanned book${items.length === 1 ? '' : 's'}?`)) return;
+    setItems([]);
+  };
+
+  const totalValue = items.reduce((s, it) => s + it.value, 0);
+  const totalCount = items.length;
+
+  const confirm = async () => {
+    if (items.length === 0) { setErr('Scan at least one book before confirming.'); return; }
+    setSaving(true); setErr('');
+    try {
+      await onSave({
+        boxes: items.map(it => ({
+          gameId:     it.gameId,
+          boxNumber:  it.bookNumber,
+          // startTicket intentionally omitted — derived from store.sellDirection
+          // on first activation via autoActivator (see Phase 3g notes).
+        })),
+      });
+      // onSave closes the modal + reloads the Safe
+    } catch (e) {
+      setErr(e.response?.data?.error || e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      {err  && <div className="lt-error">{err}</div>}
+      {info && <div className="lt-info">{info}</div>}
+
+      <div className="lt-scan-bar">
+        <ScanLine size={18} />
+        <input
+          ref={scanRef}
+          className="lt-scan-input"
+          type="text"
+          placeholder="Scan the barcode on each received book…"
+          value={scanValue}
+          onChange={e => setScanValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleScan(scanValue); }}
+        />
+        <button
+          type="button"
+          className="lt-btn lt-btn-primary lt-scan-submit"
+          onClick={() => handleScan(scanValue)}
+          disabled={!scanValue.trim()}
+        >
+          Add
+        </button>
+      </div>
+
+      <div className="lt-scan-hint">
+        Scan each book you just received. Duplicates are ignored automatically.
+        On Confirm, every book lands in the <strong>Safe</strong> (status=Inventory)
+        and is ready to activate at EoD.
+      </div>
+
+      {items.length === 0 ? (
+        <div className="lt-empty">
+          <Package size={24} color="#9ca3af" />
+          <div style={{ marginTop: 8, color: '#9ca3af' }}>No books scanned yet.</div>
+        </div>
+      ) : (
+        <>
+          <div className="lt-scan-list">
+            <div className="lt-scan-list-head">
+              <span>Game</span>
+              <span>Book #</span>
+              <span>Pack</span>
+              <span>Value</span>
+              <span></span>
+            </div>
+            {items.map((it, idx) => (
+              <div key={it.key} className="lt-scan-list-row">
+                <span>
+                  <strong>{it.gameName}</strong>
+                  <small style={{ display: 'block', color: '#6b7280', fontSize: '0.68rem' }}>#{it.gameNumber}</small>
+                </span>
+                <span style={{ fontFamily: 'monospace' }}>{it.bookNumber}</span>
+                <span>{it.totalTickets} × {fmt(it.ticketPrice)}</span>
+                <span style={{ fontWeight: 700, color: '#16a34a' }}>{fmt(it.value)}</span>
+                <button
+                  type="button"
+                  className="lt-scan-remove"
+                  onClick={() => removeItem(it.key)}
+                  title="Remove from list"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="lt-scan-total">
+            <span>
+              <strong>{totalCount}</strong> book{totalCount === 1 ? '' : 's'} scanned
+            </span>
+            <strong className="lt-scan-total-amount">{fmt(totalValue)}</strong>
+          </div>
+        </>
+      )}
+
+      <div className="lt-form-actions">
+        <button className="lt-btn lt-btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        {items.length > 0 && (
+          <button className="lt-btn lt-btn-ghost" onClick={clearAll} disabled={saving}>
+            Clear all
+          </button>
+        )}
+        <button
+          className="lt-btn lt-btn-primary"
+          onClick={confirm}
+          disabled={saving || items.length === 0}
+        >
+          {saving ? 'Saving…' : `Confirm & Send to Safe (${totalCount})`}
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -1133,18 +1358,19 @@ function LotteryBody() {
   const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
   const isAdmin = ['superadmin', 'admin'].includes(user.role);
 
+  // 3e — removed Games (admin-managed), Receive Order (duplicate), Daily Scan
+  // (nested wizard was redundant). Receive is now a one-click action in the
+  // Counter tab; Online Sales is its own top-level tab.
   const TABS = [
     'Overview',
-    'Daily Scan',
-    'Weekly Settlement',
     ...(isAdmin ? ['Ticket Catalog'] : []),
-    'Receive Order',
-    'Games',
     'Counter',
     'Safe',
     'Soldout',
     'Returned',
+    'Online Sales',
     'Shift Reports',
+    'Weekly Settlement',
     'Reports',
     'Commission',
     'Settings',
@@ -1170,6 +1396,8 @@ function LotteryBody() {
   const [returnToLottoBox, setReturnToLottoBox] = useState(null);
   const [timelineBox, setTimelineBox] = useState(null);
   const [boxFilter, setBoxFilter] = useState('All');
+  // 3e — date filter for Soldout / Returned tabs (by depletedAt / returnedAt)
+  const [boxDateFilter, setBoxDateFilter] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
 
   // Date range for reports
@@ -1341,6 +1569,29 @@ function LotteryBody() {
     reloadCurrentTab();
   };
 
+  /* ── 3e — derived view of `boxes` for the active tab ─────────────────── */
+  // Counter tab: sort by totalValue descending (highest $/book first).
+  // Soldout tab: filter to books depleted on the selected date (if any).
+  // Returned tab: filter to books returned on the selected date (if any).
+  // Safe tab: no extra filtering; created-order.
+  const filteredTabBoxes = React.useMemo(() => {
+    let list = Array.isArray(boxes) ? [...boxes] : [];
+    if (tab === 'Counter') {
+      list.sort((a, b) => Number(b.totalValue || 0) - Number(a.totalValue || 0));
+    } else if (tab === 'Soldout' && boxDateFilter) {
+      list = list.filter(b => {
+        if (!b.depletedAt) return false;
+        return b.depletedAt.slice(0, 10) === boxDateFilter;
+      });
+    } else if (tab === 'Returned' && boxDateFilter) {
+      list = list.filter(b => {
+        if (!b.returnedAt) return false;
+        return b.returnedAt.slice(0, 10) === boxDateFilter;
+      });
+    }
+    return list;
+  }, [boxes, tab, boxDateFilter]);
+
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="p-page lt-page">
@@ -1355,14 +1606,10 @@ function LotteryBody() {
           </div>
         </div>
         <div className="p-header-actions">
-          {tab === 'Games' && (
-            <button className="lt-btn lt-btn-primary" onClick={() => setGameModal('new')}>
-              <Plus size={15} /> New Game
-            </button>
-          )}
+          {/* Games are managed by superadmin (Admin → Lottery → Ticket Catalog). */}
           {(TAB_STATUS[tab] !== undefined) && (
             <button className="lt-btn lt-btn-primary" onClick={() => setReceiveModal(true)}>
-              <Package size={15} /> Receive (Manual)
+              <Package size={15} /> Receive Books
             </button>
           )}
         </div>
@@ -1419,68 +1666,47 @@ function LotteryBody() {
         </div>
       )}
 
-      {/* ── DAILY SCAN (Phase 1b wizard) ─────────────────────────────── */}
-      {tab === 'Daily Scan' && <LotteryDailyScan />}
-
       {/* ── WEEKLY SETTLEMENT (Phase 2) ──────────────────────────────── */}
       {tab === 'Weekly Settlement' && <LotteryWeeklySettlement />}
 
       {/* ── TICKET CATALOG (admin only) ──────────────────────────────── */}
       {tab === 'Ticket Catalog' && <TicketCatalogTab />}
 
-      {/* ── RECEIVE ORDER ────────────────────────────────────────────── */}
-      {tab === 'Receive Order' && (
-        <ReceiveOrderTab storeSettings={lotterySettings} onReloadBoxes={() => loadBoxes(boxFilter)} />
-      )}
-
-      {/* ── GAMES ────────────────────────────────────────────────────── */}
-      {tab === 'Games' && (
-        <div>
-          {games.length === 0 && (
-            <div className="lt-empty">
-              <Ticket size={40} />
-              <p>No games yet. Click "New Game" to add one.</p>
-            </div>
-          )}
-          <div className="lt-grid-auto">
-            {games.map(g => (
-              <div key={g.id} className="lt-card lt-game-card">
-                <div className="lt-game-card-header">
-                  <div>
-                    <div className="lt-game-name">{g.name}</div>
-                    {g.gameNumber && <div className="lt-game-number">Game #{g.gameNumber}</div>}
-                  </div>
-                  <div className="lt-game-badges">
-                    {g.state && <Badge label={g.state} cls="lt-badge-blue" />}
-                    {g.isGlobal && <Badge label="Global" cls="lt-badge-purple" />}
-                    <Badge label={g.active ? 'Active' : 'Inactive'} cls={g.active ? 'lt-badge-brand' : 'lt-badge-gray'} />
-                  </div>
-                </div>
-                <div className="lt-game-stats">
-                  {[['Ticket Price', fmt(g.ticketPrice)], ['Tickets / Box', fmtNum(g.ticketsPerBox)], ['Box Value', fmt(Number(g.ticketPrice) * Number(g.ticketsPerBox))]].map(([l, v]) => (
-                    <div key={l} className="lt-game-stat-item">
-                      <div className="lt-game-stat-label">{l}</div>
-                      <div className="lt-game-stat-value">{v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="lt-game-card-actions">
-                  <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setGameModal(g)}>
-                    <Edit2 size={13} /> Edit
-                  </button>
-                  <button className="lt-btn lt-btn-danger lt-btn-sm" onClick={() => handleDeleteGame(g.id)}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ── ONLINE SALES (3e) — daily instant cashing + machine sales + machine cashing entry */}
+      {tab === 'Online Sales' && <LotteryDailyScan />}
 
       {/* ── COUNTER / SAFE / SOLDOUT / RETURNED (unified table) ─────── */}
       {TAB_STATUS[tab] !== undefined && (
         <div>
+          {/* 3e — date filter on tabs where it makes sense + sort by ticket value */}
+          {(tab === 'Soldout' || tab === 'Returned') && (
+            <div className="lt-filter-bar" style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: 6 }}>
+                {tab === 'Soldout' ? 'Depleted on' : 'Returned on'}
+              </label>
+              <input
+                type="date"
+                className="lt-input"
+                style={{ maxWidth: 180 }}
+                value={boxDateFilter}
+                onChange={e => setBoxDateFilter(e.target.value)}
+              />
+              {boxDateFilter && (
+                <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setBoxDateFilter('')}>Clear</button>
+              )}
+              <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {filteredTabBoxes.length} / {boxes.length} book{boxes.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          )}
+          {tab === 'Counter' && (
+            <div className="lt-filter-bar" style={{ marginBottom: 10 }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Sorted by highest ticket value first · {filteredTabBoxes.length} active book{filteredTabBoxes.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          )}
+
           <div className="lt-table-wrap">
             <table className="lt-table">
               <thead>
@@ -1495,17 +1721,17 @@ function LotteryBody() {
                 ].map(h => <th key={h}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {boxes.length === 0 && (
+                {filteredTabBoxes.length === 0 && (
                   <tr>
                     <td colSpan={tab === 'Counter' ? 10 : 9} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                       {tab === 'Counter' && 'No books are currently on the counter. Activate a book from Safe.'}
                       {tab === 'Safe' && 'Safe is empty. Receive an order to add books.'}
-                      {tab === 'Soldout' && 'No soldout books yet.'}
-                      {tab === 'Returned' && 'No books have been returned to lottery.'}
+                      {tab === 'Soldout' && (boxDateFilter ? `No books soldout on ${boxDateFilter}.` : 'No soldout books yet.')}
+                      {tab === 'Returned' && (boxDateFilter ? `No books returned on ${boxDateFilter}.` : 'No books have been returned to lottery.')}
                     </td>
                   </tr>
                 )}
-                {boxes.map(b => {
+                {filteredTabBoxes.map(b => {
                   const remaining = Math.max(0, (b.totalTickets || 0) - (b.ticketsSold || 0));
                   const hasPending = !!b.pendingLocation;
                   const fmtCell = (d) => d ? new Date(d).toLocaleDateString() : '—';
@@ -1586,15 +1812,35 @@ function LotteryBody() {
       )}
 
       {/* ── SHIFT REPORTS ────────────────────────────────────────────── */}
-      {tab === 'Shift Reports' && (
-        <div className="lt-table-wrap">
+      {tab === 'Shift Reports' && (() => {
+        const filteredReports = shiftReports.filter(r => {
+          if (!boxDateFilter) return true;
+          const d = (r.closedAt || r.createdAt || '').slice(0, 10);
+          return d === boxDateFilter;
+        });
+        return (
+        <div>
+          <div className="lt-filter-bar" style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: 6 }}>Date</label>
+            <input type="date" className="lt-input" style={{ maxWidth: 180 }}
+              value={boxDateFilter} onChange={e => setBoxDateFilter(e.target.value)} />
+            {boxDateFilter && (
+              <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setBoxDateFilter('')}>Clear</button>
+            )}
+            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              {filteredReports.length} / {shiftReports.length} shift{shiftReports.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="lt-table-wrap">
           <table className="lt-table">
             <thead>
               <tr>{['Date / Shift', 'Sales', 'Payouts', 'Net', 'Machine', 'Digital', 'Variance', 'Notes'].map(h => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
-              {shiftReports.length === 0 && <tr><td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No shift reports yet.</td></tr>}
-              {shiftReports.map(r => {
+              {filteredReports.length === 0 && <tr><td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                {boxDateFilter ? `No shift reports closed on ${boxDateFilter}.` : 'No shift reports yet.'}
+              </td></tr>}
+              {filteredReports.map(r => {
                 const v = Number(r.variance || 0);
                 const vCls = Math.abs(v) < 0.01 ? 'lt-td-green' : Math.abs(v) <= 5 ? 'lt-td-amber' : 'lt-td-red';
                 return (
@@ -1615,8 +1861,9 @@ function LotteryBody() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
-      )}
+      );})()}
 
       {/* ── REPORTS ──────────────────────────────────────────────────── */}
       {tab === 'Reports' && (

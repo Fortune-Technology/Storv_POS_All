@@ -101,7 +101,26 @@ export default function TenderModal({
   const totals = selectTotals(items, taxRules, effectiveCombinedDiscount, bagFeeInfo);
   const hasLotteryItems  = items.some(i => i.isLottery);
   const hasFuelItems     = items.some(i => i.isFuel);
-  const allowedMethods   = ((lotteryCashOnly && hasLotteryItems) || (fuelCashOnly && hasFuelItems))
+
+  // 3f — lottery cash-only enforcement now handles MIXED carts correctly:
+  // when the cart has BOTH lottery and non-lottery items, we no longer block
+  // all card tenders. Instead we compute the lottery portion as a "cash floor"
+  // that must be covered by cash, and let the rest of the cart use any tender.
+  const lotteryAmount = Math.max(0, items.filter(i => i.isLottery)
+    .reduce((s, i) => s + Math.abs(Number(i.lineTotal || 0)), 0));
+  const fuelAmount = Math.max(0, items.filter(i => i.isFuel)
+    .reduce((s, i) => s + Math.abs(Number(i.lineTotal || 0)), 0));
+  const cashMinFloor = (lotteryCashOnly && hasLotteryItems ? lotteryAmount : 0)
+                     + (fuelCashOnly    && hasFuelItems    ? fuelAmount    : 0);
+  const cashMinFloorR = Math.round(cashMinFloor * 100) / 100;
+  const hasCashFloor = cashMinFloorR > 0.005;
+
+  // Cart is pure lottery/fuel-only (every item falls under a cash-only
+  // category). Keep the original strict behaviour — only cash allowed.
+  const isPureCashOnlyCart = hasCashFloor &&
+    (totals.grandTotal > 0 && Math.abs(cashMinFloorR - totals.grandTotal) < 0.01);
+
+  const allowedMethods = isPureCashOnlyCart
     ? METHODS.filter(m => m.id === 'cash')
     : METHODS;
   const cashier  = useAuthStore(s => s.cashier);
@@ -112,7 +131,7 @@ export default function TenderModal({
   const [splits,  setSplits]  = useState([]);
   // When lottery cash-only is enforced, always start on cash regardless of initMethod
   const [method,  setMethod]  = useState(
-    ((lotteryCashOnly && hasLotteryItems) || (fuelCashOnly && hasFuelItems))
+    isPureCashOnlyCart
       ? 'cash'
       : (initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'))
   );
@@ -166,8 +185,19 @@ export default function TenderModal({
 
   const presets = useMemo(() => getSmartCashPresets(remaining), [remaining]);
 
+  // 3f — effective cash committed so far (splits[cash] + current cash entry)
+  const cashFromSplits = splits.filter(s => s.method === 'cash').reduce((s, l) => s + l.amount, 0);
+  const cashEntryActive = method === 'cash' ? Math.min(activeAmt, remaining) : 0;
+  const cashCommitted = Math.round((cashFromSplits + cashEntryActive) * 100) / 100;
+  const cashFloorShortfall = hasCashFloor
+    ? Math.max(0, Math.round((cashMinFloorR - cashCommitted) * 100) / 100)
+    : 0;
+
   const canComplete = useMemo(() => {
     if (isRefundTx) return true;  // refund/bottle return: always completeable
+    // 3f — enforce cash floor from lottery/fuel items before letting card
+    // tender close out the cart.
+    if (cashFloorShortfall > 0.005) return false;
     if (totalSplit >= totals.grandTotal - 0.005) return true;   // fully covered by splits
     if (method === 'manual_card') return remaining > 0;
     if (USES_TERMINAL.includes(method)) {
@@ -179,7 +209,7 @@ export default function TenderModal({
     if (method === 'manual_ebt') return activeAmt > 0;
     if (method === 'other') return activeAmt > 0;
     return false;
-  }, [isRefundTx, method, activeAmt, remaining, totalSplit, totals.grandTotal]);
+  }, [isRefundTx, cashFloorShortfall, method, activeAmt, remaining, totalSplit, totals.grandTotal]);
 
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
@@ -544,7 +574,7 @@ export default function TenderModal({
   // SCREEN: CARD QUICK MODE (no numpad — just confirm)
   // Skipped when lottery cash-only is enforced — falls through to entry modal
   // ════════════════════════════════════════════════════════════════════════════
-  if (initMethod === 'card' && splits.length === 0 && !(lotteryCashOnly && hasLotteryItems) && !(fuelCashOnly && hasFuelItems)) {
+  if (initMethod === 'card' && splits.length === 0 && !isPureCashOnlyCart) {
     const isWaiting  = payStatus === 'waiting';
     const isApproved = payStatus === 'approved';
     const isDeclined = payStatus === 'declined' || payStatus === 'error';
@@ -922,14 +952,32 @@ export default function TenderModal({
             {/* Method selector */}
             <div>
               <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>PAYMENT METHOD</div>
+              {/* 3f — show actionable cash-floor enforcement.
+                  For pure cash-only carts: "only cash allowed".
+                  For mixed carts: "cash portion: $X / card OK for the rest". */}
               {lotteryCashOnly && hasLotteryItems && (
-                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  🎟️ Lottery items — cash only
+                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>🎟️ Lottery ({fmt$(lotteryAmount)}) must be paid in cash.</span>
+                  {!isPureCashOnlyCart && (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
+                      Rest of cart ({fmt$(Math.max(0, totals.grandTotal - lotteryAmount))}) can use any tender.
+                    </span>
+                  )}
+                  {cashFloorShortfall > 0.005 && (
+                    <span style={{ color: '#dc2626', fontWeight: 700, marginLeft: 'auto' }}>
+                      Cash short: {fmt$(cashFloorShortfall)}
+                    </span>
+                  )}
                 </div>
               )}
               {fuelCashOnly && hasFuelItems && (
-                <div style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  ⛽ Fuel items — cash only
+                <div style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '7px 12px', marginBottom: 10, fontSize: '0.78rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>⛽ Fuel ({fmt$(fuelAmount)}) must be paid in cash.</span>
+                  {!isPureCashOnlyCart && (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
+                      Rest of cart ({fmt$(Math.max(0, totals.grandTotal - fuelAmount))}) can use any tender.
+                    </span>
+                  )}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

@@ -31,6 +31,9 @@ import { useSetupStatus } from '../hooks/useSetupStatus';
 import { SetupGuide } from '../components/SetupGuide';
 import { usePermissions } from '../hooks/usePermissions';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import SortableHeader from '../components/SortableHeader';
+import { useTableSort } from '../hooks/useTableSort';
+import AdvancedFilter, { applyAdvancedFilters } from '../components/AdvancedFilter';
 import './ProductCatalog.css';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +57,40 @@ const TAX_CLASSES = [
   { value: 'non_taxable', label: 'Non-Tax',     color: '#94a3b8' },
   { value: 'none',        label: 'No Tax',      color: '#94a3b8' },
 ];
+
+// Session 39 Round 3 — configuration for the AdvancedFilter drawer.
+// `departments` is passed in so the Department enum dropdown stays live.
+const PRODUCT_FILTER_FIELDS = (departments) => [
+  { key: 'name',               label: 'Product Name',  type: 'string' },
+  { key: 'upc',                label: 'UPC',           type: 'string', placeholder: 'e.g. 0080686006374' },
+  { key: 'brand',              label: 'Brand',         type: 'string' },
+  { key: 'departmentId',       label: 'Department',    type: 'enum',
+    options: [{ value: '', label: '— None —' }, ...(departments || []).map(d => ({ value: String(d.id), label: d.name }))] },
+  { key: 'taxClass',           label: 'Tax Class',     type: 'enum',
+    options: TAX_CLASSES.map(t => ({ value: t.value, label: t.label })) },
+  { key: 'defaultRetailPrice', label: 'Retail Price',  type: 'number', step: '0.01' },
+  { key: 'defaultCostPrice',   label: 'Cost Price',    type: 'number', step: '0.01' },
+  { key: 'margin',             label: 'Margin (%)',    type: 'number', step: '0.1' },
+  { key: 'quantityOnHand',     label: 'Qty On Hand',   type: 'number' },
+  { key: 'ebtEligible',        label: 'EBT Eligible',  type: 'boolean' },
+  { key: 'ageRequired',        label: 'Age Restricted',type: 'number' },
+  { key: 'depositPerUnit',     label: 'Deposit / Unit',type: 'number', step: '0.01' },
+  { key: 'active',             label: 'Active',        type: 'boolean' },
+  { key: 'trackInventory',     label: 'Track Inventory',type: 'boolean' },
+];
+
+// Accessor map for advanced-filter — computes `margin` on the fly since the
+// row doesn't store it. Everything else falls through to `row[key]`.
+const PRODUCT_FILTER_CONFIG = {
+  margin: { accessor: (p) => calcMargin(p.defaultCostPrice, p.defaultRetailPrice) },
+};
+
+// Session 39 Round 4 — server-backed sort keys. Must stay in sync with
+// PRODUCT_SORT_MAP in backend/src/controllers/catalogController.js.
+// Keys NOT in this set still sort via client-side useTableSort over the
+// currently-loaded page (margin + onHand fall into this bucket because
+// they're computed / per-store values).
+const SERVER_SORT_KEYS = new Set(['name', 'pack', 'cost', 'retail', 'department', 'vendor']);
 
 const packSummary = (p) => {
   const su = p.sellUnit || 'each';
@@ -101,6 +138,10 @@ export default function ProductCatalog() {
   const [loading,     setLoading]     = useState(false);
   const [q,           setQ]           = useState('');
   const [filters,     setFilters]     = useState({ departmentId:'', taxClass:'', active:'true' });
+  // Session 39 Round 3 — advanced multi-criteria filters applied client-side
+  // over the currently-loaded page. Narrows the displayed set further than
+  // the basic dept/tax/active filter row above.
+  const [advFilters,  setAdvFilters]  = useState([]);
   const [page,        setPage]        = useState(1);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAction,  setBulkAction]  = useState(null); // 'delete' | 'department' | 'active' | 'price' | null
@@ -194,7 +235,7 @@ export default function ProductCatalog() {
       await bulkDeleteCatalogProducts([...selectedIds]);
       toast.success(`${selectedIds.size} product(s) deleted`);
       clearSelection(); setBulkAction(null);
-      loadProducts(q, page, filters);
+      loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null);
     } catch (e) { toast.error(e.response?.data?.error || 'Bulk delete failed'); }
     finally { setBulkSaving(false); }
   };
@@ -206,7 +247,7 @@ export default function ProductCatalog() {
       await bulkSetDepartment([...selectedIds], parseInt(bulkDeptId));
       toast.success(`${selectedIds.size} product(s) updated`);
       clearSelection(); setBulkAction(null);
-      loadProducts(q, page, filters);
+      loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null);
     } catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
     finally { setBulkSaving(false); }
   };
@@ -217,7 +258,7 @@ export default function ProductCatalog() {
       await bulkToggleActive([...selectedIds], active);
       toast.success(`${selectedIds.size} product(s) set to ${active ? 'active' : 'inactive'}`);
       clearSelection(); setBulkAction(null);
-      loadProducts(q, page, filters);
+      loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null);
     } catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
     finally { setBulkSaving(false); }
   };
@@ -235,7 +276,7 @@ export default function ProductCatalog() {
       setDeleteAllConfirm('');
       setDeleteAllPermanent(false);
       clearSelection();
-      loadProducts(q, page, filters);
+      loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null);
     } catch (e) {
       toast.error(e.response?.data?.error || 'Delete all failed');
     } finally {
@@ -251,7 +292,7 @@ export default function ProductCatalog() {
       await bulkUpdateCatalogProducts([...selectedIds].map(id => ({ id, defaultRetailPrice: price })));
       toast.success(`${selectedIds.size} product(s) price updated to $${price.toFixed(2)}`);
       clearSelection(); setBulkAction(null); setBulkPrice('');
-      loadProducts(q, page, filters);
+      loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null);
     } catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
     finally { setBulkSaving(false); }
   };
@@ -264,12 +305,17 @@ export default function ProductCatalog() {
     } catch { /* non-fatal */ }
   }, []);
 
-  const loadProducts = useCallback(async (search, pg, filt) => {
+  const loadProducts = useCallback(async (search, pg, filt, sortParams) => {
     setLoading(true);
     try {
       const params = { page:pg, limit:50, ...filt };
       // When an active store is set, ask the backend for that store's QOH.
       if (activeStoreId) params.storeId = activeStoreId;
+      // Session 39 Round 4 — server-side sort across the full catalog
+      if (sortParams?.sortKey) {
+        params.sortBy  = sortParams.sortKey;
+        params.sortDir = sortParams.sortDir || 'asc';
+      }
       const res = search?.trim()
         ? await searchCatalogProducts(search, params)
         : await getCatalogProducts(params);
@@ -304,9 +350,14 @@ export default function ProductCatalog() {
 
   useEffect(() => {
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => loadProducts(q, page, filters), 350);
+    // Session 39 Round 4 — include sort state so column-click re-fetches
+    // a newly-sorted page across the full catalog. Skip when sort key is
+    // not in SERVER_SORT_KEYS (keeps client-side sort purely local for those).
+    const serverSortKey = sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? sort.sortKey : null;
+    const sortParams = serverSortKey ? { sortKey: serverSortKey, sortDir: sort.sortDir } : null;
+    debounceRef.current = setTimeout(() => loadProducts(q, page, filters, sortParams), 350);
     return () => clearTimeout(debounceRef.current);
-  }, [q, page, filters, activeStoreId]);
+  }, [q, page, filters, activeStoreId, sort.sortKey, sort.sortDir]);
 
   const handleDelete = async (product) => {
     if (!window.confirm(`Delete "${product.name}"?`)) return;
@@ -344,6 +395,29 @@ export default function ProductCatalog() {
     }
   };
 
+  // Session 39 Round 3 — sort + advanced-filter pipeline
+  // Session 39 Round 4 — sort is now server-side for columns the backend
+  // supports (name, pack, cost, retail, department, vendor, createdAt,
+  // updatedAt). Margin and onHand fall back to client-side-over-current-page
+  // because they're computed/nested fields Prisma can't easily orderBy.
+  const filteredProducts = applyAdvancedFilters(products, advFilters, PRODUCT_FILTER_CONFIG);
+  const sort = useTableSort(filteredProducts, {
+    accessors: {
+      name:               (p) => p.name,
+      retail:             (p) => Number(p.defaultRetailPrice || 0),
+      cost:               (p) => Number(p.defaultCostPrice || 0),
+      margin:             (p) => calcMargin(p.defaultCostPrice, p.defaultRetailPrice) ?? -1,
+      department:         (p) => departments.find(d => d.id === p.departmentId)?.name || '',
+      onHand:             (p) => Number(p.quantityOnHand ?? -1),
+      vendor:             (p) => p.vendorName || '',
+      pack:               (p) => Number(p.casePacks || 0),
+    },
+    // When the active sort key is server-backed, skip client-side sorting so
+    // the hook doesn't reorder a page the backend already sorted globally.
+    // For margin/onHand, client-side sort still runs over the current page.
+    serverSide: sortKey => SERVER_SORT_KEYS.has(sortKey),
+  });
+
   const activePromos = (productId) => {
     const now = new Date();
     return promotions.filter(p =>
@@ -369,7 +443,7 @@ export default function ProductCatalog() {
             </div>
           </div>
           <div className="p-header-actions">
-            <button onClick={() => { loadProducts(q, page, filters); loadSupport(); }} className="pc-refresh-btn">
+            <button onClick={() => { loadProducts(q, page, filters, sort.sortKey && SERVER_SORT_KEYS.has(sort.sortKey) ? { sortKey: sort.sortKey, sortDir: sort.sortDir } : null); loadSupport(); }} className="pc-refresh-btn">
               <RefreshCw size={14} />
             </button>
             <button
@@ -455,6 +529,18 @@ export default function ProductCatalog() {
             <option value="">All</option>
           </select>
         </div>
+
+        {/* Session 39 Round 3 — advanced filter drawer (client-side on current page) */}
+        <AdvancedFilter
+          fields={PRODUCT_FILTER_FIELDS(departments)}
+          filters={advFilters}
+          onChange={setAdvFilters}
+        />
+        {advFilters.length > 0 && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -8, marginBottom: 12 }}>
+            Advanced filters narrow the {products.length} rows currently shown. Switch pages to search a different slice.
+          </div>
+        )}
 
         {/* ── Bulk Action Bar ── */}
         {selectedIds.size > 0 && (
@@ -579,20 +665,20 @@ export default function ProductCatalog() {
                       {selectedIds.size === products.length && products.length > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                     </button>
                   </th>
-                  <th>Product</th>
-                  {visibleCols.includes('pack')       && <th>Pack</th>}
-                  {visibleCols.includes('cost')       && <th>Cost</th>}
-                  {visibleCols.includes('retail')     && <th>Retail</th>}
-                  {visibleCols.includes('margin')     && <th>Margin</th>}
-                  {visibleCols.includes('department') && <th>Department</th>}
-                  {visibleCols.includes('onHand')     && <th>On Hand</th>}
-                  {visibleCols.includes('vendor')     && <th>Vendor</th>}
-                  <th>Flags</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <SortableHeader label="Product"    sortKey="name"       sort={sort} />
+                  {visibleCols.includes('pack')       && <SortableHeader label="Pack"       sortKey="pack"       sort={sort} />}
+                  {visibleCols.includes('cost')       && <SortableHeader label="Cost"       sortKey="cost"       sort={sort} />}
+                  {visibleCols.includes('retail')     && <SortableHeader label="Retail"     sortKey="retail"     sort={sort} />}
+                  {visibleCols.includes('margin')     && <SortableHeader label="Margin"     sortKey="margin"     sort={sort} />}
+                  {visibleCols.includes('department') && <SortableHeader label="Department" sortKey="department" sort={sort} />}
+                  {visibleCols.includes('onHand')     && <SortableHeader label="On Hand"    sortKey="onHand"     sort={sort} />}
+                  {visibleCols.includes('vendor')     && <SortableHeader label="Vendor"     sortKey="vendor"     sort={sort} />}
+                  <SortableHeader label="Flags" sortable={false} />
+                  <SortableHeader label="Actions" sortable={false} align="right" />
                 </tr>
               </thead>
               <tbody>
-                {products.map(p => {
+                {sort.sorted.map(p => {
                   const dept    = departments.find(d => d.id === p.departmentId);
                   const promos  = activePromos(p.id);
                   const isSelected = selectedIds.has(p.id);

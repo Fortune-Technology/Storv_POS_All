@@ -15,6 +15,14 @@ export const getCatalogSnapshot = (storeId, updatedSince, page = 1) =>
     params: { storeId, updatedSince, page, limit: 500 },
   }).then(r => r.data);
 
+// Tiny payload (~7B per id × N products) — used to reconcile the local
+// IndexedDB cache against server truth on every sign-in. Fixes the case
+// where products were deleted while the cashier was offline or the cache
+// has drifted from repeated import/delete cycles in the back office.
+export const getCatalogActiveIds = (storeId) =>
+  api.get('/pos-terminal/catalog/active-ids', { params: { storeId } })
+     .then(r => r.data);
+
 export const getDepositRules = () =>
   api.get('/pos-terminal/deposit-rules').then(r => r.data);
 
@@ -140,6 +148,66 @@ export const getVendors = () =>
     return Array.isArray(d) ? d : (d?.data ?? d?.vendors ?? []);
   });
 
+// ───────────────────────────────────────────────────────────────────────────
+// Session 39 Round 3 — Full product CRUD aliases mirroring portal/services/api
+// signatures 1:1, for use by the ported ProductFormModal (copied from
+// frontend/src/pages/ProductForm.jsx). Each maps to an existing backend
+// /api/catalog/* endpoint that the portal already exercises.
+// ───────────────────────────────────────────────────────────────────────────
+
+export const getCatalogProduct       = (id)            => api.get(`/catalog/products/${id}`).then(r => r.data);
+export const createCatalogProduct    = (data)          => api.post('/catalog/products', data).then(r => r.data);
+export const updateCatalogProduct    = (id, data)      => api.put(`/catalog/products/${id}`, data).then(r => r.data);
+export const duplicateCatalogProduct = (id)            => api.post(`/catalog/products/${id}/duplicate`).then(r => r.data);
+export const getProduct52WeekStats   = (id)            => api.get(`/catalog/products/${id}/stats`).then(r => r.data).catch(() => ({ weeks: [] }));
+
+// Departments
+export const getCatalogDepartments    = ()             => api.get('/catalog/departments').then(r => r.data);
+export const createCatalogDepartment  = (data)         => api.post('/catalog/departments', data).then(r => r.data);
+export const updateCatalogDepartment  = (id, data)     => api.put(`/catalog/departments/${id}`, data).then(r => r.data);
+export const deleteCatalogDepartment  = (id)           => api.delete(`/catalog/departments/${id}`).then(r => r.data);
+export const getDepartmentAttributes  = (id)           => api.get(`/catalog/departments/${id}/attributes`).then(r => r.data).catch(() => ({ attributes: [] }));
+
+// Vendors (CRUD — the paid-out helper above hits /pos-terminal/vendors read-only)
+export const getCatalogVendors        = ()             => api.get('/catalog/vendors').then(r => r.data);
+export const createCatalogVendor      = (data)         => api.post('/catalog/vendors', data).then(r => r.data);
+export const updateCatalogVendor      = (id, data)     => api.put(`/catalog/vendors/${id}`, data).then(r => r.data);
+export const deleteCatalogVendor      = (id)           => api.delete(`/catalog/vendors/${id}`).then(r => r.data);
+
+// Store inventory (per-store quantity / price overrides)
+export const upsertStoreInventory     = (data)         => api.post('/catalog/store-inventory', data).then(r => r.data);
+export const getStoreInventory        = (productId, storeId) =>
+  api.get('/catalog/store-inventory', { params: { productId, storeId } }).then(r => r.data);
+
+// Promotions
+export const getCatalogPromotions     = (params)       => api.get('/catalog/promotions', { params }).then(r => r.data);
+export const createCatalogPromotion   = (data)         => api.post('/catalog/promotions', data).then(r => r.data);
+export const updateCatalogPromotion   = (id, data)     => api.put(`/catalog/promotions/${id}`, data).then(r => r.data);
+export const deleteCatalogPromotion   = (id)           => api.delete(`/catalog/promotions/${id}`).then(r => r.data);
+
+// Per-product multi-UPC + pack sizes
+export const getProductUpcs           = (id)           => api.get(`/catalog/products/${id}/upcs`).then(r => r.data);
+export const addProductUpc            = (id, data)     => api.post(`/catalog/products/${id}/upcs`, data).then(r => r.data);
+export const deleteProductUpc         = (id, upcId)    => api.delete(`/catalog/products/${id}/upcs/${upcId}`).then(r => r.data);
+
+export const getProductPackSizes      = (id)           => api.get(`/catalog/products/${id}/pack-sizes`).then(r => r.data);
+export const bulkReplaceProductPackSizes = (id, sizes) => api.put(`/catalog/products/${id}/pack-sizes`, { sizes }).then(r => r.data);
+
+// Product groups (Session 9 grouping)
+export const listProductGroups        = ()             => api.get('/catalog/product-groups').then(r => r.data);
+
+// Tax rules (needed by ProductForm for tax preview)
+export const getCatalogTaxRules       = ()             => api.get('/catalog/tax-rules').then(r => r.data);
+
+// Product image upload
+export const uploadProductImage       = (id, file) => {
+  const fd = new FormData();
+  fd.append('image', file);
+  return api.post(`/catalog/products/${id}/image`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
 // ── Shift / Cash Drawer ───────────────────────────────────────────────────
 export const getActiveShift = (storeId) =>
   api.get('/pos-terminal/shift/active', { params: { storeId } }).then(r => r.data);
@@ -192,6 +260,20 @@ export const saveLotteryShiftReport = (data) =>
 // context should be 'eod' when called from the end-of-day wizard (Phase 1b).
 export const scanLotteryBarcode = (raw, context = 'eod') =>
   api.post('/lottery/scan', { raw, context }).then(r => r.data);
+
+// Phase 3g: mark a book as sold-out from the EoD wizard (flips to depleted).
+// Body: { reason?: string, notes?: string }
+export const soldoutLotteryBox = (id, data = {}) =>
+  api.post(`/lottery/boxes/${id}/soldout`, data).then(r => r.data);
+
+// Phase 3g: store/update the store-level online-sales totals for a date.
+// Body: { date:'YYYY-MM-DD', instantCashing, machineSales, machineCashing }
+export const upsertLotteryOnlineTotal = (data) =>
+  api.put('/lottery/online-total', data).then(r => r.data);
+
+// Phase 3g: read the store-level online-sales totals for a date.
+export const getLotteryOnlineTotal = (date) =>
+  api.get('/lottery/online-total', { params: { date } }).then(r => r.data);
 
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>

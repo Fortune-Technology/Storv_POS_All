@@ -804,6 +804,26 @@ export const getMasterProducts = async (req, res) => {
       ...(req.query.active !== undefined && { active: req.query.active === 'true' }),
     };
 
+    // Session 39 Round 4 — server-side sort across the full catalog. UI
+    // column clicks pass ?sortBy=<key>&sortDir=asc|desc. Unknown keys fall
+    // back to name-asc so the response shape stays stable.
+    const sortDir = req.query.sortDir === 'desc' ? 'desc' : 'asc';
+    const PRODUCT_SORT_MAP = {
+      name:       { name: sortDir },
+      brand:      { brand: sortDir },
+      upc:        { upc: sortDir },
+      sku:        { sku: sortDir },
+      pack:       { casePacks: sortDir },
+      cost:       { defaultCostPrice: sortDir },
+      retail:     { defaultRetailPrice: sortDir },
+      department: { department: { name: sortDir } },
+      vendor:     { vendor:     { name: sortDir } },
+      active:     { active: sortDir },
+      createdAt:  { createdAt: sortDir },
+      updatedAt:  { updatedAt: sortDir },
+    };
+    const orderBy = PRODUCT_SORT_MAP[req.query.sortBy] || { name: 'asc' };
+
     const [products, total] = await Promise.all([
       prisma.masterProduct.findMany({
         where,
@@ -819,7 +839,7 @@ export const getMasterProducts = async (req, res) => {
             },
           }),
         },
-        orderBy: { name: 'asc' },
+        orderBy,
         skip,
         take,
       }),

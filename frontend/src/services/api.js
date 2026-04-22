@@ -480,6 +480,10 @@ export const adjustLotteryBoxTickets  = (id, d)  => api.post(`/lottery/boxes/${i
 
 // Phase 1a: scan + location lifecycle endpoints
 export const scanLotteryBarcode       = (data)   => api.post('/lottery/scan', data).then(lotteryUnwrap);
+// Parse-only: used by the Receive Books scan flow to decode a barcode
+// without running the full scan engine (which rejects books that haven't
+// been received yet — the exact state we're in when RECEIVING them).
+export const parseLotteryBarcode      = (raw)    => api.post('/lottery/scan/parse', { raw }).then(lotteryUnwrap);
 export const moveLotteryBoxToSafe     = (id, d)  => api.post(`/lottery/boxes/${id}/move-to-safe`, d).then(lotteryUnwrap);
 export const soldoutLotteryBox        = (id, d)  => api.post(`/lottery/boxes/${id}/soldout`, d).then(lotteryUnwrap);
 export const returnLotteryBoxToLotto  = (id, d)  => api.post(`/lottery/boxes/${id}/return-to-lotto`, d).then(lotteryUnwrap);
@@ -505,6 +509,12 @@ export const getLotteryTransactions   = (params) => api.get('/lottery/transactio
 export const getVendorPayments        = (params) => api.get('/catalog/vendor-payments', { params }).then(r => r.data);
 export const createVendorPaymentEntry = (data)   => api.post('/catalog/vendor-payments', data).then(r => r.data);
 export const updateVendorPaymentEntry = (id, d)  => api.put(`/catalog/vendor-payments/${id}`, d).then(r => r.data);
+
+// ── Vendor Credits — free-case receipts, mix-and-match, damaged-goods ────
+export const getVendorCredits         = (params) => api.get('/catalog/vendor-credits',  { params }).then(r => r.data);
+export const createVendorCreditEntry  = (data)   => api.post('/catalog/vendor-credits', data).then(r => r.data);
+export const updateVendorCreditEntry  = (id, d)  => api.put(`/catalog/vendor-credits/${id}`,    d).then(r => r.data);
+export const deleteVendorCreditEntry  = (id)     => api.delete(`/catalog/vendor-credits/${id}`).then(r => r.data);
 
 // POS Transactions
 export const getTransactions = (params) => api.get('/pos-terminal/transactions', { params }).then(r => r.data);
@@ -650,6 +660,10 @@ export const sendWholesaleOrder   = (id)              => api.post(`/exchange/ord
 export const cancelWholesaleOrder = (id, reason)      => api.post(`/exchange/orders/${id}/cancel`, { reason }).then(exchangeUnwrap);
 export const rejectWholesaleOrder = (id, reason)      => api.post(`/exchange/orders/${id}/reject`, { reason }).then(exchangeUnwrap);
 export const confirmWholesaleOrder= (id, lines)       => api.post(`/exchange/orders/${id}/confirm`, { lines }).then(exchangeUnwrap);
+// Session 39 — archive + multi-round dispute
+export const archiveWholesaleOrder       = (id)                => api.post(`/exchange/orders/${id}/archive`).then(exchangeUnwrap);
+export const unarchiveWholesaleOrder     = (id)                => api.post(`/exchange/orders/${id}/unarchive`).then(exchangeUnwrap);
+export const addWholesaleDisputeMessage  = (id, body)          => api.post(`/exchange/orders/${id}/dispute-message`, body).then(exchangeUnwrap);
 
 // Partner Ledger / Balances
 export const listPartnerBalances = ()                   => api.get('/exchange/balances').then(exchangeFull);

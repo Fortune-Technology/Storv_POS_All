@@ -90,16 +90,36 @@ export async function nextFreeSlot(orgId, storeId) {
 }
 
 /**
+ * Normalise a book number for forgiving comparison.
+ * Strips leading zeros so that "27632" and "027632" and "0027632" all
+ * collapse to "27632". MA ticket QR codes always emit 6-digit zero-padded
+ * book numbers, but a store admin receiving via the UI may type the book
+ * without the leading zero. This helper lets findBox match either way.
+ */
+function normBook(bn) {
+  if (bn == null) return '';
+  return String(bn).replace(/^0+/, '') || '0';
+}
+
+/**
  * Resolve a parsed scan to a LotteryBox row.
  * MA and ME's ticket formats both expose { gameNumber, bookNumber } — we use
  * those against LotteryGame.gameNumber + LotteryBox.boxNumber.
  *
  * For a Maine EAN-13 book code (bookCode field only), fall back to a lookup
  * on LotteryBox.boxNumber matching the bookCode segment.
+ *
+ * Lookup strategy (game + book case):
+ *   1. Exact boxNumber match (fast, typical case).
+ *   2. If no hit, fall back to a leading-zero-tolerant match — fetch all
+ *      boxes for the game at this store and compare normalised book
+ *      numbers. Handles the case where the book was received with a
+ *      differently-padded number than what the QR scan produces.
  */
 export async function findBox(orgId, storeId, parsed) {
   if (parsed.gameNumber && parsed.bookNumber) {
-    return prisma.lotteryBox.findFirst({
+    // 1. Fast path: exact match
+    const exact = await prisma.lotteryBox.findFirst({
       where: {
         orgId,
         storeId,
@@ -108,6 +128,19 @@ export async function findBox(orgId, storeId, parsed) {
       },
       include: { game: true },
     });
+    if (exact) return exact;
+
+    // 2. Tolerant match: strip leading zeros on both sides
+    const target = normBook(parsed.bookNumber);
+    const candidates = await prisma.lotteryBox.findMany({
+      where: {
+        orgId,
+        storeId,
+        game: { gameNumber: parsed.gameNumber },
+      },
+      include: { game: true },
+    });
+    return candidates.find((c) => normBook(c.boxNumber) === target) || null;
   }
   if (parsed.bookCode) {
     return prisma.lotteryBox.findFirst({
@@ -139,13 +172,27 @@ export async function processScan({
   allowMultipleActivePerGame = false,
   userId = null,
 }) {
+  // Human-friendly book reference for rejection messages (e.g. "498-027632")
+  const bookRef = parsed?.gameNumber && parsed?.bookNumber
+    ? `${parsed.gameNumber}-${parsed.bookNumber}`
+    : parsed?.bookCode || 'this book';
+
   const box = await findBox(orgId, storeId, parsed);
   if (!box) {
-    return { action: 'rejected', reason: 'not_in_inventory' };
+    return {
+      action: 'rejected',
+      reason: 'not_in_inventory',
+      message: `Book ${bookRef} is not in your store's inventory. Receive it first via Lottery → Counter → Receive Order.`,
+    };
   }
 
   if (['depleted', 'returned', 'settled'].includes(box.status)) {
-    return { action: 'rejected', reason: `book_already_${box.status}`, box };
+    return {
+      action: 'rejected',
+      reason: `book_already_${box.status}`,
+      message: `Book ${bookRef} is already ${box.status} and cannot be scanned at end of shift.`,
+      box,
+    };
   }
 
   const ticketNumber = parsed.type === 'ticket' ? String(parsed.ticketNumber) : null;
@@ -198,15 +245,36 @@ export async function processScan({
     if (gapWarning) warnings.push(gapWarning);
 
     const slot = await nextFreeSlot(orgId, storeId);
+
+    // 3g — derive startTicket from store's sellDirection when the box
+    // hasn't been activated before. Descending (default) → book starts at
+    // totalTickets-1 (e.g. 149 for a 150-pack) and counts DOWN as sold.
+    // Ascending → book starts at 0 and counts UP. The currentTicket reflects
+    // where the cashier scanned, which is the next-to-sell position.
+    let resolvedStartTicket = box.startTicket;
+    if (!resolvedStartTicket) {
+      const settings = await prisma.lotterySettings.findUnique({
+        where: { storeId },
+        select: { sellDirection: true },
+      }).catch(() => null);
+      const dir = settings?.sellDirection || 'desc';
+      const total = Number(box.totalTickets || 0);
+      if (total > 0) {
+        resolvedStartTicket = dir === 'asc' ? '0' : String(total - 1);
+      } else {
+        resolvedStartTicket = ticketNumber ?? null;
+      }
+    }
+
     const activated = await prisma.lotteryBox.update({
       where: { id: box.id },
       data: {
         status: 'active',
         activatedAt: new Date(),
         slotNumber: box.slotNumber || slot,
-        currentTicket: ticketNumber || box.startTicket,
-        startTicket: box.startTicket || (ticketNumber ?? null),
-        lastShiftStartTicket: ticketNumber || box.startTicket,
+        currentTicket: ticketNumber || resolvedStartTicket,
+        startTicket: resolvedStartTicket,
+        lastShiftStartTicket: ticketNumber || resolvedStartTicket,
         autoSoldoutReason: null,
         updatedAt: new Date(),
       },

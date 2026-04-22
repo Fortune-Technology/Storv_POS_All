@@ -3,10 +3,9 @@
  * Tabs: Layout & Settings, Receipt Settings, Label Design
  *
  * "Quick Keys" tab was REMOVED in Session 37 — the WYSIWYG Quick Buttons
- * builder at /portal/quick-buttons supersedes the old QuickAccess page
- * (folders-only, no drag/resize). The legacy `store.pos.quickFolders`
- * data in existing stores is still rendered by the cashier-app as a
- * fallback, but new edits happen exclusively in the new builder.
+ * builder at /portal/quick-buttons is the canonical system. The legacy
+ * QuickAccess page and `store.pos.quickFolders` JSON were fully removed
+ * in Session 39.
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';

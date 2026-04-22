@@ -26,6 +26,7 @@ import {
   listSettlements as listSettlementsApi,
   confirmSettlement as confirmSettlementApi,
   disputeSettlement as disputeSettlementApi,
+  archiveWholesaleOrder, unarchiveWholesaleOrder,
 } from '../services/api';
 import { usePermissions } from '../hooks/usePermissions';
 import './Exchange.css';
@@ -66,6 +67,8 @@ export default function Exchange() {
   const [partners, setPartners] = useState([]);
   const [pendingIn, setPendingIn] = useState([]);
   const [myCode, setMyCode] = useState(null);
+  // Session 39 — archived-order toggle
+  const [showArchived, setShowArchived] = useState(false);
 
   const changeTab = (key) => {
     setTab(key);
@@ -76,7 +79,7 @@ export default function Exchange() {
     setLoading(true);
     try {
       const [ordersRes, balRes, partnersRes, pendingRes, codeRes] = await Promise.all([
-        listWholesaleOrders({ limit: 100 }).catch(() => ({ data: [] })),
+        listWholesaleOrders({ limit: 100, showArchived: showArchived ? 'true' : undefined }).catch(() => ({ data: [] })),
         listPartnerBalances().catch(() => ({ data: [], summary: null })),
         listTradingPartners().catch(() => []),
         listPendingPartnerRequests().catch(() => ({ data: [], count: 0 })),
@@ -93,7 +96,7 @@ export default function Exchange() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
 
@@ -153,7 +156,8 @@ export default function Exchange() {
       </div>
 
       {tab === 'dashboard' && <DashboardTab kpi={kpi} orders={orders} balances={balances} navigate={navigate} myCode={myCode} onClaimCode={() => changeTab('settings')} />}
-      {tab === 'orders'    && <OrdersTab orders={orders} loading={loading} onRefresh={refreshAll} navigate={navigate} />}
+      {tab === 'orders'    && <OrdersTab orders={orders} loading={loading} onRefresh={refreshAll} navigate={navigate}
+                                          showArchived={showArchived} setShowArchived={setShowArchived} />}
       {tab === 'balances'  && <BalancesTab balances={balances} summary={balanceSummary} partners={partners} onRefresh={refreshAll} />}
       {tab === 'partners'  && <PartnersTab partners={partners} pendingIn={pendingIn} onRefresh={refreshAll} can={can} />}
       {tab === 'settings'  && <SettingsTab myCode={myCode} onSaved={refreshAll} can={can} />}
@@ -337,10 +341,47 @@ function StatusBadge({ status }) {
 // ORDERS TAB
 // ═══════════════════════════════════════════════════════════════
 
-function OrdersTab({ orders, loading, onRefresh, navigate }) {
+function OrdersTab({ orders, loading, onRefresh, navigate, showArchived, setShowArchived }) {
   const [directionFilter, setDirectionFilter] = useState('all');   // all | outgoing | incoming
   const [statusFilter, setStatusFilter]       = useState('all');   // all | active | drafts | completed | cancelled
   const [search, setSearch]                   = useState('');
+  const [archivingId, setArchivingId]         = useState(null);
+
+  // Determine from the order + active user's store side whether "I" have archived it.
+  // Backend already filters archived rows out of the default list; this is purely
+  // for labeling the Archive/Unarchive button correctly when showing archived.
+  const myStoreId = (typeof window !== 'undefined')
+    ? (localStorage.getItem('activeStoreId') || null)
+    : null;
+  const isMyArchive = (o) => {
+    if (!myStoreId) return false;
+    if (o.senderStoreId   === myStoreId) return !!o.senderArchived;
+    if (o.receiverStoreId === myStoreId) return !!o.receiverArchived;
+    return false;
+  };
+
+  const handleArchive = async (e, o) => {
+    e.stopPropagation();
+    if (archivingId) return;
+    setArchivingId(o.id);
+    try {
+      if (isMyArchive(o)) {
+        await unarchiveWholesaleOrder(o.id);
+        toast.success('Order unarchived');
+      } else {
+        await archiveWholesaleOrder(o.id);
+        toast.success('Order archived');
+      }
+      onRefresh();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Archive action failed');
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
+  const canArchive = (o) =>
+    ['confirmed', 'partially_confirmed', 'rejected', 'cancelled', 'expired'].includes(o.status);
 
   const filtered = useMemo(() => {
     return orders.filter(o => {
@@ -386,6 +427,10 @@ function OrdersTab({ orders, loading, onRefresh, navigate }) {
           <Search size={14} />
           <input placeholder="Order # or partner…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <label className="ex-archive-toggle" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+          <input type="checkbox" checked={!!showArchived} onChange={e => setShowArchived(e.target.checked)} />
+          Show archived
+        </label>
       </div>
 
       {loading ? (
@@ -407,12 +452,19 @@ function OrdersTab({ orders, loading, onRefresh, navigate }) {
               <th>Created</th>
               <th>Items</th>
               <th className="right">Total</th>
+              <th style={{ width: 90 }}></th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(o => (
               <tr key={o.id} onClick={() => navigate(`/portal/exchange/orders/${o.id}`)} className="ex-row-click">
-                <td><strong>{o.orderNumber}</strong></td>
+                <td>
+                  <strong>{o.orderNumber}</strong>
+                  {isMyArchive(o) && (
+                    <span style={{ marginLeft: 6, fontSize: '0.65rem', padding: '1px 6px', borderRadius: 4,
+                      background: 'rgba(100,116,139,.15)', color: '#64748b', fontWeight: 700 }}>ARCHIVED</span>
+                  )}
+                </td>
                 <td>
                   <span className={`ex-dir ex-dir--${o.direction}`}>
                     {o.direction === 'outgoing' ? <ArrowRight size={12} /> : <ArrowLeft size={12} />}
@@ -427,6 +479,24 @@ function OrdersTab({ orders, loading, onRefresh, navigate }) {
                 <td className="ex-muted">{fmtDateTime(o.createdAt)}</td>
                 <td>{o._count?.items || 0}</td>
                 <td className="right"><strong>{money(o.confirmedGrandTotal || o.grandTotal)}</strong></td>
+                <td onClick={e => e.stopPropagation()}>
+                  {canArchive(o) && (
+                    <button
+                      onClick={(e) => handleArchive(e, o)}
+                      disabled={archivingId === o.id}
+                      title={isMyArchive(o) ? 'Unarchive' : 'Archive'}
+                      style={{
+                        padding: '3px 10px', fontSize: '0.7rem', fontWeight: 600,
+                        border: '1px solid var(--border-color)', borderRadius: 5,
+                        background: isMyArchive(o) ? 'rgba(16,185,129,.1)' : 'var(--bg-tertiary)',
+                        color: isMyArchive(o) ? '#10b981' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {archivingId === o.id ? '…' : (isMyArchive(o) ? 'Unarchive' : 'Archive')}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

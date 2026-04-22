@@ -14,6 +14,8 @@ import {
   getVendorPayouts,
   getVendorStats,
   getVendorInvoiceSummary,
+  getVendorPayments, createVendorPaymentEntry, updateVendorPaymentEntry,
+  getVendorCredits,  createVendorCreditEntry,  updateVendorCreditEntry, deleteVendorCreditEntry,
 } from '../services/api';
 import './VendorDetail.css';
 import {
@@ -21,6 +23,7 @@ import {
   Package, DollarSign, TrendingDown, BarChart2, Building2,
   MapPin, Hash, Clock, FileText, Tag, ChevronRight,
   ShoppingBag, CreditCard, AlertCircle,
+  Gift, Plus, Trash2,
 } from 'lucide-react';
 
 import { fmt$ as fmt, fmtDate, fmtDateTime } from '../utils/formatters';
@@ -627,13 +630,505 @@ function StatsTab({ vendorId }) {
   );
 }
 
+// ─── Payouts & Credits Tab ─────────────────────────────────────────────────
+// Combined view: back-office VendorPayment entries (cash going OUT to the
+// vendor), back-office VendorCredit entries (free cases / mix-match / damaged
+// allowances — value coming IN without charge), and POS-shift CashPayout
+// entries (reference only — those originate at the register).
+//
+// Add buttons live in the two back-office sections. Shift payouts are
+// read-only here (cashier creates them during a shift).
+
+function PayoutsCreditsTab({ vendorId, vendorName }) {
+  const vendor = { id: vendorId, name: vendorName };
+  const [payments, setPayments] = useState([]);
+  const [paymentsSummary, setPaymentsSummary] = useState({ total: 0, count: 0 });
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+
+  const [credits, setCredits] = useState([]);
+  const [creditsSummary, setCreditsSummary] = useState({ total: 0, monthTotal: 0, count: 0, totalCases: 0 });
+  const [showCreditForm, setShowCreditForm] = useState(false);
+  const [editingCredit, setEditingCredit] = useState(null);
+
+  const [shiftPayouts, setShiftPayouts] = useState([]);
+  const [shiftSummary, setShiftSummary] = useState({ totalPaid: 0, count: 0 });
+
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [payRes, credRes, shiftRes] = await Promise.allSettled([
+        getVendorPayments({ vendorId, limit: 200 }),
+        getVendorCredits({ vendorId, limit: 200 }),
+        getVendorPayouts(vendorId, { limit: 100 }),
+      ]);
+      if (payRes.status === 'fulfilled') {
+        setPayments(payRes.value?.payments || []);
+        setPaymentsSummary(payRes.value?.summary || { total: 0, count: 0 });
+      }
+      if (credRes.status === 'fulfilled') {
+        setCredits(credRes.value?.credits || []);
+        setCreditsSummary(credRes.value?.summary || { total: 0, monthTotal: 0, count: 0, totalCases: 0 });
+      }
+      if (shiftRes.status === 'fulfilled') {
+        setShiftPayouts(shiftRes.value?.data || []);
+        setShiftSummary({
+          totalPaid: parseFloat(shiftRes.value?.totalPaid || 0),
+          count:     shiftRes.value?.payoutCount || 0,
+        });
+      }
+    } catch {
+      toast.error('Failed to load payments & credits');
+    } finally {
+      setLoading(false);
+    }
+  }, [vendorId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: '2rem' }}>
+        <StatCard label="Back-Office Payments" value={fmt(paymentsSummary.total)}    color="#a855f7" bg="rgba(168,85,247,.08)" icon={DollarSign} />
+        <StatCard label="Credits (All Time)"   value={fmt(creditsSummary.total)}     color="#10b981" bg="rgba(16,185,129,.08)" icon={Gift} />
+        <StatCard label="Credits This Month"   value={fmt(creditsSummary.monthTotal)} color="#3b82f6" bg="rgba(59,130,246,.08)" icon={Gift} />
+        <StatCard label="Free Cases Received"  value={creditsSummary.totalCases || 0} color="#f59e0b" bg="rgba(245,158,11,.08)" icon={Package} />
+      </div>
+
+      <PCSectionHeader
+        title="Back-Office Payments"
+        subtitle="Cash going OUT to this vendor — invoices, reimbursements, etc."
+        count={paymentsSummary.count}
+        onAdd={() => { setEditingPayment(null); setShowPaymentForm(true); }}
+        addLabel="Add Payment"
+        accent="#a855f7"
+      />
+      {payments.length === 0 ? (
+        <PCEmptyRow icon={DollarSign} text="No back-office payments recorded for this vendor" />
+      ) : (
+        <div style={{ ...cardStyle, marginBottom: '2rem' }}>
+          <PCRowHeader columns={['DATE', 'AMOUNT', 'TYPE', 'TENDER', 'NOTES', '']} widths="1fr 110px 110px 100px 1fr 80px" />
+          {payments.map(p => (
+            <div key={p.id} style={pcRowStyle('1fr 110px 110px 100px 1fr 80px')}>
+              <div style={{ fontSize: '0.8rem' }}>{fmtDate(p.paymentDate)}</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#a855f7' }}>{fmt(p.amount)}</div>
+              <PCTypeBadge type={p.paymentType} />
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.tenderMethod || 'cash'}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.notes || '—'}</div>
+              <button
+                onClick={() => { setEditingPayment(p); setShowPaymentForm(true); }}
+                style={pcIconBtnStyle}
+                title="Edit payment"
+              ><Edit2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <PCSectionHeader
+        title="Back-Office Credits"
+        subtitle="Free cases, mix-and-match bonuses, damaged allowances — value coming IN without charge."
+        count={creditsSummary.count}
+        onAdd={() => { setEditingCredit(null); setShowCreditForm(true); }}
+        addLabel="Add Credit"
+        accent="#10b981"
+      />
+      {credits.length === 0 ? (
+        <PCEmptyRow icon={Gift} text="No credits recorded for this vendor" />
+      ) : (
+        <div style={{ ...cardStyle, marginBottom: '2rem' }}>
+          <PCRowHeader columns={['DATE', 'AMOUNT', 'TYPE', 'CASES', 'REASON', '']} widths="1fr 110px 130px 70px 1fr 110px" />
+          {credits.map(c => (
+            <div key={c.id} style={pcRowStyle('1fr 110px 130px 70px 1fr 110px')}>
+              <div style={{ fontSize: '0.8rem' }}>{fmtDate(c.creditDate)}</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#10b981' }}>{fmt(c.amount)}</div>
+              <PCCreditTypeBadge type={c.creditType} />
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>{c.casesReceived ?? '—'}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.reason || c.productRef || '—'}
+              </div>
+              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                <button onClick={() => { setEditingCredit(c); setShowCreditForm(true); }} style={pcIconBtnStyle} title="Edit credit"><Edit2 size={13} /></button>
+                <button onClick={async () => {
+                  if (!window.confirm(`Delete credit of ${fmt(c.amount)} from ${fmtDate(c.creditDate)}?`)) return;
+                  try { await deleteVendorCreditEntry(c.id); toast.success('Credit removed'); load(); }
+                  catch (err) { toast.error(err?.response?.data?.error || 'Delete failed'); }
+                }} style={{ ...pcIconBtnStyle, color: '#ef4444' }} title="Delete credit"><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <PCSectionHeader
+        title="POS-Shift Payouts"
+        subtitle="Cash-drawer payouts logged by cashiers during shifts. Read-only here — these originate at the register."
+        count={shiftSummary.count}
+        muted
+      />
+      {shiftPayouts.length === 0 ? (
+        <PCEmptyRow icon={CreditCard} text="No POS-shift payouts recorded for this vendor" />
+      ) : (
+        <div style={cardStyle}>
+          <PCRowHeader columns={['DATE & TIME', 'AMOUNT', 'TYPE', 'SHIFT', 'NOTE']} widths="1fr 110px 110px 100px 1fr" />
+          {shiftPayouts.map(p => (
+            <div key={p.id} style={pcRowStyle('1fr 110px 110px 100px 1fr')}>
+              <div style={{ fontSize: '0.8rem' }}>{fmtDateTime(p.createdAt)}</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#a855f7' }}>{fmt(p.amount)}</div>
+              <PCTypeBadge type={p.payoutType} />
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.shift ? `#${p.shift.id.slice(0,8)}` : '—'}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.note || '—'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showPaymentForm && (
+        <VendorPaymentForm
+          initial={editingPayment}
+          vendor={vendor}
+          onClose={() => { setShowPaymentForm(false); setEditingPayment(null); }}
+          onSaved={() => { setShowPaymentForm(false); setEditingPayment(null); load(); }}
+        />
+      )}
+      {showCreditForm && (
+        <VendorCreditForm
+          initial={editingCredit}
+          vendor={vendor}
+          onClose={() => { setShowCreditForm(false); setEditingCredit(null); }}
+          onSaved={() => { setShowCreditForm(false); setEditingCredit(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PCSectionHeader({ title, subtitle, count, onAdd, addLabel, accent, muted }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '0.75rem', marginTop: '0.5rem' }}>
+      <div>
+        <div style={{ fontSize: '1rem', fontWeight: 800, color: muted ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+          {title} {count != null && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: 6 }}>({count})</span>}
+        </div>
+        {subtitle && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      {onAdd && (
+        <button
+          onClick={onAdd}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '0.45rem 0.9rem', borderRadius: 8,
+            background: accent || 'var(--accent-primary)', color: '#fff',
+            border: 'none', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+          }}
+        >
+          <Plus size={14} /> {addLabel || 'Add'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PCRowHeader({ columns, widths }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: widths, gap: '0 8px',
+      padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color, #1f2937)',
+      fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)',
+      letterSpacing: '0.07em', background: 'var(--bg-tertiary, #0f172a)',
+    }}>
+      {columns.map((c, i) => <span key={i}>{c}</span>)}
+    </div>
+  );
+}
+
+const pcRowStyle = (widths) => ({
+  display: 'grid', gridTemplateColumns: widths, gap: '0 8px',
+  padding: '0.6rem 1rem', alignItems: 'center',
+  borderBottom: '1px solid var(--border-color, #1f2937)',
+});
+
+const pcIconBtnStyle = {
+  width: 28, height: 28, borderRadius: 6,
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+  color: 'var(--text-muted)', cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
+
+function PCEmptyRow({ icon: Icon, text }) {
+  return (
+    <div style={{ padding: '2.5rem', textAlign: 'center', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, marginBottom: '2rem' }}>
+      <Icon size={32} color="var(--text-muted)" style={{ opacity: 0.3, marginBottom: 10 }} />
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 500 }}>{text}</div>
+    </div>
+  );
+}
+
+function PCTypeBadge({ type }) {
+  if (!type) return <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>—</span>;
+  const isMerch = type === 'merchandise';
+  return (
+    <span style={{
+      fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4,
+      background: isMerch ? 'rgba(16,185,129,.12)' : 'rgba(59,130,246,.12)',
+      color: isMerch ? '#10b981' : '#3b82f6',
+    }}>{isMerch ? 'Merchandise' : 'Expense'}</span>
+  );
+}
+
+const PC_CREDIT_LABELS = {
+  free_case:      { label: 'Free Case',      color: '#10b981', bg: 'rgba(16,185,129,.12)' },
+  mix_match:      { label: 'Mix & Match',    color: '#f59e0b', bg: 'rgba(245,158,11,.12)' },
+  damaged_return: { label: 'Damaged Return', color: '#ef4444', bg: 'rgba(239,68,68,.12)'  },
+  adjustment:     { label: 'Adjustment',     color: '#3b82f6', bg: 'rgba(59,130,246,.12)' },
+  other:          { label: 'Other',          color: '#6b7280', bg: 'rgba(107,114,128,.12)'},
+};
+
+function PCCreditTypeBadge({ type }) {
+  const cfg = PC_CREDIT_LABELS[type] || PC_CREDIT_LABELS.other;
+  return (
+    <span style={{
+      fontSize: '0.68rem', fontWeight: 700, padding: '2px 7px', borderRadius: 4,
+      background: cfg.bg, color: cfg.color,
+    }}>{cfg.label}</span>
+  );
+}
+
+// ─── VendorPaymentForm modal ───────────────────────────────────────────────
+
+function VendorPaymentForm({ initial, vendor, onClose, onSaved }) {
+  const [amount,       setAmount]       = useState(initial?.amount != null ? String(initial.amount) : '');
+  const [paymentType,  setPaymentType]  = useState(initial?.paymentType || 'expense');
+  const [tenderMethod, setTenderMethod] = useState(initial?.tenderMethod || 'cash');
+  const [notes,        setNotes]        = useState(initial?.notes || '');
+  const [paymentDate,  setPaymentDate]  = useState(
+    initial?.paymentDate ? new Date(initial.paymentDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!amount || parseFloat(amount) <= 0) { toast.error('Enter a valid amount'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        vendorId:     vendor.id,
+        vendorName:   vendor.name,
+        amount:       parseFloat(amount),
+        paymentType,
+        tenderMethod,
+        notes:        notes.trim() || null,
+        paymentDate:  paymentDate || undefined,
+      };
+      if (initial) await updateVendorPaymentEntry(initial.id, payload);
+      else         await createVendorPaymentEntry(payload);
+      toast.success(initial ? 'Payment updated' : 'Payment added');
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={pcModalBackdropStyle} onClick={onClose}>
+      <div style={pcModalCardStyle} onClick={e => e.stopPropagation()}>
+        <div style={pcModalHeaderStyle}>
+          <div style={{ fontWeight: 700, fontSize: '1rem' }}>{initial ? 'Edit Payment' : 'Add Payment'}</div>
+          <button onClick={onClose} style={pcIconBtnStyle}><X size={14} /></button>
+        </div>
+        <form onSubmit={handleSave} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Amount ($)</label>
+            <input style={inputStyle} type="number" step="0.01" min="0" value={amount}
+              onChange={e => setAmount(e.target.value)} autoFocus required />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Payment Type</label>
+              <select style={inputStyle} value={paymentType} onChange={e => setPaymentType(e.target.value)}>
+                <option value="expense">Expense</option>
+                <option value="merchandise">Merchandise</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Tender Method</label>
+              <select style={inputStyle} value={tenderMethod} onChange={e => setTenderMethod(e.target.value)}>
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="interac">Interac e-Transfer</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Payment Date</label>
+            <input style={inputStyle} type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Notes</label>
+            <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }}
+              value={notes} onChange={e => setNotes(e.target.value)} placeholder="Invoice #, reason, etc." />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            <button type="button" onClick={onClose} style={pcSecondaryBtnStyle}>Cancel</button>
+            <button type="submit" disabled={saving} style={pcPrimaryBtnStyle('#a855f7')}>
+              {saving ? 'Saving…' : (initial ? 'Save Changes' : 'Add Payment')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── VendorCreditForm modal ────────────────────────────────────────────────
+
+function VendorCreditForm({ initial, vendor, onClose, onSaved }) {
+  const [amount,         setAmount]         = useState(initial?.amount != null ? String(initial.amount) : '');
+  const [creditType,     setCreditType]     = useState(initial?.creditType || 'free_case');
+  const [casesReceived,  setCasesReceived]  = useState(initial?.casesReceived != null ? String(initial.casesReceived) : '');
+  const [productRef,     setProductRef]     = useState(initial?.productRef || '');
+  const [reason,         setReason]         = useState(initial?.reason || '');
+  const [notes,          setNotes]          = useState(initial?.notes || '');
+  const [creditDate,     setCreditDate]     = useState(
+    initial?.creditDate ? new Date(initial.creditDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!amount || parseFloat(amount) <= 0) { toast.error('Enter a valid credit amount (retail/wholesale value of the free goods)'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        vendorId:      vendor.id,
+        vendorName:    vendor.name,
+        amount:        parseFloat(amount),
+        creditType,
+        casesReceived: casesReceived !== '' ? parseInt(casesReceived) : null,
+        productRef:    productRef.trim() || null,
+        reason:        reason.trim() || null,
+        notes:         notes.trim() || null,
+        creditDate:    creditDate || undefined,
+      };
+      if (initial) await updateVendorCreditEntry(initial.id, payload);
+      else         await createVendorCreditEntry(payload);
+      toast.success(initial ? 'Credit updated' : 'Credit added');
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={pcModalBackdropStyle} onClick={onClose}>
+      <div style={pcModalCardStyle} onClick={e => e.stopPropagation()}>
+        <div style={pcModalHeaderStyle}>
+          <div style={{ fontWeight: 700, fontSize: '1rem' }}>{initial ? 'Edit Credit' : 'Add Credit'}</div>
+          <button onClick={onClose} style={pcIconBtnStyle}><X size={14} /></button>
+        </div>
+        <form onSubmit={handleSave} style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Credit Value ($)</label>
+              <input style={inputStyle} type="number" step="0.01" min="0" value={amount}
+                onChange={e => setAmount(e.target.value)} autoFocus required
+                placeholder="Retail/wholesale value" />
+            </div>
+            <div>
+              <label style={labelStyle}>Credit Type</label>
+              <select style={inputStyle} value={creditType} onChange={e => setCreditType(e.target.value)}>
+                <option value="free_case">Free Case</option>
+                <option value="mix_match">Mix & Match</option>
+                <option value="damaged_return">Damaged Return</option>
+                <option value="adjustment">Adjustment</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Cases Received (optional)</label>
+              <input style={inputStyle} type="number" step="1" min="0" value={casesReceived}
+                onChange={e => setCasesReceived(e.target.value)} placeholder="e.g. 1" />
+            </div>
+            <div>
+              <label style={labelStyle}>Credit Date</label>
+              <input style={inputStyle} type="date" value={creditDate}
+                onChange={e => setCreditDate(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Product Reference (optional)</label>
+            <input style={inputStyle} value={productRef} onChange={e => setProductRef(e.target.value)}
+              placeholder="e.g. Coke 12oz or UPC 0001234567890" />
+          </div>
+          <div>
+            <label style={labelStyle}>Reason</label>
+            <input style={inputStyle} value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="e.g. Buy 6 get 1 free promo" />
+          </div>
+          <div>
+            <label style={labelStyle}>Notes</label>
+            <textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }}
+              value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional context" />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            <button type="button" onClick={onClose} style={pcSecondaryBtnStyle}>Cancel</button>
+            <button type="submit" disabled={saving} style={pcPrimaryBtnStyle('#10b981')}>
+              {saving ? 'Saving…' : (initial ? 'Save Changes' : 'Add Credit')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const pcModalBackdropStyle = {
+  position: 'fixed', inset: 0, zIndex: 200,
+  background: 'var(--modal-overlay, rgba(0,0,0,.55))',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: '1.5rem',
+};
+const pcModalCardStyle = {
+  background: 'var(--bg-secondary, #111827)',
+  border: '1px solid var(--border-color, #1f2937)',
+  borderRadius: 14, maxWidth: 520, width: '100%',
+  boxShadow: 'var(--modal-shadow, 0 24px 64px rgba(0,0,0,.4))',
+  maxHeight: '90vh', overflowY: 'auto',
+};
+const pcModalHeaderStyle = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '0.9rem 1.25rem', borderBottom: '1px solid var(--border-color, #1f2937)',
+};
+const pcSecondaryBtnStyle = {
+  padding: '0.55rem 1rem', borderRadius: 8,
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+  color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem',
+};
+const pcPrimaryBtnStyle = (accent) => ({
+  padding: '0.55rem 1.15rem', borderRadius: 8,
+  background: accent, border: 'none', color: '#fff',
+  cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem',
+});
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'overview',  label: 'Overview',  icon: Building2  },
-  { id: 'products',  label: 'Products',  icon: Package    },
-  { id: 'payouts',   label: 'Payouts',   icon: CreditCard },
-  { id: 'stats',     label: 'Stats',     icon: BarChart2  },
+  { id: 'overview',  label: 'Overview',           icon: Building2  },
+  { id: 'products',  label: 'Products',           icon: Package    },
+  { id: 'payouts',   label: 'Payouts & Credits',  icon: CreditCard },
+  { id: 'stats',     label: 'Stats',              icon: BarChart2  },
 ];
 
 export default function VendorDetail() {
@@ -731,7 +1226,7 @@ export default function VendorDetail() {
             {/* Tab Content */}
             {tab === 'overview' && <OverviewTab vendor={vendor} onVendorUpdate={setVendor} />}
             {tab === 'products' && <ProductsTab vendorId={vendor.id} />}
-            {tab === 'payouts'  && <PayoutsTab  vendorId={vendor.id} />}
+            {tab === 'payouts'  && <PayoutsCreditsTab vendorId={vendor.id} vendorName={vendor.name} />}
             {tab === 'stats'    && <StatsTab    vendorId={vendor.id} />}
           </>
         )}

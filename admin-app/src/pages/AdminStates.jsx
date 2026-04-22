@@ -17,6 +17,9 @@ import './AdminStates.css';
 const BLANK = {
   code: '', name: '', country: 'US',
   defaultTaxRate: '', defaultLotteryCommission: '',
+  // 3e — per-revenue-stream commission rates (superadmin, state-wide)
+  instantSalesCommRate: '', instantCashingCommRate: '',
+  machineSalesCommRate: '', machineCashingCommRate: '',
   alcoholAgeLimit: 21, tobaccoAgeLimit: 21,
   bottleDepositRules: [],
   lotteryGameStubs: [],
@@ -64,6 +67,10 @@ export default function AdminStates() {
       country:                  s.country || 'US',
       defaultTaxRate:           s.defaultTaxRate != null ? String(s.defaultTaxRate) : '',
       defaultLotteryCommission: s.defaultLotteryCommission != null ? String(s.defaultLotteryCommission) : '',
+      instantSalesCommRate:     s.instantSalesCommRate     != null ? String(s.instantSalesCommRate)     : '',
+      instantCashingCommRate:   s.instantCashingCommRate   != null ? String(s.instantCashingCommRate)   : '',
+      machineSalesCommRate:     s.machineSalesCommRate     != null ? String(s.machineSalesCommRate)     : '',
+      machineCashingCommRate:   s.machineCashingCommRate   != null ? String(s.machineCashingCommRate)   : '',
       alcoholAgeLimit:          s.alcoholAgeLimit || 21,
       tobaccoAgeLimit:          s.tobaccoAgeLimit || 21,
       bottleDepositRules:       Array.isArray(s.bottleDepositRules) ? s.bottleDepositRules : [],
@@ -102,6 +109,10 @@ export default function AdminStates() {
         country:                  form.country,
         defaultTaxRate:           form.defaultTaxRate === '' ? null : Number(form.defaultTaxRate),
         defaultLotteryCommission: form.defaultLotteryCommission === '' ? null : Number(form.defaultLotteryCommission),
+        instantSalesCommRate:     form.instantSalesCommRate   === '' ? null : Number(form.instantSalesCommRate),
+        instantCashingCommRate:   form.instantCashingCommRate === '' ? null : Number(form.instantCashingCommRate),
+        machineSalesCommRate:     form.machineSalesCommRate   === '' ? null : Number(form.machineSalesCommRate),
+        machineCashingCommRate:   form.machineCashingCommRate === '' ? null : Number(form.machineCashingCommRate),
         alcoholAgeLimit:          Number(form.alcoholAgeLimit) || 21,
         tobaccoAgeLimit:          Number(form.tobaccoAgeLimit) || 21,
         bottleDepositRules:       form.bottleDepositRules.map(r => ({
@@ -253,7 +264,7 @@ export default function AdminStates() {
                   <span className="as-hint">e.g. 0.0625 = 6.25%</span>
                 </div>
                 <div className="as-field">
-                  <label>Lottery Commission (decimal)</label>
+                  <label>Lottery Commission — legacy single rate</label>
                   <input
                     type="number"
                     step="0.0001"
@@ -261,7 +272,59 @@ export default function AdminStates() {
                     onChange={e => setField({ defaultLotteryCommission: e.target.value })}
                     placeholder="0.05"
                   />
-                  <span className="as-hint">e.g. 0.05 = 5%</span>
+                  <span className="as-hint">Fallback if the per-stream rates below are blank. e.g. 0.05 = 5%.</span>
+                </div>
+
+                {/* 3e — per-revenue-stream commission rates */}
+                <div className="as-field as-field--full">
+                  <div style={{
+                    padding: '8px 10px',
+                    background: 'rgba(99, 102, 241, 0.06)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                    borderRadius: 6,
+                    fontSize: '0.78rem',
+                    color: 'var(--text-primary)',
+                    marginBottom: 8,
+                  }}>
+                    <strong>Per-revenue-stream commission rates.</strong> Set by superadmin; applies to every store in this state.
+                    Each field is a decimal (e.g. <code>0.054</code> = 5.4%). Leave blank to fall back to the legacy single rate above.
+                  </div>
+                </div>
+                <div className="as-field">
+                  <label>Instant Sales Commission</label>
+                  <input
+                    type="number" step="0.0001" placeholder="0.054"
+                    value={form.instantSalesCommRate}
+                    onChange={e => setField({ instantSalesCommRate: e.target.value })}
+                  />
+                  <span className="as-hint">% earned on scratch-off sales</span>
+                </div>
+                <div className="as-field">
+                  <label>Instant Cashing Commission</label>
+                  <input
+                    type="number" step="0.0001" placeholder="0.01"
+                    value={form.instantCashingCommRate}
+                    onChange={e => setField({ instantCashingCommRate: e.target.value })}
+                  />
+                  <span className="as-hint">% earned on scratch-off winnings cashed at this store</span>
+                </div>
+                <div className="as-field">
+                  <label>Machine Draw Sales Commission</label>
+                  <input
+                    type="number" step="0.0001" placeholder="0.054"
+                    value={form.machineSalesCommRate}
+                    onChange={e => setField({ machineSalesCommRate: e.target.value })}
+                  />
+                  <span className="as-hint">% earned on draw-game terminal sales</span>
+                </div>
+                <div className="as-field">
+                  <label>Machine Draw Cashing Commission</label>
+                  <input
+                    type="number" step="0.0001" placeholder="0.01"
+                    value={form.machineCashingCommRate}
+                    onChange={e => setField({ machineCashingCommRate: e.target.value })}
+                  />
+                  <span className="as-hint">% earned on draw-game winnings cashed at this store</span>
                 </div>
                 <div className="as-field">
                   <label>Alcohol Age Limit</label>

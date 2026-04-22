@@ -407,7 +407,56 @@
 .clm-reward-cost { font-weight: 800; color: #f59e0b; font-size: 0.82rem; }
 .clm-reward-value { font-size: 0.72rem; color: var(--green); font-weight: 700; }
 
+/* Rich create-form extensions (Session 39) — 3-column row for discount/balance,
+   in-store charge toggle styled to match back-office cust-toggle. */
+.clm-form-row:has(> :nth-child(3)) {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.clm-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.5rem 0;
+  margin: 0.4rem 0 0.2rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.clm-toggle {
+  width: 42px;
+  height: 22px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+.clm-toggle-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: left 0.15s ease;
+}
+.clm-toggle--on { background: var(--green); border-color: var(--green); }
+.clm-toggle--on .clm-toggle-knob { left: 22px; }
+.clm-toggle-state {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 @media (max-width: 768px) {
   .clm-modal { max-width: 100%; border-radius: 16px; }
   .clm-form-row { grid-template-columns: 1fr; }
+  .clm-form-row:has(> :nth-child(3)) { grid-template-columns: 1fr; }
 }

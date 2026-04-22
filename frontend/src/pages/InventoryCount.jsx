@@ -27,6 +27,8 @@ import {
   Trash2, TrendingDown,
 } from 'lucide-react';
 import './InventoryCount.css';
+import SortableHeader from '../components/SortableHeader';
+import { useTableSort } from '../hooks/useTableSort';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -459,6 +461,20 @@ const ADJUSTMENT_REASONS = [
 
 const AdjustmentsTab = () => {
   const [adjustments, setAdjustments] = useState([]);
+  // Session 39 Round 3 — column sort (default: newest first)
+  const adjSort = useTableSort(adjustments, {
+    initial: 'date',
+    initialDir: 'desc',
+    accessors: {
+      date:   (a) => new Date(a.createdAt),
+      name:   (a) => a.product?.name || '',
+      upc:    (a) => a.product?.upc  || '',
+      change: (a) => Number(a.adjustmentQty || 0),
+      before: (a) => Number(a.previousQty   || 0),
+      after:  (a) => Number(a.newQty        || 0),
+      reason: (a) => a.reason || '',
+    },
+  });
   const [summary, setSummary]         = useState(null);
   const [loading, setLoading]         = useState(true);
   const [showCreate, setShowCreate]   = useState(false);
@@ -628,10 +644,19 @@ const AdjustmentsTab = () => {
           <div className="p-table-wrap">
             <table className="p-table">
               <thead>
-                <tr><th>Date</th><th>Product</th><th>UPC</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>Notes</th></tr>
+                <tr>
+                  <SortableHeader label="Date"    sortKey="date"    sort={adjSort} />
+                  <SortableHeader label="Product" sortKey="name"    sort={adjSort} />
+                  <SortableHeader label="UPC"     sortKey="upc"     sort={adjSort} />
+                  <SortableHeader label="Change"  sortKey="change"  sort={adjSort} />
+                  <SortableHeader label="Before"  sortKey="before"  sort={adjSort} />
+                  <SortableHeader label="After"   sortKey="after"   sort={adjSort} />
+                  <SortableHeader label="Reason"  sortKey="reason"  sort={adjSort} />
+                  <SortableHeader label="Notes" sortable={false} />
+                </tr>
               </thead>
               <tbody>
-                {adjustments.map(adj => (
+                {adjSort.sorted.map(adj => (
                   <tr key={adj.id}>
                     <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
                       {new Date(adj.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

@@ -7,8 +7,10 @@
  * Stages:
  *   0 — no stores yet          → catalog is "offline" (products saved but not live)
  *   1 — has stores, no catalog  → catalog needs products
- *   2 — has stores + products   → operational; show store inventory guidance
- *   3 — fully set up            → nothing to prompt
+ *   3 — fully set up            → nothing to prompt (once products exist, we go
+ *                                  straight here; the old stage-2 "Looking good!
+ *                                  Products are live" banner was noise per user
+ *                                  feedback Session 39 Round 4)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -48,7 +50,7 @@ export function useSetupStatus() {
       const stage =
         !hasStores   ? 0 :   // no stores
         !hasProducts ? 1 :   // has stores, no catalog
-        2;                   // operational
+        3;                   // fully set up — SetupGuide returns null
 
       setStatus({
         loading: false,

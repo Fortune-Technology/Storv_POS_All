@@ -48,6 +48,7 @@ export const createState = async (req, res) => {
   try {
     const {
       code, name, country, defaultTaxRate, defaultLotteryCommission,
+      instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
       notes, active,
     } = req.body;
@@ -66,6 +67,10 @@ export const createState = async (req, res) => {
         country: country || 'US',
         defaultTaxRate:           defaultTaxRate != null ? Number(defaultTaxRate) : null,
         defaultLotteryCommission: defaultLotteryCommission != null ? Number(defaultLotteryCommission) : null,
+        instantSalesCommRate:     instantSalesCommRate     != null ? Number(instantSalesCommRate)     : null,
+        instantCashingCommRate:   instantCashingCommRate   != null ? Number(instantCashingCommRate)   : null,
+        machineSalesCommRate:     machineSalesCommRate     != null ? Number(machineSalesCommRate)     : null,
+        machineCashingCommRate:   machineCashingCommRate   != null ? Number(machineCashingCommRate)   : null,
         alcoholAgeLimit:          alcoholAgeLimit != null ? Number(alcoholAgeLimit) : 21,
         tobaccoAgeLimit:          tobaccoAgeLimit != null ? Number(tobaccoAgeLimit) : 21,
         bottleDepositRules:       Array.isArray(bottleDepositRules) ? bottleDepositRules : [],
@@ -90,6 +95,7 @@ export const updateState = async (req, res) => {
 
     const {
       name, country, defaultTaxRate, defaultLotteryCommission,
+      instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
       notes, active,
     } = req.body;
@@ -101,6 +107,10 @@ export const updateState = async (req, res) => {
         ...(country != null && { country: String(country) }),
         ...(defaultTaxRate !== undefined && { defaultTaxRate: defaultTaxRate != null ? Number(defaultTaxRate) : null }),
         ...(defaultLotteryCommission !== undefined && { defaultLotteryCommission: defaultLotteryCommission != null ? Number(defaultLotteryCommission) : null }),
+        ...(instantSalesCommRate   !== undefined && { instantSalesCommRate:   instantSalesCommRate   != null ? Number(instantSalesCommRate)   : null }),
+        ...(instantCashingCommRate !== undefined && { instantCashingCommRate: instantCashingCommRate != null ? Number(instantCashingCommRate) : null }),
+        ...(machineSalesCommRate   !== undefined && { machineSalesCommRate:   machineSalesCommRate   != null ? Number(machineSalesCommRate)   : null }),
+        ...(machineCashingCommRate !== undefined && { machineCashingCommRate: machineCashingCommRate != null ? Number(machineCashingCommRate) : null }),
         ...(alcoholAgeLimit !== undefined && { alcoholAgeLimit: Number(alcoholAgeLimit) }),
         ...(tobaccoAgeLimit !== undefined && { tobaccoAgeLimit: Number(tobaccoAgeLimit) }),
         ...(bottleDepositRules !== undefined && { bottleDepositRules: Array.isArray(bottleDepositRules) ? bottleDepositRules : [] }),

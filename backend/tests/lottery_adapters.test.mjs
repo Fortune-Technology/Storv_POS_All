@@ -67,6 +67,64 @@ describe('Massachusetts adapter', () => {
     assert.equal(MA.settlementRules.pctThreshold, 80);
     assert.equal(MA.settlementRules.maxDaysActive, 180);
   });
+
+  describe('QR code payload (29-digit, new 2025+ stock)', () => {
+    test('sample #1 — fresh book (ticket 000)', () => {
+      const r = MA.parseAny('52900384500001010070000000064');
+      assert.equal(r?.type, 'ticket');
+      assert.equal(r?.state, 'MA');
+      assert.equal(r?.source, 'qr');
+      assert.equal(r?.gameNumber, '529');
+      assert.equal(r?.bookNumber, '038450');
+      assert.equal(r?.ticketNumber, 0);
+    });
+
+    test('sample #2 — mid-book (ticket 067)', () => {
+      const r = MA.parseAny('51300481550671010070000000073');
+      assert.equal(r?.gameNumber, '513');
+      assert.equal(r?.bookNumber, '048155');
+      assert.equal(r?.ticketNumber, 67);
+    });
+
+    test('sample #3 — matches documented adapter sample (498-027632-128)', () => {
+      const r = MA.parseAny('49800276321280515060000000088');
+      assert.equal(r?.gameNumber, '498');
+      assert.equal(r?.bookNumber, '027632');
+      assert.equal(r?.ticketNumber, 128);
+    });
+
+    test('QR scan agrees with the equivalent canonical scan for the same ticket', () => {
+      const fromQr  = MA.parseAny('49800276321280515060000000088');
+      const fromDash = MA.parseAny('498-027632-128');
+      // Same logical ticket; only the source marker differs
+      assert.equal(fromQr?.gameNumber,   fromDash?.gameNumber);
+      assert.equal(fromQr?.bookNumber,   fromDash?.bookNumber);
+      assert.equal(fromQr?.ticketNumber, fromDash?.ticketNumber);
+      assert.equal(fromQr?.source, 'qr');
+      assert.equal(fromDash?.source, undefined);
+    });
+
+    test('rejects 29-digit strings without the fixed-0 separator at position 3', () => {
+      // Swap the '0' separator for a '5' — should fail because the QR regex
+      // requires the literal '0' at position 3.
+      const bad = '52950384500001010070000000064';
+      assert.equal(MA.parseAny(bad), null);
+    });
+
+    test('rejects 28-digit (too short) and 30-digit (too long)', () => {
+      assert.equal(MA.parseAny('5290038450000101007000000006'), null);
+      assert.equal(MA.parseAny('529003845000010100700000000064'), null);
+    });
+
+    test('whitespace tolerated before / after QR payload', () => {
+      const r = MA.parseAny('  49800276321280515060000000088\n');
+      assert.equal(r?.ticketNumber, 128);
+    });
+
+    test('parseTicketBarcode accepts the QR form', () => {
+      assert.equal(MA.parseTicketBarcode('52900384500001010070000000064')?.type, 'ticket');
+    });
+  });
 });
 
 describe('Maine adapter', () => {

@@ -7,7 +7,7 @@ import {
   X, Package, DollarSign, Tag, ChevronRight,
   ChevronLeft, Save, AlertCircle, Check, Printer,
 } from 'lucide-react';
-import { createProduct, getDepartmentsForPOS } from '../../api/pos.js';
+import { createProduct, getDepartmentsForPOS, getVendors } from '../../api/pos.js';
 import { upsertProducts } from '../../db/dexie.js';
 import { normalizeUPC } from '../../utils/upc.js';
 import { useStationStore } from '../../stores/useStationStore.js';
@@ -31,9 +31,20 @@ const SECTIONS = [
 ];
 
 const BLANK = {
+  // Identity + info
   name: '', upc: '', brand: '', size: '', sizeUnit: 'oz', description: '',
-  defaultRetailPrice: '', defaultCostPrice: '', taxClass: 'grocery',
-  taxable: true, ebtEligible: false, ageRequired: '', departmentId: '', active: true,
+  // Pricing
+  defaultRetailPrice: '', defaultCostPrice: '', defaultCasePrice: '',
+  taxClass: 'grocery', taxable: true,
+  // Pack structure (Session 39 — back-office parity)
+  unitPack: '', packInCase: '',
+  // Deposits (Session 39 — back-office parity)
+  depositPerUnit: '', caseDeposit: '',
+  // Classification
+  ebtEligible: false, discountEligible: true, ageRequired: '',
+  departmentId: '', vendorId: '', active: true,
+  // Inventory tracking (Session 39 — back-office parity)
+  trackInventory: false, reorderPoint: '', reorderQty: '',
 };
 
 function Tog({ value, onChange }) {
@@ -55,6 +66,7 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
   const [section,     setSection]     = useState('info');
   const [form,        setForm]        = useState({ ...BLANK, upc: normalizeUPC(scannedUpc) || scannedUpc || '' });
   const [departments, setDepartments] = useState([]);
+  const [vendors,     setVendors]     = useState([]);
   const [errors,      setErrors]      = useState({});
   const [saving,      setSaving]      = useState(false);
   const [savedMsg,    setSavedMsg]    = useState('');
@@ -67,7 +79,10 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
 
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
 
-  useEffect(() => { getDepartmentsForPOS().then(setDepartments).catch(() => {}); }, []);
+  useEffect(() => {
+    getDepartmentsForPOS().then(setDepartments).catch(() => {});
+    getVendors().then(setVendors).catch(() => {});
+  }, []);
 
   const margin = (() => {
     const c = parseFloat(form.defaultCostPrice);
@@ -104,10 +119,23 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
         size: form.size || null, sizeUnit: form.size ? form.sizeUnit : null,
         description: form.description || null,
         defaultRetailPrice: parseFloat(form.defaultRetailPrice),
-        defaultCostPrice: form.defaultCostPrice ? parseFloat(form.defaultCostPrice) : null,
-        taxClass: form.taxClass, taxable: form.taxable, ebtEligible: form.ebtEligible,
+        defaultCostPrice:   form.defaultCostPrice   ? parseFloat(form.defaultCostPrice)   : null,
+        defaultCasePrice:   form.defaultCasePrice   ? parseFloat(form.defaultCasePrice)   : null,
+        // Session 39 — back-office field parity
+        unitPack:           form.unitPack           ? parseInt(form.unitPack)             : null,
+        packInCase:         form.packInCase         ? parseInt(form.packInCase)           : null,
+        depositPerUnit:     form.depositPerUnit     ? parseFloat(form.depositPerUnit)     : null,
+        caseDeposit:        form.caseDeposit        ? parseFloat(form.caseDeposit)        : null,
+        taxClass: form.taxClass, taxable: form.taxable,
+        ebtEligible: form.ebtEligible,
+        discountEligible: form.discountEligible,
         ageRequired: form.ageRequired ? parseInt(form.ageRequired) : null,
-        departmentId: form.departmentId || null, active: form.active,
+        departmentId: form.departmentId || null,
+        vendorId:     form.vendorId ? parseInt(form.vendorId) : null,
+        active: form.active,
+        trackInventory: form.trackInventory,
+        reorderPoint:   form.reorderPoint !== '' ? parseInt(form.reorderPoint) : null,
+        reorderQty:     form.reorderQty   !== '' ? parseInt(form.reorderQty)   : null,
       };
       const created = await createProduct(payload);
       await upsertProducts([{
@@ -241,6 +269,49 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
                 </div>
               )}
               <div>
+                <label className="apm-label">Case Price <span className="apm-label-note">(vendor cost per case)</span></label>
+                <div className="apm-price-wrap">
+                  <span className="apm-price-symbol">$</span>
+                  <input className="apm-input apm-input--price" type="number" min="0" step="0.01" value={form.defaultCasePrice}
+                    onChange={e => set('defaultCasePrice', e.target.value)} placeholder="0.00" />
+                </div>
+              </div>
+
+              {/* Pack structure — session 39 back-office parity */}
+              <div className="apm-grid-row">
+                <div>
+                  <label className="apm-label">Units per Pack <span className="apm-label-note">(6 = 6-pack, 12 = 12-pack)</span></label>
+                  <input className="apm-input" type="number" min="1" step="1" value={form.unitPack}
+                    onChange={e => set('unitPack', e.target.value)} placeholder="1" />
+                </div>
+                <div>
+                  <label className="apm-label">Packs per Case</label>
+                  <input className="apm-input" type="number" min="1" step="1" value={form.packInCase}
+                    onChange={e => set('packInCase', e.target.value)} placeholder="e.g. 24" />
+                </div>
+              </div>
+
+              {/* Deposits — session 39 back-office parity */}
+              <div className="apm-grid-row">
+                <div>
+                  <label className="apm-label">Bottle Deposit (per unit)</label>
+                  <div className="apm-price-wrap">
+                    <span className="apm-price-symbol">$</span>
+                    <input className="apm-input apm-input--price" type="number" min="0" step="0.01" value={form.depositPerUnit}
+                      onChange={e => set('depositPerUnit', e.target.value)} placeholder="0.00" />
+                  </div>
+                </div>
+                <div>
+                  <label className="apm-label">Case Deposit</label>
+                  <div className="apm-price-wrap">
+                    <span className="apm-price-symbol">$</span>
+                    <input className="apm-input apm-input--price" type="number" min="0" step="0.01" value={form.caseDeposit}
+                      onChange={e => set('caseDeposit', e.target.value)} placeholder="0.00" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
                 <label className="apm-label">Tax Class</label>
                 <select className="apm-input" value={form.taxClass} onChange={e => set('taxClass', e.target.value)}>
                   {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label} — {t.note}</option>)}
@@ -253,6 +324,13 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
                 </div>
                 <Tog value={form.taxable} onChange={v => set('taxable', v)} />
               </div>
+              <div className="apm-toggle-row">
+                <div>
+                  <div className="apm-toggle-label">Discount Eligible</div>
+                  <div className="apm-toggle-desc">Allow line + order-level discounts</div>
+                </div>
+                <Tog value={form.discountEligible} onChange={v => set('discountEligible', v)} />
+              </div>
             </div>
           )}
 
@@ -263,6 +341,14 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
                 <select className="apm-input" value={form.departmentId} onChange={e => set('departmentId', e.target.value)}>
                   <option value="">— None —</option>
                   {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              {/* Vendor — session 39 back-office parity */}
+              <div>
+                <label className="apm-label">Vendor</label>
+                <select className="apm-input" value={form.vendorId} onChange={e => set('vendorId', e.target.value)}>
+                  <option value="">— None —</option>
+                  {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
               </div>
               <div>
@@ -287,6 +373,29 @@ export default function AddProductModal({ scannedUpc, onCreated, onClose, hasLab
                 </div>
                 <Tog value={form.active} onChange={v => set('active', v)} />
               </div>
+
+              {/* Inventory tracking — session 39 back-office parity */}
+              <div className="apm-toggle-row">
+                <div>
+                  <div className="apm-toggle-label">Track Inventory</div>
+                  <div className="apm-toggle-desc">Track quantity-on-hand + reorder alerts</div>
+                </div>
+                <Tog value={form.trackInventory} onChange={v => set('trackInventory', v)} />
+              </div>
+              {form.trackInventory && (
+                <div className="apm-grid-row">
+                  <div>
+                    <label className="apm-label">Reorder Point</label>
+                    <input className="apm-input" type="number" min="0" step="1" value={form.reorderPoint}
+                      onChange={e => set('reorderPoint', e.target.value)} placeholder="e.g. 10" />
+                  </div>
+                  <div>
+                    <label className="apm-label">Reorder Quantity</label>
+                    <input className="apm-input" type="number" min="0" step="1" value={form.reorderQty}
+                      onChange={e => set('reorderQty', e.target.value)} placeholder="e.g. 24" />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

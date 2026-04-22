@@ -6,7 +6,7 @@
  * distinguish scanner input from manual typing.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 
 const SCAN_TIMEOUT_MS = 80;
 const MIN_LENGTH      = 6;
@@ -18,18 +18,26 @@ export function useBarcodeScanner(onScan, enabled = true) {
   // Whether the last character came fast enough to be from a scanner
   const isScannerInput = useRef(false);
 
-  const flush = useCallback(() => {
-    const raw = bufferRef.current.trim();
-    bufferRef.current = '';
-    clearTimeout(timerRef.current);
-    if (raw.length >= MIN_LENGTH && isScannerInput.current) {
-      onScan(raw);
-    }
-    isScannerInput.current = false;
-  }, [onScan]);
+  // Keep the freshest onScan in a ref so the keydown listener binds ONCE
+  // and never tears down / re-attaches on every parent re-render. This
+  // fixes the visible "blink" that previously fired whenever isOnline
+  // flipped — handleScan would recreate → flush would recreate → the
+  // effect re-ran → listener was briefly detached.
+  const onScanRef = useRef(onScan);
+  useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
   useEffect(() => {
     if (!enabled) return;
+
+    const flush = () => {
+      const raw = bufferRef.current.trim();
+      bufferRef.current = '';
+      clearTimeout(timerRef.current);
+      if (raw.length >= MIN_LENGTH && isScannerInput.current) {
+        onScanRef.current?.(raw);
+      }
+      isScannerInput.current = false;
+    };
 
     const handleKeyDown = (e) => {
       const now = Date.now();
@@ -63,5 +71,5 @@ export function useBarcodeScanner(onScan, enabled = true) {
       window.removeEventListener('keydown', handleKeyDown, true);
       clearTimeout(timerRef.current);
     };
-  }, [enabled, flush]);
+  }, [enabled]);
 }
