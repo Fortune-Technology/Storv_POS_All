@@ -33,6 +33,7 @@ import {
   registerStation,
   verifyStation,
   pinLogin,
+  listStationsForStore,
 } from '../controllers/stationController.js';
 import {
   getActiveShift,
@@ -95,6 +96,9 @@ router.post('/pin-login',        pinLimiter, pinLogin);
 
 // Vendors list (for paid-out dropdown)
 router.get('/vendors',           ...guard, getVendors);
+
+// Stations — list for back-office open-shift flow
+router.get('/stations',          ...guard, listStationsForStore);
 
 // Cash Drawer / Shift management
 router.get('/shift/active',      ...guard, getActiveShift);

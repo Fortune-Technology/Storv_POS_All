@@ -9,7 +9,7 @@
  *                          · Commission · Settings
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PriceInput from '../components/PriceInput';
 import ModuleDisabled from '../components/ModuleDisabled';
 import { useStoreModules } from '../hooks/useStoreModules';
@@ -38,7 +38,7 @@ import {
   // Receive from catalog
   receiveFromLotteryCatalog,
 } from '../services/api';
-import LotteryDailyScan from './LotteryDailyScan';
+import LotteryDailyScan, { CounterScanModal } from './LotteryDailyScan';
 import LotteryWeeklySettlement from './LotteryWeeklySettlement';
 import './Lottery.css';
 import './LotteryDailyScan.css';
@@ -207,11 +207,28 @@ function GameModal({ game, onSave, onClose }) {
   );
 }
 
-/* Activate Box Modal */
-function ActivateBoxModal({ box, onConfirm, onClose }) {
+/* Activate Box Modal
+ *
+ * sellDirection — a store setting ('asc' or 'desc', default 'desc') drives
+ * the default Starting Ticket #:
+ *   desc → totalTickets − 1  (a 150-pack starts at 149 and counts DOWN)
+ *   asc  → 0                  (a 150-pack starts at 0 and counts UP)
+ * The field stays editable so the cashier can enter a mid-book starting
+ * position if some tickets were sold before this book was formally activated.
+ */
+function ActivateBoxModal({ box, sellDirection = 'desc', onConfirm, onClose }) {
+  // Compute the direction-aware default once when the modal opens. Store
+  // admin can still override via the input (e.g. book was partially sold
+  // before activation).
+  const defaultStart = useMemo(() => {
+    const total = Number(box?.totalTickets || 0);
+    if (!total) return '';
+    return sellDirection === 'asc' ? '0' : String(total - 1);
+  }, [box?.totalTickets, sellDirection]);
+
   const [slotNumber, setSlotNumber] = useState('');
   const [activationDate, setActivationDate] = useState(toDateStr(new Date()));
-  const [currentTicket, setCurrentTicket] = useState('');
+  const [currentTicket, setCurrentTicket] = useState(defaultStart);
   const [saving, setSaving] = useState(false);
   const submit = async () => {
     setSaving(true);
@@ -227,6 +244,7 @@ function ActivateBoxModal({ box, onConfirm, onClose }) {
       setSaving(false);
     }
   };
+  const dirLabel = sellDirection === 'asc' ? 'ascending (0 → up)' : 'descending (down → 0)';
   return (
     <div className="lt-modal-overlay">
       <div className="lt-modal">
@@ -239,6 +257,10 @@ function ActivateBoxModal({ box, onConfirm, onClose }) {
         </div>
         <div className="lt-modal-info">
           🎟️ {fmtNum(box.totalTickets)} tickets · {fmt(box.ticketPrice)} each · Book value {fmt(box.totalValue)}
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            Store sells <strong>{dirLabel}</strong> — starting ticket pre-filled below.
+            Change this in <strong>Settings</strong> if wrong.
+          </div>
         </div>
         <div className="lt-field">
           <label className="lt-field-label">Activation Date</label>
@@ -254,12 +276,21 @@ function ActivateBoxModal({ box, onConfirm, onClose }) {
           <span className="lt-field-hint">If blank, the system auto-assigns the next free counter slot.</span>
         </div>
         <div className="lt-field">
-          <label className="lt-field-label">Starting Ticket # <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <label className="lt-field-label">
+            Starting Ticket #{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+              (pre-filled from store's {sellDirection === 'asc' ? 'ascending' : 'descending'} setting)
+            </span>
+          </label>
           <input className="lt-input" type="number" value={currentTicket}
             onChange={e => setCurrentTicket(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && submit()}
-            placeholder="next-to-sell ticket number" />
-          <span className="lt-field-hint">Populate if any tickets have already been sold from this book.</span>
+            placeholder={defaultStart || 'next-to-sell ticket number'} />
+          <span className="lt-field-hint">
+            {sellDirection === 'asc'
+              ? `A ${fmtNum(box.totalTickets)}-pack ascending book starts at 0 and counts up. Override only if tickets were sold before activation.`
+              : `A ${fmtNum(box.totalTickets)}-pack descending book starts at ${(Number(box.totalTickets)||1)-1} and counts down. Override only if tickets were sold before activation.`}
+          </span>
         </div>
         <div className="lt-form-actions">
           <button className="lt-btn lt-btn-secondary" onClick={onClose}>Cancel</button>
@@ -601,6 +632,12 @@ function ReceiveScanTab({ games, onSave, onClose }) {
         setErr(`Barcode not recognised: ${v}`);
         return;
       }
+      // Some MA QR codes encode an authoritative pack size at positions
+      // 15-17. When present, it beats every other source (heuristic,
+      // catalog default, user dropdown) because it comes straight from the
+      // ticket stock the cashier is physically holding.
+      const barcodePackSize = Number.isFinite(Number(parsed.packSize)) && Number(parsed.packSize) > 0
+        ? Number(parsed.packSize) : null;
 
       // 1. Try store-level game (real gameNumber)
       let game = games.find(g => String(g.gameNumber) === String(parsed.gameNumber));
@@ -620,23 +657,20 @@ function ReceiveScanTab({ games, onSave, onClose }) {
       }
 
       // Build item record — same shape whether sourced from game or catalog.
-      // Pack-size default cascade:
-      //   1. Smart inference from price AND scanned ticket number
-      //      (if ticket ≥ heuristic, bump to smallest standard pack that fits)
-      //   2. Catalog/store game's stored ticketsPerBox (if it's not the
+      // Pack-size default cascade (most → least authoritative):
+      //   1. Pack size embedded in the barcode (MA QR positions 15-17) —
+      //      THE source of truth when available
+      //   2. Smart inference from price + scanned ticket number (handles
+      //      the case where ticket > heuristic, bumps up)
+      //   3. Catalog/store game's stored ticketsPerBox (if it's not the
       //      obviously-wrong legacy 50)
-      //   3. Price-based heuristic alone
-      // Takes the LARGEST of these so a big ticket number or an admin-set
-      // catalog size wins over a stale heuristic.
+      //   4. Price-based heuristic alone
       const gameName    = game?.name          || catRow?.name          || `Game ${parsed.gameNumber}`;
       const ticketPrice = Number(game?.ticketPrice   || catRow?.ticketPrice   || 0);
       const catSize     = Number(game?.ticketsPerBox || catRow?.ticketsPerBook || 0);
       const smartSize   = inferPackSize(ticketPrice, parsed.ticketNumber);
-      // Prefer catalog size when it's a non-legacy (not 50) admin-set value
-      // that already satisfies the scanned ticket. Otherwise let the smart
-      // inference win.
-      const catSizeOk    = catSize > 0 && catSize !== 50 && catSize > Number(parsed.ticketNumber || 0);
-      const totalTickets = catSizeOk ? catSize : smartSize;
+      const catSizeOk   = catSize > 0 && catSize !== 50 && catSize > Number(parsed.ticketNumber || 0);
+      const totalTickets = barcodePackSize || (catSizeOk ? catSize : smartSize);
       const value        = totalTickets * ticketPrice;
 
       // De-dup: gameId (if we have one) + bookNumber OR catalog+bookNumber
@@ -693,7 +727,8 @@ function ReceiveScanTab({ games, onSave, onClose }) {
       });
       const sourceBadge = game ? '' : ' (from master catalog)';
       const bumpNote    = bumpGroupTo != null ? ` — Pack bumped to ${bumpGroupTo} (ticket ${parsed.ticketNumber} needs larger pack)` : '';
-      setInfo(`✓ Added ${gameName} — Book ${parsed.bookNumber} (${fmt(newRowValue)})${sourceBadge}${bumpNote}`);
+      const packSrc     = barcodePackSize ? ` · pack ${barcodePackSize} (from barcode)` : '';
+      setInfo(`✓ Added ${gameName} — Book ${parsed.bookNumber} (${fmt(newRowValue)})${sourceBadge}${bumpNote}${packSrc}`);
     } catch (e) {
       setErr(e.response?.data?.error || e.message || 'Scan failed');
     } finally {
@@ -1585,7 +1620,9 @@ function LotteryBody() {
 
   // 3e — removed Games (admin-managed), Receive Order (duplicate), Daily Scan
   // (nested wizard was redundant). Receive is now a one-click action in the
-  // Counter tab; Online Sales is its own top-level tab.
+  // Counter tab; End of Day (renamed from "Online Sales" in the Option A
+  // collapse) is its own top-level tab that holds daily machine totals,
+  // open-shift close, and the Close the Day button.
   const TABS = [
     'Overview',
     ...(isAdmin ? ['Ticket Catalog'] : []),
@@ -1593,7 +1630,7 @@ function LotteryBody() {
     'Safe',
     'Soldout',
     'Returned',
-    'Online Sales',
+    'End of Day',
     'Shift Reports',
     'Weekly Settlement',
     'Reports',
@@ -1616,6 +1653,7 @@ function LotteryBody() {
   const [loading, setLoading] = useState(false);
   const [gameModal, setGameModal] = useState(null);
   const [receiveModal, setReceiveModal] = useState(false);
+  const [counterScanOpen, setCounterScanOpen] = useState(false);   // shared popup with End of Day page
   const [activateBoxObj, setActivateBoxObj] = useState(null);
   const [moveToSafeBox, setMoveToSafeBox] = useState(null);
   const [returnToLottoBox, setReturnToLottoBox] = useState(null);
@@ -1632,7 +1670,7 @@ function LotteryBody() {
 
   // Settings
   const [lotterySettings, setLotterySettings] = useState(null);
-  const [settingsForm, setSettingsForm] = useState({ enabled: true, cashOnly: false, state: '', commissionRate: '', scanRequiredAtShiftEnd: false });
+  const [settingsForm, setSettingsForm] = useState({ enabled: true, cashOnly: false, state: '', commissionRate: '', scanRequiredAtShiftEnd: false, sellDirection: 'desc' });
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState('');
 
@@ -1678,6 +1716,7 @@ function LotteryBody() {
           state: r.state || '',
           commissionRate: r.commissionRate != null ? (Number(r.commissionRate) * 100).toFixed(2) : '',
           scanRequiredAtShiftEnd: r.scanRequiredAtShiftEnd ?? false,
+          sellDirection: r.sellDirection === 'asc' ? 'asc' : 'desc',
         });
       }
     } catch { }
@@ -1897,8 +1936,9 @@ function LotteryBody() {
       {/* ── TICKET CATALOG (admin only) ──────────────────────────────── */}
       {tab === 'Ticket Catalog' && <TicketCatalogTab />}
 
-      {/* ── ONLINE SALES (3e) — daily instant cashing + machine sales + machine cashing entry */}
-      {tab === 'Online Sales' && <LotteryDailyScan />}
+      {/* ── END OF DAY (Option A collapse) — daily machine totals, close
+           any open cashier shifts, then Close the Lottery Day. */}
+      {tab === 'End of Day' && <LotteryDailyScan />}
 
       {/* ── COUNTER / SAFE / SOLDOUT / RETURNED (unified table) ─────── */}
       {TAB_STATUS[tab] !== undefined && (
@@ -1929,6 +1969,15 @@ function LotteryBody() {
               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 Sorted by highest ticket value first · {filteredTabBoxes.length} active book{filteredTabBoxes.length === 1 ? '' : 's'}
               </span>
+              <button
+                className="lt-btn lt-btn-primary lt-btn-sm"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => setCounterScanOpen(true)}
+                disabled={filteredTabBoxes.length === 0}
+                title="Same scan popup as the cashier's end-of-shift wizard — scan each book's next-to-sell ticket"
+              >
+                <ScanLine size={13} /> Run Counter Scan
+              </button>
             </div>
           )}
 
@@ -2232,6 +2281,49 @@ function LotteryBody() {
                 placeholder="e.g. 5.4" style={{ maxWidth: 200 }} />
               <span className="lt-field-hint">Enter as percentage e.g. 5.4 for 5.4%</span>
             </div>
+
+            {/* Sell direction — how this store opens books. Drives the default
+                startTicket when a book is activated, and the EoD wizard's
+                "tickets sold" math. Every book in the store must open the
+                same way (set once, applies to all games). */}
+            <div className="lt-field">
+              <label className="lt-field-label">Book Opening Direction</label>
+              <div className="lt-selldir-grid">
+                <label className={`lt-selldir-card ${settingsForm.sellDirection === 'desc' ? 'lt-selldir-card--active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="sellDirection"
+                    value="desc"
+                    checked={settingsForm.sellDirection === 'desc'}
+                    onChange={() => setSettingsForm(f => ({ ...f, sellDirection: 'desc' }))}
+                  />
+                  <div className="lt-selldir-body">
+                    <div className="lt-selldir-title">Descending <span className="lt-selldir-default">(most common)</span></div>
+                    <div className="lt-selldir-example">150-pack starts at <strong>149</strong> and counts DOWN as tickets sell</div>
+                    <div className="lt-selldir-hint">Books open from the highest ticket number. Typical for MA / most US states.</div>
+                  </div>
+                </label>
+                <label className={`lt-selldir-card ${settingsForm.sellDirection === 'asc' ? 'lt-selldir-card--active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="sellDirection"
+                    value="asc"
+                    checked={settingsForm.sellDirection === 'asc'}
+                    onChange={() => setSettingsForm(f => ({ ...f, sellDirection: 'asc' }))}
+                  />
+                  <div className="lt-selldir-body">
+                    <div className="lt-selldir-title">Ascending</div>
+                    <div className="lt-selldir-example">150-pack starts at <strong>0</strong> and counts UP as tickets sell</div>
+                    <div className="lt-selldir-hint">Books open from ticket 0. Used by some stores and a few states.</div>
+                  </div>
+                </label>
+              </div>
+              <span className="lt-field-hint">
+                This setting pre-fills the Starting Ticket # when you activate a book and drives the
+                EoD reconciliation math. Applies to every game uniformly — change it once here, not per book.
+              </span>
+            </div>
+
             <div style={{ marginBottom: '1.5rem' }}>
               {[
                 ['enabled', 'Enable Lottery', 'Allow lottery sales and payouts in POS'],
@@ -2259,8 +2351,19 @@ function LotteryBody() {
       {receiveModal && (
         <ReceiveBoxModal games={games.filter(g => g.active)} onSave={handleReceive} onClose={() => setReceiveModal(false)} />
       )}
+      {counterScanOpen && (
+        <CounterScanModal
+          onClose={() => setCounterScanOpen(false)}
+          onSaved={() => { setCounterScanOpen(false); reloadCurrentTab(); }}
+        />
+      )}
       {activateBoxObj && (
-        <ActivateBoxModal box={activateBoxObj} onConfirm={handleActivateBox} onClose={() => setActivateBoxObj(null)} />
+        <ActivateBoxModal
+          box={activateBoxObj}
+          sellDirection={lotterySettings?.sellDirection || settingsForm.sellDirection || 'desc'}
+          onConfirm={handleActivateBox}
+          onClose={() => setActivateBoxObj(null)}
+        />
       )}
       {moveToSafeBox && (
         <MoveToSafeModal box={moveToSafeBox} onConfirm={handleMoveToSafe} onClose={() => setMoveToSafeBox(null)} />

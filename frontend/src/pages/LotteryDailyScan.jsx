@@ -1,61 +1,66 @@
 /**
- * LotteryDailyScan — Phase 1b
+ * LotteryDailyScan — RENAMED IN PURPOSE to "End of Day" (file kept to
+ * preserve existing imports; the tab label in Lottery.jsx now reads
+ * "End of Day").
  *
- * The 4-step end-of-day wizard that replaces Elistars' "Daily Lottery Scan":
- *   Reports → Receive → Return → Counter → Close the Day
+ * Option A collapse (April 2026): the old 5-step wizard (Reports / Receive /
+ * Return / Counter / Close) was almost entirely duplicates of top-level tabs
+ * and modals elsewhere in the Lottery module. Stripped down to 3 sections:
  *
- * Rendered as an embedded sub-page inside Lottery.jsx under the
- * "Daily Scan" tab. Admin picks the date at the top and walks the steps.
+ *   1. Scratchoff Inventory  — live math summary for the selected day
+ *   2. Daily Machine Totals  — the 3 numbers off the state terminal printout
+ *                              (instantCashing, machineSales, machineCashing)
+ *                              plus a notes field, with a Save button.
+ *   3. Open Shifts           — any cashier shift that's still open at the
+ *                              active store. Manager can close one from
+ *                              back office when the cashier forgot (reuses
+ *                              the existing /pos-terminal/shift/:id/close
+ *                              endpoint).
+ *   4. Close the Day         — executes any pending scheduled book moves,
+ *                              snapshots counter ticket positions to the
+ *                              audit log, and upserts today's online-total
+ *                              record. Idempotent.
  *
- * Design goals:
- *   - One continuous panel, no page jumps
- *   - Live Scratchoff Inventory math visible on every step
- *   - Scan-first on Receive / Return / Counter (auto-activation via the
- *     Phase 1a scan engine), manual entry always available as fallback
- *   - Close the Day is idempotent — safe to re-run
+ * Receive / Return / per-book Counter scans were REMOVED — the Receive
+ * Books modal (Scan + Manual tabs), the Counter tab (which now shows
+ * current tickets), and the cashier-app LotteryShiftModal (Phase 3g EoD
+ * wizard) already cover those paths.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, Info, Ticket, Package, RotateCcw, ClipboardCheck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Info, Loader2, Lock, Plus, ScanLine, Ticket, Wallet, X } from 'lucide-react';
 import {
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
-  getDailyLotteryInventory, closeLotteryDay, getLotteryBoxes,
-  scanLotteryBarcode, updateLotteryBox,
+  getDailyLotteryInventory, closeLotteryDay,
+  listPosShifts, closePosShift, openPosShift, listPosStations,
+  getLotteryBoxes, updateLotteryBox, scanLotteryBarcode,
+  getStoreEmployees,
 } from '../services/api';
-
-const STEPS = [
-  { key: 'reports',  label: 'Reports',  icon: ClipboardCheck },
-  { key: 'receive',  label: 'Receive',  icon: Package },
-  { key: 'return',   label: 'Return',   icon: RotateCcw },
-  { key: 'counter',  label: 'Counter',  icon: Ticket },
-  { key: 'close',    label: 'Close',    icon: CheckCircle2 },
-];
 
 const fmtMoney = (n) => n == null ? '$0.00' : `$${Number(n).toFixed(2)}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function LotteryDailyScan() {
-  const [date, setDate] = useState(todayStr());
-  const [stepIdx, setStepIdx] = useState(0);
-  const step = STEPS[stepIdx];
+  const [date, setDate]                   = useState(todayStr());
+  const [inventory, setInventory]         = useState(null);
+  const [onlineTotal, setOnlineTotal]     = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
+  const [onlineSaving, setOnlineSaving]   = useState(false);
+  const [onlineSaved, setOnlineSaved]     = useState(false);
+  const [closeResult, setCloseResult]     = useState(null);
+  const [closing, setClosing]             = useState(false);
+  const [openShifts, setOpenShifts]       = useState([]);
+  const [shiftToClose, setShiftToClose]   = useState(null);
+  const [openShiftOpen, setOpenShiftOpen] = useState(false);   // "Open Shift" modal visibility
+  const [counterScanOpen, setCounterScanOpen] = useState(false); // Counter Scan wizard visibility
 
-  const [inventory, setInventory] = useState(null);
-  const [onlineTotal, setOnlineTotal] = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
-  const [onlineSaving, setOnlineSaving] = useState(false);
-  const [activeBoxes, setActiveBoxes] = useState([]);
-  const [safeBoxes, setSafeBoxes] = useState([]);
-  const [closeResult, setCloseResult] = useState(null);
-
-  // Load inventory + online-total when date changes.
-  // `lotteryUnwrap` in api.js already strips the `{success, data}` envelope
-  // and returns the inner payload, so `inv` is the inventory object directly.
+  // Load inventory + online totals + open shifts.
   const loadDate = useCallback(async () => {
+    const storeId = localStorage.getItem('activeStoreId');
     try {
-      const [inv, ot, counter, safe] = await Promise.all([
+      const [inv, ot, shifts] = await Promise.all([
         getDailyLotteryInventory({ date }).catch(() => null),
         getLotteryOnlineTotal({ date }).catch(() => null),
-        getLotteryBoxes({ status: 'active' }).catch(() => []),
-        getLotteryBoxes({ status: 'inventory' }).catch(() => []),
+        listPosShifts({ status: 'open', storeId, limit: 20 }).catch(() => null),
       ]);
       setInventory(inv && typeof inv === 'object' && 'begin' in inv ? inv : null);
       setOnlineTotal({
@@ -64,17 +69,20 @@ export default function LotteryDailyScan() {
         machineCashing: Number(ot?.machineCashing || 0),
         notes:          ot?.notes || '',
       });
-      setActiveBoxes(Array.isArray(counter) ? counter : counter?.boxes || []);
-      setSafeBoxes(Array.isArray(safe) ? safe : safe?.boxes || []);
+      const shiftList = Array.isArray(shifts) ? shifts : (shifts?.shifts || []);
+      setOpenShifts(shiftList);
     } catch {}
   }, [date]);
 
   useEffect(() => { loadDate(); }, [loadDate]);
 
   const saveOnline = async () => {
-    setOnlineSaving(true);
+    setOnlineSaving(true); setOnlineSaved(false);
     try {
       await upsertLotteryOnlineTotal({ date, ...onlineTotal });
+      setOnlineSaved(true);
+      await loadDate();
+      setTimeout(() => setOnlineSaved(false), 2500);
     } catch (e) {
       alert(e?.response?.data?.error || e.message);
     } finally {
@@ -83,82 +91,216 @@ export default function LotteryDailyScan() {
   };
 
   const runCloseDay = async () => {
-    if (!window.confirm(`Close the lottery day for ${date}? This executes any scheduled book moves and snapshots the counter.`)) return;
+    if (!window.confirm(
+      `Close the lottery day for ${date}?\n\n` +
+      '• Saves any unsaved machine totals\n' +
+      '• Executes scheduled book moves\n' +
+      '• Snapshots active books to audit log\n\n' +
+      'Safe to re-run.'
+    )) return;
+    setClosing(true);
     try {
-      // Save any unsaved online totals first
-      await upsertLotteryOnlineTotal({ date, ...onlineTotal });
+      await upsertLotteryOnlineTotal({ date, ...onlineTotal }).catch(() => {});
       const res = await closeLotteryDay({ date });
       setCloseResult(res);
       await loadDate();
     } catch (e) {
       alert(e?.response?.data?.error || e.message);
+    } finally {
+      setClosing(false);
     }
   };
 
   return (
     <div className="lds-wrap">
-      {/* ── Header: date picker + step dots ─────────────────────── */}
+      {/* ── Header: date picker ─────────────────────────────────────── */}
       <div className="lds-header">
         <div className="lds-date">
           <label>Business Day</label>
-          <input type="date" value={date} onChange={e => { setDate(e.target.value); setStepIdx(0); setCloseResult(null); }} />
+          <input
+            type="date"
+            value={date}
+            onChange={e => { setDate(e.target.value); setCloseResult(null); }}
+          />
         </div>
-        <div className="lds-step-bar">
-          {STEPS.map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <button
-                key={s.key}
-                className={`lds-step-dot ${i === stepIdx ? 'active' : ''} ${i < stepIdx ? 'done' : ''}`}
-                onClick={() => setStepIdx(i)}
-              >
-                <Icon size={14} />
-                <span className="lds-step-label">{s.label}</span>
-              </button>
-            );
-          })}
+        <div className="lds-header-hint">
+          <Info size={14} />
+          <span>Manager-only end-of-day finalization. Fill the machine totals from the terminal printout, close any cashier shifts that are still open, then click Close the Day.</span>
         </div>
       </div>
 
-      {/* ── Scratchoff Inventory live panel (sticky above content) ─── */}
+      {/* ── 1. Scratchoff Inventory live panel ──────────────────────── */}
       <ScratchoffInventoryPanel inventory={inventory} />
 
-      {/* ── Step content ──────────────────────────────────────────── */}
-      <div className="lds-content">
-        {step.key === 'reports' && (
-          <ReportsStep
-            online={onlineTotal}
-            setOnline={setOnlineTotal}
-            onSave={saveOnline}
-            saving={onlineSaving}
-            inventory={inventory}
+      {/* ── 2. Daily Machine Totals ─────────────────────────────────── */}
+      <section className="lds-card">
+        <div className="lds-card-head">
+          <Wallet size={16} />
+          <div>
+            <div className="lds-card-title">Daily Machine Totals</div>
+            <div className="lds-card-sub">The three numbers off the state lottery terminal's end-of-day printout.</div>
+          </div>
+        </div>
+        <div className="lds-reports-grid">
+          <Field
+            label="Instant Cashing"
+            hint="Scratch-off winnings paid from the drawer today"
+            value={onlineTotal.instantCashing}
+            onChange={v => setOnlineTotal({ ...onlineTotal, instantCashing: v })}
           />
-        )}
-        {step.key === 'receive' && <ReceiveStep onRefresh={loadDate} />}
-        {step.key === 'return'  && <ReturnStep boxes={[...activeBoxes, ...safeBoxes]} onRefresh={loadDate} />}
-        {step.key === 'counter' && <CounterStep boxes={activeBoxes} onRefresh={loadDate} />}
-        {step.key === 'close'   && <CloseStep date={date} onClose={runCloseDay} result={closeResult} inventory={inventory} />}
-      </div>
+          <Field
+            label="Machine Sales"
+            hint="Draw-game sales rung on the state terminal (Powerball, Mega Millions, Keno…)"
+            value={onlineTotal.machineSales}
+            onChange={v => setOnlineTotal({ ...onlineTotal, machineSales: v })}
+          />
+          <Field
+            label="Machine Ticket Cashings"
+            hint="Draw-game winnings paid from the drawer today"
+            value={onlineTotal.machineCashing}
+            onChange={v => setOnlineTotal({ ...onlineTotal, machineCashing: v })}
+          />
+        </div>
 
-      {/* ── Nav buttons ───────────────────────────────────────────── */}
-      <div className="lds-nav">
-        <button className="lt-btn lt-btn-secondary" disabled={stepIdx === 0} onClick={() => setStepIdx(i => Math.max(0, i - 1))}>
-          <ArrowLeft size={14} /> Back
-        </button>
-        <div className="lds-nav-spacer" />
-        {stepIdx < STEPS.length - 1 && (
-          <button className="lt-btn lt-btn-primary" onClick={() => setStepIdx(i => Math.min(STEPS.length - 1, i + 1))}>
-            Next <ArrowRight size={14} />
+        <div className="lds-field">
+          <label>Notes <span className="lds-optional">(optional)</span></label>
+          <textarea
+            rows={2}
+            value={onlineTotal.notes}
+            onChange={e => setOnlineTotal({ ...onlineTotal, notes: e.target.value })}
+            placeholder="Anything unusual about today's lottery activity"
+          />
+        </div>
+
+        <div className="lds-actions">
+          <button className="lt-btn lt-btn-primary" onClick={saveOnline} disabled={onlineSaving}>
+            {onlineSaving ? <><Loader2 size={14} className="lds-spin" /> Saving…</> : 'Save Machine Totals'}
           </button>
+          {onlineSaved && (
+            <span className="lds-save-ok"><CheckCircle2 size={14} /> Saved</span>
+          )}
+        </div>
+      </section>
+
+      {/* ── 3. Cashier shifts (open + close from back office) ──────── */}
+      <section className="lds-card">
+        <div className="lds-card-head lds-card-head--with-action">
+          <div className="lds-card-head-left">
+            <Ticket size={16} />
+            <div>
+              <div className="lds-card-title">Cashier Shifts</div>
+              <div className="lds-card-sub">Open a shift on behalf of a cashier, or close one they forgot to close. Variance is auto-computed from transactions + drops + payouts.</div>
+            </div>
+          </div>
+          <button className="lt-btn lt-btn-primary lt-btn-sm" onClick={() => setOpenShiftOpen(true)}>
+            <Plus size={13} /> Open Shift
+          </button>
+        </div>
+        {openShifts.length === 0 ? (
+          <div className="lds-empty-card">
+            <CheckCircle2 size={20} color="#16a34a" />
+            <span>No open shifts at this store.</span>
+          </div>
+        ) : (
+          <div className="lds-shift-list">
+            {openShifts.map(s => (
+              <OpenShiftRow key={s.id} shift={s} onClose={() => setShiftToClose(s)} />
+            ))}
+          </div>
         )}
-      </div>
+      </section>
+
+      {/* ── 3b. Counter Scan (manager-driven scanning of active books) ── */}
+      <section className="lds-card">
+        <div className="lds-card-head lds-card-head--with-action">
+          <div className="lds-card-head-left">
+            <ScanLine size={16} />
+            <div>
+              <div className="lds-card-title">Counter Scan</div>
+              <div className="lds-card-sub">Scan each active book's next-to-sell ticket to record the day's current positions. Same flow as the cashier app — but lets a manager do it from back office.</div>
+            </div>
+          </div>
+          <button className="lt-btn lt-btn-primary lt-btn-sm" onClick={() => setCounterScanOpen(true)}>
+            <ScanLine size={13} /> Run Counter Scan
+          </button>
+        </div>
+        <div className="lds-card-sub" style={{ margin: '4px 0 0' }}>
+          Opens a popup just like the cashier's end-of-shift wizard. Scan or type the current ticket for each book — when you're done, positions are saved.
+        </div>
+      </section>
+
+      {/* ── 4. Close the Day ────────────────────────────────────────── */}
+      <section className="lds-card">
+        <div className="lds-card-head">
+          <Lock size={16} />
+          <div>
+            <div className="lds-card-title">Close the Lottery Day</div>
+            <div className="lds-card-sub">Finalizes all lottery activity for this date. Safe to run more than once.</div>
+          </div>
+        </div>
+
+        <div className="lds-close-summary">
+          <div><span>Business day</span><strong>{date}</strong></div>
+          {inventory && (
+            <>
+              <div><span>Today's sold</span><strong>{fmtMoney(inventory.sold)}</strong></div>
+              <div><span>Today's received</span><strong>{fmtMoney(inventory.received)}</strong></div>
+              <div><span>End-of-day inventory</span><strong>{fmtMoney(inventory.end)}</strong></div>
+              <div><span>Active books</span><strong>{inventory.counts?.active ?? 0}</strong></div>
+            </>
+          )}
+        </div>
+
+        {closeResult ? (
+          <div className="lds-close-result">
+            <CheckCircle2 size={22} />
+            <div>
+              <strong>Day closed.</strong>
+              <div>Executed {closeResult.pendingMoveSweep?.executed || 0} pending move{(closeResult.pendingMoveSweep?.executed || 0) === 1 ? '' : 's'}.</div>
+              <div>Snapshotted {closeResult.snapshotCount || 0} active book position{(closeResult.snapshotCount || 0) === 1 ? '' : 's'}.</div>
+            </div>
+          </div>
+        ) : (
+          <div className="lds-actions">
+            <button className="lt-btn lt-btn-success" onClick={runCloseDay} disabled={closing}>
+              {closing ? <><Loader2 size={14} className="lds-spin" /> Closing…</> : <><CheckCircle2 size={14} /> Close the Day</>}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* Back-office shift-close modal */}
+      {shiftToClose && (
+        <CloseShiftFromBackOfficeModal
+          shift={shiftToClose}
+          onClose={() => setShiftToClose(null)}
+          onClosed={() => { setShiftToClose(null); loadDate(); }}
+        />
+      )}
+
+      {/* Back-office open-shift modal */}
+      {openShiftOpen && (
+        <OpenShiftBackOfficeModal
+          onClose={() => setOpenShiftOpen(false)}
+          onOpened={() => { setOpenShiftOpen(false); loadDate(); }}
+        />
+      )}
+
+      {/* Manager counter-scan wizard */}
+      {counterScanOpen && (
+        <CounterScanModal
+          onClose={() => setCounterScanOpen(false)}
+          onSaved={() => { setCounterScanOpen(false); loadDate(); }}
+        />
+      )}
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- * Scratchoff Inventory Panel — the Elistars-style live math summary
- * ──────────────────────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════
+ * Subcomponents
+ * ════════════════════════════════════════════════════════════════════ */
+
 function ScratchoffInventoryPanel({ inventory }) {
   if (!inventory) return <div className="lds-inv-panel lds-inv-panel--loading">Loading inventory…</div>;
   const rows = [
@@ -191,352 +333,479 @@ function ScratchoffInventoryPanel({ inventory }) {
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- * Step 1 — Reports. Captures the 3 daily numbers + settings summary.
- * ──────────────────────────────────────────────────────────────────── */
-function ReportsStep({ online, setOnline, onSave, saving, inventory }) {
-  const set = (k, v) => setOnline({ ...online, [k]: v });
+function Field({ label, hint, value, onChange }) {
   return (
-    <div className="lds-step">
-      <div className="lds-step-intro">
-        <Info size={14} />
-        <span>Enter today's machine totals. These three numbers come from the lottery terminal printout at end of shift.</span>
-      </div>
-
-      <div className="lds-reports-grid">
-        <div className="lds-field">
-          <label>Instant Cashing</label>
-          <div className="lds-hint">Scratch-off winnings paid from the drawer today.</div>
-          <div className="lds-dollar-input">
-            <span>$</span>
-            <input type="number" step="0.01" min="0" value={online.instantCashing}
-              onChange={e => set('instantCashing', Number(e.target.value))} />
-          </div>
-        </div>
-
-        <div className="lds-field">
-          <label>Machine Sales</label>
-          <div className="lds-hint">Draw-game sales rung on the state terminal (Powerball, Mega Millions, etc.) — total for today.</div>
-          <div className="lds-dollar-input">
-            <span>$</span>
-            <input type="number" step="0.01" min="0" value={online.machineSales}
-              onChange={e => set('machineSales', Number(e.target.value))} />
-          </div>
-        </div>
-
-        <div className="lds-field">
-          <label>Machine Ticket Cashings</label>
-          <div className="lds-hint">Draw-game winnings paid from the drawer today.</div>
-          <div className="lds-dollar-input">
-            <span>$</span>
-            <input type="number" step="0.01" min="0" value={online.machineCashing}
-              onChange={e => set('machineCashing', Number(e.target.value))} />
-          </div>
-        </div>
-      </div>
-
-      <div className="lds-field">
-        <label>Notes <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-        <textarea rows={2} value={online.notes} onChange={e => set('notes', e.target.value)}
-          placeholder="Anything unusual about today's lottery activity — short staffing, terminal issues, returns due, etc." />
-      </div>
-
-      <div className="lds-actions">
-        <button className="lt-btn lt-btn-primary" onClick={onSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Reports'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- * Scan bar — shared between Receive / Return / Counter steps.
- * Focused input, fires the scan endpoint, shows outcome inline.
- * ──────────────────────────────────────────────────────────────────── */
-function ScanBar({ context, onResult, placeholder = 'Scan a book or ticket barcode…' }) {
-  const [raw, setRaw] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [log, setLog] = useState([]);
-  const inputRef = useRef(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const submit = async () => {
-    const v = raw.trim();
-    if (!v) return;
-    setBusy(true);
-    setRaw('');
-    try {
-      const res = await scanLotteryBarcode({ raw: v, context });
-      const entry = {
-        raw: v,
-        action: res?.action,
-        reason: res?.reason,
-        box: res?.box,
-        autoSoldout: res?.autoSoldout,
-        state: res?.state,
-        at: new Date(),
-      };
-      setLog(l => [entry, ...l].slice(0, 10));
-      onResult?.(entry);
-    } catch (e) {
-      setLog(l => [{ raw: v, action: 'error', reason: e?.response?.data?.error || e.message, at: new Date() }, ...l].slice(0, 10));
-    } finally {
-      setBusy(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }
-  };
-
-  return (
-    <div className="lds-scan">
-      <div className="lds-scan-row">
+    <div className="lds-field">
+      <label>{label}</label>
+      <div className="lds-hint">{hint}</div>
+      <div className="lds-dollar-input">
+        <span>$</span>
         <input
-          ref={inputRef}
-          className="lds-scan-input"
-          type="text"
-          value={raw}
-          onChange={e => setRaw(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && submit()}
-          placeholder={placeholder}
-          disabled={busy}
+          type="number"
+          step="0.01"
+          min="0"
+          value={value}
+          onChange={e => onChange(Number(e.target.value))}
         />
-        <button className="lt-btn lt-btn-primary" disabled={busy || !raw.trim()} onClick={submit}>
-          {busy ? '…' : 'Submit'}
-        </button>
       </div>
-
-      {log.length > 0 && (
-        <div className="lds-scan-log">
-          {log.map((l, i) => (
-            <div key={i} className={`lds-scan-entry lds-scan-entry--${l.action || 'error'}`}>
-              <code>{l.raw}</code>
-              <span className="lds-scan-outcome">
-                {l.action === 'activate'        && `✓ Activated: ${l.box?.game?.name || ''} Book ${l.box?.boxNumber || ''} (slot ${l.box?.slotNumber})`}
-                {l.action === 'update_current'  && `✓ Updated current ticket → ${l.box?.currentTicket}`}
-                {l.action === 'rejected'        && `✗ ${l.reason}`}
-                {l.action === 'error'           && `✗ ${l.reason}`}
-              </span>
-              {l.autoSoldout && (
-                <span className="lds-scan-extra">
-                  auto-soldout: {l.autoSoldout.game?.name} Book {l.autoSoldout.boxNumber}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- * Step 2 — Receive. Scan new books into the Safe.
- * ──────────────────────────────────────────────────────────────────── */
-function ReceiveStep({ onRefresh }) {
+function OpenShiftRow({ shift, onClose }) {
+  // Shift fields we can display; `listShifts` already attaches cashierName + stationName
+  const cashier   = shift.cashierName || shift.cashier?.name || '—';
+  const station   = shift.stationName || shift.station?.name || shift.stationId || '—';
+  const openingAmount = Number(shift.openingAmount || 0);
+  const openedAgo = humanizeAgo(shift.openedAt);
+  const crossedMidnight = shift.openedAt && (new Date(shift.openedAt) < startOfToday());
   return (
-    <div className="lds-step">
-      <div className="lds-step-intro">
-        <Package size={14} />
-        <span>Scan each book received today. The system will add them to the Safe automatically. If a code is not recognised, add it manually from the main Safe tab.</span>
+    <div className={`lds-shift-row ${crossedMidnight ? 'lds-shift-row--stale' : ''}`}>
+      <div className="lds-shift-meta">
+        <div className="lds-shift-cashier">{cashier}</div>
+        <div className="lds-shift-sub">
+          Station: {station} · Opened {openedAgo}{crossedMidnight ? ' · crossed midnight' : ''}
+        </div>
+        <div className="lds-shift-sub">Opening cash: <strong>{fmtMoney(openingAmount)}</strong></div>
       </div>
-      <ScanBar context="receive" onResult={() => onRefresh?.()} placeholder="Scan book code — e.g. 498-027632 (MA) or a pack EAN-13" />
+      <button className="lt-btn lt-btn-danger" onClick={onClose}>Close Shift</button>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- * Step 3 — Return. Select books to return to the lottery commission.
- * Choose from active or safe books; unsold tickets flow to settlement.
- * ──────────────────────────────────────────────────────────────────── */
-function ReturnStep({ boxes, onRefresh }) {
-  const [pickId, setPickId] = useState('');
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const pick = boxes.find(b => b.id === pickId);
-  const unsold = pick ? Math.max(0, (pick.totalTickets || 0) - (pick.ticketsSold || 0)) : 0;
-  const unsoldValue = pick ? unsold * Number(pick.ticketPrice || 0) : 0;
+function CloseShiftFromBackOfficeModal({ shift, onClose, onClosed }) {
+  const [closingAmount, setClosingAmount] = useState('');
+  const [note, setNote]   = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState('');
 
   const submit = async () => {
-    if (!pick) return;
-    if (!window.confirm(`Return ${pick.game?.name} Book ${pick.boxNumber} to Lottery? ${unsold} unsold tickets (${fmtMoney(unsoldValue)}) will be deducted.`)) return;
-    setBusy(true);
+    const amt = Number(closingAmount);
+    if (!Number.isFinite(amt) || amt < 0) {
+      setErr('Enter the physical cash count ($0 or more).');
+      return;
+    }
+    setBusy(true); setErr('');
     try {
-      const { returnLotteryBoxToLotto } = await import('../services/api');
-      await returnLotteryBoxToLotto(pick.id, { reason: note || null });
-      setPickId(''); setNote('');
-      onRefresh?.();
+      await closePosShift(shift.id, {
+        closingAmount: amt,
+        closingNote: note || '[Back-office close by manager]',
+      });
+      onClosed?.();
     } catch (e) {
-      alert(e?.response?.data?.error || e.message);
+      setErr(e?.response?.data?.error || e.message || 'Failed to close shift');
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="lds-step">
-      <div className="lds-step-intro">
-        <RotateCcw size={14} />
-        <span>Pick a book being physically returned to the commission. Unsold tickets will be deducted from next week's settlement.</span>
-      </div>
-
-      <div className="lds-field">
-        <label>Book to Return</label>
-        <select value={pickId} onChange={e => setPickId(e.target.value)}>
-          <option value="">— Select a book —</option>
-          {boxes.map(b => (
-            <option key={b.id} value={b.id}>
-              {b.game?.name} — Book {b.boxNumber} · {b.status === 'active' ? `Counter slot ${b.slotNumber}` : 'Safe'} · {b.ticketsSold || 0}/{b.totalTickets} sold
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {pick && (
-        <div className="lds-return-preview">
-          <div><strong>{pick.game?.name}</strong> — Book {pick.boxNumber}</div>
-          <div className="lds-return-line">
-            <span>Unsold tickets</span>
-            <span>{unsold} × {fmtMoney(pick.ticketPrice)} = <strong>{fmtMoney(unsoldValue)}</strong></span>
-          </div>
-          <div className="lds-return-hint">This amount will be deducted from the next weekly settlement.</div>
-        </div>
-      )}
-
-      <div className="lds-field">
-        <label>Reason / Note <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-        <input type="text" value={note} onChange={e => setNote(e.target.value)}
-          placeholder="e.g. game ended, partial return" />
-      </div>
-
-      <div className="lds-actions">
-        <button className="lt-btn lt-btn-danger" disabled={!pick || busy} onClick={submit}>
-          {busy ? 'Returning…' : pick ? `Return ${fmtMoney(unsoldValue)}` : 'Select a book'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- * Step 4 — Counter. Scan (or manually set) each active book's current
- * next-to-sell ticket so today's sold-count is accurate.
- * ──────────────────────────────────────────────────────────────────── */
-function CounterStep({ boxes, onRefresh }) {
-  const [draft, setDraft] = useState({}); // boxId -> ticket #
-  const [savingId, setSavingId] = useState(null);
-
-  const setTicket = (id, v) => setDraft(d => ({ ...d, [id]: v }));
-
-  const saveOne = async (b) => {
-    const val = draft[b.id];
-    if (val == null || val === '') return;
-    setSavingId(b.id);
-    try {
-      await updateLotteryBox(b.id, { currentTicket: String(val) });
-      setDraft(d => { const n = { ...d }; delete n[b.id]; return n; });
-      onRefresh?.();
-    } catch (e) {
-      alert(e?.response?.data?.error || e.message);
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const sorted = [...boxes].sort((a, b) => (a.slotNumber || 999) - (b.slotNumber || 999));
-
-  return (
-    <div className="lds-step">
-      <div className="lds-step-intro">
-        <Ticket size={14} />
-        <span>Scan the next-to-sell ticket from each book on the counter. Or edit the number directly. Books you skip keep their current value.</span>
-      </div>
-
-      <ScanBar context="eod" onResult={() => onRefresh?.()} placeholder="Scan the next-to-sell ticket of any book on the counter" />
-
-      <div className="lds-counter-table">
-        <div className="lds-counter-head">
-          <span>Slot</span><span>Game</span><span>Book #</span><span>Start</span><span>Current</span><span>Sold</span><span></span>
-        </div>
-        {sorted.length === 0 && (
-          <div className="lds-empty">No active books on the counter.</div>
-        )}
-        {sorted.map(b => {
-          const draftVal = draft[b.id];
-          const dirty = draftVal !== undefined && String(draftVal) !== String(b.currentTicket || '');
-          const ticketsSoldToday = b.ticketsSold || 0;
-          return (
-            <div key={b.id} className={`lds-counter-row ${dirty ? 'dirty' : ''}`}>
-              <span className="lds-counter-slot">{b.slotNumber ?? '—'}</span>
-              <span>{b.game?.name || 'Unknown'}</span>
-              <span><code>{b.boxNumber || '—'}</code></span>
-              <span>{b.startTicket ?? '—'}</span>
-              <span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={draftVal ?? (b.currentTicket ?? '')}
-                  onChange={e => setTicket(b.id, e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveOne(b)}
-                  placeholder="next #"
-                />
-              </span>
-              <span>{ticketsSoldToday}</span>
-              <span>
-                {dirty && (
-                  <button className="lt-btn lt-btn-primary lt-btn-sm" disabled={savingId === b.id} onClick={() => saveOne(b)}>
-                    {savingId === b.id ? '…' : 'Save'}
-                  </button>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- * Step 5 — Close the Day. Final review + the button.
- * ──────────────────────────────────────────────────────────────────── */
-function CloseStep({ date, onClose, result, inventory }) {
-  return (
-    <div className="lds-step">
-      <div className="lds-step-intro">
-        <CheckCircle2 size={14} />
-        <span>Final review. Closing the day executes any scheduled moves and snapshots the counter positions to the audit log. It's safe to run more than once.</span>
-      </div>
-
-      <div className="lds-close-summary">
-        <div><span>Business day</span><strong>{date}</strong></div>
-        {inventory && (
-          <>
-            <div><span>Today's sold</span><strong>{fmtMoney(inventory.sold)}</strong></div>
-            <div><span>Today's received</span><strong>{fmtMoney(inventory.received)}</strong></div>
-            <div><span>End-of-day inventory</span><strong>{fmtMoney(inventory.end)}</strong></div>
-            <div><span>Active books</span><strong>{inventory.counts?.active ?? 0}</strong></div>
-          </>
-        )}
-      </div>
-
-      {result ? (
-        <div className="lds-close-result">
-          <CheckCircle2 size={24} />
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
           <div>
-            <strong>Day closed.</strong><br />
-            Executed {result.pendingMoveSweep?.executed || 0} pending move{(result.pendingMoveSweep?.executed || 0) === 1 ? '' : 's'}.<br />
-            Snapshotted {result.snapshotCount || 0} active book position{(result.snapshotCount || 0) === 1 ? '' : 's'}.
+            <div className="lt-modal-title">Close Shift (Back Office)</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              {shift.cashierName || '—'} · Station {shift.stationName || shift.stationId || '—'} · Opened {humanizeAgo(shift.openedAt)}
+            </div>
           </div>
+          <button className="lt-modal-close" onClick={onClose}>×</button>
         </div>
-      ) : (
-        <div className="lds-actions">
-          <button className="lt-btn lt-btn-success" onClick={onClose}>
-            <CheckCircle2 size={14} /> Close the Day
+        <div className="lt-modal-info">
+          Opening cash: <strong>{fmtMoney(Number(shift.openingAmount || 0))}</strong>.
+          Enter the counted cash in the drawer right now — the backend computes the expected amount and variance automatically.
+        </div>
+        {err && <div className="lt-error">{err}</div>}
+        <div className="lds-field">
+          <label>Counted Cash in Drawer ($)</label>
+          <input
+            type="number" step="0.01" min="0"
+            value={closingAmount}
+            onChange={e => setClosingAmount(e.target.value)}
+            placeholder="0.00"
+            autoFocus
+          />
+        </div>
+        <div className="lds-field">
+          <label>Note (optional)</label>
+          <input
+            type="text"
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="Why are you closing this shift from back office?"
+          />
+        </div>
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="lt-btn lt-btn-danger" onClick={submit} disabled={busy}>
+            {busy ? 'Closing…' : 'Close Shift'}
           </button>
         </div>
-      )}
+      </div>
     </div>
   );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * OpenShiftBackOfficeModal
+ * Manager opens a shift on behalf of a cashier. Picks the station +
+ * cashier, enters the opening cash float, submits to /shift/open with
+ * cashierId so the shift is owned by the right user (not the manager).
+ * ════════════════════════════════════════════════════════════════════ */
+function OpenShiftBackOfficeModal({ onClose, onOpened }) {
+  const storeId = localStorage.getItem('activeStoreId');
+  const [stations, setStations] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [stationId, setStationId] = useState('');
+  const [cashierId, setCashierId] = useState('');
+  const [openingAmount, setOpeningAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [st, em] = await Promise.all([
+          listPosStations(storeId).catch(() => ({ stations: [] })),
+          getStoreEmployees({ storeId }).catch(() => ({ employees: [] })),
+        ]);
+        const stList  = st.stations || [];
+        const empList = em.employees || [];
+        setStations(stList);
+        setEmployees(empList);
+        // Sensible defaults — first station + first cashier
+        if (stList.length > 0) setStationId(stList[0].id);
+        if (empList.length > 0) setCashierId(empList[0].id);
+      } catch (e) {
+        setErr('Failed to load stations/cashiers');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [storeId]);
+
+  const submit = async () => {
+    const amt = Number(openingAmount);
+    if (!cashierId)                              { setErr('Pick a cashier');  return; }
+    if (!Number.isFinite(amt) || amt < 0)        { setErr('Enter opening cash ($0 or more)'); return; }
+    setBusy(true); setErr('');
+    try {
+      await openPosShift({
+        storeId,
+        stationId: stationId || null,
+        cashierId,
+        openingAmount: amt,
+        openingNote: note || '[Opened by manager from back office]',
+      });
+      onOpened?.();
+    } catch (e) {
+      // Backend returns a useful 409 when there's already an open shift
+      const msg = e?.response?.data?.error || e.message || 'Failed to open shift';
+      setErr(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal">
+        <div className="lt-modal-header">
+          <div>
+            <div className="lt-modal-title">Open Shift (Back Office)</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Opens a cash-drawer shift on behalf of a cashier. Same variance math as the cashier-app.
+            </div>
+          </div>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        {err && <div className="lt-error">{err}</div>}
+        {loading ? (
+          <div style={{ padding: '1rem 0', color: 'var(--text-muted)' }}>Loading…</div>
+        ) : (
+          <>
+            <div className="lds-field">
+              <label>Station</label>
+              {stations.length === 0 ? (
+                <div className="lds-hint">No registered stations at this store. Shift will open with no station.</div>
+              ) : (
+                <select value={stationId} onChange={e => setStationId(e.target.value)}>
+                  {stations.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.isActive === false ? ' (inactive)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="lds-field">
+              <label>Cashier</label>
+              {employees.length === 0 ? (
+                <div className="lds-hint">No cashiers with PIN found at this store.</div>
+              ) : (
+                <select value={cashierId} onChange={e => setCashierId(e.target.value)}>
+                  {employees.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}{u.role ? ` · ${u.role}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="lds-field">
+              <label>Opening Cash ($)</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={openingAmount}
+                onChange={e => setOpeningAmount(e.target.value)}
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+            <div className="lds-field">
+              <label>Note <span className="lds-optional">(optional)</span></label>
+              <input
+                type="text" value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Why are you opening this shift from back office?"
+              />
+            </div>
+          </>
+        )}
+        <div className="lt-form-actions">
+          <button className="lt-btn lt-btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="lt-btn lt-btn-primary" onClick={submit} disabled={busy || loading || !cashierId}>
+            {busy ? 'Opening…' : 'Open Shift'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * CounterScanModal
+ * Manager-level counter scan. Same "feel" as the cashier-app Phase 3g
+ * wizard Step 1 — big scan input, list of active books sorted by ticket
+ * value, auto-fills the current ticket on scan, per-row manual edit.
+ * On save, bulk-updates each book's currentTicket via the existing
+ * updateLotteryBox endpoint.
+ *
+ * Exported so the Counter tab can trigger the same popup without having
+ * to reimplement it.
+ * ════════════════════════════════════════════════════════════════════ */
+export function CounterScanModal({ onClose, onSaved }) {
+  const [boxes, setBoxes] = useState([]);
+  const [drafts, setDrafts] = useState({});  // boxId → draft current ticket
+  const [scanValue, setScanValue] = useState('');
+  const [scanLog, setScanLog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const scanRef = useRef(null);
+
+  // Load active books, sort by totalValue descending (matches EoD wizard UX)
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await getLotteryBoxes({ status: 'active' });
+        const list = Array.isArray(r) ? r : (r?.boxes || []);
+        const sorted = [...list].sort((a, b) => {
+          const va = Number(a.totalValue || (Number(a.totalTickets)||0) * Number(a.ticketPrice || 0));
+          const vb = Number(b.totalValue || (Number(b.totalTickets)||0) * Number(b.ticketPrice || 0));
+          return vb - va;
+        });
+        setBoxes(sorted);
+      } catch (e) {
+        setErr(e?.response?.data?.error || 'Failed to load active books');
+      } finally {
+        setLoading(false);
+        setTimeout(() => scanRef.current?.focus(), 80);
+      }
+    })();
+  }, []);
+
+  const setDraft = (boxId, val) => setDrafts(d => ({ ...d, [boxId]: val }));
+
+  const handleScan = async () => {
+    const v = scanValue.trim();
+    if (!v) return;
+    setScanValue('');
+    setErr('');
+    try {
+      const res = await scanLotteryBarcode({ raw: v, context: 'eod' });
+      const now = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const boxId = res?.box?.id;
+      const ticket = res?.parsed?.ticketNumber;
+      if (boxId && ticket != null) {
+        setDraft(boxId, String(ticket));
+        setScanLog(l => [{
+          t: now,
+          msg: `✓ ${res.box.game?.name || 'Book'} Book ${res.box.boxNumber || '?'} → ticket ${ticket}`,
+          ok: true,
+        }, ...l].slice(0, 5));
+      } else if (res?.action === 'rejected') {
+        setScanLog(l => [{
+          t: now,
+          msg: `✗ ${res.message || res.reason || 'Rejected'}`,
+          ok: false,
+        }, ...l].slice(0, 5));
+      } else {
+        setScanLog(l => [{ t: now, msg: `? Unknown result for ${v}`, ok: false }, ...l].slice(0, 5));
+      }
+    } catch (e) {
+      setScanLog(l => [{
+        t: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+        msg: `✗ ${e?.response?.data?.error || e.message}`,
+        ok: false,
+      }, ...l].slice(0, 5));
+    } finally {
+      setTimeout(() => scanRef.current?.focus(), 0);
+    }
+  };
+
+  const saveAll = async () => {
+    const changes = Object.entries(drafts).filter(([id, v]) => {
+      const box = boxes.find(b => b.id === id);
+      return box && v !== '' && String(v) !== String(box.currentTicket ?? '');
+    });
+    if (changes.length === 0) {
+      setErr('No changes to save — scan or type a current ticket on at least one book.');
+      return;
+    }
+    setSaving(true); setErr('');
+    try {
+      await Promise.all(changes.map(([id, ticket]) =>
+        updateLotteryBox(id, { currentTicket: String(ticket) })
+      ));
+      onSaved?.();
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirtyCount = useMemo(
+    () => Object.entries(drafts).filter(([id, v]) => {
+      const box = boxes.find(b => b.id === id);
+      return box && v !== '' && String(v) !== String(box.currentTicket ?? '');
+    }).length,
+    [drafts, boxes]
+  );
+
+  return (
+    <div className="lt-modal-overlay">
+      <div className="lt-modal lt-modal-lg">
+        <div className="lt-modal-header">
+          <div>
+            <div className="lt-modal-title">Counter Scan</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Scan each book's next-to-sell ticket. Same flow as the cashier's end-of-shift wizard.
+            </div>
+          </div>
+          <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {err && <div className="lt-error">{err}</div>}
+
+        {/* Scan bar */}
+        <div className="lsm-scan-bar" style={{ marginBottom: 10 }}>
+          <ScanLine size={18} />
+          <input
+            ref={scanRef}
+            className="lsm-scan-input-main"
+            type="text"
+            placeholder="Scan the next-to-sell ticket of each book…"
+            value={scanValue}
+            onChange={e => setScanValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleScan(); }}
+          />
+          <button
+            type="button"
+            className="lsm-scan-submit"
+            onClick={handleScan}
+            disabled={!scanValue.trim()}
+          >Scan</button>
+        </div>
+
+        {scanLog.length > 0 && (
+          <div className="lsm-scan-log">
+            {scanLog.map((l, i) => (
+              <div key={i} className={`lsm-scan-log-row ${l.ok ? 'lsm-scan-log-row--ok' : 'lsm-scan-log-row--err'}`}>
+                <span>{l.t}</span><span>{l.msg}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ padding: '1rem', color: 'var(--text-muted)' }}>Loading active books…</div>
+        ) : boxes.length === 0 ? (
+          <div className="lds-empty-card">
+            <Info size={16} /> No active books on the counter — nothing to scan.
+          </div>
+        ) : (
+          <div className="lds-counter-scan-list">
+            {boxes.map(b => {
+              const draft = drafts[b.id];
+              const current = draft !== undefined ? draft : (b.currentTicket ?? '');
+              const dirty = draft !== undefined && String(draft) !== String(b.currentTicket ?? '');
+              return (
+                <div key={b.id} className={`lds-counter-scan-row ${dirty ? 'lds-counter-scan-row--dirty' : ''}`}>
+                  <span className="lds-counter-scan-slot">{b.slotNumber ?? '—'}</span>
+                  <span className="lds-counter-scan-game">
+                    <strong>{b.game?.name || 'Unknown'}</strong>
+                    <small>Book {b.boxNumber || '—'} · {b.totalTickets || 0} tickets</small>
+                  </span>
+                  <span className="lds-counter-scan-start">Start {b.startTicket ?? '—'}</span>
+                  <span className="lds-counter-scan-input">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="next #"
+                      value={current}
+                      onChange={e => setDraft(b.id, e.target.value.replace(/[^0-9]/g, ''))}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="lt-form-actions" style={{ marginTop: 10 }}>
+          <button className="lt-btn lt-btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button
+            className="lt-btn lt-btn-primary"
+            onClick={saveAll}
+            disabled={saving || dirtyCount === 0}
+          >
+            {saving ? 'Saving…' : `Save ${dirtyCount || ''} change${dirtyCount === 1 ? '' : 's'}`.trim()}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── helpers ─────────────────────────────────────────────────────── */
+function humanizeAgo(iso) {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return 'in the future';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1)   return 'just now';
+  if (mins < 60)  return `${mins}m ago`;
+  const hrs  = Math.floor(mins / 60);
+  if (hrs < 24)   return `${hrs}h ${mins % 60}m ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ${hrs % 24}h ago`;
+}
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 }

@@ -536,6 +536,15 @@ export const getTransactions = (params) => api.get('/pos-terminal/transactions',
 // POS Event Log (No Sale, etc.)
 export const getPosEvents = (params) => api.get('/pos-terminal/events', { params }).then(r => r.data);
 
+// POS cash-drawer shifts — list (with ?status=open filter) + close. Used by the
+// back-office End of Day page to close out a cashier's shift when they forgot to.
+export const listPosShifts   = (params) => api.get('/pos-terminal/shifts', { params }).then(r => r.data);
+export const getActivePosShift = (storeId) => api.get('/pos-terminal/shift/active', { params: { storeId } }).then(r => r.data);
+export const openPosShift    = (body)      => api.post('/pos-terminal/shift/open', body).then(r => r.data);
+export const closePosShift   = (id, body)  => api.post(`/pos-terminal/shift/${id}/close`, body).then(r => r.data);
+// Stations for a store (back-office picker in Open Shift modal)
+export const listPosStations = (storeId)   => api.get('/pos-terminal/stations', { params: { storeId } }).then(r => r.data);
+
 export const getLotteryShiftReports   = (params) => api.get('/lottery/shift-reports', { params }).then(lotteryUnwrap);
 export const getLotteryShiftReport    = (shiftId) => api.get(`/lottery/shift-reports/${shiftId}`).then(lotteryUnwrap);
 

@@ -83,7 +83,10 @@
       "Bash(powershell -Command \"Stop-Process -Id 1600 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; netstat -ano | findstr ':5000' | findstr 'LISTENING'\")",
       "Bash(npx jest *)",
       "WebFetch(domain:www.mainelottery.com)",
-      "WebFetch(domain:www.masslottery.com)"
+      "WebFetch(domain:www.masslottery.com)",
+      "Bash(grep -n \"listShifts\\\\|\\\\\\\\bguard\\\\\\\\b\\\\\\\\|open.*shift\\\\\\\\|shift/active\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/backend/src/routes/posTerminalRoutes.js\")",
+      "Bash(node)",
+      "Read(//tmp/**)"
     ]
   }
 }

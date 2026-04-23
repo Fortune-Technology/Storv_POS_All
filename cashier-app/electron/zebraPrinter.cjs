@@ -83,12 +83,20 @@ async function listPrinters() {
       printers = (Array.isArray(rows) ? rows : [rows])
         .filter(Boolean)
         .map(p => (typeof p === 'string'
-          ? { name: p, connection: 'unknown' }
-          : { name: p.name || p.uid, connection: p.connection || 'unknown', uid: p.uid, manufacturer: p.manufacturer }));
+          ? { name: p, uid: p, connection: 'usb', deviceType: 'printer' }
+          : {
+              name:         p.name || p.uid,
+              uid:          p.uid  || p.name,
+              connection:   p.connection   || 'usb',
+              deviceType:   p.deviceType   || 'printer',
+              provider:     p.provider,
+              version:      p.version,
+              manufacturer: p.manufacturer,
+            }));
     } catch {
       // Fall back to newline-separated plain text
       printers = res.body.split('\n').map(s => s.trim()).filter(Boolean)
-        .map(name => ({ name, connection: 'unknown' }));
+        .map(name => ({ name, uid: name, connection: 'usb', deviceType: 'printer' }));
     }
     return { connected: true, printers };
   } catch (err) {
@@ -98,9 +106,16 @@ async function listPrinters() {
 
 /**
  * Send ZPL to Zebra Browser Print.
+ *
+ * Browser Print v5 demands the FULL device descriptor on the `device` field
+ * (errors "No value for uid" on short forms). We always re-fetch /available,
+ * resolve the full object by name, and send the whole thing. Much more
+ * forgiving than trying to pass a shortened shape and hoping BP accepts it.
+ *
  * @param {object} args
  * @param {string} args.zpl           — ZPL command string
- * @param {string} [args.printerName] — select a specific printer by name/uid
+ * @param {string} [args.printerName] — select a specific printer by name/uid;
+ *   omit to use the first discovered printer.
  * @returns {Promise<{ success: boolean, error?: string, printer?: string }>}
  */
 async function printZPL({ zpl, printerName }) {
@@ -108,26 +123,38 @@ async function printZPL({ zpl, printerName }) {
     return { success: false, error: 'zpl is required' };
   }
 
-  // Resolve the target printer. If the caller didn't specify one, pick the
-  // first available — same behaviour as the portal's zebraPrint.js.
-  let target = printerName;
-  if (!target) {
-    const list = await listPrinters();
-    if (!list.connected) return { success: false, error: list.error || 'Browser Print not reachable' };
-    if (list.printers.length === 0) return { success: false, error: 'No Zebra printers discovered' };
-    target = list.printers[0].name;
-  }
+  // Discover the current device list every print. Cheap (~20ms) and robust
+  // against printer swaps / USB re-enumeration between calls.
+  const list = await listPrinters();
+  if (!list.connected) return { success: false, error: list.error || 'Browser Print not reachable' };
+  if (list.printers.length === 0) return { success: false, error: 'No Zebra printers discovered' };
 
-  const payload = JSON.stringify({
-    device: { name: target },
-    data: zpl,
-  });
+  // Match by name or uid. Fall back to first printer if the requested one
+  // isn't present.
+  const target = printerName
+    ? list.printers.find(p => p.name === printerName || p.uid === printerName) || list.printers[0]
+    : list.printers[0];
+
+  // Build the full device object Browser Print v5+ requires. listPrinters
+  // already captures name/uid/connection/manufacturer; fall back to name as
+  // uid if we somehow lost the uid.
+  const device = {
+    deviceType:   target.deviceType || 'printer',
+    uid:          target.uid || target.name,
+    name:         target.name,
+    connection:   target.connection || 'usb',
+    provider:     target.provider,
+    version:      target.version,
+    manufacturer: target.manufacturer,
+  };
+
+  const payload = JSON.stringify({ device, data: zpl });
 
   try {
     await zbpFetch('/write', { method: 'POST', body: payload });
-    return { success: true, printer: target };
+    return { success: true, printer: device.name };
   } catch (err) {
-    return { success: false, error: err.message, printer: target };
+    return { success: false, error: err.message, printer: device.name };
   }
 }
 

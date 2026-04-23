@@ -41,6 +41,11 @@ async function zbpFetch(path, options = {}) {
 
 // ── Connect & Discover ───────────────────────────────────────────────────────
 
+// Full device descriptors (objects) kept internally so /write can send the
+// complete record Browser Print v5 requires (uid + name + connection + ...).
+// The exported `printers` string[] is derived from these for UI compatibility.
+let _availableDevices = [];
+
 /**
  * Connect to Zebra Browser Print and discover available printers.
  * @returns {{ connected: boolean, printers: string[], error?: string }}
@@ -50,18 +55,34 @@ export async function connectZebra() {
     const resp = await zbpFetch('/available');
     const text = await resp.text();
 
-    // Parse printer list — Zebra Browser Print returns newline-separated printer names
-    // or JSON depending on version
-    let printers = [];
+    // Parse printer list — Browser Print returns JSON in v3+, plain text in older versions.
+    // Normalize to an array of { name, uid, connection, provider, version, manufacturer, deviceType }
+    // so /write can send the full descriptor (required by v5+ which errors "No value for uid").
+    let devices = [];
     try {
       const json = JSON.parse(text);
-      printers = json.printer || json.printers || (Array.isArray(json) ? json : []);
-      if (typeof printers === 'string') printers = [printers];
+      const rows = json.printer || json.printers || (Array.isArray(json) ? json : []);
+      const arr  = Array.isArray(rows) ? rows : (rows ? [rows] : []);
+      devices = arr.map(r => (typeof r === 'string'
+        ? { name: r, uid: r }
+        : {
+            deviceType:   r.deviceType   || 'printer',
+            uid:          r.uid          || r.name,
+            name:         r.name         || r.uid,
+            connection:   r.connection   || 'usb',
+            provider:     r.provider,
+            version:      r.version,
+            manufacturer: r.manufacturer,
+          }
+      )).filter(d => d.name || d.uid);
     } catch {
-      // Plain text — split by newline
-      printers = text.split('\n').map(s => s.trim()).filter(Boolean);
+      // Plain text — split by newline; uid falls back to name
+      devices = text.split('\n').map(s => s.trim()).filter(Boolean)
+        .map(name => ({ name, uid: name, connection: 'usb' }));
     }
 
+    const printers = devices.map(d => d.name);
+    _availableDevices  = devices;
     _availablePrinters = printers;
     _isConnected = true;
 
@@ -80,6 +101,7 @@ export async function connectZebra() {
   } catch (err) {
     _isConnected = false;
     _availablePrinters = [];
+    _availableDevices  = [];
     return { connected: false, printers: [], error: err.message };
   }
 }
@@ -108,23 +130,43 @@ export function selectZebraPrinter(printerName) {
 
 /**
  * Send ZPL to the selected Zebra printer.
- * @param {string} zpl — ZPL command string (^XA ... ^XZ)
- * @param {string} [printerName] — override the selected printer
+ *
+ * Browser Print v5 requires the FULL device descriptor on the `device` field
+ * (it errors "No value for uid" otherwise). We look up the full object from
+ * `_availableDevices` by name; if not cached, we synthesise a minimum object
+ * using the same string for both name and uid (works for v3-v4 fallback).
+ *
+ * @param {string|object} zpl — ZPL command string (^XA ... ^XZ)
+ * @param {string|object} [printerName] — printer name (string) OR the full device
+ *   descriptor object. Object form is accepted for defensive tolerance against
+ *   older callers that stashed the whole descriptor in localStorage.
  * @returns {{ success: boolean, error?: string }}
  */
 export async function printZPL(zpl, printerName) {
-  const printer = printerName || _selectedPrinter;
-  if (!printer) {
+  const input = printerName || _selectedPrinter;
+  if (!input) {
     return { success: false, error: 'No printer selected. Connect to Zebra Browser Print first.' };
   }
+
+  // Normalise to a name string whether caller passed a name or a device object
+  const nameStr =
+    typeof input === 'string' ? input : (input?.name || input?.uid || '');
+  if (!nameStr) {
+    return { success: false, error: 'Printer name is empty or invalid' };
+  }
+
+  // Resolve the full device descriptor. Prefer the object cached during
+  // connectZebra (has uid + provider + version that v5 requires). If the
+  // caller passed an object directly, use that. Otherwise synthesise.
+  let device =
+    _availableDevices.find(d => d.name === nameStr || d.uid === nameStr) ||
+    (typeof input === 'object' && input?.uid ? input : null) ||
+    { name: nameStr, uid: nameStr, connection: 'usb', deviceType: 'printer' };
 
   try {
     await zbpFetch('/write', {
       method: 'POST',
-      body: JSON.stringify({
-        device: { name: printer },
-        data: zpl,
-      }),
+      body: JSON.stringify({ device, data: zpl }),
     });
     return { success: true };
   } catch (err) {

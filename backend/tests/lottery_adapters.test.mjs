@@ -70,7 +70,7 @@ describe('Massachusetts adapter', () => {
   });
 
   describe('QR code payload (29-digit, new 2025+ stock)', () => {
-    test('sample #1 — fresh book (ticket 000)', () => {
+    test('sample #1 — fresh book (ticket 0) + pack 100 from barcode', () => {
       const r = MA.parseAny('52900384500001010070000000064');
       assert.equal(r?.type, 'ticket');
       assert.equal(r?.state, 'MA');
@@ -78,36 +78,60 @@ describe('Massachusetts adapter', () => {
       assert.equal(r?.gameNumber, '529');
       assert.equal(r?.bookNumber, '038450');
       assert.equal(r?.ticketNumber, 0);
+      assert.equal(r?.packSize, 100);
     });
 
-    test('sample #2 — mid-book (ticket 067)', () => {
+    test('sample #2 — mid-book (ticket 67) + pack 100 from barcode', () => {
       const r = MA.parseAny('51300481550671010070000000073');
       assert.equal(r?.gameNumber, '513');
       assert.equal(r?.bookNumber, '048155');
       assert.equal(r?.ticketNumber, 67);
+      assert.equal(r?.packSize, 100);
     });
 
-    test('sample #3 — matches documented adapter sample (498-027632-128)', () => {
+    test('sample #3 — ticket 128 + pack 150 from barcode ($5 150-pack)', () => {
       const r = MA.parseAny('49800276321280515060000000088');
       assert.equal(r?.gameNumber, '498');
       assert.equal(r?.bookNumber, '027632');
       assert.equal(r?.ticketNumber, 128);
+      assert.equal(r?.packSize, 150);
     });
 
-    test('QR scan agrees with the equivalent canonical scan for the same ticket', () => {
+    test('sample #4 — book-level sentinel (ticket field = 999) + pack 50', () => {
+      const r = MA.parseAny('54200075599993005080000000099');
+      assert.equal(r?.type, 'book', 'ticket "999" should be treated as book-level');
+      assert.equal(r?.gameNumber, '542');
+      assert.equal(r?.bookNumber, '007559');
+      assert.equal(r?.packSize, 50);
+      assert.equal(r?.ticketNumber, undefined, 'book-level scan has no ticket number');
+    });
+
+    test('sample #5 — book-level sentinel + pack 150', () => {
+      const r = MA.parseAny('49300260289990115030000000090');
+      assert.equal(r?.type, 'book');
+      assert.equal(r?.gameNumber, '493');
+      assert.equal(r?.bookNumber, '026028');
+      assert.equal(r?.packSize, 150);
+    });
+
+    test('QR ticket-scan agrees with dashed form on game/book/ticket', () => {
       const fromQr  = MA.parseAny('49800276321280515060000000088');
       const fromDash = MA.parseAny('498-027632-128');
-      // Same logical ticket; only the source marker differs
       assert.equal(fromQr?.gameNumber,   fromDash?.gameNumber);
       assert.equal(fromQr?.bookNumber,   fromDash?.bookNumber);
       assert.equal(fromQr?.ticketNumber, fromDash?.ticketNumber);
       assert.equal(fromQr?.source, 'qr');
-      assert.equal(fromDash?.source, undefined);
+      assert.equal(fromQr?.packSize, 150, 'QR has authoritative pack size');
+      assert.equal(fromDash?.packSize, undefined, 'dashed form has no pack size');
+    });
+
+    test('book-level scan exposes packSize (key feature — Receive Books gets pack for free)', () => {
+      const r = MA.parseAny('54200075599993005080000000099');
+      assert.equal(r?.type, 'book');
+      assert.equal(r?.packSize, 50);
     });
 
     test('rejects 29-digit strings without the fixed-0 separator at position 3', () => {
-      // Swap the '0' separator for a '5' — should fail because the QR regex
-      // requires the literal '0' at position 3.
       const bad = '52950384500001010070000000064';
       assert.equal(MA.parseAny(bad), null);
     });
@@ -120,10 +144,19 @@ describe('Massachusetts adapter', () => {
     test('whitespace tolerated before / after QR payload', () => {
       const r = MA.parseAny('  49800276321280515060000000088\n');
       assert.equal(r?.ticketNumber, 128);
+      assert.equal(r?.packSize, 150);
     });
 
-    test('parseTicketBarcode accepts the QR form', () => {
+    test('parseTicketBarcode accepts ticket-QR but rejects book-QR', () => {
       assert.equal(MA.parseTicketBarcode('52900384500001010070000000064')?.type, 'ticket');
+      assert.equal(MA.parseTicketBarcode('54200075599993005080000000099'), null,
+        'book sentinel QR should NOT parse as a ticket barcode');
+    });
+
+    test('parseBookBarcode accepts book-QR', () => {
+      const r = MA.parseBookBarcode('54200075599993005080000000099');
+      assert.equal(r?.type, 'book');
+      assert.equal(r?.packSize, 50);
     });
   });
 });

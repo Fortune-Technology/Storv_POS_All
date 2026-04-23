@@ -1553,6 +1553,77 @@
   vertical-align: middle;
 }
 
+/* Sell-direction radio-card selector in Lottery Settings.
+ * Two side-by-side cards — Descending / Ascending — with examples and
+ * hints so the store admin understands the consequence of the choice. */
+.lt-selldir-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.lt-selldir-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1.5px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.lt-selldir-card:hover { background: #f9fafb; border-color: #bbf7d0; }
+
+.lt-selldir-card--active {
+  border-color: #16a34a;
+  background: #f0fdf4;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.lt-selldir-card input[type="radio"] {
+  margin-top: 4px;
+  accent-color: #16a34a;
+}
+
+.lt-selldir-body { flex: 1; min-width: 0; }
+
+.lt-selldir-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  margin-bottom: 4px;
+}
+
+.lt-selldir-default {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lt-selldir-example {
+  font-size: 0.82rem;
+  color: #166534;
+  margin-bottom: 4px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lt-selldir-example strong { color: #16a34a; }
+
+.lt-selldir-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.35;
+}
+
+@media (max-width: 640px) {
+  .lt-selldir-grid { grid-template-columns: 1fr; }
+}
+
 /* Editable Pack size dropdown — MA feed doesn't expose real pack size,
  * so cashier corrects per-book before Confirm. Live-recomputes value. */
 .lt-scan-pack-cell {

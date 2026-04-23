@@ -431,6 +431,257 @@
   .lds-counter-row { min-width: 720px; }
   .lds-reports-grid { grid-template-columns: 1fr; }
 }
+/* ═══════════════════════════════════════════════════════════════════
+   End of Day page (Option A collapse, April 2026)
+   Replaces the removed step-by-step wizard with three simple cards:
+   Scratchoff Inventory → Daily Machine Totals → Open Shifts → Close.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.lds-header-hint {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: #92400e;
+  line-height: 1.45;
+}
+
+.lds-header-hint svg { flex-shrink: 0; margin-top: 2px; }
+
+/* ── Card shell (shared by the 3 panels) ───────────────────────── */
+.lds-card {
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lds-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color, #f3f4f6);
+}
+
+.lds-card-head > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--brand-primary, #3d56b5);
+}
+
+.lds-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+
+.lds-card-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted, #6b7280);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.lds-optional {
+  color: var(--text-muted, #6b7280);
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+
+.lds-save-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #16a34a;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+@keyframes lds-spin-kf { to { transform: rotate(360deg); } }
+.lds-spin { animation: lds-spin-kf 0.8s linear infinite; }
+
+/* ── Empty state inside a card (e.g. "no open shifts") ─────────── */
+.lds-empty-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  background: #f0fdf4;
+  border: 1.5px dashed #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+/* ── Open shift list ───────────────────────────────────────────── */
+.lds-shift-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lds-shift-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-tertiary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.lds-shift-row:hover { background: #ffffff; border-color: #d1d5db; }
+
+.lds-shift-row--stale {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.lds-shift-meta { flex: 1; min-width: 0; }
+
+.lds-shift-cashier {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  margin-bottom: 2px;
+}
+
+.lds-shift-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted, #6b7280);
+  margin-top: 1px;
+}
+
+.lds-shift-sub strong {
+  color: var(--text-primary, #111827);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ── Card head with right-aligned action button (e.g. Open Shift) ── */
+.lds-card-head--with-action {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lds-card-head-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Counter Scan modal — active-book list ─────────────────────── */
+.lds-counter-scan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  padding: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.lds-counter-scan-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1.8fr) 80px 110px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 6px;
+  transition: background 0.12s, border-color 0.12s;
+  border: 1.5px solid transparent;
+}
+
+.lds-counter-scan-row:hover { background: #f9fafb; }
+
+.lds-counter-scan-row--dirty {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.lds-counter-scan-slot {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted, #6b7280);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  text-align: center;
+}
+
+.lds-counter-scan-game {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lds-counter-scan-game strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lds-counter-scan-game small {
+  font-size: 0.68rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.lds-counter-scan-start {
+  font-size: 0.78rem;
+  color: var(--text-muted, #6b7280);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.lds-counter-scan-input input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color, #e5e7eb);
+  background: #ffffff;
+  color: var(--text-primary, #111827);
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  outline: none;
+  text-align: right;
+}
+
+.lds-counter-scan-input input:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+/* ── Responsive: stack shift rows on narrow screens ────────────── */
+@media (max-width: 560px) {
+  .lds-shift-row { flex-direction: column; align-items: stretch; }
+  .lds-shift-row .lt-btn { width: 100%; }
+  .lds-counter-scan-row {
+    grid-template-columns: 30px minmax(0, 1fr) 90px;
+    gap: 6px;
+    font-size: 0.78rem;
+  }
+  .lds-counter-scan-start { display: none; }
+  .lds-card-head--with-action { flex-direction: column; align-items: flex-start; }
+  .lds-card-head--with-action .lt-btn { width: 100%; }
+}
+
+/* Legacy selectors retained only for backward-compat with any stale imports */
 @media (max-width: 480px) {
   .lds-step-label { display: none; }
   .lds-step-dot { padding: 8px; }

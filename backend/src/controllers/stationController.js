@@ -11,6 +11,27 @@ import { nanoid } from 'nanoid';
 const generateCashierToken = (id, extra = {}) =>
   jwt.sign({ id, ...extra }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
+// ── GET /api/pos-terminal/stations ────────────────────────────────────────
+// Lightweight list of stations for the active store, used by the back-office
+// "Open Shift" modal to let a manager pick which register a shift is for.
+// Returns `{ stations: [{ id, name, isActive }] }`.
+export const listStationsForStore = async (req, res) => {
+  try {
+    const orgId = req.orgId || req.user?.orgId;
+    const storeId = req.query.storeId || req.storeId;
+    if (!storeId) return res.status(400).json({ error: 'storeId required' });
+    const stations = await prisma.station.findMany({
+      where: { orgId, storeId },
+      select: { id: true, name: true, isActive: true, lastSeenAt: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ stations });
+  } catch (err) {
+    console.error('[listStationsForStore]', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // ── POST /api/pos-terminal/station-register ───────────────────────────────
 // Requires: Bearer token (manager / owner / admin)
 // Creates a new station record and returns a long-lived station token.

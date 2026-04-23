@@ -53,7 +53,7 @@ export const getActiveShift = async (req, res) => {
 export const openShift = async (req, res) => {
   try {
     const orgId = getOrgId(req);
-    const { storeId, stationId, openingAmount, openingDenominations, openingNote } = req.body;
+    const { storeId, stationId, openingAmount, openingDenominations, openingNote, cashierId } = req.body;
 
     if (!storeId)           return res.status(400).json({ error: 'storeId required' });
     if (openingAmount == null) return res.status(400).json({ error: 'openingAmount required' });
@@ -68,13 +68,23 @@ export const openShift = async (req, res) => {
       });
     }
 
+    // Back-office open-on-behalf: manager can supply a specific cashierId.
+    // Validate that user belongs to this org. Defaults to the caller (the
+    // cashier themselves when called from cashier-app).
+    let effectiveCashierId = req.user.id;
+    if (cashierId && cashierId !== req.user.id) {
+      const target = await prisma.user.findFirst({ where: { id: cashierId, orgId } });
+      if (!target) return res.status(400).json({ error: 'Invalid cashierId' });
+      effectiveCashierId = target.id;
+    }
+
     const shift = await prisma.shift.create({
       data: {
         id:                   nanoid(),
         orgId,
         storeId,
         stationId:            stationId || null,
-        cashierId:            req.user.id,
+        cashierId:            effectiveCashierId,
         openingAmount:        parseFloat(openingAmount),
         openingDenominations: openingDenominations || null,
         openingNote:          openingNote || null,
