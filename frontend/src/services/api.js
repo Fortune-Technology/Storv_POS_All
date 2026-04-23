@@ -525,6 +525,11 @@ export const runLotteryPendingMoves   = ()       => api.post('/lottery/run-pendi
 export const getLotteryOnlineTotal    = (params) => api.get('/lottery/online-total', { params }).then(lotteryUnwrap);
 export const upsertLotteryOnlineTotal = (data)   => api.put('/lottery/online-total', data).then(lotteryUnwrap);
 export const getDailyLotteryInventory = (params) => api.get('/lottery/daily-inventory', { params }).then(lotteryUnwrap);
+// Map of { [boxId]: { ticket, ticketsSold, closedAt } } from the last
+// close_day_snapshot before the given date. Drives the "yesterday" column
+// on the Daily page's Counter list so day-to-day rollover works.
+export const getLotteryYesterdayCloses = (params) =>
+  api.get('/lottery/yesterday-closes', { params }).then(lotteryUnwrap);
 export const closeLotteryDay          = (data)   => api.post('/lottery/close-day', data).then(lotteryUnwrap);
 
 // Phase 2: Weekly Settlement

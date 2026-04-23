@@ -536,7 +536,7 @@ function OpenShiftBackOfficeModal({ onClose, onOpened }) {
                 <select value={stationId} onChange={e => setStationId(e.target.value)}>
                   {stations.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name}{s.isActive === false ? ' (inactive)' : ''}
+                      {s.name}
                     </option>
                   ))}
                 </select>

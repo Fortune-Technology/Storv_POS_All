@@ -1695,6 +1695,56 @@ export const closeLotteryDay = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/lottery/yesterday-closes?date=YYYY-MM-DD
+ *
+ * For the given `date`, returns the LAST close_day_snapshot for each
+ * LotteryBox that happened BEFORE the date's local midnight. This is
+ * "the ticket number each book closed at on the previous day" — used by
+ * the Daily page to populate the Counter's "yesterday" column so the
+ * day-to-day rollover math works correctly.
+ *
+ * Shape: { success, closes: { [boxId]: { ticket, soldThatDay, closedAt } } }
+ */
+export const getYesterdayCloses = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const date    = parseDate(req.query.date);
+    if (!date) return res.status(400).json({ success: false, error: 'Invalid date' });
+
+    const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
+
+    // All close_day_snapshot events prior to this date's start. Newest first
+    // so the first one we encounter per box is its most recent close.
+    const events = await prisma.lotteryScanEvent.findMany({
+      where: {
+        orgId, storeId,
+        action: 'close_day_snapshot',
+        createdAt: { lt: dayStart },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { boxId: true, parsed: true, createdAt: true },
+    });
+
+    const closes = {};
+    for (const ev of events) {
+      if (!ev.boxId || closes[ev.boxId]) continue;   // already have newer close for this box
+      const parsed = ev.parsed && typeof ev.parsed === 'object' ? ev.parsed : {};
+      const ticket = parsed.currentTicket ?? null;
+      closes[ev.boxId] = {
+        ticket,
+        ticketsSold: parsed.ticketsSold ?? null,
+        closedAt:    ev.createdAt,
+      };
+    }
+    res.json({ success: true, closes });
+  } catch (err) {
+    console.error('[lottery.yesterdayCloses]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 // WEEKLY SETTLEMENT (Phase 2)
 // ══════════════════════════════════════════════════════════════════════════
