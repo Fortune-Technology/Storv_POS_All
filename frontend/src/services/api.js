@@ -506,6 +506,7 @@ export const getLotteryBoxes          = (params) => api.get('/lottery/boxes', { 
 export const receiveLotteryBoxOrder   = (data)   => api.post('/lottery/boxes/receive', data).then(lotteryUnwrap);
 export const activateLotteryBox       = (id, d)  => api.put(`/lottery/boxes/${id}/activate`, d).then(lotteryUnwrap);
 export const updateLotteryBox         = (id, d)  => api.put(`/lottery/boxes/${id}`, d).then(lotteryUnwrap);
+export const deleteLotteryBox         = (id)     => api.delete(`/lottery/boxes/${id}`).then(lotteryUnwrap);
 export const adjustLotteryBoxTickets  = (id, d)  => api.post(`/lottery/boxes/${id}/adjust`, d).then(lotteryUnwrap);
 
 // Phase 1a: scan + location lifecycle endpoints

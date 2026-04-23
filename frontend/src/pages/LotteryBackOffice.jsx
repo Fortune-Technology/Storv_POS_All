@@ -33,8 +33,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Calendar, ChevronLeft, ChevronRight, Info, Loader2, Package,
-  RotateCcw, ScanLine, Ticket, X,
+  Calendar, ChevronLeft, ChevronRight, Info, Loader2, MoreVertical, Package,
+  Play, RotateCcw, ScanLine, Ticket, Trash2, X, Archive, Undo2,
 } from 'lucide-react';
 import {
   getLotteryBoxes, getLotteryGames, getDailyLotteryInventory,
@@ -42,6 +42,7 @@ import {
   receiveLotteryBoxOrder, returnLotteryBoxToLotto, updateLotteryBox,
   scanLotteryBarcode, parseLotteryBarcode, closeLotteryDay,
   listPosShifts, getLotterySettings,
+  soldoutLotteryBox, moveLotteryBoxToSafe, activateLotteryBox, deleteLotteryBox,
 } from '../services/api';
 import './LotteryBackOffice.css';
 
@@ -205,6 +206,45 @@ export default function LotteryBackOffice() {
     }
   };
 
+  // Dispatcher for per-row actions (from the ⋮ menu on Counter, Safe,
+  // Soldout, Returned rows). Keeps all DB mutations in one place.
+  const doBoxAction = async (kind, box, extra = {}) => {
+    try {
+      if (kind === 'rename') {
+        await updateLotteryBox(box.id, { boxNumber: extra.boxNumber });
+        showToast('Book number updated');
+      } else if (kind === 'soldout') {
+        if (!window.confirm(`Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?`)) return;
+        await soldoutLotteryBox(box.id, { reason: 'manual_mark_soldout' });
+        showToast('Book marked sold out');
+      } else if (kind === 'safe') {
+        await moveLotteryBoxToSafe(box.id, { date: todayStr() });
+        showToast('Book moved back to safe');
+      } else if (kind === 'activate') {
+        // Quick activate from Safe — uses defaults. ActivateBoxModal on the
+        // advanced page is available for full control (slot, date override).
+        await activateLotteryBox(box.id, {});
+        showToast('Book activated on counter');
+      } else if (kind === 'return-ui') {
+        // Open the Return drawer on the right column, prefilled for this box
+        setRightPane('return');
+        window.dispatchEvent(new CustomEvent('lbo-return-preselect', { detail: { boxId: box.id } }));
+      } else if (kind === 'return') {
+        // Quick full-return (no partial — route through return-ui for partials)
+        if (!window.confirm(`Return ${box.game?.name} Book ${box.boxNumber} to lottery commission?`)) return;
+        await returnLotteryBoxToLotto(box.id, { returnType: 'full' });
+        showToast('Book returned');
+      } else if (kind === 'delete') {
+        if (!window.confirm(`Delete ${box.game?.name} Book ${box.boxNumber}? This cannot be undone.`)) return;
+        await deleteLotteryBox(box.id);
+        showToast('Book deleted');
+      }
+      await load();
+    } catch (e) {
+      showToast(e?.response?.data?.error || e.message, 'error');
+    }
+  };
+
   // ── Machine totals save ─────────────────────────────────────────────
   const saveOnline = async () => {
     setSaving(true);
@@ -362,8 +402,13 @@ export default function LotteryBackOffice() {
                       draft={counterDrafts[b.id]}
                       scanMode={scanMode}
                       sellDirection={sellDirection}
+                      isToday={date === todayStr()}
                       onDraftChange={v => setCounterDrafts(d => ({ ...d, [b.id]: v }))}
                       onSave={() => saveTicket(b.id)}
+                      onRename={(newNo) => doBoxAction('rename', b, { boxNumber: newNo })}
+                      onSoldout={() => doBoxAction('soldout', b)}
+                      onReturn={() => doBoxAction('return-ui', b)}
+                      onMoveToSafe={() => doBoxAction('safe', b)}
                     />
                   ))}
                 </div>
@@ -384,7 +429,12 @@ export default function LotteryBackOffice() {
                         Returned <span className="lbo-count-pill">{returned.length}</span>
                       </button>
                     </div>
-                    <BookList books={rightBooks} emptyMsg={`No ${rightPane} books.`} />
+                    <BookList
+                      books={rightBooks}
+                      emptyMsg={`No ${rightPane} books.`}
+                      variant={rightPane}
+                      onAction={(kind, box) => doBoxAction(kind, box)}
+                    />
                   </>
                 )}
                 {rightPane === 'receive' && (
@@ -474,26 +524,117 @@ function CalendarStrip({ value, onChange }) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// Counter Row — one book on the counter, showing pack-pill +
-// yesterday/today tickets + inline edit (manual mode) or auto-fill (scan)
+// ActionMenu — reusable per-row dropdown.
+// Click `⋮` → pops up a small menu of actions. Click outside closes.
 // ════════════════════════════════════════════════════════════════════
-function CounterRow({ box, draft, scanMode, sellDirection, onDraftChange, onSave }) {
+function ActionMenu({ items, align = 'right' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <span className="lbo-actmenu" ref={ref}>
+      <button
+        type="button"
+        className="lbo-actmenu-btn"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Actions"
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <div className={`lbo-actmenu-pop lbo-actmenu-pop--${align}`}>
+          {items.map((it, i) => it.separator ? (
+            <div key={`sep-${i}`} className="lbo-actmenu-sep" />
+          ) : (
+            <button
+              key={it.key || it.label}
+              type="button"
+              className={`lbo-actmenu-item ${it.danger ? 'danger' : ''}`}
+              onClick={() => { setOpen(false); it.onClick?.(); }}
+              disabled={it.disabled}
+            >
+              {it.icon && <it.icon size={13} />}
+              <span>{it.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Counter Row — one book on the counter. Pack-pill + slot + book +
+// yesterday/today tickets + sold/amount + ⋮ action menu.
+//
+// Today column behavior:
+//   • Date = today AND scan-mode → blank (fills on scan)
+//   • Date = today AND manual    → prefilled with currentTicket
+//   • Date != today              → prefilled with currentTicket (historical)
+// ════════════════════════════════════════════════════════════════════
+function CounterRow({
+  box, draft, scanMode, sellDirection, isToday,
+  onDraftChange, onSave,
+  onRename, onSoldout, onReturn, onMoveToSafe,
+}) {
   const total    = Number(box.totalTickets || 0);
   const price    = Number(box.ticketPrice || 0);
   const yesterday = box.lastShiftEndTicket ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1)));
-  const todayVal = draft !== undefined ? draft : (box.currentTicket ?? '');
+
+  // Default today value per the rules above.
+  const defaultToday = (isToday && scanMode) ? '' : (box.currentTicket ?? '');
+  const todayVal = draft !== undefined ? draft : defaultToday;
+
   const yNum = Number(yesterday);
   const tNum = todayVal === '' ? null : Number(todayVal);
   const sold = tNum != null && Number.isFinite(yNum) && Number.isFinite(tNum) ? Math.abs(yNum - tNum) : 0;
   const amt = sold * price;
   const dirty = draft !== undefined && String(draft) !== String(box.currentTicket ?? '');
 
+  // Editable box number (click to toggle)
+  const [editingBookNo, setEditingBookNo] = useState(false);
+  const [bookDraft, setBookDraft] = useState(box.boxNumber || '');
+  const saveBookNo = () => {
+    if (bookDraft !== (box.boxNumber || '')) onRename?.(bookDraft);
+    setEditingBookNo(false);
+  };
+
   return (
     <div className={`lbo-cnt-row ${dirty ? 'dirty' : ''}`}>
       <PackPill price={price} />
       <span className="lbo-cnt-slot">{box.slotNumber ?? '—'}</span>
       <span className="lbo-cnt-book">
-        <strong>{box.game?.gameNumber || '—'}-{box.boxNumber || '—'}</strong>
+        {editingBookNo ? (
+          <input
+            type="text"
+            className="lbo-cnt-book-edit"
+            value={bookDraft}
+            autoFocus
+            onChange={e => setBookDraft(e.target.value)}
+            onBlur={saveBookNo}
+            onKeyDown={e => {
+              if (e.key === 'Enter')  saveBookNo();
+              if (e.key === 'Escape') { setBookDraft(box.boxNumber || ''); setEditingBookNo(false); }
+            }}
+          />
+        ) : (
+          <strong
+            className="lbo-cnt-bookno"
+            onClick={() => setEditingBookNo(true)}
+            title="Click to edit book number"
+          >
+            {box.game?.gameNumber || '—'}-{box.boxNumber || '—'}
+          </strong>
+        )}
         <small>{box.game?.name || ''}</small>
       </span>
       <span className="lbo-cnt-tickets">
@@ -506,24 +647,59 @@ function CounterRow({ box, draft, scanMode, sellDirection, onDraftChange, onSave
           placeholder={String(yesterday)}
           onChange={e => onDraftChange(e.target.value.replace(/[^0-9]/g, ''))}
           onKeyDown={e => e.key === 'Enter' && onSave()}
-          disabled={scanMode && !dirty}
+          disabled={scanMode && !dirty && !isToday}
         />
       </span>
       <span className="lbo-cnt-sold">{sold || ''}</span>
       <span className="lbo-cnt-amt">{amt > 0 ? fmtMoney(amt) : ''}</span>
       <span className="lbo-cnt-act">
-        {dirty && <button onClick={onSave} title="Save">✓</button>}
+        {dirty ? (
+          <button onClick={onSave} className="lbo-cnt-save" title="Save">✓</button>
+        ) : (
+          <ActionMenu
+            items={[
+              { key: 'so',     label: 'Mark Sold Out (SO)', icon: Archive,  onClick: onSoldout },
+              { key: 'return', label: 'Return to Lottery',  icon: RotateCcw, onClick: onReturn },
+              { key: 'safe',   label: 'Move to Safe',       icon: Package,  onClick: onMoveToSafe },
+              { separator: true },
+              { key: 'rename', label: 'Edit Book Number',   icon: Ticket,   onClick: () => setEditingBookNo(true) },
+            ]}
+          />
+        )}
       </span>
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════════
-// Book List — used on right column for Safe / Soldout / Returned
+// Book List — used on right column for Safe / Soldout / Returned.
+// Each row has an action menu appropriate to the list's status.
 // ════════════════════════════════════════════════════════════════════
-function BookList({ books, emptyMsg }) {
+function BookList({ books, emptyMsg, variant, onAction }) {
   const sorted = [...books].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   const total = sorted.reduce((s, b) => s + Number(b.totalValue || 0), 0);
+
+  const menuFor = (b) => {
+    if (variant === 'safe') {
+      return [
+        { key: 'activate', label: 'Activate on Counter', icon: Play,     onClick: () => onAction?.('activate', b) },
+        { key: 'return',   label: 'Return to Lottery',   icon: RotateCcw, onClick: () => onAction?.('return',   b) },
+        { separator: true },
+        { key: 'delete',   label: 'Delete book',          icon: Trash2,  danger: true, onClick: () => onAction?.('delete',  b) },
+      ];
+    }
+    if (variant === 'soldout') {
+      return [
+        { key: 'return', label: 'Return to Lottery', icon: RotateCcw, onClick: () => onAction?.('return', b) },
+      ];
+    }
+    if (variant === 'returned') {
+      // Returned books are terminal — view only. No actions.
+      return [];
+    }
+    return [];
+  };
+
   return (
     <div className="lbo-right-list">
       {sorted.length === 0 ? (
@@ -533,17 +709,21 @@ function BookList({ books, emptyMsg }) {
           <div className="lbo-right-total">
             Total <strong>{fmtMoney(total)}</strong>
           </div>
-          {sorted.map(b => (
-            <div key={b.id} className="lbo-right-row">
-              <PackPill price={Number(b.ticketPrice || 0)} />
-              <span className="lbo-right-book">
-                <strong>{b.game?.gameNumber || '—'}-{b.boxNumber || '—'}</strong>
-                <small>{b.game?.name || ''}</small>
-              </span>
-              <span className="lbo-right-date">{fmtDateShort(b.createdAt)}</span>
-              <span className="lbo-right-amt">{fmtMoney(b.totalValue)}</span>
-            </div>
-          ))}
+          {sorted.map(b => {
+            const menu = menuFor(b);
+            return (
+              <div key={b.id} className="lbo-right-row">
+                <PackPill price={Number(b.ticketPrice || 0)} />
+                <span className="lbo-right-book">
+                  <strong>{b.game?.gameNumber || '—'}-{b.boxNumber || '—'}</strong>
+                  <small>{b.game?.name || ''}</small>
+                </span>
+                <span className="lbo-right-date">{fmtDateShort(b.createdAt)}</span>
+                <span className="lbo-right-amt">{fmtMoney(b.totalValue)}</span>
+                {menu.length > 0 ? <ActionMenu items={menu} /> : <span />}
+              </div>
+            );
+          })}
         </>
       )}
     </div>
@@ -712,6 +892,18 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState('');
+
+  // Pre-select a book when the Return drawer is opened via a CounterRow /
+  // BookList action menu. The parent dispatches `lbo-return-preselect`
+  // with { boxId } so this panel can self-configure without a prop drill.
+  useEffect(() => {
+    const onEv = (e) => {
+      const id = e.detail?.boxId;
+      if (id && boxes.some(b => b.id === id)) setPickId(id);
+    };
+    window.addEventListener('lbo-return-preselect', onEv);
+    return () => window.removeEventListener('lbo-return-preselect', onEv);
+  }, [boxes]);
 
   const pick = boxes.find(b => b.id === pickId);
   const total = pick ? Number(pick.totalTickets || 0) : 0;
