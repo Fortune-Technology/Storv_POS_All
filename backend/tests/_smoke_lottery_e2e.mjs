@@ -130,6 +130,34 @@ async function run() {
   const closes = yc.data?.closes || {};
   info(`${Object.keys(closes).length} book(s) have a close-snapshot before 2026-04-23`);
 
+  // 7b. Counter snapshot for today vs a past date
+  console.log('');
+  console.log('-- 7b. Counter snapshot (date-scoped) --');
+  const snapToday = await call('GET', '/lottery/counter-snapshot?date=2026-04-23');
+  ok('GET /lottery/counter-snapshot?date=2026-04-23 (today)', snapToday);
+  const tb = snapToday.data?.boxes || [];
+  info(`today isToday=${snapToday.data?.isToday} · ${tb.length} book(s)`);
+  for (const b of tb.slice(0, 3)) {
+    info(`  · ${b.game?.gameNumber}-${b.boxNumber} opening=${b.openingTicket} current=${b.currentTicket} activated=${b.activatedAt?.slice(0,10)}`);
+  }
+
+  const snapPast = await call('GET', '/lottery/counter-snapshot?date=2026-04-20');
+  ok('GET /lottery/counter-snapshot?date=2026-04-20 (past)', snapPast);
+  const pb = snapPast.data?.boxes || [];
+  info(`2026-04-20 isToday=${snapPast.data?.isToday} · ${pb.length} book(s)`);
+  // If today's boxes differ from past day's boxes, date-scoping is working
+  if (tb.length !== pb.length) {
+    info(`  \u2713 different box count between today and 2026-04-20 — date-scoping working`);
+  } else if (tb.length === pb.length && tb.length > 0) {
+    // Same count is fine if all books were active on both days; check activation filter
+    const someActivatedAfter = tb.some(b => b.activatedAt && b.activatedAt.slice(0,10) > '2026-04-20');
+    if (someActivatedAfter) {
+      info(`  \u2717 expected some books activated after 2026-04-20 to be excluded from 2026-04-20 view`);
+    } else {
+      info(`  \u2713 same box count OK (all books activated on or before 2026-04-20)`);
+    }
+  }
+
   // 8. Daily inventory
   console.log('');
   console.log('-- 8. Daily inventory (Scratchoff panel data) --');

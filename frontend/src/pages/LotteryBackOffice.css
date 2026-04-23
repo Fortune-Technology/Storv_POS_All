@@ -476,6 +476,26 @@
   cursor: pointer;
 }
 
+/* Activation-date subtitle inside the book name cell.
+ * e.g. "$1M GO FOR THE GREEN · activated Apr 18" */
+.lbo-cnt-actdate {
+  color: var(--text-muted, #9ca3af);
+  font-weight: 500;
+}
+
+/* "HIST" pill on rows when viewing a past date — makes the read-only
+ * state visually obvious so users don't try to edit history. */
+.lbo-cnt-histpill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
 .lbo-cnt-slot {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.74rem;

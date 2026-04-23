@@ -530,6 +530,13 @@ export const getDailyLotteryInventory = (params) => api.get('/lottery/daily-inve
 // on the Daily page's Counter list so day-to-day rollover works.
 export const getLotteryYesterdayCloses = (params) =>
   api.get('/lottery/yesterday-closes', { params }).then(lotteryUnwrap);
+// Date-scoped Counter view — returns the books that were on the counter
+// on the given date, each decorated with openingTicket (= yesterday's
+// close) and currentTicket (= that day's close, or live value if today).
+// Replaces client-side composition of getLotteryBoxes + yesterdayCloses
+// so navigating the calendar strip shows historically correct numbers.
+export const getLotteryCounterSnapshot = (params) =>
+  api.get('/lottery/counter-snapshot', { params }).then(lotteryUnwrap);
 export const closeLotteryDay          = (data)   => api.post('/lottery/close-day', data).then(lotteryUnwrap);
 
 // Phase 2: Weekly Settlement

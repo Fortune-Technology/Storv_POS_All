@@ -1745,6 +1745,119 @@ export const getYesterdayCloses = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/lottery/counter-snapshot?date=YYYY-MM-DD
+ *
+ * Returns the set of books that were on the counter on the GIVEN date,
+ * each decorated with its opening (previous-day's close) and closing
+ * (that-day's close) ticket numbers. Powers the Daily page's Counter
+ * column so that navigating the calendar strip shows historically
+ * correct yesterday/today/sold/amount for each book.
+ *
+ * Selection rule — a book counts as "on the counter during day D" if:
+ *   • activatedAt <= end of D   (was activated before the end of the day)
+ *   • AND (still active now
+ *          OR depletedAt > start of D   (sold out AFTER D started)
+ *          OR returnedAt > start of D)  (returned AFTER D started)
+ *
+ * Ticket resolution:
+ *   • yesterdayClose = latest close_day_snapshot with createdAt < dayStart
+ *   • todayClose     = latest close_day_snapshot with createdAt in [dayStart, dayEnd]
+ *                      → null if the day isn't closed yet
+ *   • For today (D == today): todayClose falls back to the box's live
+ *     currentTicket so the operator sees running state as they scan.
+ *   • openingTicket  = yesterdayClose ?? box.startTicket  (display value)
+ *
+ * Shape:
+ *   {
+ *     success, date, isToday,
+ *     boxes: [{
+ *       ...box, game,
+ *       openingTicket,   // what the "yesterday" column should show
+ *       yesterdayClose,  // raw (null if no prior close exists)
+ *       todayClose,      // raw (null if D not yet closed)
+ *       currentTicket,   // what the "today" column should show
+ *     }]
+ *   }
+ */
+export const getCounterSnapshot = async (req, res) => {
+  try {
+    const orgId   = getOrgId(req);
+    const storeId = getStore(req);
+    const date    = parseDate(req.query.date);
+    if (!date) return res.status(400).json({ success: false, error: 'Invalid date' });
+
+    const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd   = new Date(date); dayEnd.setUTCHours(23, 59, 59, 999);
+    const todayUtc = new Date();    todayUtc.setUTCHours(0, 0, 0, 0);
+    const isToday  = dayStart.getTime() === todayUtc.getTime();
+
+    // Books that were on the counter during day D
+    const boxes = await prisma.lotteryBox.findMany({
+      where: {
+        orgId, storeId,
+        activatedAt: { lte: dayEnd, not: null },
+        OR: [
+          { status: 'active' },
+          { depletedAt: { gt: dayStart } },
+          { returnedAt: { gt: dayStart } },
+        ],
+      },
+      include: { game: true },
+      orderBy: [{ slotNumber: 'asc' }, { activatedAt: 'desc' }],
+    });
+
+    // Snapshots from close_day_snapshot events:
+    //   prev: latest per-box event BEFORE D     → yesterdayClose
+    //   curr: latest per-box event WITHIN D     → todayClose
+    const [prevEvents, currEvents] = await Promise.all([
+      prisma.lotteryScanEvent.findMany({
+        where: { orgId, storeId, action: 'close_day_snapshot', createdAt: { lt: dayStart } },
+        orderBy: { createdAt: 'desc' },
+        select: { boxId: true, parsed: true },
+      }),
+      prisma.lotteryScanEvent.findMany({
+        where: { orgId, storeId, action: 'close_day_snapshot', createdAt: { gte: dayStart, lte: dayEnd } },
+        orderBy: { createdAt: 'desc' },
+        select: { boxId: true, parsed: true },
+      }),
+    ]);
+
+    const prevMap = {};
+    for (const ev of prevEvents) {
+      if (ev.boxId && !(ev.boxId in prevMap)) prevMap[ev.boxId] = ev.parsed?.currentTicket ?? null;
+    }
+    const currMap = {};
+    for (const ev of currEvents) {
+      if (ev.boxId && !(ev.boxId in currMap)) currMap[ev.boxId] = ev.parsed?.currentTicket ?? null;
+    }
+
+    const enriched = boxes.map((b) => {
+      const yesterdayClose = prevMap[b.id] ?? null;
+      const todayClose     = currMap[b.id] ?? null;
+      // For today, currentTicket is live (box.currentTicket). For past
+      // dates, it's the closing snapshot for that day (null if the day
+      // was never closed).
+      const currentTicket = isToday ? (b.currentTicket ?? null) : todayClose;
+      // Display value for "yesterday" — prior close if we have one,
+      // else the book's startTicket (first-day books had no prior close).
+      const openingTicket = yesterdayClose ?? b.startTicket ?? null;
+      return {
+        ...b,
+        yesterdayClose,
+        todayClose,
+        currentTicket,
+        openingTicket,
+      };
+    });
+
+    res.json({ success: true, date: req.query.date, isToday, boxes: enriched });
+  } catch (err) {
+    console.error('[lottery.counterSnapshot]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 // WEEKLY SETTLEMENT (Phase 2)
 // ══════════════════════════════════════════════════════════════════════════

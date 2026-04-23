@@ -43,7 +43,7 @@ import {
   scanLotteryBarcode, parseLotteryBarcode, closeLotteryDay,
   listPosShifts, getLotterySettings,
   soldoutLotteryBox, moveLotteryBoxToSafe, activateLotteryBox, deleteLotteryBox,
-  getLotteryYesterdayCloses,
+  getLotteryCounterSnapshot,
 } from '../services/api';
 import './LotteryBackOffice.css';
 
@@ -90,7 +90,7 @@ export default function LotteryBackOffice() {
   const [soldout, setSoldout]           = useState([]);
   const [returned, setReturned]         = useState([]);
   const [inventory, setInventory]       = useState(null);
-  const [yesterdayCloses, setYesterdayCloses] = useState({});   // { boxId: { ticket, closedAt } }
+  const [snapIsToday, setSnapIsToday]   = useState(true);    // date === today?
   const [online, setOnline]             = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
   const [manualSales, setManualSales]   = useState({ gross: 0, cancels: 0, coupon: 0, discounts: 0 });
   const [cashBalance, setCashBalance]   = useState(0);
@@ -113,8 +113,14 @@ export default function LotteryBackOffice() {
   // ── Loaders ─────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     const storeId = localStorage.getItem('activeStoreId');
-    const [a, s, d, r, inv, ot, sets, gs, cat, shifts, yCloses] = await Promise.all([
-      getLotteryBoxes({ status: 'active' }).catch(() => []),
+    // The Counter list now comes from the date-scoped counter-snapshot
+    // endpoint — it returns books that were on the counter on the selected
+    // date, each decorated with opening (yesterday's close) + closing
+    // (that day's close) tickets. The other three lists (Safe/Soldout/
+    // Returned) remain current-state queries because they represent where
+    // books live RIGHT NOW, not historically.
+    const [snap, s, d, r, inv, ot, sets, gs, cat, shifts] = await Promise.all([
+      getLotteryCounterSnapshot({ date }).catch(() => null),
       getLotteryBoxes({ status: 'inventory' }).catch(() => []),
       getLotteryBoxes({ status: 'depleted' }).catch(() => []),
       getLotteryBoxes({ status: 'returned' }).catch(() => []),
@@ -124,9 +130,11 @@ export default function LotteryBackOffice() {
       getLotteryGames(storeId).catch(() => []),
       getLotteryCatalog().catch(() => []),
       listPosShifts({ status: 'closed', storeId, dateFrom: date, dateTo: date, limit: 50 }).catch(() => null),
-      getLotteryYesterdayCloses({ date }).catch(() => null),
     ]);
-    setActive  (Array.isArray(a) ? a : (a?.boxes || []));
+    const snapBoxes = snap?.boxes || [];
+    const a = { boxes: snapBoxes };
+    setSnapIsToday(!!snap?.isToday);
+    setActive  (Array.isArray(a) ? a : (a?.boxes || []));   // now sourced from counter-snapshot; each entry has openingTicket/currentTicket/yesterdayClose/todayClose
     setSafe    (Array.isArray(s) ? s : (s?.boxes || []));
     setSoldout (Array.isArray(d) ? d : (d?.boxes || []));
     setReturned(Array.isArray(r) ? r : (r?.boxes || []));
@@ -140,7 +148,6 @@ export default function LotteryBackOffice() {
     setSettings(sets);
     setGames(Array.isArray(gs) ? gs : gs?.games || []);
     setCatalog(Array.isArray(cat) ? cat : cat?.data || []);
-    setYesterdayCloses((yCloses && typeof yCloses === 'object' ? (yCloses.closes || yCloses) : {}) || {});
     // Cash balance for this day = sum of closed shifts' cash-collected
     const shiftList = Array.isArray(shifts) ? shifts : (shifts?.shifts || []);
     const cashSum = shiftList.reduce((s, sh) => s + Number(sh.cashSales || 0) - Number(sh.cashRefunds || 0), 0);
@@ -410,8 +417,10 @@ export default function LotteryBackOffice() {
                       draft={counterDrafts[b.id]}
                       scanMode={scanMode}
                       sellDirection={sellDirection}
-                      isToday={date === todayStr()}
-                      yesterdayClose={yesterdayCloses[b.id]?.ticket ?? null}
+                      isToday={snapIsToday}
+                      openingTicket={b.openingTicket}
+                      currentTicket={b.currentTicket}
+                      historicalView={!snapIsToday}
                       onDraftChange={v => setCounterDrafts(d => ({ ...d, [b.id]: v }))}
                       onSave={() => saveTicket(b.id)}
                       onRename={(newNo)    => doBoxAction('rename',       b, { boxNumber: newNo })}
@@ -592,32 +601,42 @@ function ActionMenu({ items, align = 'right' }) {
 //   • Date != today              → prefilled with currentTicket (historical)
 // ════════════════════════════════════════════════════════════════════
 function CounterRow({
-  box, draft, scanMode, sellDirection, isToday, yesterdayClose,
+  box, draft, scanMode, sellDirection, isToday, historicalView,
+  openingTicket, currentTicket,
   onDraftChange, onSave,
   onRename, onRenameSlot, onSoldout, onReturn, onMoveToSafe,
 }) {
   const total    = Number(box.totalTickets || 0);
   const price    = Number(box.ticketPrice || 0);
-  // "Yesterday" priority:
-  //   1. yesterdayClose  → the value stored when the previous day was closed
-  //                        (from close_day_snapshot LotteryScanEvent rows)
-  //   2. lastShiftEndTicket → legacy fallback, last cashier shift-end
-  //   3. startTicket / direction-derived default → brand-new book
-  // This makes the day-over-day rollover correct: if book X closed at
-  // ticket 120 yesterday, today's "yesterday" shows 120.
-  const yesterday = (yesterdayClose != null && yesterdayClose !== '')
-    ? yesterdayClose
+
+  // "Yesterday" = openingTicket from the snapshot (prior day's close OR
+  // this book's startTicket if it's the first day). Final fallback to
+  // legacy fields preserves old behavior when snapshot data is missing.
+  const yesterday = (openingTicket != null && openingTicket !== '')
+    ? openingTicket
     : (box.lastShiftEndTicket ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1))));
 
-  // Default today value per the rules above.
-  const defaultToday = (isToday && scanMode) ? '' : (box.currentTicket ?? '');
+  // "Today" column behavior:
+  //   • today + scan mode           → blank (fills on scan)
+  //   • today + manual              → prefilled with live currentTicket
+  //   • past date (historicalView)  → prefilled with the day's close
+  //                                    snapshot value (currentTicket from
+  //                                    the snapshot is that day's close);
+  //                                    input is read-only — can't edit the past
+  const liveCurrent = currentTicket ?? box.currentTicket ?? '';
+  const defaultToday = (isToday && scanMode) ? '' : (liveCurrent ?? '');
   const todayVal = draft !== undefined ? draft : defaultToday;
 
   const yNum = Number(yesterday);
   const tNum = todayVal === '' ? null : Number(todayVal);
   const sold = tNum != null && Number.isFinite(yNum) && Number.isFinite(tNum) ? Math.abs(yNum - tNum) : 0;
   const amt = sold * price;
-  const dirty = draft !== undefined && String(draft) !== String(box.currentTicket ?? '');
+  const dirty = !historicalView && draft !== undefined && String(draft) !== String(box.currentTicket ?? '');
+
+  // Activation date — "Activated Apr 18" text below the book number.
+  const activatedLabel = box.activatedAt
+    ? new Date(box.activatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : null;
 
   // Editable slot number + book number (click to toggle)
   const [editingSlot, setEditingSlot] = useState(false);
@@ -679,13 +698,16 @@ function CounterRow({
         ) : (
           <strong
             className="lbo-cnt-bookno"
-            onClick={() => setEditingBookNo(true)}
-            title="Click to edit book number"
+            onClick={() => !historicalView && setEditingBookNo(true)}
+            title={historicalView ? 'Viewing a past date (read-only)' : 'Click to edit book number'}
           >
             {box.game?.gameNumber || '—'}-{box.boxNumber || '—'}
           </strong>
         )}
-        <small>{box.game?.name || ''}</small>
+        <small>
+          {box.game?.name || ''}
+          {activatedLabel && <span className="lbo-cnt-actdate"> · activated {activatedLabel}</span>}
+        </small>
       </span>
       <span className="lbo-cnt-tickets">
         <span className="lbo-cnt-y">{yesterday}</span>
@@ -697,13 +719,16 @@ function CounterRow({
           placeholder={String(yesterday)}
           onChange={e => onDraftChange(e.target.value.replace(/[^0-9]/g, ''))}
           onKeyDown={e => e.key === 'Enter' && onSave()}
-          disabled={scanMode && !dirty && !isToday}
+          disabled={historicalView || (scanMode && !dirty && !isToday)}
+          title={historicalView ? `Closed at ${todayVal || '—'} on this date (read-only)` : undefined}
         />
       </span>
       <span className="lbo-cnt-sold">{sold || ''}</span>
       <span className="lbo-cnt-amt">{amt > 0 ? fmtMoney(amt) : ''}</span>
       <span className="lbo-cnt-act">
-        {dirty ? (
+        {historicalView ? (
+          <span className="lbo-cnt-histpill" title="Viewing a past date">HIST</span>
+        ) : dirty ? (
           <button onClick={onSave} className="lbo-cnt-save" title="Save">✓</button>
         ) : (
           <ActionMenu

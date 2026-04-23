@@ -96,24 +96,59 @@ export const getCatalogSnapshot = async (req, res) => {
         taxClass:       p.taxClass || p.department?.taxClass || 'grocery',
         ebtEligible:    p.ebtEligible || p.department?.ebtEligible || false,
         ageRequired:    p.ageRequired,
-        // Deposit priority:
-        //   1. MasterProduct.depositPerUnit — the simplified Session 9 field
-        //      the Product Form now saves. Flat $ per sell unit.
-        //   2. Derive from MasterProduct.caseDeposit / (unitPack × packInCase)
-        //      for legacy products saved before the form was updated to
-        //      also send depositPerUnit (Session 40 post-release fix). Keeps
-        //      old data working without requiring a backfill migration.
-        //   3. Legacy DepositRule — multiply per-container deposit by number
-        //      of containers in the sell unit (e.g. 6pk × $0.05 = $0.30).
-        // The cashier cart reads this flat `depositAmount`, multiplies by qty,
-        // and shows a "Bottle Deposit" line on each item + a total row.
-        depositAmount:
-          p.depositPerUnit != null ? Number(p.depositPerUnit) :
-          (p.caseDeposit != null && p.unitPack && p.packInCase &&
-           Number(p.unitPack) > 0 && Number(p.packInCase) > 0)
-            ? Number(p.caseDeposit) / (Number(p.unitPack) * Number(p.packInCase)) :
-          p.depositRule ? Number(p.depositRule.depositAmount) * (p.sellUnitSize || 1) :
-          null,
+        // Deposit — emits per-sell-pack $ (i.e. deposit charged per cart qty=1).
+        //
+        // The cashier cart does `depositTotal = depositAmount × qty`. Since
+        // qty=1 represents ONE sell pack (a 12-pack, a 6-pack, or a single),
+        // `depositAmount` must be the deposit for that sell pack — NOT the
+        // per-individual-container amount.
+        //
+        // Sources, priority order (all produce per-sell-pack):
+        //   1. MasterProduct.depositPerUnit (per-container) × sell-pack size
+        //      — matches the ProductForm UI where depositPerUnit is labelled
+        //      "Per unit" and PackVisual computes "Per pack = per unit × count"
+        //   2. MasterProduct.caseDeposit / packInCase  (direct: $ per sell pack)
+        //      — covers products where the form saved only the case total
+        //   3. Legacy DepositRule × sellUnitSize  (pre-Session-9 schema)
+        //
+        // Every branch resolves to a single per-sell-pack number for the POS
+        // to multiply by qty. Without this scaling step, a customer buying
+        // a 12-pack would be charged $0.05 deposit instead of $0.60.
+        depositAmount: (() => {
+          // Resolve the number of individual containers in one sell pack.
+          // Prefer the new `unitPack` column; fall back to `sellUnitSize` (legacy
+          // mirror); final fallback is 1 (treat as single-container product).
+          const sellPackUnits =
+            p.unitPack     != null && Number(p.unitPack)     > 0 ? Number(p.unitPack)     :
+            p.sellUnitSize != null && Number(p.sellUnitSize) > 0 ? Number(p.sellUnitSize) :
+            1;
+
+          // Number of sell packs per vendor case — needed for the caseDeposit
+          // fallback. Prefer `packInCase`; fall back to `casePacks` (legacy).
+          const packsPerCase =
+            p.packInCase != null && Number(p.packInCase) > 0 ? Number(p.packInCase) :
+            p.casePacks  != null && Number(p.casePacks)  > 0 ? Number(p.casePacks)  :
+            null;
+
+          // Tier 1: explicit per-container deposit × units per sell pack
+          if (p.depositPerUnit != null) {
+            return Number(p.depositPerUnit) * sellPackUnits;
+          }
+
+          // Tier 2: case total ÷ packs per case = per-sell-pack directly
+          //   $1.20 case / 2 packs-per-case = $0.60 per 12-pack  ✓
+          //   $1.20 case / 24 packs-per-case = $0.05 per single  ✓
+          if (p.caseDeposit != null && packsPerCase) {
+            return Number(p.caseDeposit) / packsPerCase;
+          }
+
+          // Tier 3: legacy DepositRule (pre-Session-9 schema)
+          if (p.depositRule) {
+            return Number(p.depositRule.depositAmount) * sellPackUnits;
+          }
+
+          return null;
+        })(),
         depositRuleId:  p.depositRuleId,
         departmentId:   p.departmentId,
         departmentName: p.department?.name || null,
