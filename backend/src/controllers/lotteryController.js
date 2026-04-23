@@ -1345,7 +1345,18 @@ export const returnBoxToLotto = async (req, res) => {
     const orgId   = getOrgId(req);
     const storeId = getStore(req);
     const boxId   = req.params.id;
-    const { reason = null } = req.body || {};
+    const {
+      reason = null,
+      // Optional — when present the book is treated as a PARTIAL return.
+      // The daily-inventory math already classifies this row as partial
+      // vs full based on whether ticketsSold > 0 at the time returnedAt
+      // is set, so updating ticketsSold before flipping to 'returned' is
+      // all that's needed. Omit (or pass 0) for a full return.
+      ticketsSold,
+      // Informational metadata — accepted so the UI can log "partial"
+      // explicitly even when ticketsSold is 0 (e.g. manual adjustment).
+      returnType,
+    } = req.body || {};
 
     const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
     if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
@@ -1353,19 +1364,32 @@ export const returnBoxToLotto = async (req, res) => {
       return res.status(400).json({ success: false, error: `Cannot return from status ${box.status}` });
     }
 
+    const data = {
+      status: 'returned',
+      returnedAt: new Date(),
+      slotNumber: null,
+      autoSoldoutReason: reason || (returnType ? `Return (${returnType})` : null),
+      updatedAt: new Date(),
+    };
+
+    // Accept ticketsSold for partial returns. Clamp to [0, totalTickets].
+    if (ticketsSold != null) {
+      const n = Number(ticketsSold);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ success: false, error: 'ticketsSold must be a non-negative number' });
+      }
+      const total = Number(box.totalTickets || 0);
+      data.ticketsSold = total > 0 ? Math.min(n, total) : Math.floor(n);
+    }
+
     const updated = await prisma.lotteryBox.update({
       where: { id: boxId },
-      data: {
-        status: 'returned',
-        returnedAt: new Date(),
-        slotNumber: null,
-        autoSoldoutReason: reason || null,
-        updatedAt: new Date(),
-      },
+      data,
       include: { game: true },
     });
     res.json({ success: true, data: updated });
   } catch (err) {
+    console.error('[lottery.returnBoxToLotto]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };

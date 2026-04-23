@@ -1598,7 +1598,11 @@ function TicketCatalogTab() {
 ══════════════════════════════════════════════════════════════════════════ */
 // Default export is a thin gate — hooks-rule-safe. Only the gate hook runs
 // until we decide whether to mount the full page body.
-export default function Lottery() {
+//
+// `urlTab` (optional prop) is forwarded from LotteryRouter when the page is
+// invoked via a URL param (?tab=reports, ?tab=settings, …). The body maps
+// it to the internal tab name so refresh keeps the user on the same tab.
+export default function Lottery({ urlTab } = {}) {
   const { modules, loading } = useStoreModules();
   if (loading) return null;
   if (!modules.lottery) {
@@ -1610,10 +1614,25 @@ export default function Lottery() {
       />
     );
   }
-  return <LotteryBody />;
+  return <LotteryBody urlTab={urlTab} />;
 }
 
-function LotteryBody() {
+// Map the URL slug (LotteryTabBar's key) → the internal `tab` state value
+// used throughout LotteryBody's render tree. Kept as a small explicit
+// table so the two layers can evolve independently.
+const URL_TAB_MAP = {
+  'shift-reports':    'Shift Reports',
+  'weekly':           'Weekly Settlement',
+  'reports':          'Reports',
+  'commission':       'Commission',
+  'settings':         'Settings',
+  'catalog':          'Ticket Catalog',
+  'games':            'Games',
+  'overview':         'Overview',
+  // 'daily' is intercepted at the router level (LotteryBackOffice renders)
+};
+
+function LotteryBody({ urlTab } = {}) {
   // Role check for admin-only tabs
   const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
   const isAdmin = ['superadmin', 'admin'].includes(user.role);
@@ -1641,7 +1660,18 @@ function LotteryBody() {
   // Maps display tab name → LotteryBox.status value
   const TAB_STATUS = { Counter: 'active', Safe: 'inventory', Soldout: 'depleted', Returned: 'returned' };
 
-  const [tab, setTab] = useState('Overview');
+  // Seed the internal tab from the URL param so a refresh / deep link
+  // lands on the correct section. When urlTab is absent (shouldn't happen
+  // via the router but included for back-compat), default to Overview.
+  const initialTab = (urlTab && URL_TAB_MAP[urlTab]) || 'Overview';
+  const [tab, setTab] = useState(initialTab);
+  // Keep internal state in sync when the URL changes after initial render
+  // (e.g. user clicks a different tab in the LotteryTabBar above us).
+  useEffect(() => {
+    const mapped = (urlTab && URL_TAB_MAP[urlTab]) || 'Overview';
+    if (mapped !== tab) setTab(mapped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlTab]);
   const [games, setGames] = useState([]);
   const [boxes, setBoxes] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
@@ -1879,15 +1909,21 @@ function LotteryBody() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="lt-tabs">
-        {TABS.map(t => (
-          <button key={t} className={`lt-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {t}
-            {t === 'Ticket Catalog' && pendingCount > 0 && <span className="lt-tab-badge">{pendingCount}</span>}
-          </button>
-        ))}
-      </div>
+      {/* Internal tab strip — hidden when the page is rendered via
+          LotteryRouter (urlTab prop present). The router already mounts
+          LotteryTabBar above us; showing the internal strip too would
+          duplicate navigation. Legacy callers that mount <Lottery/> without
+          the router still see the internal tabs. */}
+      {!urlTab && (
+        <div className="lt-tabs">
+          {TABS.map(t => (
+            <button key={t} className={`lt-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+              {t}
+              {t === 'Ticket Catalog' && pendingCount > 0 && <span className="lt-tab-badge">{pendingCount}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
       {tab === 'Overview' && (

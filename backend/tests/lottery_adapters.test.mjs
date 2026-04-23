@@ -159,6 +159,69 @@ describe('Massachusetts adapter', () => {
       assert.equal(r?.packSize, 50);
     });
   });
+
+  describe('Scanner prefix stripping (~ and similar)', () => {
+    // Some scanner firmware adds a "start-of-data" marker before the payload.
+    // The 19 samples below came from a live store whose scanner is configured
+    // to prepend "~" to every scan. Normalizer must strip it.
+    const SAMPLES_WITH_PREFIX = [
+      { raw: '~38705740670045005000000000080', game: '387', book: '574067', ticket: 4,   pack: 50  },
+      { raw: '~43303471640015005000000000065', game: '433', book: '347164', ticket: 1,   pack: 50  },
+      { raw: '~49001690590155005000000000078', game: '490', book: '169059', ticket: 15,  pack: 50  },
+      { raw: '~53000051730163005050000000063', game: '530', book: '005173', ticket: 16,  pack: 50  },
+      { raw: '~45801358310213005080000000076', game: '458', book: '135831', ticket: 21,  pack: 50  },
+      { raw: '~37302715380123005080000000077', game: '373', book: '271538', ticket: 12,  pack: 50  },
+      { raw: '~49100895330313005080000000081', game: '491', book: '089533', ticket: 31,  pack: 50  },
+      { raw: '~54200052140033005080000000061', game: '542', book: '005214', ticket: 3,   pack: 50  },
+      { raw: '~52300200080872010000000000057', game: '523', book: '020008', ticket: 87,  pack: 100 },
+      { raw: '~39300871210682010080000000078', game: '393', book: '087121', ticket: 68,  pack: 100 },
+      { raw: '~40900966130402010080000000072', game: '409', book: '096613', ticket: 40,  pack: 100 },
+      { raw: '~50900383760442010080000000079', game: '509', book: '038376', ticket: 44,  pack: 100 },
+      { raw: '~45200893760522010080000000081', game: '452', book: '089376', ticket: 52,  pack: 100 },
+      { raw: '~53600105070102010080000000058', game: '536', book: '010507', ticket: 10,  pack: 100 },
+      { raw: '~48400954400351010070000000074', game: '484', book: '095440', ticket: 35,  pack: 100 },
+      { raw: '~36801468740741010070000000086', game: '368', book: '146874', ticket: 74,  pack: 100 },
+      { raw: '~34001420170171010070000000058', game: '340', book: '142017', ticket: 17,  pack: 100 },
+      { raw: '~48300927090601010070000000076', game: '483', book: '092709', ticket: 60,  pack: 100 },
+      { raw: '~50800587080391010070000000081', game: '508', book: '058708', ticket: 39,  pack: 100 },
+    ];
+
+    for (const s of SAMPLES_WITH_PREFIX) {
+      test(`prefix-stripped ${s.raw} → game ${s.game} book ${s.book} ticket ${s.ticket} pack ${s.pack}`, () => {
+        const r = MA.parseAny(s.raw);
+        assert.equal(r?.type,         'ticket');
+        assert.equal(r?.source,       'qr');
+        assert.equal(r?.gameNumber,   s.game);
+        assert.equal(r?.bookNumber,   s.book);
+        assert.equal(r?.ticketNumber, s.ticket);
+        assert.equal(r?.packSize,     s.pack);
+      });
+    }
+
+    test('multi-prefix stripping — "*" and ">" also work', () => {
+      const rStar   = MA.parseAny('*52300200080872010000000000057');
+      const rAngle  = MA.parseAny('>52300200080872010000000000057');
+      const rMixed  = MA.parseAny('~*>52300200080872010000000000057');
+      assert.equal(rStar?.ticketNumber,  87);
+      assert.equal(rAngle?.ticketNumber, 87);
+      assert.equal(rMixed?.ticketNumber, 87);
+    });
+
+    test('whitespace BEFORE the prefix is still tolerated', () => {
+      const r = MA.parseAny('  ~52300200080872010000000000057 ');
+      assert.equal(r?.gameNumber,  '523');
+      assert.equal(r?.packSize,    100);
+    });
+
+    test('prefix-stripped scan parses identically to un-prefixed', () => {
+      const withPrefix    = MA.parseAny('~52300200080872010000000000057');
+      const withoutPrefix = MA.parseAny('52300200080872010000000000057');
+      assert.equal(withPrefix.gameNumber,   withoutPrefix.gameNumber);
+      assert.equal(withPrefix.bookNumber,   withoutPrefix.bookNumber);
+      assert.equal(withPrefix.ticketNumber, withoutPrefix.ticketNumber);
+      assert.equal(withPrefix.packSize,     withoutPrefix.packSize);
+    });
+  });
 });
 
 describe('Maine adapter', () => {

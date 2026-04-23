@@ -48,11 +48,21 @@ const DEFAULT_MODULES = { grocery: false, lottery: true, fuel: false, ecom: fals
 export function useStoreModules() {
   const { activeStoreId } = useStore();
   const [modules, setModules] = useState(DEFAULT_MODULES);
-  const [loading, setLoading] = useState(false);
+  // `loading` ONLY reflects the very first load. After the first successful
+  // fetch it flips false and never flips back. Subsequent polls / visibility-
+  // change refetches / store switches update `modules` silently without
+  // triggering a `loading=true` phase.
+  //
+  // Why this matters: pages that gate rendering on `loading` (e.g.
+  // `if (loading) return null` in Lottery.jsx + Fuel.jsx) were unmounting
+  // themselves every 5 minutes when the poll fired — which also unmounted
+  // any open modal and reset local state (tab selection, form drafts, etc.).
+  // Users reported "my Receive Books popup just closes itself while I'm
+  // working on it" and that's exactly why.
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!activeStoreId) return;
-    setLoading(true);
     try {
       const [cfg, fuelCfg] = await Promise.all([
         getPOSConfig(activeStoreId).catch(() => null),
@@ -60,7 +70,7 @@ export function useStoreModules() {
       ]);
       setModules(parseModules(cfg, fuelCfg));
     } finally {
-      setLoading(false);
+      setLoading(false);   // one-way flip — never goes back to true
     }
   }, [activeStoreId]);
 

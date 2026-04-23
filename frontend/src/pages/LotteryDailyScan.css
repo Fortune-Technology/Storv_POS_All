@@ -584,6 +584,53 @@
   min-width: 0;
 }
 
+/* ── Counter Scan modal — date picker strip at top ─────────────── */
+.lds-scan-date-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-tertiary, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.lds-scan-date-bar label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary, #374151);
+}
+
+.lds-scan-date-bar input[type="date"] {
+  padding: 5px 9px;
+  border: 1.5px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 0.85rem;
+  color: var(--text-primary, #111827);
+  outline: none;
+  font-family: inherit;
+}
+
+.lds-scan-date-bar input[type="date"]:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.lds-scan-date-warn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 /* ── Counter Scan modal — active-book list ─────────────────────── */
 .lds-counter-scan-list {
   display: flex;

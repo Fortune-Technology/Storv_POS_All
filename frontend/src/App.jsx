@@ -75,7 +75,7 @@ import EcomOrders        from './pages/EcomOrders';
 import EcomDomain        from './pages/EcomDomain';
 import EcomAnalytics     from './pages/EcomAnalytics';
 import EcomCustomers     from './pages/EcomCustomers';
-import Lottery from './pages/Lottery';
+import LotteryRouter from './pages/LotteryRouter';
 import Fuel from './pages/Fuel';
 import Exchange from './pages/Exchange';
 import ExchangeOrderDetail from './pages/ExchangeOrderDetail';
@@ -285,8 +285,11 @@ function App() {
           {/* ── Billing ───────────────────────────────────────────────── */}
           <Route path="/portal/billing"          element={gated(<BillingPortal />)} />
 
-          {/* ── Lottery ───────────────────────────────────────────────── */}
-          <Route path="/portal/lottery"          element={gated(<Lottery />)} />
+          {/* ── Lottery — single route, tabs via ?tab= URL param ─────────
+               LotteryRouter delegates to LotteryBackOffice (tab=daily) or
+               the legacy tabbed Lottery (any other tab). Every sub-view is
+               a deep-linkable URL; refresh preserves the selected tab. */}
+          <Route path="/portal/lottery"           element={gated(<LotteryRouter />)} />
 
           {/* ── Fuel ──────────────────────────────────────────────────── */}
           <Route path="/portal/fuel"             element={gated(<Fuel />)} />

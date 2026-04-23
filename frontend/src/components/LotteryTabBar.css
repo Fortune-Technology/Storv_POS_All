@@ -1,0 +1,57 @@
+/* LotteryTabBar.css — prefix: lotabs-
+ * Shared tab strip for all /portal/lottery views. Horizontal scroll on
+ * narrow screens so every tab is reachable on mobile.
+ */
+
+.lotabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.lotabs-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.lotabs-btn:hover {
+  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.lotabs-btn--active {
+  background: var(--brand-primary, #3d56b5);
+  color: #ffffff !important;
+  border-color: var(--brand-primary, #3d56b5);
+}
+
+.lotabs-btn--active:hover {
+  background: var(--brand-dark, #2f4392);
+  color: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .lotabs-btn {
+    padding: 7px 10px;
+    font-size: 0.76rem;
+  }
+  .lotabs-btn span { display: none; }
+  .lotabs-btn--active span { display: inline; }
+}

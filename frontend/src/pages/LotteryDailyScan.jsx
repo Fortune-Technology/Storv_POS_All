@@ -286,9 +286,11 @@ export default function LotteryDailyScan() {
         />
       )}
 
-      {/* Manager counter-scan wizard */}
+      {/* Manager counter-scan wizard — inherits the End-of-Day page's
+          selected business day so backdated reconciliation works. */}
       {counterScanOpen && (
         <CounterScanModal
+          date={date}
           onClose={() => setCounterScanOpen(false)}
           onSaved={() => { setCounterScanOpen(false); loadDate(); }}
         />
@@ -596,7 +598,11 @@ function OpenShiftBackOfficeModal({ onClose, onOpened }) {
  * Exported so the Counter tab can trigger the same popup without having
  * to reimplement it.
  * ════════════════════════════════════════════════════════════════════ */
-export function CounterScanModal({ onClose, onSaved }) {
+export function CounterScanModal({ onClose, onSaved, date: initialDate }) {
+  // Backdating support — pre-filled from the End-of-Day page's date when
+  // opened from there; defaults to today when the Counter-tab button
+  // triggers it without a hint. Manager can edit freely.
+  const [scanDate, setScanDate] = useState(initialDate || todayStr());
   const [boxes, setBoxes] = useState([]);
   const [drafts, setDrafts] = useState({});  // boxId → draft current ticket
   const [scanValue, setScanValue] = useState('');
@@ -707,6 +713,25 @@ export function CounterScanModal({ onClose, onSaved }) {
             </div>
           </div>
           <button className="lt-modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {/* Date selector — supports backdating historical EoD scans. The
+            date itself doesn't change what's scanned (a book's currentTicket
+            is a single value), it's a label for the snapshot the manager
+            is recording. Persists on the Close-the-Day audit log too. */}
+        <div className="lds-scan-date-bar">
+          <label>Business day</label>
+          <input
+            type="date"
+            value={scanDate}
+            onChange={e => setScanDate(e.target.value)}
+            max={todayStr()}
+          />
+          {scanDate !== todayStr() && (
+            <span className="lds-scan-date-warn">
+              ⚠ Backdating — this snapshot will be tagged {scanDate} in the audit log
+            </span>
+          )}
         </div>
 
         {err && <div className="lt-error">{err}</div>}
