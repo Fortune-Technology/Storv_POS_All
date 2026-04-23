@@ -140,8 +140,10 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
-  max-height: calc(100vh - 170px);
-  overflow: hidden;
+  /* Columns flow with natural height — page-level scroll handles overflow.
+   * Previous `max-height: calc(100vh - 170px); overflow: hidden` was
+   * clipping section rows mid-line (e.g. "Coupon Cash" appearing as a
+   * half-row below "Pays/Cashes"). */
 }
 
 .lbo-col-title {
@@ -178,7 +180,8 @@
 }
 
 /* ── Left column — Report ─────────────────────────────────────────── */
-.lbo-col-report { overflow-y: auto; }
+/* Flows with column height; no internal scroll, no clipping. */
+.lbo-col-report { }
 
 .lbo-metric {
   display: flex;
@@ -410,12 +413,9 @@
 .lbo-scan-log-row.err > span:last-child { color: #b91c1c; }
 
 .lbo-counter-list {
-  flex: 1;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-right: 2px;
 }
 
 .lbo-empty {
@@ -484,6 +484,33 @@
   text-align: center;
 }
 
+/* Click-to-edit slot number — hover hint + brand-coloured inline input. */
+.lbo-cnt-slot-click {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 0;
+  transition: background 0.12s, color 0.12s;
+}
+.lbo-cnt-slot-click:hover {
+  background: #eef2ff;
+  color: var(--brand-primary, #3d56b5);
+}
+
+.lbo-cnt-slot-edit {
+  width: 100%;
+  max-width: 28px;
+  padding: 1px 2px;
+  border: 1.5px solid var(--brand-primary, #3d56b5);
+  border-radius: 4px;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+  outline: none;
+  text-align: center;
+}
+
 .lbo-cnt-book {
   display: flex;
   flex-direction: column;
@@ -547,7 +574,7 @@
 .lbo-cnt-act { text-align: center; display: flex; align-items: center; justify-content: center; }
 
 /* ── Right column — Safe/Soldout/Returned/Receive/Return ─────────── */
-.lbo-col-right { padding: 0; overflow: hidden; }
+.lbo-col-right { padding: 0; }
 
 .lbo-right-tabs {
   display: flex;
@@ -607,8 +634,6 @@
 .lbo-right-close:hover { background: rgba(255,255,255,0.3); }
 
 .lbo-right-list {
-  flex: 1;
-  overflow-y: auto;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -968,9 +993,6 @@
 }
 @media (max-width: 900px) {
   .lbo-grid { grid-template-columns: 1fr; }
-  .lbo-col { max-height: none; }
-  .lbo-col-report { max-height: 480px; }
-  .lbo-col-counter, .lbo-col-right { max-height: 560px; }
 }
 @media (max-width: 560px) {
   .lbo-header { flex-direction: column; align-items: stretch; }

@@ -213,6 +213,10 @@ export default function LotteryBackOffice() {
       if (kind === 'rename') {
         await updateLotteryBox(box.id, { boxNumber: extra.boxNumber });
         showToast('Book number updated');
+      } else if (kind === 'rename-slot') {
+        // slotNumber is nullable — user clearing the field frees the slot.
+        await updateLotteryBox(box.id, { slotNumber: extra.slotNumber });
+        showToast(extra.slotNumber == null ? 'Slot cleared' : `Moved to slot ${extra.slotNumber}`);
       } else if (kind === 'soldout') {
         if (!window.confirm(`Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?`)) return;
         await soldoutLotteryBox(box.id, { reason: 'manual_mark_soldout' });
@@ -405,10 +409,11 @@ export default function LotteryBackOffice() {
                       isToday={date === todayStr()}
                       onDraftChange={v => setCounterDrafts(d => ({ ...d, [b.id]: v }))}
                       onSave={() => saveTicket(b.id)}
-                      onRename={(newNo) => doBoxAction('rename', b, { boxNumber: newNo })}
-                      onSoldout={() => doBoxAction('soldout', b)}
-                      onReturn={() => doBoxAction('return-ui', b)}
-                      onMoveToSafe={() => doBoxAction('safe', b)}
+                      onRename={(newNo)    => doBoxAction('rename',       b, { boxNumber: newNo })}
+                      onRenameSlot={(slot) => doBoxAction('rename-slot',  b, { slotNumber: slot })}
+                      onSoldout={() => doBoxAction('soldout',      b)}
+                      onReturn={()  => doBoxAction('return-ui',    b)}
+                      onMoveToSafe={() => doBoxAction('safe',      b)}
                     />
                   ))}
                 </div>
@@ -584,7 +589,7 @@ function ActionMenu({ items, align = 'right' }) {
 function CounterRow({
   box, draft, scanMode, sellDirection, isToday,
   onDraftChange, onSave,
-  onRename, onSoldout, onReturn, onMoveToSafe,
+  onRename, onRenameSlot, onSoldout, onReturn, onMoveToSafe,
 }) {
   const total    = Number(box.totalTickets || 0);
   const price    = Number(box.ticketPrice || 0);
@@ -600,7 +605,16 @@ function CounterRow({
   const amt = sold * price;
   const dirty = draft !== undefined && String(draft) !== String(box.currentTicket ?? '');
 
-  // Editable box number (click to toggle)
+  // Editable slot number + book number (click to toggle)
+  const [editingSlot, setEditingSlot] = useState(false);
+  const [slotDraft, setSlotDraft]     = useState(box.slotNumber != null ? String(box.slotNumber) : '');
+  const saveSlot = () => {
+    const n = slotDraft === '' ? null : Number(slotDraft);
+    const curr = box.slotNumber != null ? Number(box.slotNumber) : null;
+    if (n !== curr) onRenameSlot?.(n);
+    setEditingSlot(false);
+  };
+
   const [editingBookNo, setEditingBookNo] = useState(false);
   const [bookDraft, setBookDraft] = useState(box.boxNumber || '');
   const saveBookNo = () => {
@@ -611,7 +625,29 @@ function CounterRow({
   return (
     <div className={`lbo-cnt-row ${dirty ? 'dirty' : ''}`}>
       <PackPill price={price} />
-      <span className="lbo-cnt-slot">{box.slotNumber ?? '—'}</span>
+      {editingSlot ? (
+        <input
+          type="text"
+          inputMode="numeric"
+          className="lbo-cnt-slot-edit"
+          value={slotDraft}
+          autoFocus
+          onChange={e => setSlotDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+          onBlur={saveSlot}
+          onKeyDown={e => {
+            if (e.key === 'Enter')  saveSlot();
+            if (e.key === 'Escape') { setSlotDraft(box.slotNumber != null ? String(box.slotNumber) : ''); setEditingSlot(false); }
+          }}
+        />
+      ) : (
+        <span
+          className="lbo-cnt-slot lbo-cnt-slot-click"
+          onClick={() => setEditingSlot(true)}
+          title="Click to edit slot number"
+        >
+          {box.slotNumber ?? '—'}
+        </span>
+      )}
       <span className="lbo-cnt-book">
         {editingBookNo ? (
           <input
@@ -658,11 +694,12 @@ function CounterRow({
         ) : (
           <ActionMenu
             items={[
-              { key: 'so',     label: 'Mark Sold Out (SO)', icon: Archive,  onClick: onSoldout },
+              { key: 'so',     label: 'Mark Sold Out (SO)', icon: Archive,   onClick: onSoldout },
               { key: 'return', label: 'Return to Lottery',  icon: RotateCcw, onClick: onReturn },
-              { key: 'safe',   label: 'Move to Safe',       icon: Package,  onClick: onMoveToSafe },
+              { key: 'safe',   label: 'Move to Safe',       icon: Package,   onClick: onMoveToSafe },
               { separator: true },
-              { key: 'rename', label: 'Edit Book Number',   icon: Ticket,   onClick: () => setEditingBookNo(true) },
+              { key: 'slot',   label: 'Change Slot Number', icon: Ticket,    onClick: () => setEditingSlot(true) },
+              { key: 'rename', label: 'Edit Book Number',   icon: Ticket,    onClick: () => setEditingBookNo(true) },
             ]}
           />
         )}
