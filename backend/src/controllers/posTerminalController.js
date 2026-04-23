@@ -99,13 +99,20 @@ export const getCatalogSnapshot = async (req, res) => {
         // Deposit priority:
         //   1. MasterProduct.depositPerUnit — the simplified Session 9 field
         //      the Product Form now saves. Flat $ per sell unit.
-        //   2. Legacy DepositRule — multiply per-container deposit by number
+        //   2. Derive from MasterProduct.caseDeposit / (unitPack × packInCase)
+        //      for legacy products saved before the form was updated to
+        //      also send depositPerUnit (Session 40 post-release fix). Keeps
+        //      old data working without requiring a backfill migration.
+        //   3. Legacy DepositRule — multiply per-container deposit by number
         //      of containers in the sell unit (e.g. 6pk × $0.05 = $0.30).
         // The cashier cart reads this flat `depositAmount`, multiplies by qty,
         // and shows a "Bottle Deposit" line on each item + a total row.
         depositAmount:
           p.depositPerUnit != null ? Number(p.depositPerUnit) :
-          p.depositRule              ? Number(p.depositRule.depositAmount) * (p.sellUnitSize || 1) :
+          (p.caseDeposit != null && p.unitPack && p.packInCase &&
+           Number(p.unitPack) > 0 && Number(p.packInCase) > 0)
+            ? Number(p.caseDeposit) / (Number(p.unitPack) * Number(p.packInCase)) :
+          p.depositRule ? Number(p.depositRule.depositAmount) * (p.sellUnitSize || 1) :
           null,
         depositRuleId:  p.depositRuleId,
         departmentId:   p.departmentId,

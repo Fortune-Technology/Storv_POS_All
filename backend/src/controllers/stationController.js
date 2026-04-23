@@ -14,7 +14,8 @@ const generateCashierToken = (id, extra = {}) =>
 // ── GET /api/pos-terminal/stations ────────────────────────────────────────
 // Lightweight list of stations for the active store, used by the back-office
 // "Open Shift" modal to let a manager pick which register a shift is for.
-// Returns `{ stations: [{ id, name, isActive }] }`.
+// Returns `{ stations: [{ id, name, lastSeenAt }] }`.
+// The Station model doesn't track isActive — presence = active.
 export const listStationsForStore = async (req, res) => {
   try {
     const orgId = req.orgId || req.user?.orgId;
@@ -22,7 +23,7 @@ export const listStationsForStore = async (req, res) => {
     if (!storeId) return res.status(400).json({ error: 'storeId required' });
     const stations = await prisma.station.findMany({
       where: { orgId, storeId },
-      select: { id: true, name: true, isActive: true, lastSeenAt: true },
+      select: { id: true, name: true, lastSeenAt: true },
       orderBy: { name: 'asc' },
     });
     res.json({ stations });

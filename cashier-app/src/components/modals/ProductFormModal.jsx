@@ -1226,6 +1226,22 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
         // Persist the simplified pack config (v2) so imports + the form stay in sync
         unitPack:           defaultUnitPack       ? parseInt(defaultUnitPack) : null,
         packInCase:         defaultPacksPerCase   ? parseInt(defaultPacksPerCase) : null,
+        // Mirror of the portal ProductForm fix — derive per-unit deposit
+        // from the case total at save time so the cashier catalog snapshot
+        // (which reads `depositPerUnit`) correctly shows a bottle deposit
+        // line on the cart. Without this, products created from the cashier
+        // with only a case deposit entered would show $0 deposit at POS.
+        depositPerUnit:     (() => {
+          const explicit = parseFloat(form.depositPerUnit);
+          if (explicit > 0) return explicit;
+          const cd  = parseFloat(caseDeposit);
+          const up  = parseFloat(defaultUnitPack) || 1;
+          const ppc = parseFloat(defaultPacksPerCase);
+          if (cd > 0 && up > 0 && ppc > 0) {
+            return Math.round((cd / (up * ppc)) * 10000) / 10000;
+          }
+          return null;
+        })(),
         caseDeposit:        caseDeposit ? parseFloat(caseDeposit) : null,
         reorderQty:         reorderQty ? parseInt(reorderQty) : null,
         ebtEligible:        form.ebtEligible,

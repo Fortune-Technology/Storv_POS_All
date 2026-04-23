@@ -26,7 +26,7 @@ import {
   scanLotteryBarcode, parseLotteryScan, moveBoxToSafe, markBoxSoldout, returnBoxToLotto,
   cancelPendingMove, runPendingMovesNow,
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
-  getDailyLotteryInventory, closeLotteryDay,
+  getDailyLotteryInventory, closeLotteryDay, getYesterdayCloses,
   listLotterySettlements, getLotterySettlement,
   upsertLotterySettlement, finalizeLotterySettlement, markLotterySettlementPaid,
   syncLotteryCatalog,
@@ -109,6 +109,9 @@ router.get( '/online-total',    requirePermission('lottery.view'),   getLotteryO
 router.put( '/online-total',    requirePermission('lottery.manage'), upsertLotteryOnlineTotal);
 router.get( '/daily-inventory', requirePermission('lottery.view'),   getDailyLotteryInventory);
 router.post('/close-day',       requirePermission('lottery.manage'), closeLotteryDay);
+// April 2026: per-box previous-close snapshot map for the Daily page's
+// "yesterday" column. Driven by close_day_snapshot LotteryScanEvent rows.
+router.get( '/yesterday-closes', requirePermission('lottery.view'), getYesterdayCloses);
 
 // ── Phase 2: Weekly Settlement ───────────────────────────────────────────
 router.get( '/settlements',                     requirePermission('lottery.view'),   listLotterySettlements);

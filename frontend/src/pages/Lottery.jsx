@@ -1890,24 +1890,28 @@ function LotteryBody({ urlTab } = {}) {
   return (
     <div className="p-page lt-page">
 
-      {/* Header */}
-      <div className="p-header">
-        <div className="p-header-left">
-          <div className="p-header-icon"><Ticket size={22} /></div>
-          <div>
-            <h1 className="p-title">Lottery</h1>
-            <p className="p-subtitle">Ticket inventory, sales tracking & commission reports</p>
+      {/* Full page header — hidden when rendered via LotteryRouter. The
+          LotteryTabBar above us already identifies the page. Legacy
+          callers that mount <Lottery/> directly still get the header. */}
+      {!urlTab && (
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon"><Ticket size={22} /></div>
+            <div>
+              <h1 className="p-title">Lottery</h1>
+              <p className="p-subtitle">Ticket inventory, sales tracking & commission reports</p>
+            </div>
+          </div>
+          <div className="p-header-actions">
+            {/* Games are managed by superadmin (Admin → Lottery → Ticket Catalog). */}
+            {(TAB_STATUS[tab] !== undefined) && (
+              <button className="lt-btn lt-btn-primary" onClick={() => setReceiveModal(true)}>
+                <Package size={15} /> Receive Books
+              </button>
+            )}
           </div>
         </div>
-        <div className="p-header-actions">
-          {/* Games are managed by superadmin (Admin → Lottery → Ticket Catalog). */}
-          {(TAB_STATUS[tab] !== undefined) && (
-            <button className="lt-btn lt-btn-primary" onClick={() => setReceiveModal(true)}>
-              <Package size={15} /> Receive Books
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Internal tab strip — hidden when the page is rendered via
           LotteryRouter (urlTab prop present). The router already mounts

@@ -1370,6 +1370,24 @@ export default function ProductForm() {
         // Persist the simplified pack config (v2) so imports + the form stay in sync
         unitPack:           defaultUnitPack       ? parseInt(defaultUnitPack) : null,
         packInCase:         defaultPacksPerCase   ? parseInt(defaultPacksPerCase) : null,
+        // Session 40 post-release fix — the cashier catalog snapshot reads
+        // `depositPerUnit` (flat per-unit $), not `caseDeposit`. Historically
+        // this form only sent caseDeposit, which meant products with only a
+        // case-level deposit showed zero bottle deposit at the POS. Now we
+        // derive per-unit at save time from caseDeposit / (unitPack × packInCase)
+        // unless the user has an explicit per-unit value set.
+        depositPerUnit:     (() => {
+          const explicit = parseFloat(form.depositPerUnit);
+          if (explicit > 0) return explicit;
+          const cd  = parseFloat(caseDeposit);
+          const up  = parseFloat(defaultUnitPack) || 1;
+          const ppc = parseFloat(defaultPacksPerCase);
+          if (cd > 0 && up > 0 && ppc > 0) {
+            // Round to 4 decimals to match Prisma Decimal(10,4) column.
+            return Math.round((cd / (up * ppc)) * 10000) / 10000;
+          }
+          return null;
+        })(),
         caseDeposit:        caseDeposit ? parseFloat(caseDeposit) : null,
         reorderQty:         reorderQty ? parseInt(reorderQty) : null,
         ebtEligible:        form.ebtEligible,

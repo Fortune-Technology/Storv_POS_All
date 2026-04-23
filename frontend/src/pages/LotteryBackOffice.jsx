@@ -43,6 +43,7 @@ import {
   scanLotteryBarcode, parseLotteryBarcode, closeLotteryDay,
   listPosShifts, getLotterySettings,
   soldoutLotteryBox, moveLotteryBoxToSafe, activateLotteryBox, deleteLotteryBox,
+  getLotteryYesterdayCloses,
 } from '../services/api';
 import './LotteryBackOffice.css';
 
@@ -89,6 +90,7 @@ export default function LotteryBackOffice() {
   const [soldout, setSoldout]           = useState([]);
   const [returned, setReturned]         = useState([]);
   const [inventory, setInventory]       = useState(null);
+  const [yesterdayCloses, setYesterdayCloses] = useState({});   // { boxId: { ticket, closedAt } }
   const [online, setOnline]             = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
   const [manualSales, setManualSales]   = useState({ gross: 0, cancels: 0, coupon: 0, discounts: 0 });
   const [cashBalance, setCashBalance]   = useState(0);
@@ -111,7 +113,7 @@ export default function LotteryBackOffice() {
   // ── Loaders ─────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     const storeId = localStorage.getItem('activeStoreId');
-    const [a, s, d, r, inv, ot, sets, gs, cat, shifts] = await Promise.all([
+    const [a, s, d, r, inv, ot, sets, gs, cat, shifts, yCloses] = await Promise.all([
       getLotteryBoxes({ status: 'active' }).catch(() => []),
       getLotteryBoxes({ status: 'inventory' }).catch(() => []),
       getLotteryBoxes({ status: 'depleted' }).catch(() => []),
@@ -122,6 +124,7 @@ export default function LotteryBackOffice() {
       getLotteryGames(storeId).catch(() => []),
       getLotteryCatalog().catch(() => []),
       listPosShifts({ status: 'closed', storeId, dateFrom: date, dateTo: date, limit: 50 }).catch(() => null),
+      getLotteryYesterdayCloses({ date }).catch(() => null),
     ]);
     setActive  (Array.isArray(a) ? a : (a?.boxes || []));
     setSafe    (Array.isArray(s) ? s : (s?.boxes || []));
@@ -137,6 +140,7 @@ export default function LotteryBackOffice() {
     setSettings(sets);
     setGames(Array.isArray(gs) ? gs : gs?.games || []);
     setCatalog(Array.isArray(cat) ? cat : cat?.data || []);
+    setYesterdayCloses((yCloses && typeof yCloses === 'object' ? (yCloses.closes || yCloses) : {}) || {});
     // Cash balance for this day = sum of closed shifts' cash-collected
     const shiftList = Array.isArray(shifts) ? shifts : (shifts?.shifts || []);
     const cashSum = shiftList.reduce((s, sh) => s + Number(sh.cashSales || 0) - Number(sh.cashRefunds || 0), 0);
@@ -407,6 +411,7 @@ export default function LotteryBackOffice() {
                       scanMode={scanMode}
                       sellDirection={sellDirection}
                       isToday={date === todayStr()}
+                      yesterdayClose={yesterdayCloses[b.id]?.ticket ?? null}
                       onDraftChange={v => setCounterDrafts(d => ({ ...d, [b.id]: v }))}
                       onSave={() => saveTicket(b.id)}
                       onRename={(newNo)    => doBoxAction('rename',       b, { boxNumber: newNo })}
@@ -587,13 +592,22 @@ function ActionMenu({ items, align = 'right' }) {
 //   • Date != today              → prefilled with currentTicket (historical)
 // ════════════════════════════════════════════════════════════════════
 function CounterRow({
-  box, draft, scanMode, sellDirection, isToday,
+  box, draft, scanMode, sellDirection, isToday, yesterdayClose,
   onDraftChange, onSave,
   onRename, onRenameSlot, onSoldout, onReturn, onMoveToSafe,
 }) {
   const total    = Number(box.totalTickets || 0);
   const price    = Number(box.ticketPrice || 0);
-  const yesterday = box.lastShiftEndTicket ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1)));
+  // "Yesterday" priority:
+  //   1. yesterdayClose  → the value stored when the previous day was closed
+  //                        (from close_day_snapshot LotteryScanEvent rows)
+  //   2. lastShiftEndTicket → legacy fallback, last cashier shift-end
+  //   3. startTicket / direction-derived default → brand-new book
+  // This makes the day-over-day rollover correct: if book X closed at
+  // ticket 120 yesterday, today's "yesterday" shows 120.
+  const yesterday = (yesterdayClose != null && yesterdayClose !== '')
+    ? yesterdayClose
+    : (box.lastShiftEndTicket ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1))));
 
   // Default today value per the rules above.
   const defaultToday = (isToday && scanMode) ? '' : (box.currentTicket ?? '');
