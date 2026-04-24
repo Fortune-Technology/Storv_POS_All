@@ -203,7 +203,13 @@ export const useCartStore = create((set, get) => ({
     set(s => ({ items: [...s.items, item] }));
   },
 
-  addFuelItem: ({ fuelType, type = 'sale', gallons, pricePerGallon, amount, entryMode = 'amount', taxAmount = 0, notes }) => {
+  addFuelItem: ({
+    fuelType, type = 'sale',
+    gallons, pricePerGallon, amount,
+    entryMode = 'amount', taxAmount = 0, notes,
+    pumpId = null, pumpNumber = null,   // V1.5: pump attribution
+    refundsOf = null,                    // V1.5: refund → original sale id
+  }) => {
     // type: 'sale' (positive) | 'refund' (negative)
     // gallons + pricePerGallon + amount must all be set; the modal computes whichever is missing
     const sign = type === 'refund' ? -1 : 1;
@@ -211,6 +217,7 @@ export const useCartStore = create((set, get) => ({
     const ppg  = Math.abs(Number(pricePerGallon) || 0);
     const amt  = sign * Math.abs(Number(amount) || (gal * ppg));
     const tax  = sign * Math.abs(Number(taxAmount) || 0);
+    const pumpBadge = pumpNumber ? ` · Pump ${pumpNumber}` : '';
     const item = {
       lineId:           nanoid(8),
       isFuel:           true,
@@ -221,9 +228,13 @@ export const useCartStore = create((set, get) => ({
       gallons:          sign * gal,
       pricePerGallon:   ppg,
       entryMode,
+      // V1.5
+      pumpId,
+      pumpNumber,
+      refundsOf,
       name:             type === 'refund'
-                          ? `⛽ Fuel Refund — ${fuelType?.name || 'Fuel'}`
-                          : `⛽ ${fuelType?.name || 'Fuel'}${fuelType?.gradeLabel ? ' (' + fuelType.gradeLabel + ')' : ''}`,
+                          ? `⛽ Fuel Refund — ${fuelType?.name || 'Fuel'}${pumpBadge}`
+                          : `⛽ ${fuelType?.name || 'Fuel'}${fuelType?.gradeLabel ? ' (' + fuelType.gradeLabel + ')' : ''}${pumpBadge}`,
       qty:              1,
       unitPrice:        amt,
       effectivePrice:   amt,

@@ -2,13 +2,15 @@
  * CloseShiftModal — Count the closing cash drawer, review variance, and close shift.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
-import { X, Lock, TrendingDown, TrendingUp, Minus, Printer, CheckCircle, Delete, FileText } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { X, Lock, TrendingDown, TrendingUp, Minus, Printer, CheckCircle, Delete, FileText, Gauge } from 'lucide-react';
 import { useShiftStore } from '../../stores/useShiftStore.js';
 import { useAuthStore }  from '../../stores/useAuthStore.js';
-import { getEndOfDayReport as apiGetEoDReport } from '../../api/pos.js';
+import { useStationStore } from '../../stores/useStationStore.js';
+import { getEndOfDayReport as apiGetEoDReport, getFuelTanks, createFuelStickReading } from '../../api/pos.js';
 import { printEoDReport } from '../../services/printerService.js';
 import { usePOSConfig }   from '../../hooks/usePOSConfig.js';
+import { useFuelSettings } from '../../hooks/useFuelSettings.js';
 import './CloseShiftModal.css';
 
 const fmt = (n) => (n == null ? '--' : `$${Number(n).toFixed(2)}`);
@@ -145,7 +147,9 @@ function ShiftReportPrintable({ report }) {
 export default function CloseShiftModal({ onClose, onClosed }) {
   const { shift, closeShift, loading, error, clearError } = useShiftStore();
   const logout = useAuthStore(s => s.logout);
+  const storeId = useStationStore(s => s.station?.storeId);
   const posConfig = usePOSConfig();
+  const { settings: fuelSettings } = useFuelSettings();
 
   const [mode, setMode] = useState('denominations');
   const [counts, setCounts] = useState(initCounts);
@@ -155,6 +159,66 @@ export default function CloseShiftModal({ onClose, onClosed }) {
   const [report, setReport] = useState(null);
   const [printingEoD, setPrintingEoD] = useState(false);
   const [eodError, setEodError] = useState(null);
+
+  // V1.5: Stick-reading prompt — when fuel is enabled and cadence=shift,
+  // fetch active tanks + require cashier to enter a reading (or Skip) before
+  // closing the shift.
+  const [tanks, setTanks]                   = useState([]);
+  const [tankReadings, setTankReadings]     = useState({}); // { tankId: "actual gallons" }
+  const [readingsSaved, setReadingsSaved]   = useState(false);
+  const [readingsSkipped, setReadingsSkipped] = useState(false);
+  const [readingsSaving, setReadingsSaving] = useState(false);
+  const [readingsError, setReadingsError]   = useState(null);
+
+  const promptForFuelReadings = Boolean(
+    fuelSettings?.enabled
+    && fuelSettings?.reconciliationCadence === 'shift'
+  );
+
+  useEffect(() => {
+    if (!promptForFuelReadings || !storeId) return;
+    getFuelTanks(storeId)
+      .then(rows => {
+        // Only fetch readings for active tanks with positive current level
+        const active = Array.isArray(rows) ? rows.filter(t => t.active !== false && !t.deleted) : [];
+        setTanks(active);
+        if (active.length === 0) setReadingsSkipped(true); // no tanks → auto-skip
+      })
+      .catch(() => setTanks([]));
+  }, [promptForFuelReadings, storeId]);
+
+  const allReadingsEntered = tanks.length > 0
+    && tanks.every(t => {
+      const v = tankReadings[t.id];
+      return v !== '' && v != null && !Number.isNaN(Number(v));
+    });
+
+  const readingsGateOk = !promptForFuelReadings
+    || tanks.length === 0
+    || readingsSaved
+    || readingsSkipped;
+
+  const handleSaveReadings = async () => {
+    if (!allReadingsEntered) return;
+    setReadingsSaving(true);
+    setReadingsError(null);
+    try {
+      for (const t of tanks) {
+        await createFuelStickReading({
+          storeId,
+          tankId:        t.id,
+          actualGallons: Number(tankReadings[t.id]),
+          shiftId:       shift?.id || undefined,
+          notes:         'Recorded at shift close',
+        });
+      }
+      setReadingsSaved(true);
+    } catch (err) {
+      setReadingsError(err?.response?.data?.error || err?.message || 'Failed to save readings');
+    } finally {
+      setReadingsSaving(false);
+    }
+  };
 
   const denomTotal = useMemo(() => ALL.reduce((s, d) => s + d.value * (parseInt(counts[String(d.value)]) || 0), 0), [counts]);
   const manualAmount = parseInt(digits || '0') / 100;
@@ -272,6 +336,69 @@ export default function CloseShiftModal({ onClose, onClosed }) {
           </div>
         )}
 
+        {/* V1.5: Fuel stick-reading prompt — gates the shift close when
+            FuelSettings.reconciliationCadence === 'shift' and active tanks exist. */}
+        {promptForFuelReadings && tanks.length > 0 && !readingsSaved && !readingsSkipped && (
+          <div className="csm-fuel-reading">
+            <div className="csm-fuel-reading-head">
+              <Gauge size={16} />
+              <div>
+                <div className="csm-fuel-reading-title">Tank Readings Required</div>
+                <div className="csm-fuel-reading-sub">
+                  Measure each active tank with a stick and enter the actual gallons. Your reconciliation cadence is set to per-shift.
+                </div>
+              </div>
+            </div>
+            <div className="csm-fuel-reading-grid">
+              {tanks.map(t => (
+                <div key={t.id} className="csm-fuel-reading-row">
+                  <div className="csm-fuel-reading-tank">
+                    <div className="csm-fuel-reading-tank-name">{t.name}</div>
+                    <div className="csm-fuel-reading-tank-cap">
+                      Capacity: {Number(t.capacityGal).toLocaleString()} gal
+                    </div>
+                  </div>
+                  <div className="csm-fuel-reading-input-wrap">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      placeholder="Actual gallons"
+                      value={tankReadings[t.id] ?? ''}
+                      onChange={e => setTankReadings(r => ({ ...r, [t.id]: e.target.value }))}
+                      className="csm-fuel-reading-input"
+                    />
+                    <span className="csm-fuel-reading-unit">gal</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {readingsError && <div className="csm-fuel-reading-err">{readingsError}</div>}
+            <div className="csm-fuel-reading-actions">
+              <button
+                className="csm-fuel-reading-skip"
+                onClick={() => setReadingsSkipped(true)}
+                disabled={readingsSaving}
+              >
+                Skip (not recommended)
+              </button>
+              <button
+                className="csm-fuel-reading-save"
+                onClick={handleSaveReadings}
+                disabled={!allReadingsEntered || readingsSaving}
+              >
+                {readingsSaving ? 'Saving…' : 'Save Readings'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {promptForFuelReadings && readingsSaved && (
+          <div className="csm-fuel-reading-done">
+            <CheckCircle size={14} color="#16a34a" /> Tank readings saved — proceed with shift close.
+          </div>
+        )}
+
         <div className="csm-mode-tabs">
           {[['denominations', 'Count by Denomination'], ['manual', 'Enter Total']].map(([m, label]) => (
             <button key={m} className={`csm-mode-tab${mode === m ? ' csm-mode-tab--active' : ' csm-mode-tab--inactive'}`}
@@ -336,8 +463,13 @@ export default function CloseShiftModal({ onClose, onClosed }) {
             <div className="csm-footer-label">COUNTED TOTAL</div>
             <div className="csm-footer-amount">${closingAmount.toFixed(2)}</div>
           </div>
-          <button className={`csm-close-shift-btn${loading ? ' csm-close-shift-btn--loading' : ' csm-close-shift-btn--active'}`} onClick={handleClose} disabled={loading}>
-            {loading ? 'Calculating...' : 'Close Shift & See Variance'}
+          <button
+            className={`csm-close-shift-btn${loading ? ' csm-close-shift-btn--loading' : ' csm-close-shift-btn--active'}`}
+            onClick={handleClose}
+            disabled={loading || !readingsGateOk}
+            title={!readingsGateOk ? 'Complete or skip the tank readings above before closing the shift' : undefined}
+          >
+            {loading ? 'Calculating...' : (!readingsGateOk ? 'Enter tank readings to continue' : 'Close Shift & See Variance')}
           </button>
         </div>
       </div>

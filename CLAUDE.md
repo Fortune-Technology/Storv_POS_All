@@ -7144,3 +7144,472 @@ Because the scan engine uses `parseAny`'s return value unchanged and the shape i
 
 *Last updated: April 2026 — Session 40 follow-up: MA lottery adapter parses the new 29-digit QR payload (`GGG 0 BBBBBB TTT + 16 metadata digits`). 8 new tests; full lottery suite 150/150 green.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 41)
+
+### #3 — Quick Button default bug fix (cashier-app)
+
+**Bug**: on fresh cashier sign-in, stores with a configured Quick Button layout were dropped onto the CATALOG tab instead of QUICK BUTTONS. Reported by user — Session 39 R1's snap-back + default logic looked right but didn't behave right.
+
+**Root cause**: [`useQuickButtonLayout`](cashier-app/src/hooks/useQuickButtonLayout.js) returned `EMPTY_LAYOUT` (`tree: []`) synchronously on mount before the async fetch completed. POSScreen's fallback effect (`!hasQuickButtons && quickTab === 'buttons' → setQuickTab('catalog')`) fired immediately on the initial EMPTY_LAYOUT, flipping to CATALOG. When the real layout loaded ~200ms later with non-empty tree, `hasQuickButtons` became true but nothing flipped `quickTab` back. The snap-back-after-sale path still worked (that's why Session 20's E2E test seemed fine), but every fresh session started on the wrong tab.
+
+**Fix**:
+- [`useQuickButtonLayout.js`](cashier-app/src/hooks/useQuickButtonLayout.js) — added `loaded` state that flips to `true` only after the first fetch for a valid `storeId` completes (success OR failure). Guarded against flipping `loaded` when `storeId` is null — otherwise the null-mount case would incorrectly mark as "loaded empty".
+- [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) fallback effect — now waits for `quickLayoutLoaded` before doing anything:
+  ```jsx
+  useEffect(() => {
+    if (!quickLayoutLoaded) return;   // wait for first fetch
+    if (!hasQuickButtons && quickTab === 'buttons') setQuickTab('catalog');
+  }, [quickLayoutLoaded, hasQuickButtons, quickTab]);
+  ```
+  Stores with real layouts stay on `'buttons'`; stores without fall back to `'catalog'` after confirmed empty.
+
+---
+
+### #1 — Age verification toggle — promoted to its own section
+
+The `posConfig.ageVerification` flag was already wired end-to-end (default, toggle, cashier-app `addWithAgeCheck` bypass) from a prior session, but **buried in the generic "FEATURES" toggle grid** alongside Departments / Quick Add / Numpad / Customer Lookup. User asked for it because they couldn't find it.
+
+**Changes** ([`POSSettings.jsx`](frontend/src/pages/POSSettings.jsx)):
+- Removed `ageVerification` toggle from the FEATURES grid
+- New dedicated **AGE VERIFICATION** card between Features and Department Visibility, with:
+  - Amber-tinted `ShieldCheck` icon badge
+  - Clear explanatory copy: *"When **ON**, the cashier sees a Date of Birth prompt when a tobacco or alcohol item is added to the cart — the cashier must visually verify the customer's ID and enter the birth date to confirm. When **OFF**, items are added silently with no prompt (bypassed)."*
+  - Prominent "Enforce Age Verification Prompt" toggle row
+  - Inline status hint that changes with the toggle: *"Cashier is prompted to verify ID for age-restricted items."* / *"⚠ Bypassed — no prompt shown. Use only if your staff verify ID another way."*
+- Note: the store-level `ageLimits` (tobacco / alcohol thresholds) are unchanged — they still control the prompt threshold when enabled. User confirmed this split explicitly: *"Yes, add one global toggle, and existing still controls department wise."*
+
+No schema / backend changes — the flag already persists in `store.pos` JSON.
+
+---
+
+### #2 — Per-register layout override
+
+User requested different POS screen layouts per register at the same store (e.g. Express Lane preset on Reg 1, Counter preset on Reg 2), while **every other POS setting remains store-wide**. Explicitly confirmed in the planning round: *"Just the layouts per register (other settings are global)"*.
+
+**Data model** — new `stationLayouts` JSON map in `store.pos`:
+```json
+{
+  "layout": "modern",                          // store-wide default (existing)
+  "stationLayouts": {                          // per-station overrides (new)
+    "cmo8uufzq0000h5k3psylas8r": "express",
+    "cmo235rhp000112q8muvrev6g": "counter"
+  }
+}
+```
+No schema migration — rides on the existing `store.pos` JSON column that already round-trips via `GET/PUT /api/pos-terminal/config`.
+
+**Cashier-app resolution** ([`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx)):
+```js
+const resolvedLayout =
+  (station?.id && posConfig.stationLayouts?.[station.id]) ||
+  posConfig.layout ||
+  'modern';
+```
+The existing `layoutCfg` useMemo switches on `resolvedLayout` instead of `posConfig.layout`. All OTHER fields (shortcuts, numpad, action-bar height, etc.) continue to read directly from store-wide `posConfig.*`.
+
+[`usePOSConfig.js`](cashier-app/src/hooks/usePOSConfig.js):
+- Added `stationLayouts: {}` to `DEFAULT_POS_CONFIG`
+- Extended `mergeConfig` to deep-merge the map (server values override defaults, but only for keys the server sends)
+
+**Back-office editor** ([`POSSettings.jsx`](frontend/src/pages/POSSettings.jsx) Layout Preset section):
+- Loads stations via `GET /api/pos-terminal/stations?storeId=X` on store change
+- New picker at the top of the LAYOUT PRESET card:
+  - "Apply layout to:" dropdown — "All registers (store default)" + one option per station
+  - Each station option shows " — overridden" suffix if it has an entry in `stationLayouts`
+- When `layoutTarget === 'all'`: clicking a preset updates `config.layout` (store-wide)
+- When `layoutTarget === <stationId>`:
+  - Active preset reflects `config.stationLayouts[stationId] || config.layout` (inherit visible as active)
+  - Clicking a preset writes to `config.stationLayouts[stationId]`
+  - Hint: *"Inherits store default (modern). Pick a preset below to override."* (when no override yet)
+  - Red "✕ Remove override" button (when override exists) — clears the entry, back to inherit
+- Summary strip at the bottom of the card lists all active overrides at a glance:
+  *"Per-register overrides: Register 1 → express, Backup Terminal → counter"*
+
+**Verified end-to-end** via preview against the live dev stack:
+- Store default = modern, picked Register 1 → clicked Express Lane → "Register 1 — overridden" label appeared, Express Lane highlighted with checkmark, summary strip shows `Register 1 → express`
+- Clicked Save → `GET /pos-terminal/config` returns `stationLayouts: { "cmo8uufzq0000h5k3psylas8r": "express" }` (confirmed via API fetch)
+- Clicked Remove override + Save → `stationLayouts: {}` (round-trip clean)
+- Config polls every 5 min + on tab visibility-change, so the cashier-app picks up the new layout within 5 minutes of save without requiring a restart
+
+### Files Changed (Session 41)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/hooks/useQuickButtonLayout.js` | +`loaded` state; don't mark loaded when storeId is null |
+| `cashier-app/src/hooks/usePOSConfig.js` | +`stationLayouts: {}` default + deep merge in `mergeConfig` |
+| `cashier-app/src/screens/POSScreen.jsx` | Quick-tab fallback effect waits for `quickLayoutLoaded`; `resolvedLayout` resolves station-level override over store default |
+| `frontend/src/pages/POSSettings.jsx` | Removed age toggle from FEATURES; new dedicated AGE VERIFICATION card with explanatory copy; LAYOUT PRESET section has station picker / per-station override / Remove override / summary strip |
+
+No backend changes — both features ride on existing `store.pos` JSON round-trip.
+
+### Deferred (still awaiting user input)
+
+**#4 Fuel Inventory Management** — user answered key design questions (multi-tank YES, stick readings YES, FIFO cost tracking, manual entry V1, horizontal tanks with flow animation) but three industry questions remain before starting:
+1. **Blended middle grade?** — do stores blend Plus/89 from Regular + Premium tanks, or is every grade its own tank?
+2. **Split deliveries?** — can one truck-drop split across multiple tanks on a single BOL?
+3. **Stick-reading cadence?** — daily at shift close, weekly, or on-demand? (drives the variance-report UI)
+
+Awaiting user's answers before starting. Estimated 1 full session once locked.
+
+---
+
+*Last updated: April 2026 — Session 41: #3 Quick Button default bug fix (loaded flag gating), #1 Age Verification toggle promoted to dedicated card, #2 Per-register layout override (stationLayouts JSON + back-office picker + cashier-app resolution).*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 42)
+
+### Fuel Inventory Management — V1 (#4)
+
+Large feature. Full inventory + FIFO cost tracking for the fuel module. Includes tank visualization (horizontal cylinder with continuous shimmer + steady-level side panel), multi-tank-per-grade topology (manifolded / independent / sequential reserved), BOL-based deliveries that split across tanks and become FIFO cost layers, stick-reading reconciliation with variance alerts, dispenser blending for middle-grade blends (Plus 89 from 87 + 93), and time-granular FIFO P&L reports (hourly / daily / weekly / monthly / yearly).
+
+#### Schema (6 new models + 2 extensions, non-destructive `prisma db push`)
+
+| Model | Purpose |
+|---|---|
+| `FuelTank` | Physical underground tank. Per-store + per-grade. Horizontal cylinder dimensions (diameter + length) for accurate viz. `topology: 'independent' \| 'manifolded' \| 'sequential'`. `isPrimary` picks the default tank for a grade when 2+ independent tanks exist. |
+| `FuelManifoldGroup` | Grouped tanks that share a level. `drainMode: 'equal' \| 'capacity'`. Sales deduct proportionally across all members in the group. |
+| `FuelDelivery` | One BOL: supplier, date, notes, aggregate `totalGallons` + `totalCost`. |
+| `FuelDeliveryItem` | Per-tank fill from one BOL **and doubles as a FIFO cost layer** — `gallonsReceived` + `pricePerGallon` + `remainingGallons` decrements as sales post. |
+| `FuelStickReading` | Manual measurement: `actualGallons` vs software-expected `expectedGallons` = `variance` + `variancePct`. |
+| `FuelBlendConfig` | Optional: maps a middle-grade FuelType to a base + premium FuelType with `baseRatio` ∈ [0, 1]. Only evaluated when `FuelSettings.blendingEnabled = true`. |
+| `FuelTransaction` ext. | `tankId` + `fifoLayers` JSON (array of `{ deliveryItemId, gallons, pricePerGallon, cost }`) — enables FIFO-accurate COGS + P&L. |
+| `FuelSettings` ext. | `reconciliationCadence` (`shift \| daily \| weekly \| on_demand`, default `shift`) + `varianceAlertThreshold` (default 2%) + `blendingEnabled` (off by default). |
+
+#### Backend — FIFO inventory service + 15 new endpoints
+
+**[`backend/src/services/fuelInventory.js`](backend/src/services/fuelInventory.js) (NEW)** — pure FIFO + topology logic:
+
+- `getTankLevel(tankId)` / `getAllTankLevels(storeId)` — sum of remaining FIFO layers per tank
+- `resolveTankForSale({ orgId, storeId, fuelTypeId, gallons })` returns one of:
+  - `{ mode: 'single', tankId }` — independent grade with one primary tank
+  - `{ mode: 'manifold', tanks: [{tankId, fraction}] }` — manifolded grade, equal or capacity split
+  - `{ mode: 'blend', legs: [{tankId, gallons, label: 'base' | 'premium'}] }` — middle grade blended from base + premium tanks per FuelBlendConfig
+  - `{ mode: 'none' }` — no tank configured for this grade (legacy mode, sale still records without FIFO trace)
+- `drawFromTank(tankId, gallons)` — consume from oldest non-empty layer first; returns `{ consumed: [...], cogs, unallocatedGallons }`; flips `fullyConsumedAt` timestamp on emptied layers
+- `applySale({...})` / `applyRefund({ fifoLayers, tankId, gallons })` — sale aggregates across tanks (for manifold / blend); refund credits back to the same layers the original sale drew from (or to the most recent layer if no trace)
+- `recordDelivery({...})` — creates `FuelDelivery` + per-tank `FuelDeliveryItem` in one transaction, `remainingGallons` seeded to full
+- `recordStickReading({...})` — wraps the variance computation
+
+**[`backend/src/controllers/fuelController.js`](backend/src/controllers/fuelController.js)** — 15 new endpoints grouped by domain:
+
+| Category | Endpoints |
+|---|---|
+| Tanks | `GET /tanks` (returns `currentLevelGal` + `fillPct` per tank), `POST /tanks`, `PUT /tanks/:id`, `DELETE /tanks/:id` (soft delete — preserves FIFO history) |
+| Manifold groups | `GET/POST/PUT/DELETE /manifold-groups` |
+| Deliveries | `GET /deliveries`, `POST /deliveries` (validates every item's tank belongs to store, rejects negative gallons), `DELETE /deliveries/:id` (blocked if any layer has been partially consumed) |
+| Stick readings | `GET /stick-readings`, `POST /stick-readings` (computes variance at entry-time from current FIFO level), `DELETE /stick-readings/:id` |
+| Blend configs | `GET /blend-configs`, `POST /blend-configs` (upsert by `middleFuelTypeId`), `DELETE /blend-configs/:id` |
+| Inventory status | `GET /inventory-status` — all tanks + current levels + fill % + last reading + alerting flag per `varianceAlertThreshold` |
+| P&L report | `GET /pnl-report?from=&to=&granularity=hourly\|daily\|weekly\|monthly\|yearly` — per-bucket `gallons/revenue/cogs/profit/marginPct/avgPrice/txCount` + per-grade breakdown inside each bucket |
+
+**[`backend/src/controllers/posTerminalController.js`](backend/src/controllers/posTerminalController.js)** — both `createTransaction` + `batchCreateTransactions` fuel-item save paths now call `applySale` / `applyRefund` via dynamic import of `fuelInventory.js`, writing `tankId` + `fifoLayers` on each `FuelTransaction` row. Refunds that carry `fifoLayers` in their payload credit back to the same layers.
+
+#### Portal — 3 new tabs + enhanced Report tab + Settings extensions
+
+[`Fuel.jsx`](frontend/src/pages/Fuel.jsx) — reshuffled tab bar to 7 tabs: Overview / Fuel Types / **Tanks** / **Deliveries** / **Reconciliation** / Reports / Settings.
+
+**Tanks tab** — tanks grouped by fuel grade, each rendered with the new `<TankVisualizer>` component. Per-tank edit + delete buttons overlay the viz. `TankForm` modal has fields for name, tank code, grade (FuelType picker), capacity, diameter + length (for viz accuracy), topology (independent / manifolded / sequential), manifold group (only shown when topology='manifolded'), and primary-tank toggle (clears any other primary for the same grade on save).
+
+**Deliveries tab** — table of past BOLs with per-tank line details (gallons, $/gal, remaining). `DeliveryForm` modal has date / supplier / BOL# / notes, then a dynamic row list ("Add Tank Line") where one truck-drop can split across multiple tanks with different gallons + $/gal per tank. Live "TOTAL / COST" summary at the bottom. Validates every row has tankId + positive gallons before submit.
+
+**Reconciliation tab** — variance dashboard at top: one card per tank showing current level, fuel type, last reading with variance %, amber-flagged alerting cards when last variance exceeded the threshold. Below, table history of all stick readings (oldest to newest) with actual vs expected + variance + variance %. `StickReadingForm` modal picks a tank, shows the current software-expected level, and live-computes variance as the user types the actual measurement.
+
+**Reports tab** (enhanced) — time-granularity picker (hourly / daily / weekly / monthly / yearly) drives the new `GET /pnl-report` endpoint. Big-number strip: Net Gallons / Revenue / COGS (FIFO) / Profit / Margin / Avg $/Gal. Below, a per-bucket table with gallons / revenue / cogs / profit (colored green/red) / margin / avg price / tx count. Disclaimer at the bottom notes that pre-FIFO sales (before the inventory module was enabled) show COGS as $0 — scope your date range to after your first delivery for meaningful P&L. By-grade breakdown table remains below.
+
+**Settings tab** (extensions) — new "INVENTORY RECONCILIATION" section with cadence dropdown + variance threshold input. New "ADVANCED: DISPENSER BLENDING" section with opt-in toggle (off by default); when on, inline `<BlendConfigPanel>` appears listing all active blend mappings with "Add Blend" modal that configures middle → base + premium grade mapping with ratio.
+
+#### Tank Visualization — horizontal cylinder with continuous shimmer
+
+**[`TankVisualizer.jsx`](frontend/src/components/fuel/TankVisualizer.jsx) + [`.css`](frontend/src/components/fuel/TankVisualizer.css) (NEW)** — prefix `tv-`:
+
+Key design decisions:
+- **Horizontal cylinder physics** — `volPctToHeightPct()` inverts the circular chord-area formula via binary search so the on-screen fuel height at 50% volume is exactly at centerline (matches physical reality for horizontal tanks, where a horizontal tank at 50% capacity has fuel level at exactly half-height). At 25% volume, chord math puts the surface at ~19% height — the viz reflects this correctly.
+- **Continuous shimmer** — two SVG `<path>` elements with sine wave profiles animate via `@keyframes tv-wave-slide` / `tv-wave-slide-reverse` (different periods: 4.5s and 6s, reversed directions) to create the "surface motion" effect. Always on, subtle (opacity 0.35 + 0.18).
+- **Steady-level side panel** — to the right of the SVG, a static panel shows tabular-numeric "CURRENT / CAPACITY / FILL / VARIANCE" rows. No animation on the numbers — per user spec "continuous shimmer, But show cadance in side with steady level". The shimmer reads as surface motion; the numbers read as the authoritative level.
+- **Fill-flash / drain-flash** — `justFilled` / `justDrained` props apply `.tv-root--filling` (green) or `.tv-root--draining` (amber) outer-glow for 1.6s via `@keyframes tv-fill-flash` / `tv-drain-flash`. Parent flips the flag true after a successful API call, then resets after 1.6s.
+- **Low-level warning** — `fillPct < 20` flips the "FILL" panel value red + renders a "⚠ Low level — reorder soon" strip at the bottom of the panel.
+- **Responsive** — <=768px: SVG + panel stack vertically, panel goes horizontal with panel rows in 2 columns.
+
+#### Portal API helpers — 22 new exports in [`api.js`](frontend/src/services/api.js)
+
+Tanks CRUD (`listFuelTanks`, `createFuelTank`, `updateFuelTank`, `deleteFuelTank`) · Manifold groups CRUD (`listManifoldGroups`, `createManifoldGroup`, `updateManifoldGroup`, `deleteManifoldGroup`) · Deliveries (`listFuelDeliveries`, `createFuelDelivery`, `deleteFuelDelivery`) · Stick readings (`listStickReadings`, `createStickReading`, `deleteStickReading`) · Blend configs (`listBlendConfigs`, `upsertBlendConfig`, `deleteBlendConfig`) · Inventory status + P&L report (`getFuelInventoryStatus`, `getFuelPnlReport`).
+
+#### Verified end-to-end (live dev stack)
+
+| Step | Result |
+|---|---|
+| `npx prisma db push` with 6 new models + 2 extensions | ✓ non-destructive, schema in sync |
+| `npx prisma generate` | ✓ client regenerated, types available |
+| Backend restart clean | ✓ no import errors |
+| `POST /fuel/settings { enabled: true, reconciliationCadence, varianceAlertThreshold, blendingEnabled }` | ✓ 200 — all 3 new fields round-trip via JSON |
+| `POST /fuel/types` → Regular 87 @ $3.999 | ✓ type created |
+| `POST /fuel/tanks` → 10k gal horizontal cylinder, primary | ✓ tank created |
+| `POST /fuel/deliveries` → 4500 gal @ $3.20/gal → Tank A | ✓ delivery + FIFO layer created |
+| `GET /fuel/inventory-status` | ✓ Tank A shows currentLevelGal: 4500, fillPct: 45.0%, alerting: false |
+| Portal `/portal/fuel` | ✓ 7 tabs render: Overview / Fuel Types / Tanks / Deliveries / Reconciliation / Reports / Settings |
+| Tanks tab → `<TankVisualizer>` | ✓ renders with label "Tank A - Regular 87 (A1) ★", panel values "4,500 gal / 10,000 gal / 45.0%" |
+
+FIFO-aware sale path verified via code trace (applied in both `createTransaction` and `batchCreateTransactions`). First real fuel sale through the cashier-app will record `tankId` + `fifoLayers` on the `FuelTransaction` row, which the P&L report endpoint then uses for accurate COGS.
+
+### Files Changed (Session 42)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +6 new models (`FuelTank`, `FuelManifoldGroup`, `FuelDelivery`, `FuelDeliveryItem`, `FuelStickReading`, `FuelBlendConfig`) + extensions on `FuelTransaction` (`tankId`, `fifoLayers`) and `FuelSettings` (`reconciliationCadence`, `varianceAlertThreshold`, `blendingEnabled`) |
+| `backend/src/services/fuelInventory.js` | NEW — FIFO + topology resolution + delivery + stick-reading transactions |
+| `backend/src/controllers/fuelController.js` | +15 new handlers (tank/manifold/delivery/stick/blend CRUD + inventory-status + pnl-report); `updateFuelSettings` accepts 3 new fields |
+| `backend/src/routes/fuelRoutes.js` | +15 new routes gated on `fuel.*` permissions |
+| `backend/src/controllers/posTerminalController.js` | `createTransaction` + `batchCreateTransactions` fuel paths call `applySale`/`applyRefund`, persist `tankId` + `fifoLayers` |
+
+**Portal**:
+| File | Change |
+|---|---|
+| `frontend/src/services/api.js` | +22 API helpers |
+| `frontend/src/components/fuel/TankVisualizer.jsx` + `.css` | NEW — horizontal cylinder viz with continuous shimmer + steady-level side panel (prefix `tv-`) |
+| `frontend/src/pages/Fuel.jsx` | 3 new tabs (Tanks / Deliveries / Reconciliation), enhanced Reports tab with granularity + FIFO P&L, Settings extensions (reconciliation cadence + variance threshold + blending section with BlendConfigPanel + BlendForm) |
+
+### V1.5 Backlog (next session when prioritised)
+
+- **Pump → Tank mapping** — for independent multi-tank setups (two separate Regular 87 tanks, not manifolded), V1 uses the "primary tank" of that grade. V1.5 should let admins configure per-pump tank assignment so cashier selects pump # and the backend resolves which tank the sale draws from. Requires new `FuelPump` model + cashier-side pump picker.
+- **Sequential drain mode** — tank topology reserved slot but not yet enforced. Primary drains first until `remainingGallons < threshold`, then secondary kicks in. Useful for diesel / heating oil where taking one tank offline for maintenance shouldn't stop sales.
+- **ATG (Automatic Tank Gauge) integration** — physical tank-level probes replace manual stick readings. V1 is manual only.
+- **Temperature compensation** — fuel volume varies with temperature; serious tank management tracks temperature-compensated measurements. Needed for high-precision reconciliation.
+- **Delivery cost variance report** — vendor pricing changes between deliveries create hidden margin erosion; report should flag when $/gal on a new BOL exceeds the last 3-delivery average by >5%.
+- **Shift-boundary auto-reconciliation prompt** — when `reconciliationCadence='shift'`, EoD close modal should show "Enter stick readings?" step for every active tank (similar to lottery scan mandate).
+
+---
+
+*Last updated: April 2026 — Session 42: Fuel Inventory Management V1 — 6 new Prisma models + FIFO cost tracking, multi-tank topology (independent / manifolded / blend), BOL-based deliveries with per-tank split, stick-reading reconciliation with variance alerts, dispenser blending (opt-in), horizontal cylinder tank viz with continuous shimmer + steady-level side panel, time-granular FIFO P&L report (hourly / daily / weekly / monthly / yearly). Verified end-to-end in preview with live 4500 gal delivery → 45.0% tank fill display.*
+
+---
+
+## 📦 Session 42b — UI Polish: Bigger Tanks + Modal CSS Fix
+
+Follow-up after user tested Session 42 and flagged three specific issues: tanks too small, modal popups had no styling (text-only forms, no borders/borders/spacing), and the inline-style blobs felt inconsistent with the rest of the portal.
+
+### What was broken
+
+Session 42's modals referenced two class names (`fuel-modal-overlay`, `fuel-form-row`) that did not exist in [Fuel.css](frontend/src/pages/Fuel.css) — the existing modal CSS used `fuel-modal-backdrop` and `fuel-field`. The form bodies rendered as unstyled HTML — raw browser-default inputs (gray borders, no radius, no padding consistency), no overlay background, no shadow, nothing.
+
+Additionally the `TankVisualizer` default width of 340px + 130px side panel was tiny at full width; tanks should command the page on the Tanks tab since that's the main point of the module.
+
+Settings subsections ("INVENTORY RECONCILIATION", "ADVANCED: DISPENSER BLENDING") and the Reconciliation tab's per-tank status cards, delivery totals strip, and blend mapping rows were all built with inline `style={{}}` objects referencing CSS vars that either don't exist in the portal (`--bg-tertiary`) or were too dim for the light theme — cards looked like they had no background.
+
+### What changed
+
+**[`Fuel.css`](frontend/src/pages/Fuel.css) (+~250 lines)** — new class families with the `fuel-` prefix:
+
+| Class | Purpose |
+|---|---|
+| `.fuel-modal-overlay` | Fixed-position backdrop, `rgba(15, 23, 42, 0.55)` + `backdrop-filter: blur(3px)`, flex-center child, z-index 1000 |
+| `.fuel-form-row` | Vertical-stacked label + input cell with 0.85rem bottom margin |
+| Input styling | `.fuel-form-row input:not([type="checkbox"])...`, `.fuel-modal-body input:not(...)` — unified 1px `#cbd5e1` border, 8px radius, 0.55rem/0.7rem padding, white bg, focus ring in red (`#dc2626`) |
+| `.fuel-tanks-grid` | `grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 1fr))`, 20px gap, fills full width |
+| `.fuel-tank-card` + `.fuel-tank-card-actions` + `.fuel-tank-card-meta` | Container + positioned edit/delete icons + topology/dimensions meta strip |
+| `.fuel-tank-group-header` | Grade-grouping section heading "Regular · 87 Octane · 2 tanks" |
+| `.fuel-reconcile-grid` + `.fuel-reconcile-card` (+ `--alert` variant) | Card grid for the per-tank status dashboard at top of Reconciliation tab |
+| `.fuel-reconcile-info` | "Variance threshold: 2% · Cadence: shift" info strip — light-gray background, clickable-looking |
+| `.fuel-delivery-total` | Delivery-modal footer summary (TOTAL gal + COST $) |
+| `.fuel-settings-subsection` + `.fuel-settings-subsection-title` + `.fuel-settings-subsection-title-row` | Settings-tab sub-sections with top border separator |
+| `.fuel-blend-panel` + `.fuel-blend-panel-head` + `.fuel-blend-panel-title` + `.fuel-blend-row` | Dispenser-blend mapping list (light-gray surface with white rows inside) |
+| `.fuel-pnl-note` | Italic disclaimer strip under the Reports-tab P&L table |
+
+Responsive: new breakpoints at 1200px (tanks grid collapses to 1 col), 1024px (reconcile grid 1 col), 768px (delivery total stacks).
+
+**[`TankVisualizer.css`](frontend/src/components/fuel/TankVisualizer.css)** — scaled up:
+- `.tv-root` now fills container (`width: 100%`), white bg (was CSS var that resolved transparent), light shadow
+- `.tv-label` bumped to 1.05rem / 800 weight
+- `.tv-fueltype` badge bumped to 0.72rem / 800 weight / 4px-10px padding
+- `.tv-svg-wrap` gap +25%, `.tv-svg` grew from `max-height: 200px` to `height: 260px`
+- `.tv-panel` widened from 130px → 180px with linear-gradient background
+- `.tv-panel-value` font-size bumped 1.1rem → **1.55rem** (900 weight, -0.02em letter-spacing) for the primary CURRENT line; `.tv-panel-value--small` bumped 0.88rem → 1.05rem (800 weight)
+- `.tv-panel-alert` restyled — bolder text, rounded with border
+- New 1100px breakpoint: panel stacks horizontally BELOW the SVG (3-column layout of CURRENT / CAPACITY / FILL) so nothing clips at mid-size viewports
+- 768px breakpoint: SVG height 180px, smaller panel text
+
+**[`TankVisualizer.jsx`](frontend/src/components/fuel/TankVisualizer.jsx)** — two fixes:
+- `idSafe` memoization — strips anything non-alphanumeric from the label before using in SVG `url(#tv-grad-...)` references. Without this, labels like `"Tank A - Regular 87 (A1) ★"` produced `tv-grad-TankARegular87A1★` — the `★` character broke the URL ref, the gradient never resolved, and the fuel fill rendered with `fill="none"` (showing as dark fallback instead of green).
+- Default `width` / `height` props removed — component now fills the parent container by default. Explicit dimensions still honored when passed.
+
+**[`Fuel.jsx`](frontend/src/pages/Fuel.jsx)** — rewire to use the new classes:
+- `TanksTab` — grid uses `fuel-tanks-grid`, each tank card uses `fuel-tank-card` + `fuel-tank-card-actions` + `fuel-tank-card-meta`; group heading uses `fuel-tank-group-header`
+- Reconciliation status cards use `fuel-reconcile-card` (+ `--alert` variant)
+- Delivery modal totals strip uses `fuel-delivery-total`
+- Stick-reading expected-level strip uses `fuel-reconcile-info`
+- Settings subsections use `fuel-settings-subsection` + `fuel-settings-subsection-title`
+- Blend panel uses `fuel-blend-panel` + `fuel-blend-row`
+- Reports-tab disclaimer uses `fuel-pnl-note`
+
+Virtually every inline `style={{}}` in the new Session 42 tabs + Settings extensions has been replaced with a CSS class.
+
+### Verified end-to-end in preview
+
+| Surface | Result |
+|---|---|
+| Tanks tab — TankVisualizer | ✓ 762×342 card, 520×260 SVG with proper green gradient fuel fill, gauge ticks at 25/50/75/100%, horizontal 3-column panel below showing CURRENT 4,500 gal / CAPACITY 10,000 gal / FILL 45.0% |
+| Add Tank modal | ✓ Overlay backdrop (`rgba(15,23,42,0.55)` + blur), white rounded card, Name/Tank Code/Fuel Grade/Capacity/Diameter+Length/Topology rows with properly styled `#cbd5e1`-bordered inputs, Cancel+Create Tank buttons |
+| Record Delivery modal | ✓ Date + Supplier 2-col grid, BOL Number, "TANKS FILLED" section heading with dynamic row (tank dropdown + Gallons + $/gal + remove), "+ Add Tank Line" button, Notes textarea, TOTAL summary card, Cancel+Record Delivery |
+| Reconciliation tab | ✓ info strip "Variance threshold: 2.0% · Cadence: shift", per-tank card dashboard grid, reading history table |
+| Settings → INVENTORY RECONCILIATION | ✓ Stick-Reading Cadence dropdown ("Per shift (End of Day close)") + help text, Variance Alert Threshold % input + help text |
+| Settings → ADVANCED: DISPENSER BLENDING | ✓ toggle row, explanatory copy, Active Blend Mappings panel with "+ Add Blend" button and empty-state text |
+| Add Blend Mapping modal | ✓ Middle/Base/Premium grade selects, Base Ratio numeric input with help text |
+
+### Files Changed (Session 42b)
+
+| File | Change |
+|---|---|
+| `frontend/src/pages/Fuel.css` | +`fuel-modal-overlay`, `fuel-form-row`, `fuel-tanks-grid`, `fuel-tank-card*`, `fuel-tank-group-header`, `fuel-reconcile-*`, `fuel-delivery-total*`, `fuel-settings-subsection*`, `fuel-blend-*`, `fuel-pnl-note` + responsive breakpoints |
+| `frontend/src/components/fuel/TankVisualizer.jsx` | `idSafe` memoization for SVG gradient IDs; removed default `width`/`height` props so container governs size |
+| `frontend/src/components/fuel/TankVisualizer.css` | Bumped tank to ~260px tall, side panel 180px + gradient bg + 1.55rem bold values; added 1100px breakpoint that stacks panel below SVG |
+| `frontend/src/pages/Fuel.jsx` | Rewired TanksTab, Reconciliation, Delivery totals, Stick-reading strip, Settings subsections, Blend panel, P&L disclaimer to use the new CSS classes (deleted most inline `style={{}}`) |
+
+---
+
+*Last updated: April 2026 — Session 42b: Fuel UI polish — bigger tanks (260px tall SVG, 180px side panel with 1.55rem bold values), missing modal + form CSS classes added (fuel-modal-overlay, fuel-form-row, fuel-tanks-grid, fuel-reconcile-*, fuel-settings-subsection, fuel-blend-*), SVG gradient ID fix for labels with special characters, end-to-end verified in preview across Tanks tab, Add Tank modal, Record Delivery modal, Reconciliation tab, Settings subsections, Add Blend modal.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 43 — Fuel V1.5)
+
+Four V1.5 features shipped together: **pump → tank mapping**, **sequential drain mode**, **shift-boundary stick-reading prompt**, **delivery cost variance alert**. Also a shimmer animation fix for the tank viz (Session 42 artifact).
+
+### Schema (1 new model + 2 extensions)
+
+| Change | Purpose |
+|---|---|
+| `FuelPump` model | Physical dispenser. `pumpNumber` (required, unique per store), `label`, `color`, optional `tankOverrides: JSON` per-grade override (`{ fuelTypeIdX: tankIdY }`), soft-deleted. |
+| `FuelSettings` ext. | `pumpTrackingEnabled Boolean @default(false)` + `deliveryCostVarianceThreshold Decimal @default(5.0)` (industry-standard PDI/NACS price-anomaly threshold). |
+| `FuelTransaction` ext. | `pumpId String?` + relation, `refundsOf String?` for pump-aware refund linkage. |
+
+Pushed via `npx prisma db push` — non-destructive.
+
+### Tank visualizer — no more vibrating shimmer
+
+Replaced Session 42's `scaleY(1.4)` / `scaleY(0.7)` keyframes with pure-horizontal translation (`translateX(-3%)` over 14s + `translateX(2%)` over 19s, both linear). No vertical scaling = no jitter. Two waves at different periods + directions still give the illusion of fluid motion, just calmer.
+
+### Backend — FIFO service extensions + Pump CRUD + cost variance
+
+**[`fuelInventory.js`](backend/src/services/fuelInventory.js)**:
+- `resolveTankForSale({..., pumpId})` — pump with a `tankOverrides[fuelTypeId]` entry short-circuits to `{ mode: 'single', tankId }` (pump wins over topology)
+- New `mode: 'sequential'` branch — when a grade has 2+ `topology='sequential'` tanks, returns them ordered (primary first, then by createdAt). `applySale` walks them, draining the first until empty then falling through to the next.
+- `checkDeliveryCostVariance({..., newPricePerGallon})` — volume-weighted avg of last 3 delivery items for the grade → returns `{ avgPricePerGallon, variancePct }` or `null` if < 3 history deliveries. Simple-averaging would distort when deliveries differ in size; volume-weighting is the industry-accurate method.
+
+**[`fuelController.js`](backend/src/controllers/fuelController.js)** — 5 new endpoints:
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET / POST / PUT / DELETE | `/fuel/pumps[/:id]` | Full pump CRUD with `tankOverrides` JSON support |
+| GET | `/fuel/recent-sales?limit=N` | Recent fuel SALES (not refunds) enriched with `refundedAmount` + `remainingAmount` per tx — powers cashier-app refund picker |
+
+Plus `createDelivery` now returns `varianceWarnings: [{ tankId, tankName, newPricePerGallon, avgPricePerGallon, variancePct, thresholdPct }]` alongside the saved delivery. Warnings populated when any line's price is more than the store's `deliveryCostVarianceThreshold` % away from the rolling avg.
+
+**[`posTerminalController.js`](backend/src/controllers/posTerminalController.js)** — both `createTransaction` + `batchCreateTransactions` fuel-item save paths now:
+- Pass `pumpId` into `applySale` for tank resolution
+- On refund with `refundsOf`, look up the original sale's `fifoLayers` + `tankId` + `pumpId`, and **scale the layers proportionally** to the refund gallons so the FIFO reversal credits the exact cost layers the original sale consumed
+- Persist `pumpId` + `refundsOf` on the `FuelTransaction` row
+
+### Portal UI
+
+[`Fuel.jsx`](frontend/src/pages/Fuel.jsx) — new **Pumps tab** (between Tanks and Deliveries):
+- Icon tile grid per pump using the new **`<FuelPumpIcon>`** component
+- Add/Edit modal with pump number + label + color swatches + advanced per-grade tank override section (only shown when 2+ tanks of the same grade exist)
+- Live preview of the pump icon as you edit
+- Modal color swatches + numeric input + hide-when-tracking-off banner
+
+**`<FuelPumpIcon>`** ([`components/fuel/FuelPumpIcon.jsx`](frontend/src/components/fuel/FuelPumpIcon.jsx)) — SVG gas-pump dispenser shape with number overlaid on the display screen, nozzle hose arc, buttons, brand-accent strip, and base platform. Scales via CSS custom property. Prefix `fpi-`. Used both in portal (Pumps tab + pump form preview) and cashier-app (FuelModal pump picker + refund picker).
+
+**Fuel Settings tab** — 3 new subsections:
+- **PUMP TRACKING** toggle — when off, all UI references to pumps vanish from cashier-app
+- **DELIVERY COST VARIANCE ALERT %** input — defaults to 5 (PDI/NACS industry standard); tightens to 3% in volatile markets
+- (Existing reconciliation cadence + variance threshold)
+
+**Deliveries tab** — on save, the returned `varianceWarnings` surface as a prominent amber banner: *"Cost variance alert — price differs from recent-delivery average"* with per-line detail (`Tank A: new $3.50/gal vs rolling avg $3.20/gal = +9.4%`) and a dismiss X.
+
+### Cashier-app UI
+
+**`useFuelSettings` hook** — now also fetches `pumps` when `pumpTrackingEnabled === true`. Returns `{ settings, types, pumps, loading }`.
+
+**FuelModal** — two new sections:
+
+1. **Sale mode + pumps configured** → a **Pump picker** grid appears below the Fuel Type chips. Cashier taps a pump icon (FuelPumpIcon @ 84px, selected state highlighted with brand-accent ring). Add-to-Cart button disabled until a pump is selected.
+
+2. **Refund mode** — the Fuel Type chips are **replaced** with:
+   - A "Pick the sale to refund" list — recent fuel sales scoped to this store with Pump # chip + grade + timestamp + original amount + already-refunded badge. Fully-refunded sales are disabled with a "FULLY REFUNDED" badge.
+   - On pick → auto-populates grade/pump + pre-fills the numpad with the remaining refundable amount (cashier adjusts down for partial refund).
+   - Shows a summary card: Pump #, Grade, Original amount, Already refunded, Remaining refundable.
+   - Red over-refund warning if cashier enters more than remaining.
+
+**useCartStore.addFuelItem** — signature extended to accept `pumpId`, `pumpNumber`, `refundsOf`. The cart line's `name` now includes a `· Pump N` badge when a pump is attached.
+
+**Both quickCashSubmit and TenderModal** — the `fuelItems` array sent to the backend carries `pumpId` + `refundsOf`, so FIFO resolution and refund-scaling happen correctly on every code path (including offline-queue replay via `batchCreateTransactions`).
+
+**CloseShiftModal** — when `FuelSettings.enabled === true` AND `reconciliationCadence === 'shift'` AND active tanks exist:
+- Amber **"Tank Readings Required"** prompt renders at the top of the modal with one numeric input per tank (pre-fills nothing; cashier reads the stick and enters actual gallons)
+- "Close Shift" button is disabled until all readings are saved OR cashier taps "Skip (not recommended)"
+- Save button POSTs a stick reading per tank with `shiftId` attached — variance auto-computed vs. current software-expected level
+- After save: green confirmation strip "Tank readings saved — proceed with shift close"
+
+### End-to-end verification (live dev stack)
+
+| Test | Result |
+|---|---|
+| Create pump #1 "Entry side" | ✓ pump created, listed via `GET /fuel/pumps` |
+| Enable pumpTrackingEnabled + save 5% variance threshold | ✓ both fields persist across GET/PUT |
+| Sale path: 5 gal @ $4/gal via pumpId | ✓ FuelTransaction records `pumpId`, `tankId`, `fifoLayers` |
+| FIFO tank draw on sale | ✓ Tank A 4500 → 4495 gal (-5 exact) |
+| Refund path: partial 2 of 5 gal via `refundsOf` | ✓ FIFO layers scaled proportionally, credited back |
+| FIFO tank credit on refund | ✓ Tank A 4495 → 4497 gal (+2 exact, same layer) |
+| Partial-refund tracking | ✓ Original sale shows refundedAmount=$8, remainingAmount=$12 |
+| `GET /fuel/recent-sales` | ✓ Returns enriched rows with refunded + remaining + pump info |
+| Portal Pumps tab | ✓ 1 pump card renders with FuelPumpIcon showing "Pump 1" |
+
+### Files Changed (Session 43)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`FuelPump` model, +3 `FuelSettings` fields, +`pumpId` + `refundsOf` on `FuelTransaction` |
+| `backend/src/services/fuelInventory.js` | `resolveTankForSale` accepts `pumpId`; `mode: 'sequential'` branch; new `checkDeliveryCostVariance` helper |
+| `backend/src/controllers/fuelController.js` | +5 endpoints (pump CRUD + `/recent-sales`), `updateFuelSettings` accepts 3 new fields, `createDelivery` returns `varianceWarnings` |
+| `backend/src/routes/fuelRoutes.js` | +5 route entries |
+| `backend/src/controllers/posTerminalController.js` | fuel-item save path scales refund FIFO layers; persists `pumpId` + `refundsOf` (both createTransaction + batchCreateTransactions) |
+
+**Portal**:
+| File | Change |
+|---|---|
+| `frontend/src/services/api.js` | +6 helpers: `listFuelPumps`, `createFuelPump`, `updateFuelPump`, `deleteFuelPump`, `listRecentFuelSales`, `createFuelDeliveryWithMeta` |
+| `frontend/src/components/fuel/FuelPumpIcon.jsx` + `.css` | NEW — gas-pump-shaped SVG icon with pump number on display screen (prefix `fpi-`) |
+| `frontend/src/pages/Fuel.jsx` | +Pumps tab (PumpsTab + PumpForm), Fuel Settings pump-tracking toggle + delivery cost variance %, Delivery tab variance warning banner |
+| `frontend/src/pages/Fuel.css` | +`fuel-pumps-grid`, `fuel-pump-card*`, `fuel-variance-warn*` |
+| `frontend/src/components/fuel/TankVisualizer.css` | Shimmer keyframes rewritten: pure translateX drift (no scaleY) — 14s + 19s periods |
+
+**Cashier-app**:
+| File | Change |
+|---|---|
+| `cashier-app/src/api/pos.js` | +`getFuelPumps`, `getRecentFuelSales`, `getFuelTanks`, `createFuelStickReading` |
+| `cashier-app/src/components/fuel/FuelPumpIcon.jsx` + `.css` | NEW — copy of portal component, slightly larger defaults for touch |
+| `cashier-app/src/hooks/useFuelSettings.js` | Returns `pumps` (only when `pumpTrackingEnabled`); wider default settings object |
+| `cashier-app/src/components/modals/FuelModal.jsx` | +pump picker (sale mode, pumps configured) + refund original-tx picker + selected-refund summary + over-refund warning |
+| `cashier-app/src/components/modals/FuelModal.css` | +`fm-pump-grid`, `fm-refund-list`, `fm-refund-row*`, `fm-refund-selected*`, `fm-warn`, `fm-refresh-btn`, `fm-section-label-row` |
+| `cashier-app/src/stores/useCartStore.js` | `addFuelItem` accepts + persists `pumpId`/`pumpNumber`/`refundsOf`; cart line name includes Pump # badge |
+| `cashier-app/src/screens/POSScreen.jsx` | Passes `pumps` + `storeId` to FuelModal; quickCashSubmit fuelItems payload carries `pumpId` + `refundsOf` |
+| `cashier-app/src/components/tender/TenderModal.jsx` | Same payload extension as quickCashSubmit |
+| `cashier-app/src/components/modals/CloseShiftModal.jsx` | Stick-reading prompt at top when cadence=shift; gates Close Shift button until saved or skipped |
+| `cashier-app/src/components/modals/CloseShiftModal.css` | +`csm-fuel-reading*` amber banner styles + done-confirmation strip |
+
+### V2 Backlog (after V1.5)
+
+- **ATG integration** — physical tank-level probes replace manual stick readings (vendor APIs: Veeder-Root TLS-4, Franklin Fueling EVO)
+- **Temperature compensation** — fuel volume varies ~0.07%/°F; serious inventory mgmt tracks temp-compensated measurements (ATC)
+- **Sequential drain threshold** — currently falls through only when primary hits 0; V2 adds configurable low-level threshold (e.g. switch at 10%) for maintenance-friendly operation
+- **Auto-settle refunds over time** — remaining refundable balance expires after N days so cash doesn't sit open forever
+- **Pump-level sales reports** — breakdown tab by pump number, showing who sells most fuel
+
+---
+
+*Last updated: April 2026 — Session 43: Fuel V1.5 — Pump → Tank mapping with cashier icon picker, sequential drain mode, original-tx-aware partial refunds with FIFO layer scaling, delivery cost variance alert (5% industry default), shift-boundary stick-reading prompt gating close-shift button, tank shimmer animation fix. End-to-end verified in preview with pump-attributed sale (FIFO -5 gal), partial refund (FIFO +2 gal back to same layer), partial-refund remaining-amount tracking.*
+

@@ -305,6 +305,34 @@ export const getFuelSettings = (storeId) =>
   api.get('/fuel/settings', { params: { storeId } })
     .then(r => r.data?.data ?? r.data);
 
+// V1.5: pumps (only fetched when pumpTrackingEnabled is on)
+export const getFuelPumps = (storeId) =>
+  api.get('/fuel/pumps', { params: { storeId } })
+    .then(r => {
+      const d = r.data;
+      return Array.isArray(d) ? d : (d?.data ?? []);
+    });
+
+// V1.5: recent fuel sales — powers pump-aware refund picker
+export const getRecentFuelSales = (storeId, { limit = 30, pumpId, shiftId } = {}) =>
+  api.get('/fuel/recent-sales', { params: { storeId, limit, pumpId, shiftId } })
+    .then(r => {
+      const d = r.data;
+      return Array.isArray(d) ? d : (d?.data ?? []);
+    });
+
+// V1.5: list tanks + stick-reading CRUD — used by CloseShift reconciliation prompt
+export const getFuelTanks = (storeId) =>
+  api.get('/fuel/tanks', { params: { storeId } })
+    .then(r => {
+      const d = r.data;
+      return Array.isArray(d) ? d : (d?.data ?? []);
+    });
+
+export const createFuelStickReading = (data) =>
+  api.post('/fuel/stick-readings', data)
+    .then(r => r.data?.data ?? r.data);
+
 // ── Hardware config (receipt printer / cash drawer / scale) ───────────────
 export const saveHardwareConfig = (stationId, hardwareConfig, storeId) =>
   api.post('/payment/hardware', { stationId, hardwareConfig }, { headers: { 'x-store-id': storeId } }).then(r => r.data);

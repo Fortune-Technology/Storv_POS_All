@@ -270,9 +270,370 @@
 .fuel-filter-row label { font-size: 0.78rem; color: var(--text-secondary); }
 .fuel-filter-row .fuel-input { padding: 0.4rem 0.55rem; font-size: 0.82rem; }
 
+/* ── Session 42 additions: modal overlay + form rows for new tabs ─────── */
+
+.fuel-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.fuel-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+}
+
+.fuel-form-row > label {
+  font-size: 0.78rem;
+  color: #475569;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.fuel-form-row input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+.fuel-form-row select,
+.fuel-form-row textarea,
+.fuel-modal-body input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+.fuel-modal-body select,
+.fuel-modal-body textarea {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fuel-form-row input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):focus,
+.fuel-form-row select:focus,
+.fuel-form-row textarea:focus,
+.fuel-modal-body input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):focus,
+.fuel-modal-body select:focus,
+.fuel-modal-body textarea:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.fuel-modal-body input[type="checkbox"] {
+  width: auto;
+  margin-right: 6px;
+  cursor: pointer;
+}
+
+/* Tanks-tab page layout — grid of large cards */
+.fuel-tanks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 1fr));
+  gap: 20px;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.fuel-tank-card {
+  position: relative;
+}
+
+.fuel-tank-card-actions {
+  display: flex;
+  gap: 4px;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+}
+
+.fuel-tank-card-actions .fuel-btn {
+  padding: 5px 9px;
+  min-width: auto;
+}
+
+.fuel-tank-card-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 8px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fuel-tank-card-meta b {
+  color: #0f172a;
+}
+
+.fuel-tank-group-header {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 1rem 0 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.fuel-tank-group-header .fuel-tank-group-sub {
+  font-weight: 400;
+  color: #64748b;
+  margin-left: 8px;
+}
+
+/* Reconciliation cards grid */
+.fuel-reconcile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.fuel-reconcile-card {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.fuel-reconcile-card--alert {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.fuel-reconcile-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.fuel-reconcile-card-status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.fuel-reconcile-card-status--alert {
+  color: #dc2626;
+}
+
+.fuel-reconcile-card-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.fuel-reconcile-card-reading {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #334155;
+}
+
+/* Delivery summary strip */
+.fuel-delivery-total {
+  margin-top: 12px;
+  padding: 0.8rem 1rem;
+  background: #f1f5f9;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.fuel-delivery-total-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fuel-delivery-total-label {
+  font-size: 0.68rem;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.fuel-delivery-total-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reconciliation info strip */
+.fuel-reconcile-info {
+  padding: 0.75rem 1rem;
+  background: #f1f5f9;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.fuel-reconcile-info b {
+  color: #0f172a;
+}
+
+/* Settings subsection headers */
+.fuel-settings-subsection {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.fuel-settings-subsection-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.fuel-settings-subsection-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+/* Blend mapping list */
+.fuel-blend-panel {
+  background: #f8fafc;
+  padding: 1rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.fuel-blend-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.fuel-blend-panel-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.fuel-blend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.6rem 0.8rem;
+  background: #ffffff;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.fuel-blend-row-text {
+  flex: 1;
+}
+
+.fuel-blend-row-text b {
+  color: #0f172a;
+}
+
+/* P&L report card disclaimer */
+.fuel-pnl-note {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 10px;
+  font-style: italic;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 4px;
+}
+
+/* Profit coloring in P&L table */
+.fuel-table td.fuel-profit-positive { color: #16a34a; font-weight: 700; }
+.fuel-table td.fuel-profit-negative { color: #dc2626; font-weight: 700; }
+
+/* ── Pumps tab (V1.5) ──────────────────────────────────────────────────── */
+.fuel-pumps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+.fuel-pump-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0.5rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.2s;
+}
+.fuel-pump-card:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+.fuel-pump-card-actions {
+  display: flex;
+  gap: 4px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.fuel-pump-card-actions .fuel-btn { padding: 5px 8px; min-width: auto; }
+.fuel-pump-card-meta {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 0.68rem;
+  color: #64748b;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: center;
+}
+.fuel-pump-card-meta b { color: #0f172a; display: block; margin-bottom: 3px; }
+
+/* ── Delivery cost variance warning banner (V1.5) ──────────────────────── */
+.fuel-variance-warn {
+  padding: 0.75rem 1rem;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-left-width: 4px;
+  border-radius: 8px;
+  margin: 12px 0;
+  font-size: 0.82rem;
+  color: #78350f;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.fuel-variance-warn-body { flex: 1; }
+.fuel-variance-warn-title { font-weight: 800; color: #b45309; margin-bottom: 3px; }
+.fuel-variance-warn-row { margin-top: 4px; font-size: 0.78rem; }
+.fuel-variance-warn-row b { color: #78350f; }
+
 /* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .fuel-tanks-grid    { grid-template-columns: 1fr; }
+}
 @media (max-width: 1024px) {
   .fuel-stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .fuel-reconcile-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .fuel-stat-grid { grid-template-columns: repeat(2, 1fr); }
@@ -280,6 +641,7 @@
   .fuel-types-grid { grid-template-columns: 1fr; }
   .fuel-tab { padding: 0.5rem 0.7rem; font-size: 0.78rem; }
   .fuel-modal { width: 96%; max-width: 100%; }
+  .fuel-delivery-total { flex-direction: column; gap: 8px; }
 }
 @media (max-width: 480px) {
   .fuel-stat-grid { grid-template-columns: 1fr; }

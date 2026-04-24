@@ -6,8 +6,12 @@
  * the sync pattern used by `usePOSConfig.js` so admin edits propagate
  * without requiring a cashier to restart the app.
  *
- * Returns `{ layout, loading, refresh }` where `layout.tree` is the flat
- * tile array and `layout.gridCols` is the column count (default 6).
+ * Returns `{ layout, loading, loaded, refresh }` where `layout.tree` is
+ * the flat tile array and `layout.gridCols` is the column count
+ * (default 6). `loaded` flips to true after the first fetch completes
+ * (success OR failure) so callers can distinguish the initial empty
+ * default from a confirmed empty layout — critical for the POS tab
+ * default-view logic.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getQuickButtonLayout } from '../api/pos.js';
@@ -18,10 +22,11 @@ const EMPTY_LAYOUT = { tree: [], gridCols: 6, rowHeight: 56, name: 'Main Screen'
 export function useQuickButtonLayout(storeId) {
   const [layout, setLayout]   = useState(EMPTY_LAYOUT);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded]   = useState(false);
   const mountedRef = useRef(true);
 
   const fetch = useCallback(async () => {
-    if (!storeId) { setLayout(EMPTY_LAYOUT); return; }
+    if (!storeId) { setLayout(EMPTY_LAYOUT); return; } // don't mark loaded — we haven't actually checked
     setLoading(true);
     try {
       const data = await getQuickButtonLayout(storeId);
@@ -39,7 +44,10 @@ export function useQuickButtonLayout(storeId) {
       }
       setLayout(EMPTY_LAYOUT);
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setLoaded(true);
+      }
     }
   }, [storeId]);
 
@@ -60,5 +68,5 @@ export function useQuickButtonLayout(storeId) {
     };
   }, [fetch]);
 
-  return { layout, loading, refresh: fetch };
+  return { layout, loading, loaded, refresh: fetch };
 }

@@ -3105,6 +3105,12 @@ model FuelType {
 
   transactions FuelTransaction[]
 
+  // Back-relations for tanks + blend configs
+  tanks         FuelTank[]
+  blendMiddle   FuelBlendConfig[] @relation("FuelBlendMiddle")
+  blendBase     FuelBlendConfig[] @relation("FuelBlendBase")
+  blendPremium  FuelBlendConfig[] @relation("FuelBlendPremium")
+
   @@index([orgId, storeId])
   @@map("fuel_types")
 }
@@ -3126,11 +3132,276 @@ model FuelSettings {
   // Optional convenience: pre-selected default fuel type id (set via portal)
   defaultFuelTypeId String?
 
+  // Inventory reconciliation — when stick readings are expected
+  // "shift" | "daily" | "weekly" | "on_demand"
+  reconciliationCadence  String  @default("shift")
+  // % variance that triggers an alert on the Reconciliation tab
+  varianceAlertThreshold Decimal @default(2.0) @db.Decimal(5, 2)
+  // Opt-in: dispenser-blended middle grades (e.g. Plus/89 from 87 + 93)
+  blendingEnabled        Boolean @default(false)
+  // V1.5: track sales by pump #. When true, cashier picks a pump in the
+  // FuelModal and the sale records `pumpId`. When false, all sales aggregate
+  // to the grade's primary/manifold tank without pump attribution.
+  pumpTrackingEnabled    Boolean @default(false)
+  // V1.5: delivery cost variance threshold. A new FuelDelivery whose
+  // $/gal exceeds the last-3-delivery rolling avg by more than this %
+  // triggers a warning on the delivery-create form. Default 5% matches
+  // PDI / NACS industry standard for "price anomaly" alerts.
+  deliveryCostVarianceThreshold Decimal @default(5.0) @db.Decimal(5, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("fuel_settings")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL TANK
+// Physical underground storage tank. Multi-tank per grade supported
+// (e.g. two Regular 87 tanks manifolded together, or fully independent).
+// Horizontal cylindrical shape — only shape supported in V1.
+// ─────────────────────────────────────────────────
+model FuelTank {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  name     String // "Tank A - Regular 87"
+  tankCode String? // optional short code for receipts/BOL ("A1", "T-REG-1")
+
+  fuelTypeId String
+  fuelType   FuelType @relation(fields: [fuelTypeId], references: [id])
+
+  // Capacity in US gallons
+  capacityGal Decimal @db.Decimal(10, 2)
+  // Physical dimensions (for accurate horizontal-cylinder visualization)
+  diameterInches Decimal? @db.Decimal(8, 2)
+  lengthInches   Decimal? @db.Decimal(8, 2)
+
+  // Multi-tank topology — exactly one of these applies per grade at a store:
+  // - "independent"  → tank is standalone, sales deduct from its active setting
+  // - "manifolded"   → tank is in a manifold group (shares level with siblings)
+  // - "sequential"   → tank is primary or secondary in a drain-primary-first setup (V1.5 — stored but not yet enforced)
+  topology String @default("independent")
+
+  // When topology='manifolded', which group this tank belongs to
+  manifoldGroupId String?
+  manifoldGroup   FuelManifoldGroup? @relation(fields: [manifoldGroupId], references: [id])
+
+  // When topology='independent' with 2+ tanks of same grade, one is the
+  // "active" tank — sales deduct from it until empty (or until admin switches).
+  // NULL for manifolded tanks.
+  isPrimary Boolean @default(true)
+
+  active  Boolean @default(true)
+  deleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveryItems FuelDeliveryItem[]
+  stickReadings FuelStickReading[]
+  transactions  FuelTransaction[]
+
+  @@index([orgId, storeId])
+  @@index([fuelTypeId])
+  @@index([manifoldGroupId])
+  @@map("fuel_tanks")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL MANIFOLD GROUP
+// Group of physically connected tanks that share one fuel level.
+// Sales deduct proportionally from all members (by capacity ratio).
+// ─────────────────────────────────────────────────
+model FuelManifoldGroup {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  name String // "Regular 87 Manifold"
+
+  // Behaviour when sales post against this group:
+  // "equal"       → split sale evenly across tanks (most common)
+  // "capacity"    → split by each tank's capacity ratio
+  // "sequential"  → drain primary first then fall through (future V1.5)
+  drainMode String @default("equal")
+
+  active  Boolean @default(true)
+  deleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tanks FuelTank[]
+
+  @@index([orgId, storeId])
+  @@map("fuel_manifold_groups")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL DELIVERY
+// One BOL from the supplier. May fill one or many tanks (split delivery).
+// ─────────────────────────────────────────────────
+model FuelDelivery {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  deliveryDate DateTime @default(now())
+  supplier     String? // "Shell Distributor", etc.
+  bolNumber    String? // free-form BOL reference
+  notes        String? @db.Text
+
+  // Aggregate fields cached for list view (sum of items)
+  totalGallons Decimal @default(0) @db.Decimal(10, 2)
+  totalCost    Decimal @default(0) @db.Decimal(12, 2)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items FuelDeliveryItem[]
+
+  @@index([orgId, storeId, deliveryDate])
+  @@map("fuel_deliveries")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL DELIVERY ITEM  (doubles as the FIFO cost layer)
+// One line per tank filled from a single BOL. As fuel sells, the
+// `remainingGallons` is decremented; COGS for each sale pulls from
+// the oldest non-empty layer for that tank.
+// ─────────────────────────────────────────────────
+model FuelDeliveryItem {
+  id         String       @id @default(cuid())
+  deliveryId String
+  delivery   FuelDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  tankId String
+  tank   FuelTank @relation(fields: [tankId], references: [id])
+
+  gallonsReceived Decimal @db.Decimal(10, 2)
+  pricePerGallon  Decimal @db.Decimal(10, 4) // 4-decimal cost precision (vendor markup is often <1¢)
+  totalCost       Decimal @db.Decimal(12, 2) // gallonsReceived × pricePerGallon
+
+  // FIFO running balance — decrements as sales post against this layer
+  remainingGallons Decimal   @db.Decimal(10, 4)
+  fullyConsumedAt  DateTime? // timestamp when remainingGallons → 0
+
+  createdAt DateTime @default(now())
+
+  @@index([tankId, createdAt]) // chronological FIFO ordering per tank
+  @@index([deliveryId])
+  @@map("fuel_delivery_items")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL STICK READING
+// Manual tank measurement (stick or gauge). Compared to software-
+// expected level; variance flagged if above FuelSettings threshold.
+// ─────────────────────────────────────────────────
+model FuelStickReading {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  tankId String
+  tank   FuelTank @relation(fields: [tankId], references: [id])
+
+  readingDate    DateTime @default(now())
+  actualGallons  Decimal  @db.Decimal(10, 2) // measured by cashier / manager
+  expectedGallons Decimal @db.Decimal(10, 2) // derived from deliveries + sales at time of entry
+  variance       Decimal  @db.Decimal(10, 2) // actualGallons − expectedGallons
+  variancePct    Decimal  @db.Decimal(6, 3) // variance / expectedGallons × 100
+
+  shiftId   String? // optional — if entered as part of EoD close
+  notes     String? @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, storeId, readingDate])
+  @@index([tankId, readingDate])
+  @@map("fuel_stick_readings")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL PUMP (V1.5)
+// Physical dispenser. One store has 1..N pumps. Each pump defaults to
+// drawing from the grade's primary/manifold tank, but can override per-
+// grade via `tankOverrides: { [fuelTypeId]: tankId }` when the station
+// has multiple independent tanks of the same grade routed to different
+// pumps (e.g. pumps 1-4 → Tank A, pumps 5-8 → Tank B).
+// Only rendered in the cashier FuelModal when FuelSettings.pumpTrackingEnabled.
+// ─────────────────────────────────────────────────
+model FuelPump {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  // Human-visible pump number (1-N, shown in big on the tile)
+  pumpNumber Int
+  // Optional descriptor shown under the number ("Entry side", "Diesel Island")
+  label      String?
+  // Accent colour for the icon tile (hex). If null, fuel type's colour wins.
+  color      String?
+
+  // Optional per-grade tank override: { "fuelTypeIdX": "tankIdY", ... }.
+  // Sales at this pump for that grade draw from the named tank instead of
+  // the grade's primary/manifold. Empty → falls back to grade default.
+  tankOverrides Json? @default("{}")
+
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+  deleted   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions FuelTransaction[]
+
+  @@unique([orgId, storeId, pumpNumber])
+  @@index([orgId, storeId])
+  @@map("fuel_pumps")
+}
+
+// ─────────────────────────────────────────────────
+// FUEL BLEND CONFIG
+// Optional: dispenser-blended middle grades (e.g. Plus/89 blended in
+// the pump from base Regular 87 + Premium 93). When a sale posts for
+// the middle grade, the FIFO service deducts from BOTH base and
+// premium tanks in the configured ratio.
+// Only active when FuelSettings.blendingEnabled = true.
+// ─────────────────────────────────────────────────
+model FuelBlendConfig {
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
+
+  // The middle grade produced by blending (e.g. FuelType "Plus 89")
+  middleFuelTypeId String @unique
+  middleFuelType   FuelType @relation("FuelBlendMiddle", fields: [middleFuelTypeId], references: [id])
+
+  // Base (lower-grade) fuel type — typically Regular 87
+  baseFuelTypeId String
+  baseFuelType   FuelType @relation("FuelBlendBase", fields: [baseFuelTypeId], references: [id])
+  // Fraction of base in the blend (0..1). E.g. 0.67 for 89 from 87+93.
+  baseRatio      Decimal @db.Decimal(5, 4)
+
+  // Premium (higher-grade) fuel type — typically Premium 93
+  premiumFuelTypeId String
+  premiumFuelType   FuelType @relation("FuelBlendPremium", fields: [premiumFuelTypeId], references: [id])
+  premiumRatio      Decimal @db.Decimal(5, 4) // 1 − baseRatio
+
+  active  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, storeId])
+  @@map("fuel_blend_configs")
 }
 
 // ─────────────────────────────────────────────────
@@ -3162,11 +3433,35 @@ model FuelTransaction {
 
   posTransactionId String? // links to parent cart Transaction
 
+  // Inventory tracking — set when the sale posts against a specific tank.
+  // NULL for legacy fuel transactions created before the tank module shipped.
+  tankId String?
+  tank   FuelTank? @relation(fields: [tankId], references: [id])
+
+  // FIFO consumption trace — array of `{ deliveryItemId, gallons, cost }`
+  // entries indicating which cost layers this sale consumed. Used for
+  // accurate COGS on P&L reports. NULL for pre-FIFO transactions.
+  fifoLayers Json?
+
+  // V1.5: which physical pump dispensed the fuel. NULL when
+  // pumpTrackingEnabled=false or on legacy transactions. Enables
+  // pump-level reporting + pump-aware refund flow.
+  pumpId String?
+  pump   FuelPump? @relation(fields: [pumpId], references: [id])
+
+  // V1.5: refund linkage — when this is a refund tx, refundsOf points at
+  // the original sale tx being partially/fully refunded. Powers the
+  // "pick original sale, auto-compute refund amount" cashier flow.
+  refundsOf String?
+
   createdAt DateTime @default(now())
 
   @@index([orgId, storeId, shiftId])
   @@index([orgId, storeId, createdAt])
   @@index([fuelTypeId])
+  @@index([tankId])
+  @@index([pumpId])
+  @@index([refundsOf])
   @@map("fuel_transactions")
 }
 

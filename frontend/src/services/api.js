@@ -613,6 +613,43 @@ export const listFuelTransactions = (params)   => api.get('/fuel/transactions', 
 export const getFuelReport       = (params)    => api.get('/fuel/report',  { params }).then(fuelUnwrap);
 export const getFuelDashboard    = (params)    => api.get('/fuel/dashboard', { params }).then(fuelUnwrap);
 
+// ── Fuel Inventory (Session 42) ─────────────────────────────────────────
+// Tanks
+export const listFuelTanks       = (params)    => api.get('/fuel/tanks', { params }).then(fuelUnwrap);
+export const createFuelTank      = (data)      => api.post('/fuel/tanks', data).then(fuelUnwrap);
+export const updateFuelTank      = (id, data)  => api.put(`/fuel/tanks/${id}`, data).then(fuelUnwrap);
+export const deleteFuelTank      = (id)        => api.delete(`/fuel/tanks/${id}`).then(fuelUnwrap);
+// Manifold groups
+export const listManifoldGroups  = (params)    => api.get('/fuel/manifold-groups', { params }).then(fuelUnwrap);
+export const createManifoldGroup = (data)      => api.post('/fuel/manifold-groups', data).then(fuelUnwrap);
+export const updateManifoldGroup = (id, data)  => api.put(`/fuel/manifold-groups/${id}`, data).then(fuelUnwrap);
+export const deleteManifoldGroup = (id)        => api.delete(`/fuel/manifold-groups/${id}`).then(fuelUnwrap);
+// Deliveries
+export const listFuelDeliveries  = (params)    => api.get('/fuel/deliveries', { params }).then(fuelUnwrap);
+export const createFuelDelivery  = (data)      => api.post('/fuel/deliveries', data).then(fuelUnwrap);
+export const deleteFuelDelivery  = (id)        => api.delete(`/fuel/deliveries/${id}`).then(fuelUnwrap);
+// Stick readings
+export const listStickReadings   = (params)    => api.get('/fuel/stick-readings', { params }).then(fuelUnwrap);
+export const createStickReading  = (data)      => api.post('/fuel/stick-readings', data).then(fuelUnwrap);
+export const deleteStickReading  = (id)        => api.delete(`/fuel/stick-readings/${id}`).then(fuelUnwrap);
+// Blend configs
+export const listBlendConfigs    = (params)    => api.get('/fuel/blend-configs', { params }).then(fuelUnwrap);
+export const upsertBlendConfig   = (data)      => api.post('/fuel/blend-configs', data).then(fuelUnwrap);
+export const deleteBlendConfig   = (id)        => api.delete(`/fuel/blend-configs/${id}`).then(fuelUnwrap);
+// Inventory status + P&L
+export const getFuelInventoryStatus = (params) => api.get('/fuel/inventory-status', { params }).then(fuelUnwrap);
+export const getFuelPnlReport       = (params) => api.get('/fuel/pnl-report',       { params }).then(fuelUnwrap);
+
+// Pumps (V1.5)
+export const listFuelPumps   = (params)   => api.get('/fuel/pumps', { params }).then(fuelUnwrap);
+export const createFuelPump  = (data)     => api.post('/fuel/pumps', data).then(fuelUnwrap);
+export const updateFuelPump  = (id, data) => api.put(`/fuel/pumps/${id}`, data).then(fuelUnwrap);
+export const deleteFuelPump  = (id)       => api.delete(`/fuel/pumps/${id}`).then(fuelUnwrap);
+// Recent fuel sales — powers pump-aware refund picker
+export const listRecentFuelSales = (params) => api.get('/fuel/recent-sales', { params }).then(fuelUnwrap);
+// Full response access (for delivery variance warnings which live outside `data`)
+export const createFuelDeliveryWithMeta = (data) => api.post('/fuel/deliveries', data).then(r => r.data);
+
 // ── POS Terminal Config ───────────────────────────────────────────────────────
 export const getPOSConfig    = (storeId) => api.get('/pos-terminal/config', { params: { storeId } }).then(r => r.data);
 export const updatePOSConfig = (data)    => api.put('/pos-terminal/config', data).then(r => r.data);

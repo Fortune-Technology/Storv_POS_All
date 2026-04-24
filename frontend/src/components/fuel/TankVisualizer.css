@@ -1,0 +1,209 @@
+/* TankVisualizer.css — prefix: tv- */
+
+.tv-root {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05), 0 4px 10px rgba(15, 23, 42, 0.02);
+  transition: box-shadow 0.4s ease, border-color 0.4s ease;
+  width: 100%;
+  max-width: 100%;
+}
+
+.tv-root--filling {
+  border-color: rgba(22, 163, 74, 0.55);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15), var(--shadow-sm);
+  animation: tv-fill-flash 1.6s ease-out;
+}
+
+.tv-root--draining {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15), var(--shadow-sm);
+  animation: tv-drain-flash 1.6s ease-out;
+}
+
+@keyframes tv-fill-flash {
+  0%   { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0.25), var(--shadow-sm); }
+  100% { box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15), var(--shadow-sm); }
+}
+
+@keyframes tv-drain-flash {
+  0%   { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.25), var(--shadow-sm); }
+  100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15), var(--shadow-sm); }
+}
+
+.tv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.tv-label {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.tv-fueltype {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 7px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ─── SVG + side panel layout ─────────────────────────────────────────── */
+
+.tv-svg-wrap {
+  display: flex;
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.tv-svg {
+  flex: 1;
+  min-width: 0;
+  height: 260px;
+  max-height: 280px;
+}
+
+.tv-body {
+  fill: rgba(100, 116, 139, 0.08);
+  stroke: rgba(100, 116, 139, 0.35);
+  stroke-width: 2;
+}
+
+.tv-fuel {
+  transition: y 0.6s ease, height 0.6s ease;
+}
+
+.tv-gauge-text {
+  font-size: 11px;
+  font-weight: 700;
+  fill: rgba(71, 85, 105, 0.85);
+}
+
+/* ─── Continuous surface shimmer ─────────────────────────────────────── */
+
+/* Gentle surface drift — pure horizontal translation, slow period,
+   no vertical scaling (scaleY caused the "vibrating" artifact the user
+   flagged). Two overlapping waves at different speeds + opacity create
+   the illusion of fluid surface motion without any jitter. */
+
+.tv-wave-1 {
+  animation: tv-wave-drift 14s linear infinite;
+}
+
+.tv-wave-2 {
+  animation: tv-wave-drift-reverse 19s linear infinite;
+}
+
+@keyframes tv-wave-drift {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-3%); }
+}
+
+@keyframes tv-wave-drift-reverse {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(2%); }
+}
+
+/* ─── Steady-level side panel ────────────────────────────────────────── */
+
+.tv-panel {
+  width: 180px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tv-panel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tv-panel-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #64748b;
+}
+
+.tv-panel-value {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.tv-panel-value--small {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.tv-panel-value--low {
+  color: #dc2626;
+}
+
+.tv-panel-value--warn {
+  color: #f59e0b;
+}
+
+.tv-panel-value--ok {
+  color: #16a34a;
+}
+
+.tv-panel-unit {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+.tv-panel-alert {
+  margin-top: auto;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #dc2626;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  text-align: center;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────── */
+
+/* At narrower container widths the SVG + 180px panel overflow.
+   Stack the panel below the tank with horizontal row layout. */
+@media (max-width: 1100px) {
+  .tv-svg-wrap { flex-direction: column; }
+  .tv-svg { height: 220px; }
+  .tv-panel {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
+    justify-content: space-around;
+  }
+  .tv-panel-row { flex: 0 1 auto; min-width: 90px; }
+  .tv-panel-alert { flex: 1 1 100%; margin-top: 4px; }
+}
+@media (max-width: 768px) {
+  .tv-svg { height: 180px; }
+  .tv-panel-value { font-size: 1.25rem; }
+  .tv-panel-value--small { font-size: 0.95rem; }
+}

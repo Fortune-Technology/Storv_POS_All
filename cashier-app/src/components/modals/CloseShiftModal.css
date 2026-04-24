@@ -458,3 +458,141 @@
   font-size: 0.82rem;
   line-height: 1.3;
 }
+
+/* ── V1.5: Fuel stick-reading prompt ──────────────────────────────────── */
+.csm-fuel-reading {
+  margin: 0.75rem 1rem 0.5rem;
+  padding: 0.9rem 1rem;
+  background: linear-gradient(180deg, #fef3c7 0%, #fffbeb 100%);
+  border: 1.5px solid #f59e0b;
+  border-radius: 10px;
+}
+.csm-fuel-reading-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  color: #78350f;
+}
+.csm-fuel-reading-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.csm-fuel-reading-sub {
+  font-size: 0.74rem;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+.csm-fuel-reading-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.csm-fuel-reading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.55rem 0.75rem;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+}
+.csm-fuel-reading-tank-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.csm-fuel-reading-tank-cap {
+  font-size: 0.7rem;
+  color: #78350f;
+  margin-top: 1px;
+}
+.csm-fuel-reading-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.csm-fuel-reading-input {
+  width: 130px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: right;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 7px;
+  outline: none;
+  background: #ffffff;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+.csm-fuel-reading-input:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+.csm-fuel-reading-unit {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #78350f;
+}
+.csm-fuel-reading-err {
+  margin-top: 0.65rem;
+  padding: 0.5rem 0.75rem;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #991b1b;
+}
+.csm-fuel-reading-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.85rem;
+}
+.csm-fuel-reading-skip {
+  flex: 1;
+  padding: 0.65rem 1rem;
+  background: #ffffff;
+  color: #78350f;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.csm-fuel-reading-skip:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.csm-fuel-reading-save {
+  flex: 2;
+  padding: 0.65rem 1rem;
+  background: #f59e0b;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.csm-fuel-reading-save:hover:not(:disabled) {
+  background: #d97706;
+}
+.csm-fuel-reading-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.csm-fuel-reading-done {
+  margin: 0.5rem 1rem;
+  padding: 0.5rem 0.85rem;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 7px;
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

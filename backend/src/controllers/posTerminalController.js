@@ -332,26 +332,92 @@ export const createTransaction = async (req, res) => {
     }
 
     // ── Save fuel transactions if present ─────────────────────────────────
+    // Each fuel item drives the FIFO inventory service (applySale / applyRefund)
+    // so the sale's tank + consumed cost layers are recorded for P&L reports.
+    // One row per fuelItem (createMany → per-row create because FIFO result
+    // varies per row and we need to persist it on each record).
     if (Array.isArray(fuelItems) && fuelItems.length) {
-      await prisma.fuelTransaction.createMany({
-        data: fuelItems.map(fi => ({
-          orgId,
-          storeId,
-          shiftId:          shiftId || null,
-          cashierId:        req.user.id,
-          stationId:        stationId || null,
-          type:             fi.type === 'refund' ? 'refund' : 'sale',
-          fuelTypeId:       fi.fuelTypeId || null,
-          fuelTypeName:     fi.fuelTypeName || 'Fuel',
-          gallons:          Math.abs(parseFloat(fi.gallons) || 0),
-          pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
-          amount:           Math.abs(parseFloat(fi.amount) || 0),
-          entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
-          taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
-          notes:            fi.notes || null,
-          posTransactionId: tx.id,
-        })),
-      });
+      const { applySale, applyRefund } = await import('../services/fuelInventory.js');
+      for (const fi of fuelItems) {
+        const gallons = Math.abs(parseFloat(fi.gallons) || 0);
+        let tankId     = null;
+        let fifoLayers = null;
+        let pumpId     = fi.pumpId || null;
+
+        if (fi.type === 'refund') {
+          // V1.5: Pump-aware refund — when cashier refunds by picking an
+          // original sale, the cashier-app passes `refundsOf` (original tx id).
+          // We look up the original's pumpId + tankId + fifoLayers and credit
+          // back to THOSE EXACT layers so COGS and inventory balance.
+          let refundCtx = { fifoLayers: Array.isArray(fi.fifoLayers) ? fi.fifoLayers : null, tankId: fi.tankId || null };
+          if (fi.refundsOf) {
+            const original = await prisma.fuelTransaction.findUnique({
+              where: { id: fi.refundsOf },
+              select: { pumpId: true, tankId: true, fifoLayers: true, fuelTypeId: true, orgId: true, storeId: true },
+            });
+            if (original && original.orgId === orgId && original.storeId === storeId) {
+              // Scale the original's fifoLayers to match the refunded gallons
+              // (partial refund: customer pre-paid $40, filled $27 → refund $13 = X gal)
+              const originalGallons = Array.isArray(original.fifoLayers)
+                ? original.fifoLayers.reduce((s, l) => s + Number(l.gallons || 0), 0)
+                : 0;
+              if (originalGallons > 0 && gallons > 0 && gallons <= originalGallons + 0.001) {
+                const scale = gallons / originalGallons;
+                refundCtx = {
+                  fifoLayers: original.fifoLayers.map(l => ({
+                    ...l,
+                    gallons: Number(l.gallons) * scale,
+                    cost:    Number(l.cost || 0) * scale,
+                  })),
+                  tankId: original.tankId,
+                };
+              } else {
+                refundCtx = { fifoLayers: original.fifoLayers, tankId: original.tankId };
+              }
+              pumpId = pumpId || original.pumpId;
+              tankId = original.tankId;
+            }
+          }
+          if (Array.isArray(refundCtx.fifoLayers) && refundCtx.fifoLayers.length) {
+            await applyRefund({ fifoLayers: refundCtx.fifoLayers, tankId: refundCtx.tankId, gallons });
+            fifoLayers = refundCtx.fifoLayers;
+            tankId     = refundCtx.tankId || null;
+          }
+        } else if (fi.fuelTypeId) {
+          const r = await applySale({
+            orgId, storeId,
+            fuelTypeId: fi.fuelTypeId,
+            gallons,
+            pumpId,
+          });
+          tankId     = r.primaryTankId;
+          fifoLayers = r.fifoLayers;
+        }
+
+        await prisma.fuelTransaction.create({
+          data: {
+            orgId,
+            storeId,
+            shiftId:          shiftId || null,
+            cashierId:        req.user.id,
+            stationId:        stationId || null,
+            type:             fi.type === 'refund' ? 'refund' : 'sale',
+            fuelTypeId:       fi.fuelTypeId || null,
+            fuelTypeName:     fi.fuelTypeName || 'Fuel',
+            gallons,
+            pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
+            amount:           Math.abs(parseFloat(fi.amount) || 0),
+            entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
+            taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
+            notes:            fi.notes || null,
+            posTransactionId: tx.id,
+            tankId,
+            fifoLayers:       fifoLayers || undefined,
+            pumpId,
+            refundsOf:        fi.refundsOf || null,
+          },
+        });
+      }
     }
 
     // ── Deduct stock for each sold line item (fire-and-forget) ────────────
@@ -462,26 +528,85 @@ export const batchCreateTransactions = async (req, res) => {
         }
 
         // ── Save fuel transactions if present ─────────────────────────────
+        // FIFO inventory integration + V1.5 pumpId + refundsOf (same pattern
+        // as createTransaction above)
         if (Array.isArray(tx.fuelItems) && tx.fuelItems.length) {
-          await prisma.fuelTransaction.createMany({
-            data: tx.fuelItems.map(fi => ({
-              orgId,
-              storeId:          tx.storeId,
-              shiftId:          tx.shiftId || null,
-              cashierId:        req.user.id,
-              stationId:        tx.stationId || null,
-              type:             fi.type === 'refund' ? 'refund' : 'sale',
-              fuelTypeId:       fi.fuelTypeId || null,
-              fuelTypeName:     fi.fuelTypeName || 'Fuel',
-              gallons:          Math.abs(parseFloat(fi.gallons) || 0),
-              pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
-              amount:           Math.abs(parseFloat(fi.amount) || 0),
-              entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
-              taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
-              notes:            fi.notes || null,
-              posTransactionId: saved.id,
-            })),
-          });
+          const { applySale, applyRefund } = await import('../services/fuelInventory.js');
+          for (const fi of tx.fuelItems) {
+            const gallons = Math.abs(parseFloat(fi.gallons) || 0);
+            let tankId     = null;
+            let fifoLayers = null;
+            let pumpId     = fi.pumpId || null;
+
+            if (fi.type === 'refund') {
+              let refundCtx = { fifoLayers: Array.isArray(fi.fifoLayers) ? fi.fifoLayers : null, tankId: fi.tankId || null };
+              if (fi.refundsOf) {
+                const original = await prisma.fuelTransaction.findUnique({
+                  where: { id: fi.refundsOf },
+                  select: { pumpId: true, tankId: true, fifoLayers: true, orgId: true, storeId: true },
+                });
+                if (original && original.orgId === orgId && original.storeId === tx.storeId) {
+                  const originalGallons = Array.isArray(original.fifoLayers)
+                    ? original.fifoLayers.reduce((s, l) => s + Number(l.gallons || 0), 0)
+                    : 0;
+                  if (originalGallons > 0 && gallons > 0 && gallons <= originalGallons + 0.001) {
+                    const scale = gallons / originalGallons;
+                    refundCtx = {
+                      fifoLayers: original.fifoLayers.map(l => ({
+                        ...l,
+                        gallons: Number(l.gallons) * scale,
+                        cost:    Number(l.cost || 0) * scale,
+                      })),
+                      tankId: original.tankId,
+                    };
+                  } else {
+                    refundCtx = { fifoLayers: original.fifoLayers, tankId: original.tankId };
+                  }
+                  pumpId = pumpId || original.pumpId;
+                  tankId = original.tankId;
+                }
+              }
+              if (Array.isArray(refundCtx.fifoLayers) && refundCtx.fifoLayers.length) {
+                await applyRefund({ fifoLayers: refundCtx.fifoLayers, tankId: refundCtx.tankId, gallons });
+                fifoLayers = refundCtx.fifoLayers;
+                tankId     = refundCtx.tankId || null;
+              }
+            } else if (fi.fuelTypeId) {
+              const r = await applySale({
+                orgId,
+                storeId: tx.storeId,
+                fuelTypeId: fi.fuelTypeId,
+                gallons,
+                pumpId,
+              });
+              tankId     = r.primaryTankId;
+              fifoLayers = r.fifoLayers;
+            }
+
+            await prisma.fuelTransaction.create({
+              data: {
+                orgId,
+                storeId:          tx.storeId,
+                shiftId:          tx.shiftId || null,
+                cashierId:        req.user.id,
+                stationId:        tx.stationId || null,
+                type:             fi.type === 'refund' ? 'refund' : 'sale',
+                fuelTypeId:       fi.fuelTypeId || null,
+                fuelTypeName:     fi.fuelTypeName || 'Fuel',
+                gallons,
+                pricePerGallon:   Math.abs(parseFloat(fi.pricePerGallon) || 0),
+                amount:           Math.abs(parseFloat(fi.amount) || 0),
+                entryMode:        fi.entryMode === 'gallons' ? 'gallons' : 'amount',
+                taxAmount:        fi.taxAmount != null ? parseFloat(fi.taxAmount) : null,
+                notes:            fi.notes || null,
+                posTransactionId: saved.id,
+                tankId,
+                fifoLayers:       fifoLayers || undefined,
+                pumpId,
+                refundsOf:        fi.refundsOf || null,
+              },
+            });
+          }
         }
 
         // Deduct stock for this offline transaction

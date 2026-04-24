@@ -8,6 +8,12 @@ import api from '../api/client.js';
 
 export const DEFAULT_POS_CONFIG = {
   layout: 'modern',           // 'modern' | 'express' | 'classic' | 'minimal' | 'counter'
+  // Per-station layout overrides. Keys are Station IDs, values are one of
+  // the layout preset keys above. When a station id is present in this map,
+  // it overrides the store-level `layout` for that register only. Cashiers
+  // at stations NOT in this map fall back to the store `layout`. The admin
+  // sets this in POS Settings → Layout Preset (Back-office).
+  stationLayouts: {},
   showDepartments: true,
   showQuickAdd: true,
   numpadEnabled: true,
@@ -99,6 +105,10 @@ function mergeConfig(defaults, data) {
   return {
     ...defaults,
     ...data,
+    stationLayouts: {
+      ...(defaults.stationLayouts || {}),
+      ...(data.stationLayouts || {}),
+    },
     shortcuts: {
       ...defaults.shortcuts,
       ...(data.shortcuts || {}),

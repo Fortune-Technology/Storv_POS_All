@@ -1,0 +1,61 @@
+/* FuelPumpIcon (cashier-app) — prefix: fpi-
+   Variant: slightly larger defaults than the portal since cashier
+   screens are touched with fingers, not a mouse. */
+
+.fpi-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  padding: 0.85rem 0.65rem 0.6rem;
+  border-radius: 14px;
+  border: 2.5px solid transparent;
+  background: #ffffff;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.2s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fpi-wrap:active:not(.fpi-wrap--disabled) {
+  transform: scale(0.96);
+}
+
+.fpi-wrap--selected {
+  border-color: var(--fpi-accent, #16a34a);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--fpi-accent, #16a34a) 20%, transparent),
+              0 6px 16px rgba(15, 23, 42, 0.1);
+  background: color-mix(in srgb, var(--fpi-accent, #16a34a) 7%, #ffffff);
+}
+
+.fpi-wrap--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fpi-svg {
+  width: var(--fpi-size, 120px);
+  height: auto;
+  aspect-ratio: 100 / 140;
+  display: block;
+}
+
+.fpi-label {
+  text-align: center;
+  margin-top: 0.25rem;
+  line-height: 1.2;
+}
+
+.fpi-pump-num {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.fpi-pump-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 2px;
+}

@@ -426,15 +426,20 @@ export default function POSScreen() {
   const [chatUnread,         setChatUnread]         = useState(0);
   const [tasksOpenCount,     setTasksOpenCount]     = useState(0);
   // Quick Buttons is the default view. If a store has not configured a
-  // WYSIWYG layout yet, we fall back to 'catalog' via the effect below.
+  // WYSIWYG layout yet, we fall back to 'catalog' once the first fetch
+  // confirms the layout is empty. We wait for `quickLayoutLoaded` so we
+  // don't transiently flip to 'catalog' while the initial fetch is still
+  // in flight — otherwise stores WITH a configured layout would see the
+  // catalog first on every fresh sign-in, and the snap-back-to-'buttons'
+  // after a sale would not fire until the cashier manually tapped the
+  // tab.
   const [quickTab,           setQuickTab]           = useState('buttons'); // 'catalog' | 'buttons'
-  const { layout: quickButtonLayout } = useQuickButtonLayout(storeId);
+  const { layout: quickButtonLayout, loaded: quickLayoutLoaded } = useQuickButtonLayout(storeId);
   const hasQuickButtons = Array.isArray(quickButtonLayout?.tree) && quickButtonLayout.tree.length > 0;
-  // When hasQuickButtons becomes false (store hasn't configured Quick Buttons
-  // yet), ensure we're not stuck on an empty BUTTONS tab — fall back to catalog.
   useEffect(() => {
+    if (!quickLayoutLoaded) return;                                // wait for first fetch
     if (!hasQuickButtons && quickTab === 'buttons') setQuickTab('catalog');
-  }, [hasQuickButtons, quickTab]);
+  }, [quickLayoutLoaded, hasQuickButtons, quickTab]);
   const [lotteryActiveBoxes, setLotteryActiveBoxes] = useState([]);
   // Lottery shift reconciliation state
   const [lotteryShiftDone,   setLotteryShiftDone]   = useState(false);
@@ -977,6 +982,8 @@ export default function POSScreen() {
         amount:         Math.abs(Number(i.lineTotal)  || 0),
         entryMode:      i.entryMode || 'amount',
         taxAmount:      Math.abs(Number(i.taxAmount)  || 0),
+        pumpId:         i.pumpId    || undefined,      // V1.5
+        refundsOf:      i.refundsOf || undefined,      // V1.5
       })),
       tenderLines: finalLines,
       changeGiven: change,
@@ -1027,8 +1034,18 @@ export default function POSScreen() {
   const cashOnlyEnforced = isPureLotteryCart;
 
   // ── Layout preset config ──────────────────────────────────────────────────
+  // Resolve the active layout for THIS register: station-level override wins
+  // over the store-wide default. This lets a store run different presets on
+  // different registers (e.g. Express Lane on register 1, Counter on register 2)
+  // without affecting other stations. All OTHER pos-config fields (shortcuts,
+  // numpad, action-bar height, etc.) remain store-wide and apply uniformly.
+  const resolvedLayout = (
+    (station?.id && posConfig.stationLayouts?.[station.id]) ||
+    posConfig.layout ||
+    'modern'
+  );
   const layoutCfg = useMemo(() => {
-    switch (posConfig.layout) {
+    switch (resolvedLayout) {
       case 'express':
         return {
           searchOrder: 1, cartOrder: 2,
@@ -1068,7 +1085,7 @@ export default function POSScreen() {
           counterMode: false,
         };
     }
-  }, [posConfig.layout, posConfig.showDepartments, posConfig.showQuickAdd]);
+  }, [resolvedLayout, posConfig.showDepartments, posConfig.showQuickAdd]);
 
   return (
     <div className="pos-shell">
@@ -2256,6 +2273,8 @@ export default function POSScreen() {
         fuelTypes={fuel.types}
         defaultEntryMode={fuel.settings?.defaultEntryMode || 'amount'}
         defaultFuelTypeId={fuel.settings?.defaultFuelTypeId}
+        pumps={fuel.pumps || []}
+        storeId={storeId}
         onClose={() => setFuelModalMode(null)}
       />
       {showLotteryShift && (

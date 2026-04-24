@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { Monitor, Save, Check, Palette, Sun, Moon, ShoppingBag, Settings } from 'lucide-react';
+import { Monitor, Save, Check, Palette, Sun, Moon, ShoppingBag, Settings, ShieldCheck } from 'lucide-react';
 import { getStores } from '../services/api.js';
 import api from '../services/api.js';
 
@@ -20,6 +20,9 @@ const DEFAULT_BRANDING = { theme: 'dark', primaryColor: 'var(--accent-primary)',
 
 const DEFAULT_CONFIG = {
   layout: 'modern',
+  // Per-station layout overrides. `{ [stationId]: 'modern' | 'express' | ... }`.
+  // Only the `layout` preset is per-station — all other settings remain store-wide.
+  stationLayouts: {},
   hiddenDepartments: [],
   showDepartments: true,
   showQuickAdd: true,
@@ -424,6 +427,12 @@ export default function POSSettings({ embedded }) {
   const [saving,        setSaving]        = useState(false);
   const [didSave,       setDidSave]       = useState(false);
   const [departments,   setDepartments]   = useState([]);
+  // Registers (stations) for this store — powers the per-station layout override UI.
+  const [stations,      setStations]      = useState([]);
+  // Which register the Layout Preset picker is currently editing.
+  // 'all' = edit the store-wide default (config.layout).
+  // <stationId> = edit that station's override in config.stationLayouts.
+  const [layoutTarget,  setLayoutTarget]  = useState('all');
 
   // Load stores, auto-select from ?store= param
   useEffect(() => {
@@ -455,6 +464,9 @@ export default function POSSettings({ embedded }) {
           ...posData,
           shortcuts:   { ...DEFAULT_CONFIG.shortcuts, ...(posData.shortcuts || {}) },
           quickTender: Array.isArray(posData.quickTender) ? posData.quickTender : DEFAULT_CONFIG.quickTender,
+          stationLayouts: (posData.stationLayouts && typeof posData.stationLayouts === 'object')
+            ? posData.stationLayouts
+            : {},
         };
         setConfig(merged);
         setSaved(merged);
@@ -480,6 +492,40 @@ export default function POSSettings({ embedded }) {
       .then(res => setDepartments(Array.isArray(res.data) ? res.data : (res.data?.departments || [])))
       .catch(() => setDepartments([]));
   }, [storeId]);
+
+  // Load stations (registers) for this store — populates the Layout Preset target picker
+  useEffect(() => {
+    if (!storeId) { setStations([]); setLayoutTarget('all'); return; }
+    api.get('/pos-terminal/stations', { params: { storeId } })
+      .then(res => setStations(Array.isArray(res.data?.stations) ? res.data.stations : []))
+      .catch(() => setStations([]));
+    setLayoutTarget('all');
+  }, [storeId]);
+
+  // Helpers for the per-station layout override UI
+  const currentLayout = layoutTarget === 'all'
+    ? (config.layout || 'modern')
+    : (config.stationLayouts?.[layoutTarget] || config.layout || 'modern');
+  const hasOverride = layoutTarget !== 'all' && !!config.stationLayouts?.[layoutTarget];
+  const inheritedLayout = config.layout || 'modern';
+  const setLayoutForTarget = (key) => {
+    if (layoutTarget === 'all') {
+      setField('layout', key);
+    } else {
+      setConfig(c => ({
+        ...c,
+        stationLayouts: { ...(c.stationLayouts || {}), [layoutTarget]: key },
+      }));
+    }
+  };
+  const clearLayoutOverride = () => {
+    if (layoutTarget === 'all') return;
+    setConfig(c => {
+      const next = { ...(c.stationLayouts || {}) };
+      delete next[layoutTarget];
+      return { ...c, stationLayouts: next };
+    });
+  };
 
   const setField = (field, value) => setConfig(c => ({ ...c, [field]: value }));
 
@@ -582,16 +628,75 @@ export default function POSSettings({ embedded }) {
         ) : (
           <div style={{ maxWidth: 860 }}>
 
-            {/* ── Section 1: Layout Presets ── */}
+            {/* ── Section 1: Layout Presets (per-register override supported) ── */}
             <div style={cardStyle}>
               <span style={sectionLabel}>LAYOUT PRESET</span>
+
+              {/* Target picker — store default vs. per-register override.
+                  Shown only when the store has registered at least one station.
+                  Layouts may differ per register (e.g. Express Lane on Reg 1,
+                  Counter on Reg 2); all OTHER POS settings remain store-wide. */}
+              {stations.length > 0 && (
+                <div style={{
+                  marginBottom: '1rem', padding: '0.75rem 0.875rem', borderRadius: 10,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                  display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Apply layout to:
+                  </label>
+                  <select
+                    value={layoutTarget}
+                    onChange={e => setLayoutTarget(e.target.value)}
+                    style={{
+                      padding: '0.5rem 0.75rem', borderRadius: 8,
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-secondary)', color: 'var(--text-primary)',
+                      fontSize: '0.82rem', fontWeight: 600,
+                      cursor: 'pointer', minWidth: 220,
+                    }}
+                  >
+                    <option value="all">All registers (store default)</option>
+                    {stations.map(s => {
+                      const overridden = !!config.stationLayouts?.[s.id];
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.name || `Register ${s.id.slice(0, 6)}`}
+                          {overridden ? ' — overridden' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {layoutTarget !== 'all' && hasOverride && (
+                    <button
+                      onClick={clearLayoutOverride}
+                      style={{
+                        padding: '0.4rem 0.75rem', borderRadius: 6, fontSize: '0.74rem',
+                        fontWeight: 600, cursor: 'pointer',
+                        border: '1px solid rgba(224,63,63,.3)',
+                        background: 'rgba(224,63,63,.07)',
+                        color: 'var(--red, #e03f3f)',
+                      }}
+                      title="Remove this station's override and inherit the store default"
+                    >
+                      ✕ Remove override
+                    </button>
+                  )}
+                  {layoutTarget !== 'all' && !hasOverride && (
+                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontStyle: 'italic' }}>
+                      Inherits store default ({inheritedLayout}). Pick a preset below to override.
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))', gap: 12 }}>
                 {LAYOUT_PRESETS.map(preset => {
-                  const active = config.layout === preset.key;
+                  const active = currentLayout === preset.key;
                   return (
                     <button
                       key={preset.key}
-                      onClick={() => setField('layout', preset.key)}
+                      onClick={() => setLayoutForTarget(preset.key)}
                       style={{
                         background: active ? 'var(--brand-08)' : 'var(--bg-tertiary)',
                         border: `2px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
@@ -633,6 +738,26 @@ export default function POSSettings({ embedded }) {
                   );
                 })}
               </div>
+
+              {/* Summary of current overrides — helpful at a glance */}
+              {stations.length > 0 && Object.keys(config.stationLayouts || {}).length > 0 && (
+                <div style={{
+                  marginTop: '1rem', paddingTop: '0.875rem',
+                  borderTop: '1px solid var(--border-color)',
+                  fontSize: '0.72rem', color: '#64748b',
+                }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>Per-register overrides:</strong>{' '}
+                  {Object.entries(config.stationLayouts || {}).map(([sid, layoutKey], idx, arr) => {
+                    const st = stations.find(s => s.id === sid);
+                    return (
+                      <span key={sid}>
+                        {st?.name || `Register ${sid.slice(0, 6)}`} → <strong>{layoutKey}</strong>
+                        {idx < arr.length - 1 ? ', ' : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* ── Section 2: Feature Toggles ── */}
@@ -658,11 +783,6 @@ export default function POSSettings({ embedded }) {
                   checked={config.customerLookup}
                   onChange={v => setField('customerLookup', v)}
                   label="Customer Lookup"
-                />
-                <Toggle
-                  checked={config.ageVerification !== false}
-                  onChange={v => setField('ageVerification', v)}
-                  label="Age Verification"
                 />
               </div>
 
@@ -705,6 +825,47 @@ export default function POSSettings({ embedded }) {
                     💡 Change will be rounded to nearest $0.05 — e.g. $0.33 becomes $0.35, $0.31 becomes $0.30
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* ── Section 2a: Age Verification ── */}
+            <div style={cardStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem' }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: 'linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))',
+                  border: '1px solid rgba(245,158,11,0.25)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#f59e0b',
+                }}>
+                  <ShieldCheck size={18} />
+                </div>
+                <span style={{ ...sectionLabel, marginBottom: 0 }}>AGE VERIFICATION</span>
+              </div>
+              <p style={{ fontSize: '0.78rem', color: '#475569', margin: '0 0 1rem' }}>
+                When <strong>ON</strong>, the cashier sees a Date of Birth prompt when a tobacco
+                or alcohol item is added to the cart — the cashier must visually verify the
+                customer's ID and enter the birth date to confirm. When <strong>OFF</strong>,
+                items are added silently with no prompt (bypassed). The store-level age limits
+                below (tobacco / alcohol) still control the age threshold that appears on the
+                prompt when enabled.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '0.75rem 0.875rem', borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
+                    Enforce Age Verification Prompt
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    {config.ageVerification !== false
+                      ? 'Cashier is prompted to verify ID for age-restricted items.'
+                      : '⚠ Bypassed — no prompt shown. Use only if your staff verify ID another way.'}
+                  </div>
+                </div>
+                <Toggle
+                  checked={config.ageVerification !== false}
+                  onChange={v => setField('ageVerification', v)}
+                  label=""
+                />
               </div>
             </div>
 

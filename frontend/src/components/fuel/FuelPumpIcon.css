@@ -1,0 +1,61 @@
+/* FuelPumpIcon.css — prefix: fpi- */
+
+.fpi-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  padding: 0.75rem 0.5rem 0.5rem;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: #ffffff;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.2s;
+}
+
+.fpi-wrap:hover:not(.fpi-wrap--disabled) {
+  border-color: var(--fpi-accent, #cbd5e1);
+}
+
+.fpi-wrap:active:not(.fpi-wrap--disabled) {
+  transform: scale(0.97);
+}
+
+.fpi-wrap--selected {
+  border-color: var(--fpi-accent, #16a34a);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--fpi-accent, #16a34a) 15%, transparent),
+              0 4px 12px rgba(15, 23, 42, 0.08);
+  background: color-mix(in srgb, var(--fpi-accent, #16a34a) 5%, #ffffff);
+}
+
+.fpi-wrap--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fpi-svg {
+  width: var(--fpi-size, 96px);
+  height: auto;
+  aspect-ratio: 100 / 140;
+  display: block;
+}
+
+.fpi-label {
+  text-align: center;
+  margin-top: 0.2rem;
+  line-height: 1.15;
+}
+
+.fpi-pump-num {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.fpi-pump-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 1px;
+}

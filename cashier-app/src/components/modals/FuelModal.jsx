@@ -1,19 +1,27 @@
 /**
  * FuelModal — Fuel sale (or refund) entry.
  *
- * Flow:
+ * Sale flow:
  *   1. Cashier picks fuel type from chips (default pre-selected)
- *   2. Toggles "Amount ($)" or "Gallons" entry mode (default from settings)
- *   3. Enters value via numpad
- *   4. Live preview shows BOTH gallons + amount + price-per-gallon
- *   5. "Add to Cart" creates an isFuel cart line item
+ *   2. V1.5 — if pumps are configured, cashier picks the pump (icon tiles)
+ *   3. Toggles "Amount ($)" or "Gallons" entry mode (default from settings)
+ *   4. Enters value via numpad → live preview shows both + $/gal
+ *   5. "Add to Cart" creates an isFuel cart line item (with pumpId)
  *
- * Refund mode (mode='refund') adds a NEGATIVE fuel line.
+ * Refund flow (V1.5 — original-transaction-aware):
+ *   1. Modal lists recent fuel sales at this store (with Pump # + amount)
+ *   2. Cashier picks the original sale → grade/pump auto-populate
+ *   3. Cashier enters the actual dispensed gallons OR the refund amount;
+ *      the system auto-computes the other side
+ *   4. "Add Refund to Cart" creates a NEGATIVE fuel line with refundsOf
+ *      pointing at the original sale. FIFO layers reverse correctly.
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Fuel as FuelIcon, ArrowLeftRight } from 'lucide-react';
+import { X, Fuel as FuelIcon, ArrowLeftRight, RefreshCw, Check } from 'lucide-react';
 import { useCartStore } from '../../stores/useCartStore.js';
+import { getRecentFuelSales } from '../../api/pos.js';
+import FuelPumpIcon from '../fuel/FuelPumpIcon.jsx';
 import './FuelModal.css';
 
 const NUMPAD     = ['7','8','9','4','5','6','1','2','3','C','0','⌫'];
@@ -37,8 +45,16 @@ export default function FuelModal({
   fuelTypes = [],
   defaultEntryMode = 'amount',
   defaultFuelTypeId = null,
+  pumps = [],           // V1.5: when non-empty, cashier must pick one for each fuel item
+  storeId = null,       // V1.5: used by refund flow to fetch recent sales
 }) {
   const addFuelItem = useCartStore(s => s.addFuelItem);
+  const [selectedPump, setSelectedPump] = useState(null); // V1.5
+
+  // V1.5 — refund flow state: the recent sale being refunded
+  const [recentSales, setRecentSales]           = useState([]);
+  const [recentLoading, setRecentLoading]       = useState(false);
+  const [selectedRefundTx, setSelectedRefundTx] = useState(null);
 
   // Pick initial fuel type: explicit defaultFuelTypeId → isDefault flag → first
   const initialType = useMemo(() => {
@@ -63,7 +79,43 @@ export default function FuelModal({
     setEntryMode(defaultEntryMode);
     setDigits('');
     setAdded([]);
+    setSelectedPump(null);
+    setSelectedRefundTx(null);
   }, [open, initialType, defaultEntryMode]);
+
+  // V1.5: load recent sales for the refund picker when modal opens in refund mode
+  const loadRecentSales = () => {
+    if (!storeId) return;
+    setRecentLoading(true);
+    getRecentFuelSales(storeId, { limit: 30 })
+      .then(rows => setRecentSales(Array.isArray(rows) ? rows : []))
+      .catch(() => setRecentSales([]))
+      .finally(() => setRecentLoading(false));
+  };
+  useEffect(() => {
+    if (open && mode === 'refund') loadRecentSales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, storeId]);
+
+  // When a refund tx is selected: snap to that grade/pump + pre-fill numpad
+  // with the FULL remaining refundable amount so cashier can just edit down.
+  useEffect(() => {
+    if (!selectedRefundTx) return;
+    // Pre-select the same grade
+    const grade = fuelTypes.find(t => t.id === selectedRefundTx.fuelTypeId);
+    if (grade) setSelectedType(grade);
+    // Default entry mode → amount (easier to reason about remaining $)
+    setEntryMode('amount');
+    // Pre-fill with full remaining amount (cashier adjusts down for partial refund)
+    const remaining = Number(selectedRefundTx.remainingAmount || 0);
+    if (remaining > 0) {
+      // remaining = 13.00 → digits = "1300"
+      const cents = Math.round(remaining * 100);
+      setDigits(String(cents));
+    } else {
+      setDigits('');
+    }
+  }, [selectedRefundTx, fuelTypes]);
 
   const decimals = entryMode === 'gallons' ? 3 : 2;
   const enteredValue = digitsToValue(digits, decimals);
@@ -98,13 +150,32 @@ export default function FuelModal({
     setDigits('');
   };
 
-  const canAdd = !!selectedType && enteredValue > 0 && computed.gallons > 0 && computed.amount > 0;
+  const pumpRequired     = pumps.length > 0 && mode === 'sale';
+  const refundRequiresTx = mode === 'refund';
+  // Refund amount must not exceed what's remaining refundable on the original tx
+  const refundExceedsRemaining = refundRequiresTx && selectedRefundTx
+    ? computed.amount > Number(selectedRefundTx.remainingAmount || 0) + 0.005
+    : false;
+
+  const canAdd = !!selectedType
+    && enteredValue > 0
+    && computed.gallons > 0
+    && computed.amount > 0
+    && (!pumpRequired    || !!selectedPump)
+    && (!refundRequiresTx || !!selectedRefundTx)
+    && !refundExceedsRemaining;
 
   const handleAdd = () => {
     if (!canAdd) return;
     const tax = selectedType.isTaxable && selectedType.taxRate
       ? computed.amount * Number(selectedType.taxRate)
       : 0;
+
+    // V1.5 refund path: inherit pump from the original tx being refunded.
+    // The backend will scale the original's FIFO layers proportionally.
+    const refundPumpId = refundRequiresTx && selectedRefundTx ? selectedRefundTx.pumpId : null;
+    const refundPumpNum = refundRequiresTx && selectedRefundTx ? selectedRefundTx.pump?.pumpNumber : null;
+
     addFuelItem({
       fuelType:        selectedType,
       type:            mode,                          // 'sale' or 'refund'
@@ -113,17 +184,29 @@ export default function FuelModal({
       amount:          computed.amount,
       entryMode,
       taxAmount:       tax,
+      pumpId:          selectedPump?.id || refundPumpId || null,         // V1.5
+      pumpNumber:      selectedPump?.pumpNumber || refundPumpNum || null,
+      refundsOf:       refundRequiresTx && selectedRefundTx ? selectedRefundTx.id : null,
     });
     setAdded(a => [
       ...a,
       {
-        name:    selectedType.name,
-        gallons: computed.gallons,
-        amount:  computed.amount,
+        name:      selectedType.name,
+        gallons:   computed.gallons,
+        amount:    computed.amount,
         ppg,
+        pumpNum:   selectedPump?.pumpNumber || refundPumpNum || null,
+        isRefund:  mode === 'refund',
       },
     ]);
     setDigits('');
+    // Clear the selected refund tx after adding (next refund needs a fresh pick)
+    if (refundRequiresTx) {
+      setSelectedRefundTx(null);
+      // Refresh recent-sales so the remaining amount is correct for next pick
+      loadRecentSales();
+    }
+    // Don't clear selectedPump on sale mode — common to ring multiple items on the same pump
   };
 
   const handleDone = () => {
@@ -163,31 +246,158 @@ export default function FuelModal({
           {/* LEFT: Form */}
           <div className="fm-left">
 
-            {/* Fuel type selector */}
-            <div className="fm-section">
-              <div className="fm-section-label">Fuel Type</div>
-              {fuelTypes.length === 0 ? (
-                <div className="fm-empty">No fuel types configured. Add some in Portal &rsaquo; Fuel.</div>
-              ) : (
-                <div className="fm-type-grid">
-                  {fuelTypes.map(t => (
+            {/* V1.5: Refund mode — "pick original sale" picker OR summary */}
+            {isRefund && !selectedRefundTx && (
+              <div className="fm-section">
+                <div className="fm-section-label-row">
+                  <div className="fm-section-label">Pick the sale to refund</div>
+                  <button onClick={loadRecentSales} className="fm-refresh-btn" title="Refresh">
+                    <RefreshCw size={12} />
+                  </button>
+                </div>
+                {recentLoading && <div className="fm-empty">Loading recent sales…</div>}
+                {!recentLoading && recentSales.length === 0 && (
+                  <div className="fm-empty">No recent fuel sales to refund.</div>
+                )}
+                {!recentLoading && recentSales.length > 0 && (
+                  <div className="fm-refund-list">
+                    {recentSales.map(tx => {
+                      const remaining = Number(tx.remainingAmount);
+                      const already = Number(tx.refundedAmount);
+                      const fullyRefunded = remaining < 0.005;
+                      return (
+                        <button
+                          key={tx.id}
+                          className={'fm-refund-row' + (fullyRefunded ? ' fm-refund-row--done' : '')}
+                          disabled={fullyRefunded}
+                          onClick={() => !fullyRefunded && setSelectedRefundTx(tx)}
+                        >
+                          <div className="fm-refund-row-left">
+                            {tx.pump ? (
+                              <span className="fm-refund-pump">Pump {tx.pump.pumpNumber}</span>
+                            ) : (
+                              <span className="fm-refund-pump fm-refund-pump--none">No pump</span>
+                            )}
+                            <div className="fm-refund-grade">
+                              <span className="fm-type-dot" style={{ background: tx.fuelType?.color || '#94a3b8' }} />
+                              {tx.fuelType?.name || tx.fuelTypeName}
+                            </div>
+                            <div className="fm-refund-time">{new Date(tx.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+                          </div>
+                          <div className="fm-refund-row-right">
+                            <div className="fm-refund-amount">${Number(tx.amount).toFixed(2)}</div>
+                            <div className="fm-refund-sub">
+                              {Number(tx.gallons).toFixed(3)} gal
+                              {already > 0 && (
+                                <span className="fm-refund-already"> · ${already.toFixed(2)} refunded</span>
+                              )}
+                              {fullyRefunded && <span className="fm-refund-done-tag"> · FULLY REFUNDED</span>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* V1.5: Refund mode — summary of selected original sale */}
+            {isRefund && selectedRefundTx && (
+              <div className="fm-section">
+                <div className="fm-refund-selected">
+                  <div className="fm-refund-selected-title">
+                    <Check size={14} /> Refunding sale
+                  </div>
+                  <div className="fm-refund-selected-body">
+                    <div className="fm-refund-selected-row">
+                      <span>Pump</span>
+                      <b>{selectedRefundTx.pump ? `#${selectedRefundTx.pump.pumpNumber}` : 'None'}</b>
+                    </div>
+                    <div className="fm-refund-selected-row">
+                      <span>Grade</span>
+                      <b>{selectedRefundTx.fuelType?.name || selectedRefundTx.fuelTypeName}</b>
+                    </div>
+                    <div className="fm-refund-selected-row">
+                      <span>Original</span>
+                      <b>${Number(selectedRefundTx.amount).toFixed(2)} ({Number(selectedRefundTx.gallons).toFixed(3)} gal)</b>
+                    </div>
+                    <div className="fm-refund-selected-row">
+                      <span>Already refunded</span>
+                      <b>${Number(selectedRefundTx.refundedAmount || 0).toFixed(2)}</b>
+                    </div>
+                    <div className="fm-refund-selected-row fm-refund-selected-row--highlight">
+                      <span>Remaining refundable</span>
+                      <b>${Number(selectedRefundTx.remainingAmount || 0).toFixed(2)}</b>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setSelectedRefundTx(null); setDigits(''); }}
+                    className="fm-refund-change-btn"
+                  >
+                    Change selected sale
+                  </button>
+                </div>
+                {refundExceedsRemaining && (
+                  <div className="fm-warn">
+                    ⚠ Refund amount exceeds the remaining refundable balance. Lower the amount or pick a different sale.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fuel type selector — hidden in refund mode (inherited from original tx) */}
+            {!isRefund && (
+              <div className="fm-section">
+                <div className="fm-section-label">Fuel Type</div>
+                {fuelTypes.length === 0 ? (
+                  <div className="fm-empty">No fuel types configured. Add some in Portal &rsaquo; Fuel.</div>
+                ) : (
+                  <div className="fm-type-grid">
+                    {fuelTypes.map(t => (
+                      <button
+                        key={t.id}
+                        className={'fm-type-chip' + (selectedType?.id === t.id ? ' fm-type-chip--active' : '')}
+                        style={{ borderColor: selectedType?.id === t.id ? (t.color || accentColor) : 'transparent' }}
+                        onClick={() => { setSelectedType(t); setDigits(''); }}
+                      >
+                        <span className="fm-type-dot" style={{ background: t.color || '#94a3b8' }} />
+                        <span className="fm-type-info">
+                          <span className="fm-type-name">{t.name}</span>
+                          {t.gradeLabel && <span className="fm-type-grade">{t.gradeLabel}</span>}
+                        </span>
+                        <span className="fm-type-price">${Number(t.pricePerGallon).toFixed(3)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* V1.5: Pump picker — sale mode only, only when pumpTracking is on */}
+            {!isRefund && pumps.length > 0 && (
+              <div className="fm-section">
+                <div className="fm-section-label">Pump</div>
+                <div className="fm-pump-grid">
+                  {pumps.map(p => (
                     <button
-                      key={t.id}
-                      className={'fm-type-chip' + (selectedType?.id === t.id ? ' fm-type-chip--active' : '')}
-                      style={{ borderColor: selectedType?.id === t.id ? (t.color || accentColor) : 'transparent' }}
-                      onClick={() => { setSelectedType(t); setDigits(''); }}
+                      key={p.id}
+                      className="fm-pump-btn"
+                      onClick={() => setSelectedPump(p)}
                     >
-                      <span className="fm-type-dot" style={{ background: t.color || '#94a3b8' }} />
-                      <span className="fm-type-info">
-                        <span className="fm-type-name">{t.name}</span>
-                        {t.gradeLabel && <span className="fm-type-grade">{t.gradeLabel}</span>}
-                      </span>
-                      <span className="fm-type-price">${Number(t.pricePerGallon).toFixed(3)}</span>
+                      <FuelPumpIcon
+                        pumpNumber={p.pumpNumber}
+                        label={p.label}
+                        color={p.color || selectedType?.color || '#16a34a'}
+                        size={84}
+                        showLabel
+                        selected={selectedPump?.id === p.id}
+                      />
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Mode toggle */}
             <div className="fm-section">

@@ -494,6 +494,8 @@ export default function TenderModal({
         amount:         Math.abs(Number(i.lineTotal)  || 0),
         entryMode:      i.entryMode || 'amount',
         taxAmount:      Math.abs(Number(i.taxAmount)  || 0),
+        pumpId:         i.pumpId    || undefined,      // V1.5
+        refundsOf:      i.refundsOf || undefined,      // V1.5
       })),
       tenderLines: finalLines,
       changeGiven: change,
