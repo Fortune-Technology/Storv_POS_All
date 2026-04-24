@@ -6,7 +6,8 @@
      with no way to scroll. Capping at viewport makes .pls-page itself the
      scroll container so overflow-y:auto below actually activates. */
   height: 100vh;
-  height: 100dvh; /* dynamic viewport height — accounts for mobile browser chrome */
+  height: 100dvh;
+  /* dynamic viewport height — accounts for mobile browser chrome */
   width: 100%;
   background: var(--bg-base);
   display: flex;
@@ -92,8 +93,13 @@
   font-size: 1.1rem;
 }
 
-.pls-clock-done-title--in { color: var(--green); }
-.pls-clock-done-title--out { color: var(--text-primary); }
+.pls-clock-done-title--in {
+  color: var(--green);
+}
+
+.pls-clock-done-title--out {
+  color: var(--text-primary);
+}
 
 .pls-clock-done-name {
   color: var(--text-secondary);
@@ -129,8 +135,13 @@
   margin-bottom: 6px;
 }
 
-.pls-warn-title--amber { color: var(--amber, #f59e0b); }
-.pls-warn-title--red { color: var(--red, #ef4444); }
+.pls-warn-title--amber {
+  color: var(--amber, #f59e0b);
+}
+
+.pls-warn-title--red {
+  color: var(--red, #ef4444);
+}
 
 .pls-warn-name {
   color: var(--text-secondary);
@@ -313,12 +324,13 @@
 .pls-submit {
   margin-top: 20px;
   width: 260px;
-  height: 52px;
+  padding: 1rem;
   border: none;
   border-radius: 14px;
   font-weight: 800;
   font-size: 1rem;
   transition: background 0.15s;
+
 }
 
 .pls-submit--ready {

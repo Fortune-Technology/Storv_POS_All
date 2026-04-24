@@ -411,8 +411,13 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
           }}>Cancel</button>
           <button onClick={() => onSave(form)} disabled={saving || !form.name.trim()} style={{
             flex: 2, padding: '0.75rem', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.875rem',
-            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--green, var(--accent-primary))',
-            color: saving || !form.name.trim() ? 'var(--text-muted, #6b7280)' : '#0f1117',
+            // Primary save button: indigo brand bg with white text. Disabled state
+            // uses tertiary bg + muted text. Previously the text was hardcoded to
+            // near-black (#0f1117) which was unreadable against the indigo accent
+            // — kept from a dark-theme-era green button. White is the right
+            // contrast against any brand-coloured background we'd swap in.
+            background: saving || !form.name.trim() ? 'var(--bg-tertiary, #2a2a3a)' : 'var(--accent-primary, var(--brand-primary))',
+            color: saving || !form.name.trim() ? 'var(--text-muted, #6b7280)' : '#ffffff',
             cursor: saving || !form.name.trim() ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>

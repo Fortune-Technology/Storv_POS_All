@@ -13,7 +13,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PriceInput from '../components/PriceInput';
-import CameraScanButton from '../components/CameraScanButton';
+// Camera scanner is intentionally NOT used here — barcode scanning is a
+// product-only surface (catalog search, inventory count, POS). Customer
+// search uses the text field only.
 
 import './Customers.css';
 import {
@@ -543,10 +545,6 @@ export default function Customers({ embedded }) {
             <X size={13} />
           </button>
         )}
-        <CameraScanButton
-          onScan={(code) => setSearch(code)}
-          title="Scan loyalty card barcode"
-        />
       </div>
 
       {/* Error */}
