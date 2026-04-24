@@ -36,6 +36,87 @@ async function getHeicConverter() {
   return _heicConvert;
 }
 
+// ─── TOLERANT JSON PARSE ─────────────────────────────────────────────────────
+// OpenAI can truncate the response when the output exceeds max_tokens, leaving
+// malformed JSON like `{"lineItems": [ {...}, {"descripti`. Even with
+// `response_format: json_object` the SDK returns the partial content plus
+// `finish_reason: 'length'`. Native JSON.parse throws "Unterminated string…"
+// and we lose the entire extraction.
+//
+// This helper tries normal parse first, then — if it fails with a truncation-
+// shaped error — walks the string looking for the last COMPLETE line-item
+// object in the `lineItems` (or `enrichments`) array, truncates there, and
+// appends `]}` to close the structure. Returns the parsed object or throws
+// the original error if repair fails.
+//
+// Usage:
+//   const raw = response.choices[0].message.content;
+//   const finishReason = response.choices[0].finish_reason;
+//   const parsed = tolerantJsonParse(raw, { finishReason, context: 'vision' });
+function tolerantJsonParse(raw, { finishReason, context } = {}) {
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    // Only try repair for truncation-shaped errors, not actual malformed JSON.
+    const truncated = /Unterminated string|Unexpected end of JSON input|Unexpected token/i.test(err.message)
+                    || finishReason === 'length';
+    if (!truncated) throw err;
+
+    const repaired = repairTruncatedJson(raw);
+    if (!repaired) {
+      console.warn(`[gptService/${context || 'unknown'}] JSON truncation detected but repair failed:`, err.message);
+      throw err;
+    }
+    try {
+      const result = JSON.parse(repaired);
+      const arrayKey = result.lineItems ? 'lineItems' : (result.enrichments ? 'enrichments' : null);
+      const saved = arrayKey ? (result[arrayKey] || []).length : 0;
+      console.warn(`⚠️  [gptService/${context || 'unknown'}] Recovered truncated JSON — salvaged ${saved} ${arrayKey || 'items'}. Consider bumping max_tokens.`);
+      return result;
+    } catch (e2) {
+      console.warn(`[gptService/${context || 'unknown'}] Repair attempt also failed:`, e2.message);
+      throw err;  // surface the ORIGINAL error so upstream sees meaningful context
+    }
+  }
+}
+
+// Walk the string once, tracking `{}` nesting inside `"lineItems": [...]` (or
+// `"enrichments": [...]`), and return a prefix ending at the last `}` that
+// closed a top-level array element, with `]}` appended to close the array +
+// outer object. Handles nested objects, strings, escapes. Returns null if
+// no complete element could be found (e.g. truncated inside the first item).
+function repairTruncatedJson(raw) {
+  if (typeof raw !== 'string' || raw.length < 20) return null;
+
+  // Find where the big array opens.
+  const m = raw.match(/"(lineItems|enrichments)"\s*:\s*\[/);
+  if (!m) return null;
+  const arrayStart = m.index + m[0].length;
+
+  let depth = 0;          // nesting depth of { } inside the array
+  let inString = false;
+  let escaped = false;
+  let lastCompleteItemEnd = -1;
+
+  for (let i = arrayStart; i < raw.length; i++) {
+    const c = raw[i];
+    if (escaped) { escaped = false; continue; }
+    if (c === '\\') { escaped = true; continue; }
+    if (c === '"')  { inString = !inString; continue; }
+    if (inString)   continue;
+
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) lastCompleteItemEnd = i;   // just closed an array element
+    }
+  }
+
+  if (lastCompleteItemEnd < 0) return null;
+  // Truncate at that position, close the array + outer object.
+  return raw.slice(0, lastCompleteItemEnd + 1) + ']}';
+}
+
 // iPhone photos arrive as HEIC/HEIF. Neither Azure Document Intelligence
 // nor OpenAI Vision accepts that format, so we transcode to JPEG before
 // running OCR. Returns { buffer, mimetype } — pass-through for non-HEIC.
@@ -301,13 +382,19 @@ Return JSON only:
       model: "gpt-4o-mini",
       temperature: 0,
       response_format: { type: "json_object" },
+      // Long invoices with 30+ line items can hit the default 4K output limit
+      // and silently truncate mid-JSON. 16K is the gpt-4o family hard cap.
+      max_tokens: 16384,
       messages: [
         { role: "system", content: "You are an invoice data enrichment engine. Return only valid JSON." },
         { role: "user",   content: prompt },
       ],
     });
 
-    const parsed      = JSON.parse(response.choices[0].message.content);
+    const parsed = tolerantJsonParse(response.choices[0].message.content, {
+      finishReason: response.choices[0].finish_reason,
+      context:      'enrichment',
+    });
     const enrichments = parsed.enrichments || [];
 
     for (const e of enrichments) {
@@ -441,7 +528,13 @@ CRITICAL RULES:
     model:       "gpt-4o",
     temperature: 0,
     response_format: { type: "json_object" },
-    max_tokens: 4096,
+    // 4096 was too small — multi-page invoices with 30+ line items (e.g. the
+    // A.S.D.K. Ram Corp / Merrimack Valley Distributing invoices with 37+
+    // products and many columns per row) truncate to ~12 KB of JSON which
+    // throws "Unterminated string in JSON at position 12294". 16384 is the
+    // gpt-4o family hard cap; tolerantJsonParse handles edge cases where
+    // even that isn't enough.
+    max_tokens: 16384,
     messages: [
       {
         role:    "system",
@@ -457,7 +550,10 @@ CRITICAL RULES:
     ],
   });
 
-  const raw = JSON.parse(response.choices[0].message.content);
+  const raw = tolerantJsonParse(response.choices[0].message.content, {
+    finishReason: response.choices[0].finish_reason,
+    context:      'vision',
+  });
 
   const vendor    = raw.vendor    || {};
   const lineItems = (raw.lineItems || []).map((item) => {

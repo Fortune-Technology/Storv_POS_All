@@ -51,7 +51,8 @@ export const loadCatalogProductsForMatching = async (orgId) => {
       select: {
         id: true, name: true, upc: true,
         sku: true, itemCode: true, plu: true,
-        defaultRetailPrice: true, defaultCostPrice: true,
+        defaultRetailPrice: true, defaultCostPrice: true, defaultCasePrice: true,
+        lockManualCaseCost: true,
         casePacks: true, unitsPerPack: true, pack: true,
         departmentId: true, vendorId: true,
       },
@@ -68,6 +69,13 @@ export const loadCatalogProductsForMatching = async (orgId) => {
       sku:          p.sku        || '',
       retailPrice:  p.defaultRetailPrice != null ? Number(p.defaultRetailPrice) : null,
       costPrice:    p.defaultCostPrice   != null ? Number(p.defaultCostPrice)   : null,
+      // Product's currently-stored case cost — used to seed item.actualCost on match
+      // so the review UI shows "what the product cost is today" as the default Actual
+      // Cost. User can adjust before confirming; sync then replaces defaultCasePrice.
+      casePrice:    p.defaultCasePrice   != null ? Number(p.defaultCasePrice)   : null,
+      // When true, the cost-sync decision tree skips this product entirely and
+      // the review UI shows an amber 🔒 hint next to the Actual Cost field.
+      lockManualCaseCost: !!p.lockManualCaseCost,
       pack:         p.casePacks || p.unitsPerPack || p.pack || 1,
       departmentId: p.departmentId != null ? String(p.departmentId) : '',
       vendorId:     p.vendorId    != null ? String(p.vendorId)      : '',
@@ -556,6 +564,15 @@ const applyMatch = (results, index, posProduct, tier, confidence) => {
   const packSize = posProduct.pack || item.unitsPerPack || item.packUnits || 1;
   const unitCost = caseCost / packSize;
 
+  // Seed the editable "Actual Cost" field with the product's currently-stored
+  // case cost (defaultCasePrice). If the product has no stored cost yet (new
+  // product, never received before), fall back to the invoice's computed caseCost
+  // so the review UI never shows an empty field. The user can always adjust
+  // before confirming — this is just a sensible default.
+  const actualCost = posProduct.casePrice != null && posProduct.casePrice > 0
+    ? posProduct.casePrice
+    : caseCost;
+
   results[index] = {
     ...item,
     mappingStatus: 'matched',
@@ -566,6 +583,18 @@ const applyMatch = (results, index, posProduct, tier, confidence) => {
     suggestedRetailPrice: posProduct.retailPrice,
     packUnits: packSize,
     unitCost,
+    // Editable product-facing case cost. On confirm, may replace MasterProduct.defaultCasePrice.
+    actualCost,
+    // Mini view of the matched product for the UI (🔒 lock indicator,
+    // cost-diff badges, etc.). Minimal — we don't need the whole product row.
+    linkedProduct: {
+      id:                 posProduct.posProductId,
+      name:               posProduct.name,
+      defaultCasePrice:   posProduct.casePrice,
+      defaultCostPrice:   posProduct.costPrice,
+      defaultRetailPrice: posProduct.retailPrice,
+      lockManualCaseCost: !!posProduct.lockManualCaseCost,
+    },
     depositAmount: posProduct.deposit || item.depositAmount,
     upc: posProduct.upc || item.upc,
     // Session 39 Round 5 — cost change indicator for the review UI
@@ -850,6 +879,21 @@ export const matchLineItems = async (lineItems, posProducts, vendorName, opts = 
   const avgConfidence = results.length > 0 ? Math.round((confSum / results.length) * 100) / 100 : 0;
 
   console.log(`✅ Match result: ${matched}/${results.length} matched — breakdown:`, byTier);
+
+  // Post-processing: ensure every line item has an `actualCost` value so the
+  // review UI's Actual Cost field always has a sensible default. Matched
+  // items were already seeded from defaultCasePrice in applyMatch; this pass
+  // covers unmatched items that never ran through applyMatch.
+  // Fallback chain: netCost → caseCost − discount → caseCost → 0.
+  for (const r of results) {
+    if (r.actualCost != null && Number(r.actualCost) > 0) continue;
+    const explicitNet = Number(r.netCost || 0);
+    const gross       = Number(r.caseCost || 0);
+    const disc        = Number(r.discount || 0);
+    r.actualCost = explicitNet > 0 ? explicitNet
+      : (gross > 0 && disc > 0) ? Math.max(0, gross - disc)
+      : (gross > 0 ? gross : 0);
+  }
 
   // Attach stats to the results array for invoice persistence
   results._matchStats = {

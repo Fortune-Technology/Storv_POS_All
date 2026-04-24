@@ -606,10 +606,26 @@ export const confirmInvoice = async (req, res) => {
             console.warn('[confirmInvoice] ProductVendor upsert failed:', e.message);
           });
 
-          // (b) Cost-sync decision tree — decide whether to write invoiceCaseCost
-          // back onto MasterProduct.defaultCasePrice.
-          const invoiceCaseCost = item.caseCost != null ? Number(item.caseCost) : null;
-          if (invoiceCaseCost == null) {
+          // (b) Cost-sync decision tree — decide whether to write the user-approved
+          // Actual Cost back onto MasterProduct.defaultCasePrice.
+          // Semantic split (Invoice Scanning spec):
+          //   • item.actualCost   — the editable "Actual Cost" field from the UI.
+          //                         This is what the store considers the true per-case
+          //                         cost and wants stored on the product.
+          //   • item.netCost      — the NET value from the invoice (post-discount,
+          //                         pre-deposit). Used for invoice-total reconciliation
+          //                         only, NOT for product sync.
+          //   • item.caseCost     — the GROSS value from the invoice (pre-discount).
+          //                         Only used as a last-resort fallback when neither
+          //                         actualCost nor netCost are set (legacy drafts).
+          const actualCost = item.actualCost != null && Number(item.actualCost) > 0
+                           ? Number(item.actualCost)
+                           : (item.netCost != null && Number(item.netCost) > 0
+                              ? Number(item.netCost)
+                              : (item.caseCost != null && Number(item.caseCost) > 0
+                                 ? Number(item.caseCost)
+                                 : null));
+          if (actualCost == null) {
             // Nothing to sync — skip silently, no audit entry.
             continue;
           }
@@ -636,11 +652,11 @@ export const confirmInvoice = async (req, res) => {
               reason = `Product "${product.name}" has manual cost lock`;
             } else {
               // SYNC. Also derive defaultCostPrice from pack math if available.
-              const upd = { defaultCasePrice: invoiceCaseCost };
+              const upd = { defaultCasePrice: actualCost };
               const units = (Number(product.unitPack) || 0) * (Number(product.packInCase) || 0);
               if (units > 0) {
                 // Round to 4 decimals to match Prisma Decimal(10,4).
-                upd.defaultCostPrice = Math.round((invoiceCaseCost / units) * 10000) / 10000;
+                upd.defaultCostPrice = Math.round((actualCost / units) * 10000) / 10000;
               }
               await prisma.masterProduct.update({
                 where: { id: mpId, orgId: req.orgId },
@@ -653,9 +669,15 @@ export const confirmInvoice = async (req, res) => {
           }
 
           costSyncAudit.push({
-            productId: mpId,
+            productId:   mpId,
             productName: item.description || null,
-            invoiceCaseCost,
+            // Keep `invoiceCaseCost` key for back-compat with historical audit
+            // records; add explicit `actualCost` + `invoiceNetCost` so admins can
+            // see both numbers when auditing what synced.
+            invoiceCaseCost:  actualCost,
+            actualCost,
+            invoiceNetCost:   item.netCost != null ? Number(item.netCost) : null,
+            invoiceGrossCost: item.caseCost != null ? Number(item.caseCost) : null,
             decision,
             reason: reason || null,
           });

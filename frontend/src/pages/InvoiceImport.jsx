@@ -826,8 +826,28 @@ function ReviewPanel({
                 const isExp       = !!expanded[i];
                 const isMatched   = item.mappingStatus === 'matched' || item.mappingStatus === 'manual';
                 const packVal     = parseFloat(item.packUnits || 1) || 1;
-                const ccVal       = parseFloat(item.caseCost || 0);
-                const unitCostCalc = (ccVal / packVal).toFixed(4);
+                // "Actual Cost" is the editable, product-facing case cost that
+                // gets synced to MasterProduct.defaultCasePrice on confirm.
+                // Invoice Case Cost (the invoice's NET, post-discount pre-deposit)
+                // is kept separately for invoice-total reconciliation and is
+                // NOT the source of truth for per-unit cost math. Fallback chain
+                // mirrors the PriceInput display:
+                //   actualCost → product's stored defaultCasePrice → netCost → caseCost → 0
+                const actualCostVal = parseFloat(
+                  item.actualCost
+                  ?? item.linkedProduct?.defaultCasePrice
+                  ?? item.netCost
+                  ?? item.caseCost
+                  ?? 0
+                ) || 0;
+                // Invoice Case Cost = lowest post-discount value from the invoice
+                // (NET column). Used for invoice-total validation only.
+                const ccVal             = parseFloat(item.caseCost || 0);
+                const ncVal             = parseFloat(item.netCost || 0);
+                const invoiceCaseCostVal = ncVal > 0 && (!ccVal || ncVal <= ccVal) ? ncVal
+                                         : ccVal > 0 ? ccVal
+                                         : 0;
+                const unitCostCalc = (actualCostVal / packVal).toFixed(4);
                 const retail      = parseFloat(item.suggestedRetailPrice || 0);
                 const unitC       = parseFloat(item.unitCost || unitCostCalc || 0);
                 const margin      = retail > 0 && unitC > 0 ? ((retail - unitC) / retail * 100) : null;
@@ -1029,39 +1049,27 @@ function ReviewPanel({
                         <div className="review-item-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border-color)' }}>
 
                           {/* Left: invoice reference. Simplified per Invoice Scanning spec —
-                              we compute the single "Invoice Case Cost" as the lowest value
-                              after all discounts (min of caseCost vs netCost), and drop the
-                              separate Unit Cost / Net Cost / discount breakdown rows. The
-                              per-unit math still renders on the right panel's "Unit Cost (auto)"
-                              field. This keeps the invoice reference tight and unambiguous. */}
+                              we show a single "Invoice Case Cost" which is the NET value
+                              on the invoice (post-discount, pre-deposit). Per-unit math
+                              lives on the right panel's "Unit Cost (auto)" field and
+                              derives from Actual Cost (not Invoice Case Cost). This
+                              keeps the invoice reference tight and unambiguous. */}
                           <div style={{ padding: '0.9rem 1rem', borderRight: '1px solid var(--border-color)' }}>
                             <p style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.65rem' }}>📄 From Invoice</p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                              {(() => {
-                                // Invoice Case Cost = lowest of gross case cost vs net cost
-                                // (net is always <= gross when there's a discount; if only
-                                // one is present, use that one). Numeric; displayed below.
-                                const cc = item.caseCost != null ? Number(item.caseCost) : null;
-                                const nc = item.netCost  != null ? Number(item.netCost)  : null;
-                                const invoiceCaseCost =
-                                  (cc != null && nc != null) ? Math.min(cc, nc) :
-                                  (nc != null) ? nc :
-                                  (cc != null) ? cc :
-                                  null;
-                                return [
-                                  ['Description',       item.originalVendorDescription || item.description || '—'],
-                                  ['Item Code',         item.originalItemCode || item.itemCode || '—'],
-                                  ['UPC',               item.upc || '—'],
-                                  ['Quantity',          item.quantity ?? '—'],
-                                  ['Pack',              item.packUnits  ?? '—'],
-                                  // One cost number — the effective case cost after discounts
-                                  ['Invoice Case Cost', invoiceCaseCost != null ? fmt(invoiceCaseCost) : '—'],
-                                  ['Retail (orig)',     item.suggestedRetailPrice != null ? fmt(item.suggestedRetailPrice) : '—'],
-                                  ['Total',             item.totalAmount != null ? fmt(item.totalAmount) : '—'],
-                                  ['Category',          item.category   || '—'],
-                                  ['Deposit',           item.depositAmount != null ? fmt(item.depositAmount) : '—'],
-                                ];
-                              })().map(([l, v]) => (
+                              {[
+                                ['Description',       item.originalVendorDescription || item.description || '—'],
+                                ['Item Code',         item.originalItemCode || item.itemCode || '—'],
+                                ['UPC',               item.upc || '—'],
+                                ['Quantity',          item.quantity ?? '—'],
+                                ['Pack',              item.packUnits  ?? '—'],
+                                // One cost number — the effective case cost after discounts
+                                ['Invoice Case Cost', invoiceCaseCostVal > 0 ? fmt(invoiceCaseCostVal) : '—'],
+                                ['Retail (orig)',     item.suggestedRetailPrice != null ? fmt(item.suggestedRetailPrice) : '—'],
+                                ['Total',             item.totalAmount != null ? fmt(item.totalAmount) : '—'],
+                                ['Category',          item.category   || '—'],
+                                ['Deposit',           item.depositAmount != null ? fmt(item.depositAmount) : '—'],
+                              ].map(([l, v]) => (
                                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
                                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>{l}</span>
                                   <span style={{ fontSize: '0.78rem', fontWeight: 500, textAlign: 'right', color: 'var(--text-primary)' }}>{String(v)}</span>
@@ -1168,18 +1176,33 @@ function ReviewPanel({
                               );
                             })()}
 
-                            {/* Invoice Case Cost + Unit Cost (auto) + Retail
-                                Relabeled from "Case Cost" per Invoice Scanning spec — this is
-                                the effective case cost FROM THE INVOICE (post-discount). On
-                                confirm, this value may (per store + vendor + product lock
-                                settings) auto-update MasterProduct.defaultCasePrice. If the
-                                matched product has lockManualCaseCost=true, an amber "🔒 locked"
-                                hint appears so the user knows the invoice cost won't overwrite
-                                the store's manually-set product cost. */}
-                            <div className="review-price-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem' }}>
+                            {/* Invoice Case Cost + Actual Cost + Unit Cost + Retail.
+                                Two distinct cost values are tracked here:
+                                  • Invoice Case Cost — the NET value from the invoice
+                                    (post-discount, pre-deposit). Editable for OCR-error
+                                    corrections. Used ONLY for invoice-total reconciliation.
+                                    Saved to item.netCost. Never synced to the product.
+                                  • Actual Cost — the editable product-facing case cost.
+                                    On confirm this value (per store + vendor + product lock
+                                    settings) may auto-update MasterProduct.defaultCasePrice.
+                                    Unit Cost = Actual Cost ÷ Pack. If the matched product
+                                    has lockManualCaseCost=true, an amber "🔒 locked" hint
+                                    appears inline with the Actual Cost label so the user
+                                    knows the invoice cost won't overwrite the store's
+                                    manually-set product cost. */}
+                            <div className="review-price-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem' }}>
+                              <div>
+                                <label style={lbl}>Invoice Case Cost ($)</label>
+                                <PriceInput
+                                  style={inpStyle(readOnly)}
+                                  value={item.netCost ?? item.caseCost ?? ''}
+                                  readOnly={readOnly}
+                                  onChange={v => onItemChange(i, 'netCost', v)}
+                                  title="NET value from the invoice (post-discount, pre-deposit). Used for invoice-total reconciliation only."
+                                /></div>
                               <div>
                                 <label style={lbl}>
-                                  Invoice Case Cost ($)
+                                  Actual Cost ($)
                                   {item.linkedProduct?.lockManualCaseCost && (
                                     <span style={{ color: '#f59e0b', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
                                       — 🔒 product cost is locked, won&apos;t sync
@@ -1188,12 +1211,22 @@ function ReviewPanel({
                                 </label>
                                 <PriceInput
                                   style={inpStyle(readOnly)}
-                                  value={item.caseCost ?? ''}
+                                  // Fallback chain for display: actualCost → product's stored
+                                  // defaultCasePrice → invoice netCost → invoice caseCost → empty.
+                                  // On first edit we save to `actualCost` so subsequent renders
+                                  // use the user's value. Legacy drafts (pre-actualCost) thus
+                                  // render a sensible default instead of an empty box.
+                                  value={item.actualCost
+                                         ?? item.linkedProduct?.defaultCasePrice
+                                         ?? item.netCost
+                                         ?? item.caseCost
+                                         ?? ''}
                                   readOnly={readOnly}
-                                  onChange={v => onItemChange(i, 'caseCost', v)}
+                                  onChange={v => onItemChange(i, 'actualCost', v)}
+                                  title="Product-facing case cost. On confirm, this may sync to MasterProduct.defaultCasePrice (per store + vendor + product lock settings). Unit Cost is calculated from this value."
                                 /></div>
                               <div><label style={lbl}>Unit Cost (auto)</label>
-                                <input style={inpStyle(true)} value={unitCostCalc} readOnly title="Invoice Case Cost ÷ Pack" /></div>
+                                <input style={inpStyle(true)} value={unitCostCalc} readOnly title="Actual Cost ÷ Pack" /></div>
                               <div><label style={lbl}>Retail Price ($)</label>
                                 <PriceInput
                                   style={inpStyle(readOnly)}
@@ -1323,27 +1356,50 @@ function ReviewPanel({
               )}
             </div>
 
-            {/* ── Footer totals: Total Cases + Line Items Total + Invoice Total + mismatch ──
+            {/* ── Footer totals: Total Cases + Line Items Total + Invoice Total + Deposit Total + mismatch ──
                  Configurable threshold (mismatchThresholdCents) lets the store decide how
                  much difference is tolerable before showing a warning — small differences
                  (cents) are usually invoice rounding, larger differences may indicate a
-                 missing line, mis-scanned qty, or a discount we didn't capture. */}
+                 missing line, mis-scanned qty, or a discount we didn't capture.
+
+                 Two independent validations:
+                   1. Line Items Total = Σ qty × (NET + DEP)  →  matches Invoice Total
+                   2. Line Items Deposit = Σ qty × deposit     →  matches Invoice Total Deposit
+
+                 Both shown side-by-side so cashiers can quickly see which side
+                 of the invoice is off (cost vs deposit) and fix the specific line. */}
             {(() => {
-              const lineTotal    = lineItems.reduce((s, it) => s + (parseFloat(it.totalAmount || (parseFloat(it.caseCost||0) * parseFloat(it.quantity||0))) || 0), 0);
-              const totalCases   = lineItems.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
-              const invoiceTotal = parseFloat((editData || invoice).totalInvoiceAmount) || 0;
-              const diff         = lineTotal - invoiceTotal;
-              const matched      = lineItems.filter(it => it.mappingStatus === 'matched' || it.mappingStatus === 'manual').length;
+              const lineTotal    = lineItems.reduce((s, it) => {
+                const explicit = parseFloat(it.totalAmount);
+                if (Number.isFinite(explicit)) return s + explicit;
+                const nc  = parseFloat(it.netCost ?? it.caseCost ?? 0) || 0;
+                const dep = parseFloat(it.depositAmount || 0) || 0;
+                const q   = parseFloat(it.quantity || 0) || 0;
+                return s + (q * (nc + dep));
+              }, 0);
+              const totalCases       = lineItems.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
+              // Σ(qty × depositAmount) per user spec — should match invoice's totalDeposit header
+              const lineItemsDeposit = lineItems.reduce((s, it) => s + ((parseFloat(it.quantity) || 0) * (parseFloat(it.depositAmount) || 0)), 0);
+              const invoiceTotal     = parseFloat((editData || invoice).totalInvoiceAmount) || 0;
+              const invoiceDeposit   = parseFloat((editData || invoice).totalDeposit) || 0;
+              const diff             = lineTotal - invoiceTotal;
+              const depositDiff      = lineItemsDeposit - invoiceDeposit;
+              const matched          = lineItems.filter(it => it.mappingStatus === 'matched' || it.mappingStatus === 'manual').length;
               // Convert threshold to dollars. Beyond this → amber warning.
               // Beyond 2× threshold → red (larger discrepancy, likely real data issue).
               const thresholdDollars = (mismatchThresholdCents || 50) / 100;
               const absDiff          = Math.abs(diff);
+              const absDepositDiff   = Math.abs(depositDiff);
               const diffColor        = absDiff > (2 * thresholdDollars) ? '#ef4444'
                                      : absDiff > thresholdDollars       ? '#f59e0b'
                                      : 'var(--text-muted)';
+              const depositDiffColor = absDepositDiff > (2 * thresholdDollars) ? '#ef4444'
+                                     : absDepositDiff > thresholdDollars       ? '#f59e0b'
+                                     : 'var(--text-muted)';
               return (
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', marginTop: '0.25rem' }}>
-                  <div style={{ flex: 1, display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', marginTop: '0.25rem' }}>
+                  {/* Row 1: Cost totals (Line Items Total vs Invoice Total) */}
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     {/* Total Cases — sum of qty across all lines */}
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Total Cases:</span>
@@ -1363,22 +1419,48 @@ function ReviewPanel({
                     )}
                     {invoiceTotal > 0 && absDiff > thresholdDollars && (
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Difference:</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Diff:</span>
                         <span style={{ fontWeight: 700, fontSize: '0.9rem', color: diffColor }}>
                           {diff > 0 ? '+' : ''}{diff.toFixed(2)} ⚠
-                        </span>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                          (exceeds {thresholdDollars.toFixed(2)}¢ threshold — confirm is still allowed)
                         </span>
                       </div>
                     )}
                     {invoiceTotal > 0 && absDiff <= thresholdDollars && (
                       <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>✓ Totals match</span>
                     )}
+                    <div style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {matched}/{lineItems.length} matched
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    {matched}/{lineItems.length} matched
-                  </div>
+
+                  {/* Row 2: Deposit totals (Line Items Deposit vs Invoice Total Deposit).
+                      Only rendered when we have a deposit header value OR computed line
+                      deposits — skips the row on non-beverage invoices entirely. */}
+                  {(lineItemsDeposit > 0 || invoiceDeposit > 0) && (
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Line Items Deposit:</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${lineItemsDeposit.toFixed(2)}</span>
+                      </div>
+                      {invoiceDeposit > 0 && (
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Invoice Deposit:</span>
+                          <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${invoiceDeposit.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {invoiceDeposit > 0 && absDepositDiff > thresholdDollars && (
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Diff:</span>
+                          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: depositDiffColor }}>
+                            {depositDiff > 0 ? '+' : ''}{depositDiff.toFixed(2)} ⚠
+                          </span>
+                        </div>
+                      )}
+                      {invoiceDeposit > 0 && absDepositDiff <= thresholdDollars && (
+                        <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>✓ Deposits match</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1912,26 +1994,30 @@ const InvoiceImport = () => {
   };
 
   // ── Helpers: line-item / invoice total recomputation ───────────────────────
-  // Sum of all line items' totalAmount (fallback to caseCost × qty when blank).
+  // Sum of all line items' totalAmount (fallback to (NET + DEP) × qty when blank).
   // Used to keep the invoice's totalInvoiceAmount in sync with the lines.
+  // Per the invoice EXT column math: line total = qty × (NET + DEP).
   const recomputeInvoiceTotal = (items) =>
     items.reduce((s, it) => {
       const explicit = parseFloat(it.totalAmount);
       if (Number.isFinite(explicit)) return s + explicit;
-      const cc = parseFloat(it.caseCost) || 0;
-      const q  = parseFloat(it.quantity) || 0;
-      return s + (cc * q);
+      const nc  = parseFloat(it.netCost ?? it.caseCost ?? 0) || 0;
+      const dep = parseFloat(it.depositAmount || 0) || 0;
+      const q   = parseFloat(it.quantity) || 0;
+      return s + (q * (nc + dep));
     }, 0);
 
   // Should the line's totalAmount auto-recompute? Only when user has NOT
   // manually overridden it (tracked via `_totalLocked`).
+  // Matches invoice EXT column: totalAmount = qty × (netCost + depositAmount).
   const recomputeLineTotal = (item) => {
     if (item._totalLocked) return item;
-    const cc = parseFloat(item.caseCost) || 0;
-    const q  = parseFloat(item.quantity) || 0;
-    const t  = cc * q;
+    const nc  = parseFloat(item.netCost ?? item.caseCost ?? 0) || 0;
+    const dep = parseFloat(item.depositAmount || 0) || 0;
+    const q   = parseFloat(item.quantity) || 0;
+    const t   = q * (nc + dep);
     // Only set when we actually have numbers to compute — leave blank otherwise
-    if (cc > 0 || q > 0) {
+    if (nc > 0 || q > 0) {
       return { ...item, totalAmount: Number(t.toFixed(4)) };
     }
     return item;
@@ -1943,21 +2029,25 @@ const InvoiceImport = () => {
       const val   = field === 'upc' ? normalizeUPC(value) : value;
       let item    = { ...items[itemIdx], [field]: val };
 
-      // Manual override of totalAmount — lock it so future edits to qty/caseCost
+      // Manual override of totalAmount — lock it so future edits to qty/netCost
       // don't clobber the user's number.
       if (field === 'totalAmount') {
         item._totalLocked = true;
       }
 
-      // Recompute unitCost whenever caseCost or packUnits change
-      if (field === 'caseCost' || field === 'packUnits') {
-        const cc = parseFloat(field === 'caseCost'  ? value : item.caseCost)  || 0;
-        const pk = parseFloat(field === 'packUnits' ? value : item.packUnits) || 1;
-        item.unitCost = pk > 0 ? cc / pk : 0;
+      // Recompute unitCost whenever actualCost or packUnits change.
+      // unitCost = actualCost ÷ packUnits (the per-single-unit cost the store pays).
+      if (field === 'actualCost' || field === 'packUnits') {
+        const ac = parseFloat(field === 'actualCost' ? value : item.actualCost) || 0;
+        const pk = parseFloat(field === 'packUnits'  ? value : item.packUnits)  || 1;
+        item.unitCost = pk > 0 ? ac / pk : 0;
       }
 
-      // Recompute line total when qty or caseCost change (unless user locked it)
-      if (field === 'quantity' || field === 'caseCost') {
+      // Recompute line total when qty, netCost, or depositAmount change
+      // (unless user locked it). Note: caseCost (gross) no longer drives
+      // the line total — only netCost (post-discount) does, matching the
+      // invoice's EXT column.
+      if (field === 'quantity' || field === 'netCost' || field === 'depositAmount') {
         item = recomputeLineTotal(item);
       }
 
