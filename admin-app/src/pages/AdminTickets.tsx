@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import {
   Loader, X, MessageSquare, Plus, Trash2, Search,
   ChevronLeft, ChevronRight, Send, AlertCircle, Ticket,
@@ -15,23 +15,54 @@ import {
 import '../styles/admin.css';
 import './AdminTickets.css';
 
-const STATUS_OPTS   = ['open', 'in_progress', 'resolved', 'closed'];
-const PRIORITY_OPTS = ['low', 'normal', 'high', 'urgent'];
+const STATUS_OPTS   = ['open', 'in_progress', 'resolved', 'closed'] as const;
+const PRIORITY_OPTS = ['low', 'normal', 'high', 'urgent'] as const;
 
-const STATUS_COLORS = {
+type Status = typeof STATUS_OPTS[number];
+type Priority = typeof PRIORITY_OPTS[number];
+
+const STATUS_COLORS: Record<Status, string> = {
   open:        'at-badge--open',
   in_progress: 'at-badge--progress',
   resolved:    'at-badge--resolved',
   closed:      'at-badge--closed',
 };
-const PRIORITY_COLORS = {
+const PRIORITY_COLORS: Record<Priority, string> = {
   low:    'at-badge--low',
   normal: 'at-badge--normal',
   high:   'at-badge--high',
   urgent: 'at-badge--urgent',
 };
 
-function fmtDate(d) {
+interface TicketResponse {
+  by: string;
+  byType: 'admin' | 'store';
+  message: string;
+  date: string;
+}
+
+interface SupportTicket {
+  id: string | number;
+  email: string;
+  name?: string;
+  subject: string;
+  body: string;
+  status: Status;
+  priority: Priority;
+  createdAt: string;
+  adminNotes?: string;
+  responses?: TicketResponse[];
+}
+
+interface CreateForm {
+  email: string;
+  name: string;
+  subject: string;
+  body: string;
+  priority: Priority;
+}
+
+function fmtDate(d: string | number | Date): string {
   return new Date(d).toLocaleString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
@@ -39,11 +70,16 @@ function fmtDate(d) {
 }
 
 // ── Create Ticket Modal ────────────────────────────────────────────────────
-const CreateModal = ({ onClose, onCreated }) => {
-  const [form, setForm] = useState({ email: '', name: '', subject: '', body: '', priority: 'normal' });
+interface CreateModalProps {
+  onClose: () => void;
+  onCreated: (ticket: SupportTicket) => void;
+}
+
+const CreateModal = ({ onClose, onCreated }: CreateModalProps) => {
+  const [form, setForm] = useState<CreateForm>({ email: '', name: '', subject: '', body: '', priority: 'normal' });
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.email.trim() || !form.subject.trim() || !form.body.trim()) {
       toast.error('Email, subject and message are required');
@@ -87,7 +123,7 @@ const CreateModal = ({ onClose, onCreated }) => {
           <div className="at-form-row">
             <div className="at-form-field">
               <label>Priority</label>
-              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as Priority }))}>
                 {PRIORITY_OPTS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
@@ -110,15 +146,22 @@ const CreateModal = ({ onClose, onCreated }) => {
 };
 
 // ── Ticket Detail Panel ────────────────────────────────────────────────────
-const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }) => {
-  const [local, setLocal]     = useState(ticket);
+interface DetailPanelProps {
+  ticket: SupportTicket;
+  onClose: () => void;
+  onUpdated: (ticket: SupportTicket) => void;
+  onDeleted: (id: string | number) => void;
+}
+
+const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }: DetailPanelProps) => {
+  const [local, setLocal]     = useState<SupportTicket>(ticket);
   const [reply, setReply]     = useState('');
   const [sending, setSending] = useState(false);
   const [saving, setSaving]   = useState(false);
 
   useEffect(() => { setLocal(ticket); }, [ticket]);
 
-  const handleField = async (field, value) => {
+  const handleField = async (field: string, value: string) => {
     try {
       const updated = await updateAdminTicket(local.id, { [field]: value });
       setLocal(updated.data);
@@ -161,7 +204,7 @@ const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }) => {
     } catch { toast.error('Failed to delete ticket'); }
   };
 
-  const responses = Array.isArray(local.responses) ? local.responses : [];
+  const responses: TicketResponse[] = Array.isArray(local.responses) ? local.responses : [];
 
   return (
     <div className="at-detail">
@@ -255,20 +298,20 @@ const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }) => {
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 const AdminTickets = () => {
-  const [tickets, setTickets]   = useState([]);
+  const [tickets, setTickets]   = useState<SupportTicket[]>([]);
   const [total, setTotal]       = useState(0);
   const [loading, setLoading]   = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<Status | ''>('');
   const [search, setSearch]     = useState('');
   const [page, setPage]         = useState(1);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState<SupportTicket | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const limit = 20;
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (statusFilter) params.status = statusFilter;
       if (search.trim()) params.search = search.trim();
       const res = await getAdminTickets(params);
@@ -280,18 +323,18 @@ const AdminTickets = () => {
 
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
 
-  const handleCreated = (ticket) => {
+  const handleCreated = (ticket: SupportTicket) => {
     setTickets(prev => [ticket, ...prev]);
     setTotal(t => t + 1);
     setSelected(ticket);
   };
 
-  const handleUpdated = (updated) => {
+  const handleUpdated = (updated: SupportTicket) => {
     setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));
     if (selected?.id === updated.id) setSelected(updated);
   };
 
-  const handleDeleted = (id) => {
+  const handleDeleted = (id: string | number) => {
     setTickets(prev => prev.filter(t => t.id !== id));
     setTotal(t => t - 1);
     if (selected?.id === id) setSelected(null);

@@ -3,7 +3,7 @@
  * Supports channels (store-wide + DMs) with real-time polling.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import {
   MessageSquare, Send, Plus, X, Loader, User, Hash,
 } from 'lucide-react';
@@ -11,14 +11,60 @@ import { toast } from 'react-toastify';
 import api from '../services/api';
 import './AdminChat.css';
 
-function fmtTime(d) {
+function fmtTime(d: string | number | Date): string {
   return new Date(d).toLocaleString(undefined, {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
 }
 
-const RoleBadge = ({ role }) => {
+interface ChatUser {
+  id?: string | number;
+  _id?: string | number;
+  name?: string;
+  email?: string;
+  role?: string;
+}
+
+interface Channel {
+  id?: string | number;
+  _id?: string | number;
+  type?: string; // 'dm' | 'store' | ...
+  name?: string;
+  label?: string;
+  memberId?: string | number;
+  member_id?: string | number;
+  unreadCount?: number;
+  lastMessage?: string | { message?: string; text?: string };
+}
+
+interface ChatMessage {
+  id?: string | number;
+  _id?: string | number;
+  senderId?: string | number;
+  sender_id?: string | number;
+  userId?: string | number;
+  senderName?: string;
+  sender_name?: string;
+  senderRole?: string;
+  sender_role?: string;
+  createdAt?: string;
+  created_at?: string;
+  timestamp?: string;
+  message?: string;
+  text?: string;
+  body?: string;
+}
+
+interface CurrentUser {
+  id?: string | number;
+  _id?: string | number;
+  userId?: string | number;
+  [key: string]: unknown;
+}
+
+interface RoleBadgeProps { role: string }
+const RoleBadge = ({ role }: RoleBadgeProps) => {
   const cls = role === 'admin' || role === 'superadmin'
     ? 'ach-badge ach-badge-purple'
     : role === 'manager' || role === 'owner'
@@ -28,8 +74,13 @@ const RoleBadge = ({ role }) => {
 };
 
 /* ── New DM Modal ──────────────────────────────────────────────────────── */
-const NewDMModal = ({ onClose, onSelect }) => {
-  const [users, setUsers]     = useState([]);
+interface NewDMModalProps {
+  onClose: () => void;
+  onSelect: (user: ChatUser) => void;
+}
+
+const NewDMModal = ({ onClose, onSelect }: NewDMModalProps) => {
+  const [users, setUsers]     = useState<ChatUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
 
@@ -76,28 +127,31 @@ const NewDMModal = ({ onClose, onSelect }) => {
 
 /* ── Main Page ─────────────────────────────────────────────────────────── */
 const AdminChat = () => {
-  const currentUser = JSON.parse(localStorage.getItem('admin_user') || '{}');
+  const currentUser: CurrentUser = JSON.parse(localStorage.getItem('admin_user') || '{}');
 
-  const [channels, setChannels]           = useState([]);
-  const [activeChannel, setActiveChannel] = useState(null);
-  const [messages, setMessages]           = useState([]);
-  const [unreadMap, setUnreadMap]          = useState({});
-  const [text, setText]                    = useState('');
-  const [loading, setLoading]             = useState(true);
-  const [sending, setSending]             = useState(false);
-  const [showNewDM, setShowNewDM]         = useState(false);
+  const [channels, setChannels]             = useState<Channel[]>([]);
+  const [activeChannel, setActiveChannel]   = useState<Channel | null>(null);
+  const [messages, setMessages]             = useState<ChatMessage[]>([]);
+  const [unreadMap, setUnreadMap]           = useState<Record<string, number>>({});
+  const [text, setText]                     = useState('');
+  const [loading, setLoading]               = useState(true);
+  const [sending, setSending]               = useState(false);
+  const [showNewDM, setShowNewDM]           = useState(false);
 
-  const messagesEndRef = useRef(null);
-  const pollRef        = useRef(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadChannels = useCallback(async () => {
     try {
       const res = await api.get('/chat/channels');
       const data = res.data;
-      const list = Array.isArray(data) ? data : data.channels || [];
+      const list: Channel[] = Array.isArray(data) ? data : data.channels || [];
       setChannels(list);
-      const map = {};
-      list.forEach(ch => { if (ch.unreadCount) map[ch.id || ch._id] = ch.unreadCount; });
+      const map: Record<string, number> = {};
+      list.forEach(ch => {
+        const key = String(ch.id ?? ch._id ?? '');
+        if (ch.unreadCount) map[key] = ch.unreadCount;
+      });
       setUnreadMap(prev => ({ ...prev, ...map }));
     } catch { /* silent */ }
   }, []);
@@ -110,7 +164,7 @@ const AdminChat = () => {
     })();
   }, [loadChannels]);
 
-  const loadMessages = useCallback(async (channelId) => {
+  const loadMessages = useCallback(async (channelId: string | number | undefined) => {
     if (!channelId) return;
     try {
       const res = await api.get('/chat/messages', { params: { channelId } });
@@ -124,7 +178,7 @@ const AdminChat = () => {
     const id = activeChannel.id || activeChannel._id;
     loadMessages(id);
     api.post('/chat/read', { channelId: id }).catch(() => {});
-    setUnreadMap(prev => ({ ...prev, [id]: 0 }));
+    setUnreadMap(prev => ({ ...prev, [String(id)]: 0 }));
   }, [activeChannel, loadMessages]);
 
   useEffect(() => {
@@ -132,14 +186,14 @@ const AdminChat = () => {
       if (activeChannel) loadMessages(activeChannel.id || activeChannel._id);
       loadChannels();
     }, 5000);
-    return () => clearInterval(pollRef.current);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [activeChannel, loadMessages, loadChannels]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async (e) => {
+  const handleSend = async (e: FormEvent) => {
     e.preventDefault();
     if (!text.trim() || !activeChannel) return;
     setSending(true);
@@ -154,7 +208,7 @@ const AdminChat = () => {
     finally { setSending(false); }
   };
 
-  const handleStartDM = async (user) => {
+  const handleStartDM = async (user: ChatUser) => {
     const existing = channels.find(c =>
       c.type === 'dm' && (c.memberId === (user.id || user._id) || c.member_id === (user.id || user._id)),
     );
@@ -169,7 +223,7 @@ const AdminChat = () => {
     } catch { toast.error('Failed to start conversation'); }
   };
 
-  const chId = (ch) => ch.id || ch._id;
+  const chId = (ch: Channel): string | number => (ch.id ?? ch._id ?? '');
 
   return (
     <div className="ach-page">
@@ -197,10 +251,10 @@ const AdminChat = () => {
               {channels.length === 0 && <div className="ach-empty">No channels yet</div>}
               {channels.map(ch => {
                 const id = chId(ch);
-                const isActive = activeChannel && chId(activeChannel) === id;
-                const unread = unreadMap[id] || 0;
+                const isActive = !!activeChannel && chId(activeChannel) === id;
+                const unread = unreadMap[String(id)] || 0;
                 return (
-                  <button key={id} className={`ach-channel ${isActive ? 'ach-channel-active' : ''}`} onClick={() => setActiveChannel(ch)}>
+                  <button key={String(id)} className={`ach-channel ${isActive ? 'ach-channel-active' : ''}`} onClick={() => setActiveChannel(ch)}>
                     <span className="ach-channel-icon">
                       {ch.type === 'dm' ? <User size={14} /> : <Hash size={14} />}
                     </span>
@@ -208,7 +262,7 @@ const AdminChat = () => {
                       <span className="ach-channel-name">{ch.name || ch.label || 'Channel'}</span>
                       {ch.lastMessage && (
                         <span className="ach-channel-preview">
-                          {typeof ch.lastMessage === 'string' ? ch.lastMessage : ch.lastMessage.message || ch.lastMessage.text || ''}
+                          {typeof ch.lastMessage === 'string' ? ch.lastMessage : (ch.lastMessage.message || ch.lastMessage.text || '')}
                         </span>
                       )}
                     </div>
@@ -246,8 +300,8 @@ const AdminChat = () => {
                       <div key={msg.id || msg._id || i} className={`ach-msg ${isMine ? 'ach-msg-mine' : 'ach-msg-other'}`}>
                         <div className="ach-msg-meta">
                           <span className="ach-msg-sender">{msg.senderName || msg.sender_name || 'User'}</span>
-                          {(msg.senderRole || msg.sender_role) && <RoleBadge role={msg.senderRole || msg.sender_role} />}
-                          <span className="ach-msg-time">{fmtTime(msg.createdAt || msg.created_at || msg.timestamp)}</span>
+                          {(msg.senderRole || msg.sender_role) && <RoleBadge role={(msg.senderRole || msg.sender_role) as string} />}
+                          <span className="ach-msg-time">{fmtTime(msg.createdAt || msg.created_at || msg.timestamp || '')}</span>
                         </div>
                         <div className="ach-msg-bubble">{msg.message || msg.text || msg.body}</div>
                       </div>

@@ -6,7 +6,7 @@
  * when uploading vendor files at /portal/bulk-import.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, X, Save, FileText, Check } from 'lucide-react';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -20,10 +20,12 @@ import {
 } from '../services/api';
 import './AdminVendorTemplates.css';
 
-const TARGETS = ['products', 'promotions', 'deposits', 'invoice_costs'];
+const TARGETS = ['products', 'promotions', 'deposits', 'invoice_costs'] as const;
+
+type Target = typeof TARGETS[number];
 
 // Canonical fields per target — shown as suggestions in the targetField input
-const CANONICAL_FIELDS = {
+const CANONICAL_FIELDS: Record<Target, string[]> = {
   products: [
     'upc', 'additionalUpcs', 'linkedUpc', 'sku', 'itemCode', 'plu',
     'name', 'brand', 'size', 'sizeUnit', 'description', 'imageUrl',
@@ -53,12 +55,43 @@ const CANONICAL_FIELDS = {
   invoice_costs: ['upc', 'cost', 'casePrice', 'caseQty', 'receivedQty', 'vendorId'],
 };
 
+interface Mapping {
+  vendorColumn: string;
+  targetField?: string | null;
+  transform?: string | null;
+  // Wire-side is `unknown` (a parsed JSON object); form-side is a string (stringified).
+  // The editor coerces from one to the other inline — see `JSON.stringify` in TemplateEditor.
+  transformArgs?: unknown;
+  constantValue?: string | null;
+  skip?: boolean;
+  sortOrder: number;
+}
+
+interface Template {
+  id?: string | number;
+  name?: string;
+  slug?: string;
+  description?: string;
+  // Backend `target` is an open string but the UI narrows to `Target` via the
+  // dropdown; callers can safely cast when editing.
+  target?: string;
+  vendorHint?: string;
+  active?: boolean;
+  mappings?: Mapping[];
+  _count?: { mappings?: number };
+  isNew?: boolean;
+}
+
+interface Transform {
+  name: string;
+}
+
 export default function AdminVendorTemplates() {
-  const [templates, setTemplates]     = useState([]);
+  const [templates, setTemplates]     = useState<Template[]>([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
-  const [editing, setEditing]         = useState(null); // full template object or { isNew: true }
-  const [transforms, setTransforms]   = useState([]);
+  const [editing, setEditing]         = useState<Template | null>(null);
+  const [transforms, setTransforms]   = useState<Transform[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,7 +102,7 @@ export default function AdminVendorTemplates() {
       ]);
       setTemplates(tRes?.data || []);
       setTransforms(xRes?.data || []);
-    } catch (e) {
+    } catch {
       toast.error('Failed to load templates');
       setTemplates([]); setTransforms([]);
     } finally {
@@ -79,11 +112,12 @@ export default function AdminVendorTemplates() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openEdit = async (tmpl) => {
+  const openEdit = async (tmpl: Template) => {
+    if (tmpl.id === undefined) return;
     try {
       const full = await getVendorTemplate(tmpl.id);
       setEditing(full.data);
-    } catch (e) {
+    } catch {
       toast.error('Failed to load template');
     }
   };
@@ -99,14 +133,15 @@ export default function AdminVendorTemplates() {
     });
   };
 
-  const handleDelete = async (tmpl) => {
+  const handleDelete = async (tmpl: Template) => {
+    if (tmpl.id === undefined) return;
     if (!window.confirm(`Delete "${tmpl.name}"? This cannot be undone.`)) return;
     try {
       await deleteVendorTemplate(tmpl.id);
       toast.success(`Template "${tmpl.name}" deleted`);
       await load();
-    } catch (e) {
-      toast.error(e.response?.data?.error || 'Delete failed');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Delete failed');
     }
   };
 
@@ -210,49 +245,76 @@ export default function AdminVendorTemplates() {
 
 // ─── Template editor modal ──────────────────────────────────────────────────
 
-function TemplateEditor({ template, transforms, onClose, onSaved }) {
-  const [form, setForm] = useState(() => ({
+interface TemplateEditorProps {
+  template: Template;
+  transforms: Transform[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}
+
+interface EditorForm {
+  name: string;
+  slug: string;
+  description: string;
+  target: Target;
+  vendorHint: string;
+  active: boolean;
+  mappings: Mapping[];
+}
+
+function TemplateEditor({ template, transforms, onClose, onSaved }: TemplateEditorProps) {
+  const [form, setForm] = useState<EditorForm>(() => ({
     name:        template.name || '',
     slug:        template.slug || '',
     description: template.description || '',
-    target:      template.target || 'products',
+    target:      (template.target || 'products') as Target,
     vendorHint:  template.vendorHint || '',
     active:      template.active !== false,
     mappings:    (template.mappings || []).map((m, i) => ({
       ...m,
-      transformArgs: m.transformArgs ? JSON.stringify(m.transformArgs) : '',
+      transformArgs: m.transformArgs ? (typeof m.transformArgs === 'string' ? m.transformArgs : JSON.stringify(m.transformArgs)) : '',
       sortOrder: m.sortOrder ?? i,
     })),
   }));
   const [saving, setSaving] = useState(false);
   const isNew = !!template.isNew;
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const setMap = (idx, k, v) => setForm(f => ({ ...f, mappings: f.mappings.map((m, i) => i === idx ? { ...m, [k]: v } : m) }));
-  const addMap = () => setForm(f => ({ ...f, mappings: [...f.mappings, { vendorColumn: '', targetField: '', transform: '', transformArgs: '', constantValue: '', skip: false, sortOrder: f.mappings.length }] }));
-  const delMap = (idx) => setForm(f => ({ ...f, mappings: f.mappings.filter((_, i) => i !== idx) }));
+  const set = <K extends keyof EditorForm>(k: K, v: EditorForm[K]) => setForm(f => ({ ...f, [k]: v }));
+  const setMap = (idx: number, k: keyof Mapping, v: unknown) =>
+    setForm(f => ({ ...f, mappings: f.mappings.map((m, i) => i === idx ? { ...m, [k]: v } as Mapping : m) }));
+  const addMap = () => setForm(f => ({
+    ...f,
+    mappings: [...f.mappings, { vendorColumn: '', targetField: '', transform: '', transformArgs: '', constantValue: '', skip: false, sortOrder: f.mappings.length }],
+  }));
+  const delMap = (idx: number) => setForm(f => ({ ...f, mappings: f.mappings.filter((_, i) => i !== idx) }));
 
   const handleSave = async () => {
-    if (!form.name.trim()) return toast.error('Name is required');
-    if (!form.target)      return toast.error('Target is required');
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
+    if (!form.target)      { toast.error('Target is required'); return; }
 
     // Parse transformArgs JSON strings before sending
-    const preparedMappings = form.mappings.map(m => {
-      let parsedArgs = null;
-      if (m.transformArgs && String(m.transformArgs).trim()) {
-        try { parsedArgs = JSON.parse(m.transformArgs); }
-        catch { throw new Error(`Invalid JSON in transform args for column "${m.vendorColumn}"`); }
-      }
-      return {
-        vendorColumn:  m.vendorColumn,
-        targetField:   m.targetField || null,
-        transform:     m.transform || null,
-        transformArgs: parsedArgs,
-        constantValue: m.constantValue || null,
-        skip:          !!m.skip,
-        sortOrder:     m.sortOrder,
-      };
-    });
+    let preparedMappings;
+    try {
+      preparedMappings = form.mappings.map(m => {
+        let parsedArgs: unknown = null;
+        if (m.transformArgs && String(m.transformArgs).trim()) {
+          try { parsedArgs = JSON.parse(String(m.transformArgs)); }
+          catch { throw new Error(`Invalid JSON in transform args for column "${m.vendorColumn}"`); }
+        }
+        return {
+          vendorColumn:  m.vendorColumn,
+          targetField:   m.targetField || null,
+          transform:     m.transform || null,
+          transformArgs: parsedArgs,
+          constantValue: m.constantValue || null,
+          skip:          !!m.skip,
+          sortOrder:     m.sortOrder,
+        };
+      });
+    } catch (e: any) {
+      toast.error(e?.message || 'Invalid transform args');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -268,13 +330,13 @@ function TemplateEditor({ template, transforms, onClose, onSaved }) {
       if (isNew) {
         await createVendorTemplate(payload);
         toast.success('Template created');
-      } else {
+      } else if (template.id !== undefined) {
         await updateVendorTemplate(template.id, payload);
         toast.success('Template saved');
       }
       await onSaved();
-    } catch (e) {
-      toast.error(e.response?.data?.error || e.message || 'Save failed');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || e?.message || 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -312,7 +374,7 @@ function TemplateEditor({ template, transforms, onClose, onSaved }) {
             </div>
             <div>
               <label className="avt-label">Target *</label>
-              <select className="avt-select" value={form.target} onChange={e => set('target', e.target.value)}>
+              <select className="avt-select" value={form.target} onChange={e => set('target', e.target.value as Target)}>
                 {TARGETS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
@@ -376,7 +438,7 @@ function TemplateEditor({ template, transforms, onClose, onSaved }) {
                   {transforms.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
                 </select>
                 <input
-                  value={m.transformArgs || ''}
+                  value={typeof m.transformArgs === 'string' ? m.transformArgs : (m.transformArgs ? JSON.stringify(m.transformArgs) : '')}
                   onChange={e => setMap(idx, 'transformArgs', e.target.value)}
                   placeholder='e.g. {"prefix":"_"}'
                   disabled={m.skip || !m.transform}

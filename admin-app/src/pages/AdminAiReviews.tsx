@@ -9,7 +9,7 @@
  * Gated by `ai_assistant.manage` permission (server-enforced).
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Sparkles, ThumbsDown, Check, X, Eye, MessageCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -24,26 +24,55 @@ const STATUS_TABS = [
   { key: 'pending',   label: 'Pending' },
   { key: 'promoted',  label: 'Promoted' },
   { key: 'dismissed', label: 'Dismissed' },
-];
+] as const;
+
+type StatusKey = typeof STATUS_TABS[number]['key'];
 
 const CATEGORIES = [
   { value: 'how-to',       label: 'How-to' },
   { value: 'troubleshoot', label: 'Troubleshoot' },
   { value: 'faq',          label: 'FAQ' },
   { value: 'feature',      label: 'Feature overview' },
-];
+] as const;
+
+interface Review {
+  id: string | number;
+  question: string;
+  aiResponse: string;
+  userSuggestion?: string;
+  status: StatusKey;
+  createdAt: string;
+  articleTitle?: string;
+}
+
+interface ConvMessage {
+  id: string | number;
+  role: string;
+  content: string;
+}
+
+interface ConversationPayload {
+  messages?: ConvMessage[];
+}
+
+interface PromoteForm {
+  title: string;
+  content: string;
+  category: string;
+  tags: string;
+}
 
 export default function AdminAiReviews() {
-  const [status, setStatus]       = useState('pending');
-  const [reviews, setReviews]     = useState([]);
+  const [status, setStatus]       = useState<StatusKey>('pending');
+  const [reviews, setReviews]     = useState<Review[]>([]);
   const [loading, setLoading]     = useState(true);
-  const [selected, setSelected]   = useState(null);
-  const [conversation, setConv]   = useState(null);
+  const [selected, setSelected]   = useState<Review | null>(null);
+  const [conversation, setConv]   = useState<ConversationPayload | null>(null);
   const [convLoading, setConvLoading] = useState(false);
 
   // Promote-form state
-  const [promoteFor, setPromoteFor] = useState(null);
-  const [form, setForm] = useState({ title: '', content: '', category: 'how-to', tags: '' });
+  const [promoteFor, setPromoteFor] = useState<Review | null>(null);
+  const [form, setForm] = useState<PromoteForm>({ title: '', content: '', category: 'how-to', tags: '' });
   const [saving, setSaving] = useState(false);
 
   const loadReviews = async () => {
@@ -51,7 +80,7 @@ export default function AdminAiReviews() {
     try {
       const res = await listAiReviews(status);
       setReviews(res.reviews || []);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load reviews');
     } finally {
       setLoading(false);
@@ -60,27 +89,27 @@ export default function AdminAiReviews() {
 
   useEffect(() => { loadReviews(); /* eslint-disable-next-line */ }, [status]);
 
-  const counts = useMemo(() => {
-    const c = { pending: 0, promoted: 0, dismissed: 0 };
+  const counts = useMemo<Record<StatusKey, number>>(() => {
+    const c: Record<StatusKey, number> = { pending: 0, promoted: 0, dismissed: 0 };
     if (status === 'pending') c.pending = reviews.length;
     return c;
   }, [reviews, status]);
 
-  const openConversation = async (review) => {
+  const openConversation = async (review: Review) => {
     setSelected(review);
     setConv(null);
     setConvLoading(true);
     try {
-      const res = await getAiReviewConversation(review.id);
+      const res: ConversationPayload = await getAiReviewConversation(review.id);
       setConv(res);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load conversation context');
     } finally {
       setConvLoading(false);
     }
   };
 
-  const startPromote = (review) => {
+  const startPromote = (review: Review) => {
     setPromoteFor(review);
     // Prefill the form with a sensible starting point from the user's suggestion.
     setForm({
@@ -96,6 +125,7 @@ export default function AdminAiReviews() {
       toast.error('Title and content are required');
       return;
     }
+    if (!promoteFor) return;
     setSaving(true);
     try {
       await promoteAiReview(promoteFor.id, {
@@ -108,21 +138,21 @@ export default function AdminAiReviews() {
       setPromoteFor(null);
       setForm({ title: '', content: '', category: 'how-to', tags: '' });
       loadReviews();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to promote');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to promote');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDismiss = async (review) => {
+  const handleDismiss = async (review: Review) => {
     if (!window.confirm('Dismiss this feedback? This cannot be undone.')) return;
     try {
       await dismissAiReview(review.id);
       toast.success('Dismissed');
       if (selected?.id === review.id) setSelected(null);
       loadReviews();
-    } catch (err) {
+    } catch {
       toast.error('Failed to dismiss');
     }
   };

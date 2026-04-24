@@ -1,5 +1,5 @@
 /**
- * AdminMerchants.jsx
+ * AdminMerchants.tsx
  *
  * Superadmin page for managing Dejavoo payment merchant credentials
  * per store. Each store has exactly one merchant row holding SPIn
@@ -7,22 +7,12 @@
  *
  * Store owners + managers cannot access this page. Credentials never
  * leave the admin panel — the portal only gets a read-only status chip.
- *
- * New in this version:
- *   • Activation workflow — new merchants start `pending`, must pass a
- *     successful /test within 24h before they can be `active`.
- *   • Disable kill-switch — one click flips to `disabled` (blocks POS
- *     payment processing org-wide for that store).
- *   • Audit log drawer — shows every create/update/delete/test/activate/
- *     disable event for a merchant (secrets masked as `{changed: true}`).
- *   • Terminals drawer — per-device CRUD for P17/Z8/Z11 terminals, one
- *     per station, with optional per-device TPN override + live ping.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   CreditCard, Plus, Edit3, Trash2, Play, X, Shield, RefreshCw,
-  CheckCircle, XCircle, History, Cpu, Wifi, Lock, AlertTriangle,
+  CheckCircle, History, Cpu, Wifi, Lock, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -44,7 +34,110 @@ import {
 } from '../services/api';
 import './AdminMerchants.css';
 
-const BLANK_FORM = {
+type MerchantStatus = 'active' | 'pending' | 'disabled';
+type Environment = 'uat' | 'prod';
+
+interface MerchantForm {
+  orgId: string;
+  storeId: string;
+  provider: string;
+  environment: Environment;
+  spinTpn: string;
+  spinAuthKey: string;
+  spinBaseUrl: string;
+  hppMerchantId: string;
+  hppAuthKey: string;
+  hppBaseUrl: string;
+  transactApiKey: string;
+  transactBaseUrl: string;
+  ebtEnabled: boolean;
+  debitEnabled: boolean;
+  tokenizeEnabled: boolean;
+  status: MerchantStatus;
+  notes: string;
+  // Preview fields set when editing (read-only metadata)
+  spinAuthKeySet?: boolean;
+  spinAuthKeyPreview?: string;
+  hppAuthKeySet?: boolean;
+  hppAuthKeyPreview?: string;
+  transactApiKeySet?: boolean;
+  transactApiKeyPreview?: string;
+}
+
+interface Merchant {
+  id: string | number;
+  orgId: string;
+  storeId: string;
+  orgName?: string;
+  storeName?: string;
+  provider: string;
+  environment: Environment;
+  spinTpn?: string;
+  spinBaseUrl?: string;
+  hppMerchantId?: string;
+  hppBaseUrl?: string;
+  transactBaseUrl?: string;
+  ebtEnabled?: boolean;
+  debitEnabled?: boolean;
+  tokenizeEnabled?: boolean;
+  status?: MerchantStatus;
+  notes?: string;
+  lastTestedAt?: string;
+  lastTestResult?: 'ok' | 'fail';
+  spinAuthKeySet?: boolean;
+  spinAuthKeyPreview?: string;
+  hppAuthKeySet?: boolean;
+  hppAuthKeyPreview?: string;
+  transactApiKeySet?: boolean;
+  transactApiKeyPreview?: string;
+}
+
+interface Organization {
+  id: string | number;
+  name: string;
+}
+
+interface AdminStore {
+  id: string | number;
+  name: string;
+  orgId?: string;
+}
+
+interface AuditEntry {
+  id: string | number;
+  action: string;
+  changedByName?: string;
+  createdAt?: string;
+  note?: string;
+  changes?: Record<string, unknown>;
+}
+
+interface Terminal {
+  id: string | number;
+  merchantId: string;
+  stationId?: string;
+  stationName?: string;
+  nickname?: string;
+  deviceSerialNumber?: string;
+  deviceModel?: string;
+  overrideTpn?: string;
+  effectiveTpn?: string;
+  notes?: string;
+  status?: string;
+  lastPingedAt?: string;
+}
+
+interface TerminalForm {
+  merchantId: string;
+  stationId: string;
+  nickname: string;
+  deviceSerialNumber: string;
+  deviceModel: string;
+  overrideTpn: string;
+  notes: string;
+}
+
+const BLANK_FORM: MerchantForm = {
   orgId: '',
   storeId: '',
   provider: 'dejavoo',
@@ -64,7 +157,7 @@ const BLANK_FORM = {
   notes: '',
 };
 
-const BLANK_TERMINAL = {
+const BLANK_TERMINAL: TerminalForm = {
   merchantId: '',
   stationId: '',
   nickname: '',
@@ -78,7 +171,7 @@ const BLANK_TERMINAL = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function fmtTime(iso) {
+function fmtTime(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
@@ -87,27 +180,30 @@ function fmtTime(iso) {
   });
 }
 
-function hoursSince(iso) {
+function hoursSince(iso?: string | null): number {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 3600000;
 }
 
 // Can this merchant be activated right now?
 // Rule: must have passed a test within the last 24h.
-function canActivate(m) {
+function canActivate(m: Merchant): boolean {
   if (m.status === 'active') return false;
   if (m.lastTestResult !== 'ok') return false;
   return hoursSince(m.lastTestedAt) <= 24;
 }
 
-function StatusPill({ status }) {
-  const cls = {
+interface StatusPillProps { status?: string }
+
+function StatusPill({ status }: StatusPillProps) {
+  const cls: Record<string, string> = {
     active:   'am-pill am-pill-active',
     pending:  'am-pill am-pill-pending',
     disabled: 'am-pill am-pill-disabled',
-  }[status] || 'am-pill am-pill-untested';
+  };
+  const selected = cls[status || ''] || 'am-pill am-pill-untested';
   const label = (status || 'unknown').toUpperCase();
-  return <span className={cls}>{label}</span>;
+  return <span className={selected}>{label}</span>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,29 +211,29 @@ function StatusPill({ status }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminMerchants() {
-  const [merchants, setMerchants] = useState([]);
-  const [orgs, setOrgs]       = useState([]);
-  const [stores, setStores]   = useState([]);
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [orgs, setOrgs]       = useState<Organization[]>([]);
+  const [stores, setStores]   = useState<AdminStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterOrg, setFilterOrg] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [search, setSearch]   = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm]       = useState(BLANK_FORM);
+  const [editingId, setEditingId] = useState<string | number | null>(null);
+  const [form, setForm]       = useState<MerchantForm>(BLANK_FORM);
   const [saving, setSaving]   = useState(false);
 
   // Drawers
-  const [auditFor, setAuditFor]       = useState(null); // merchant being inspected
-  const [auditEntries, setAuditEntries] = useState([]);
+  const [auditFor, setAuditFor]       = useState<Merchant | null>(null);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const [termFor, setTermFor]         = useState(null); // merchant whose terminals we're editing
-  const [terminals, setTerminals]     = useState([]);
+  const [termFor, setTermFor]         = useState<Merchant | null>(null);
+  const [terminals, setTerminals]     = useState<Terminal[]>([]);
   const [termLoading, setTermLoading] = useState(false);
-  const [termEditing, setTermEditing] = useState(null);
-  const [termForm, setTermForm]       = useState(BLANK_TERMINAL);
+  const [termEditing, setTermEditing] = useState<string | number | null>(null);
+  const [termForm, setTermForm]       = useState<TerminalForm>(BLANK_TERMINAL);
 
   // ── Load merchants + scope ──
   const load = useCallback(async () => {
@@ -151,8 +247,8 @@ export default function AdminMerchants() {
       setMerchants(mRes.merchants || []);
       setOrgs(oRes.organizations || oRes.data || []);
       setStores(sRes.stores || sRes.data || []);
-    } catch (err) {
-      toast.error('Failed to load merchants: ' + (err.response?.data?.error || err.message));
+    } catch (err: any) {
+      toast.error('Failed to load merchants: ' + (err?.response?.data?.error || err?.message));
     } finally {
       setLoading(false);
     }
@@ -167,7 +263,7 @@ export default function AdminMerchants() {
     setModalOpen(true);
   };
 
-  const openEdit = (merchant) => {
+  const openEdit = (merchant: Merchant) => {
     setEditingId(merchant.id);
     setForm({
       ...BLANK_FORM,
@@ -214,36 +310,36 @@ export default function AdminMerchants() {
       }
       setModalOpen(false);
       await load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (merchant) => {
+  const handleDelete = async (merchant: Merchant) => {
     if (!window.confirm(`Delete payment merchant for "${merchant.storeName}"?\n\nThis cannot be undone and will also remove all linked terminals.`)) return;
     try {
       await deletePaymentMerchant(merchant.id);
       toast.success('Merchant deleted');
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const handleTest = async (merchant) => {
+  const handleTest = async (merchant: Merchant) => {
     try {
       const res = await testPaymentMerchant(merchant.id);
       if (res.success) toast.success('Credentials OK — terminal reachable. You can now Activate.');
       else toast.warn(res.result || 'Test failed');
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const handleActivate = async (merchant) => {
+  const handleActivate = async (merchant: Merchant) => {
     if (!canActivate(merchant)) {
       toast.warn('Test the terminal successfully within the last 24 hours before activating.');
       return;
@@ -253,12 +349,12 @@ export default function AdminMerchants() {
       await activatePaymentMerchant(merchant.id);
       toast.success('Merchant activated');
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const handleDisable = async (merchant) => {
+  const handleDisable = async (merchant: Merchant) => {
     const reason = window.prompt(
       `Disable payment processing for "${merchant.storeName}"?\n\n` +
       'This is a kill-switch — the POS will stop accepting card payments immediately.\n\n' +
@@ -269,38 +365,38 @@ export default function AdminMerchants() {
       await disablePaymentMerchant(merchant.id, reason || 'No reason provided');
       toast.success('Merchant disabled');
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
   // ── Audit drawer ──
-  const openAudit = async (merchant) => {
+  const openAudit = async (merchant: Merchant) => {
     setAuditFor(merchant);
     setAuditEntries([]);
     setAuditLoading(true);
     try {
       const res = await getPaymentMerchantAudit(merchant.id);
       setAuditEntries(res.entries || res.audit || []);
-    } catch (err) {
-      toast.error('Failed to load audit log: ' + (err.response?.data?.error || err.message));
+    } catch (err: any) {
+      toast.error('Failed to load audit log: ' + (err?.response?.data?.error || err?.message));
     } finally {
       setAuditLoading(false);
     }
   };
 
   // ── Terminals drawer ──
-  const openTerminals = async (merchant) => {
+  const openTerminals = async (merchant: Merchant) => {
     setTermFor(merchant);
     setTerminals([]);
     setTermEditing(null);
-    setTermForm({ ...BLANK_TERMINAL, merchantId: merchant.id });
+    setTermForm({ ...BLANK_TERMINAL, merchantId: String(merchant.id) });
     setTermLoading(true);
     try {
       const res = await listPaymentTerminals({ merchantId: merchant.id });
       setTerminals(res.terminals || []);
-    } catch (err) {
-      toast.error('Failed to load terminals: ' + (err.response?.data?.error || err.message));
+    } catch (err: any) {
+      toast.error('Failed to load terminals: ' + (err?.response?.data?.error || err?.message));
     } finally {
       setTermLoading(false);
     }
@@ -311,15 +407,15 @@ export default function AdminMerchants() {
     try {
       const res = await listPaymentTerminals({ merchantId: termFor.id });
       setTerminals(res.terminals || []);
-    } catch (err) {
-      toast.error('Failed to refresh: ' + (err.response?.data?.error || err.message));
+    } catch (err: any) {
+      toast.error('Failed to refresh: ' + (err?.response?.data?.error || err?.message));
     }
   };
 
-  const editTerminal = (t) => {
+  const editTerminal = (t: Terminal) => {
     setTermEditing(t.id);
     setTermForm({
-      merchantId:         t.merchantId,
+      merchantId:         String(t.merchantId),
       stationId:          t.stationId || '',
       nickname:           t.nickname || '',
       deviceSerialNumber: t.deviceSerialNumber || '',
@@ -331,7 +427,7 @@ export default function AdminMerchants() {
 
   const cancelTerminalEdit = () => {
     setTermEditing(null);
-    setTermForm({ ...BLANK_TERMINAL, merchantId: termFor?.id || '' });
+    setTermForm({ ...BLANK_TERMINAL, merchantId: termFor ? String(termFor.id) : '' });
   };
 
   const saveTerminal = async () => {
@@ -345,30 +441,30 @@ export default function AdminMerchants() {
       }
       cancelTerminalEdit();
       refreshTerminals();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const removeTerminal = async (t) => {
+  const removeTerminal = async (t: Terminal) => {
     if (!window.confirm(`Remove terminal "${t.nickname || t.deviceSerialNumber || t.id}"?`)) return;
     try {
       await deletePaymentTerminal(t.id);
       toast.success('Terminal removed');
       refreshTerminals();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const pingTerm = async (t) => {
+  const pingTerm = async (t: Terminal) => {
     try {
       const res = await pingPaymentTerminal(t.id);
       if (res.success) toast.success('Terminal reachable');
       else toast.warn(res.message || 'Terminal unreachable');
       refreshTerminals();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
@@ -562,7 +658,7 @@ export default function AdminMerchants() {
                   </div>
                   <div className="am-field">
                     <label>Environment</label>
-                    <select value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value })}>
+                    <select value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value as Environment })}>
                       <option value="uat">UAT / Sandbox</option>
                       <option value="prod">Production</option>
                     </select>

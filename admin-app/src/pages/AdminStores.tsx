@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit3, Trash2, Store, Search, RefreshCw, Loader, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -11,7 +11,35 @@ import {
 } from '../services/api';
 import '../styles/admin.css';
 
-const EMPTY_FORM = {
+interface StoreForm {
+  id?: string | number;
+  name: string;
+  orgId: string;
+  address: string;
+  stationCount: number | string;
+  isActive: boolean;
+}
+
+interface AdminStore {
+  id: string | number;
+  name: string;
+  orgId?: string;
+  address?: string;
+  isActive?: boolean;
+  createdAt?: string;
+  stationCount?: number;
+  organization?: { name?: string };
+  _count?: { stations?: number };
+}
+
+interface Organization {
+  id: string | number;
+  name: string;
+}
+
+type ModalState = { mode: 'create' | 'edit'; data: StoreForm } | null;
+
+const EMPTY_FORM: StoreForm = {
   name: '',
   orgId: '',
   address: '',
@@ -20,20 +48,20 @@ const EMPTY_FORM = {
 };
 
 const AdminStores = () => {
-  const [stores, setStores] = useState([]);
+  const [stores, setStores] = useState<AdminStore[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 25;
-  const [modal, setModal] = useState(null);
-  const [orgs, setOrgs] = useState([]);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
   const [orgsLoading, setOrgsLoading] = useState(false);
 
   const fetchStores = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (search) params.search = search;
       const res = await getAdminStores(params);
       setStores(res.data);
@@ -65,7 +93,7 @@ const AdminStores = () => {
     setModal({ mode: 'create', data: { ...EMPTY_FORM } });
   };
 
-  const openEdit = async (store) => {
+  const openEdit = async (store: AdminStore) => {
     await fetchOrgs();
     setModal({
       mode: 'edit',
@@ -80,30 +108,31 @@ const AdminStores = () => {
     });
   };
 
-  const handleSave = async (formData) => {
+  const handleSave = async (formData: Record<string, unknown>) => {
+    if (!modal) return;
     try {
       if (modal.mode === 'create') {
         await createAdminStore(formData);
         toast.success('Store created');
-      } else {
+      } else if (modal.data.id !== undefined) {
         await updateAdminStore(modal.data.id, formData);
         toast.success('Store updated');
       }
       setModal(null);
       fetchStores();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Save failed');
     }
   };
 
-  const handleDelete = async (store) => {
+  const handleDelete = async (store: AdminStore) => {
     if (!window.confirm(`Deactivate "${store.name}"? This will disable the store.`)) return;
     try {
       await deleteAdminStore(store.id);
       toast.success(`${store.name} deactivated`);
       fetchStores();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Delete failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Delete failed');
     }
   };
 
@@ -174,7 +203,7 @@ const AdminStores = () => {
                         {s.isActive !== false ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="muted">{new Date(s.createdAt).toLocaleDateString()}</td>
+                    <td className="muted">{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '-'}</td>
                     <td>
                       <div className="admin-row-actions">
                         <button onClick={() => openEdit(s)} className="admin-btn-icon" title="Edit">
@@ -213,7 +242,7 @@ const AdminStores = () => {
                   <X size={18} />
                 </button>
               </div>
-              <StoreForm
+              <StoreFormPanel
                 data={modal.data}
                 mode={modal.mode}
                 orgs={orgs}
@@ -228,8 +257,17 @@ const AdminStores = () => {
   );
 };
 
-const StoreForm = ({ data, mode, orgs, orgsLoading, onSave, onCancel }) => {
-  const [form, setForm] = useState({ ...data });
+interface StoreFormProps {
+  data: StoreForm;
+  mode: 'create' | 'edit';
+  orgs: Organization[];
+  orgsLoading: boolean;
+  onSave: (payload: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+}
+
+const StoreFormPanel = ({ data, mode, orgs, orgsLoading, onSave, onCancel }: StoreFormProps) => {
+  const [form, setForm] = useState<StoreForm>({ ...data });
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {

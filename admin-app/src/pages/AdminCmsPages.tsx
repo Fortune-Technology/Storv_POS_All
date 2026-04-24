@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, FileText } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -7,12 +7,26 @@ import { getAdminCmsPages, createAdminCmsPage, updateAdminCmsPage, deleteAdminCm
 import '../styles/admin.css';
 import './AdminCmsPages.css';
 
-const toSlug = (str) => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const toSlug = (str: string): string => str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+interface CmsPage {
+  id: string | number;
+  title: string;
+  slug: string;
+  content: string;
+  metaTitle?: string;
+  metaDesc?: string;
+  published?: boolean;
+  sortOrder?: number;
+  updatedAt?: string;
+}
+
+type ModalState = { mode: 'create' | 'edit'; data: CmsPage } | null;
 
 const AdminCmsPages = () => {
-  const [pages, setPages] = useState([]);
+  const [pages, setPages] = useState<CmsPage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // null | { mode: 'create'|'edit', data: {} }
+  const [modal, setModal] = useState<ModalState>(null);
 
   const fetchPages = async () => {
     setLoading(true);
@@ -25,7 +39,8 @@ const AdminCmsPages = () => {
 
   useEffect(() => { fetchPages(); }, []);
 
-  const handleSave = async (formData) => {
+  const handleSave = async (formData: CmsPage) => {
+    if (!modal) return;
     try {
       if (modal.mode === 'create') {
         await createAdminCmsPage(formData);
@@ -36,12 +51,12 @@ const AdminCmsPages = () => {
       }
       setModal(null);
       fetchPages();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Save failed');
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string | number) => {
     if (!window.confirm('Delete this page?')) return;
     try {
       await deleteAdminCmsPage(id);
@@ -49,6 +64,8 @@ const AdminCmsPages = () => {
       fetchPages();
     } catch { toast.error('Delete failed'); }
   };
+
+  const emptyPage: CmsPage = { id: '', title: '', slug: '', content: '', metaTitle: '', metaDesc: '', published: false, sortOrder: 0 };
 
   return (
     <>
@@ -60,7 +77,7 @@ const AdminCmsPages = () => {
               <p>Manage marketing site content</p>
             </div>
           </div>
-          <button onClick={() => setModal({ mode: 'create', data: { title: '', slug: '', content: '', metaTitle: '', metaDesc: '', published: false, sortOrder: 0 } })}
+          <button onClick={() => setModal({ mode: 'create', data: emptyPage })}
             className="admin-btn-primary">
             <Plus size={14} /> New Page
           </button>
@@ -72,7 +89,7 @@ const AdminCmsPages = () => {
           <div className="admin-empty">
             <FileText size={40} className="admin-empty-icon" />
             <p className="admin-empty-text">No CMS pages yet</p>
-            <button onClick={() => setModal({ mode: 'create', data: { title: '', slug: '', content: '', metaTitle: '', metaDesc: '', published: false, sortOrder: 0 } })}
+            <button onClick={() => setModal({ mode: 'create', data: emptyPage })}
               className="admin-btn-primary admin-btn-primary-lg">
               <Plus size={16} /> Create First Page
             </button>
@@ -92,7 +109,7 @@ const AdminCmsPages = () => {
                     )}
                   </div>
                   <div className="admin-card-meta">
-                    Updated {new Date(p.updatedAt).toLocaleDateString()}
+                    Updated {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : '-'}
                   </div>
                 </div>
                 <div className="admin-card-actions">
@@ -114,13 +131,23 @@ const AdminCmsPages = () => {
   );
 };
 
-const CmsModal = ({ mode, data, onSave, onClose }) => {
-  const [form, setForm] = useState({ ...data });
+interface CmsModalProps {
+  mode: 'create' | 'edit';
+  data: CmsPage;
+  onSave: (form: CmsPage) => void;
+  onClose: () => void;
+}
+
+const CmsModal = ({ mode, data, onSave, onClose }: CmsModalProps) => {
+  const [form, setForm] = useState<CmsPage>({ ...data });
   const [slugEdited, setSlugEdited] = useState(mode === 'edit');
 
-  const handleTitleChange = (val) => {
-    setForm(f => ({ ...f, title: val }));
-    if (!slugEdited) setForm(f => ({ ...f, title: val, slug: toSlug(val) }));
+  const handleTitleChange = (val: string) => {
+    if (!slugEdited) {
+      setForm(f => ({ ...f, title: val, slug: toSlug(val) }));
+    } else {
+      setForm(f => ({ ...f, title: val }));
+    }
   };
 
   return (
@@ -141,7 +168,7 @@ const CmsModal = ({ mode, data, onSave, onClose }) => {
           </div>
           <div className="admin-modal-field">
             <label>Content</label>
-            <RichTextEditor value={form.content} onChange={val => setForm(f => ({ ...f, content: val }))} placeholder="Write page content..." />
+            <RichTextEditor value={form.content} onChange={(val: string) => setForm(f => ({ ...f, content: val }))} placeholder="Write page content..." />
           </div>
           <div className="admin-modal-row">
             <div className="admin-modal-field">
@@ -158,7 +185,7 @@ const CmsModal = ({ mode, data, onSave, onClose }) => {
             <input value={form.metaDesc || ''} onChange={e => setForm(f => ({ ...f, metaDesc: e.target.value }))} />
           </div>
           <label className="admin-checkbox-label">
-            <input type="checkbox" checked={form.published} onChange={e => setForm(f => ({ ...f, published: e.target.checked }))} />
+            <input type="checkbox" checked={form.published || false} onChange={e => setForm(f => ({ ...f, published: e.target.checked }))} />
             <span>Published</span>
           </label>
         </div>

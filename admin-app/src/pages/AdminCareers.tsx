@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit3, Trash2, Eye, EyeOff, Loader, X, Users, Briefcase } from 'lucide-react';
 import { toast } from 'react-toastify';
@@ -10,11 +10,23 @@ import './AdminCareers.css';
 
 const JOB_TYPES = ['full-time', 'part-time', 'contract', 'internship'];
 
+interface Career {
+  id: string | number;
+  title: string;
+  department?: string;
+  location?: string;
+  type?: string;
+  description?: string;
+  published?: boolean;
+}
+
+type ModalState = { mode: 'create' | 'edit'; data: Career } | null;
+
 const AdminCareers = () => {
   const navigate = useNavigate();
-  const [careers, setCareers] = useState([]);
+  const [careers, setCareers] = useState<Career[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState<ModalState>(null);
 
   const fetchCareers = async () => {
     setLoading(true);
@@ -25,19 +37,22 @@ const AdminCareers = () => {
 
   useEffect(() => { fetchCareers(); }, []);
 
-  const handleSave = async (formData) => {
+  const handleSave = async (formData: Career) => {
+    if (!modal) return;
     try {
       if (modal.mode === 'create') { await createAdminCareer(formData); toast.success('Career posted'); }
       else { await updateAdminCareer(modal.data.id, formData); toast.success('Career updated'); }
       setModal(null); fetchCareers();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string | number) => {
     if (!window.confirm('Delete this posting?')) return;
     try { await deleteAdminCareer(id); toast.success('Deleted'); fetchCareers(); }
     catch { toast.error('Delete failed'); }
   };
+
+  const emptyCareer: Career = { id: '', title: '', department: '', location: '', type: 'full-time', description: '', published: false };
 
   return (
     <>
@@ -49,7 +64,7 @@ const AdminCareers = () => {
               <p>Manage job listings</p>
             </div>
           </div>
-          <button onClick={() => setModal({ mode: 'create', data: { title: '', department: '', location: '', type: 'full-time', description: '', published: false } })}
+          <button onClick={() => setModal({ mode: 'create', data: emptyCareer })}
             className="admin-btn-primary">
             <Plus size={14} /> New Posting
           </button>
@@ -61,7 +76,7 @@ const AdminCareers = () => {
           <div className="admin-empty">
             <Briefcase size={40} className="admin-empty-icon" />
             <p className="admin-empty-text">No career postings yet</p>
-            <button onClick={() => setModal({ mode: 'create', data: { title: '', department: '', location: '', type: 'full-time', description: '', published: false } })}
+            <button onClick={() => setModal({ mode: 'create', data: emptyCareer })}
               className="admin-btn-primary admin-btn-primary-lg">
               <Plus size={16} /> Create First Posting
             </button>
@@ -110,8 +125,14 @@ const AdminCareers = () => {
   );
 };
 
-const CareerForm = ({ data, onSave, onCancel }) => {
-  const [form, setForm] = useState({ ...data });
+interface CareerFormProps {
+  data: Career;
+  onSave: (form: Career) => void;
+  onCancel: () => void;
+}
+
+const CareerForm = ({ data, onSave, onCancel }: CareerFormProps) => {
+  const [form, setForm] = useState<Career>({ ...data });
   return (
     <div className="admin-modal-form">
       <div className="admin-modal-field">
@@ -136,10 +157,10 @@ const CareerForm = ({ data, onSave, onCancel }) => {
       </div>
       <div className="admin-modal-field">
         <label>Description</label>
-        <RichTextEditor value={form.description} onChange={val => setForm(f => ({ ...f, description: val }))} placeholder="Write job description..." />
+        <RichTextEditor value={form.description || ''} onChange={(val: string) => setForm(f => ({ ...f, description: val }))} placeholder="Write job description..." />
       </div>
       <label className="admin-checkbox-label">
-        <input type="checkbox" checked={form.published} onChange={e => setForm(f => ({ ...f, published: e.target.checked }))} />
+        <input type="checkbox" checked={form.published || false} onChange={e => setForm(f => ({ ...f, published: e.target.checked }))} />
         <span>Published</span>
       </label>
       <div className="admin-modal-footer">

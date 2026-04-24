@@ -6,7 +6,7 @@
  * when their stateCode is set in Store Settings. Lottery games tagged
  * to a state via LotteryGame.state are filtered by this same code.
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { Plus, Edit2, Trash2, Search, MapPin, Loader, X, Save, Check } from 'lucide-react';
 import {
@@ -14,7 +14,64 @@ import {
 } from '../services/api';
 import './AdminStates.css';
 
-const BLANK = {
+interface DepositRule {
+  containerType?: string;
+  material?: string;
+  minVolumeOz?: string | number | null;
+  maxVolumeOz?: string | number | null;
+  depositAmount?: string | number;
+}
+
+interface PackSizeRule {
+  maxPrice?: string | number;
+  packSize?: string | number;
+}
+
+interface LotteryGameStub {
+  [key: string]: unknown;
+}
+
+interface StateForm {
+  code: string;
+  name: string;
+  country: string;
+  defaultTaxRate: string;
+  defaultLotteryCommission: string;
+  instantSalesCommRate: string;
+  instantCashingCommRate: string;
+  machineSalesCommRate: string;
+  machineCashingCommRate: string;
+  alcoholAgeLimit: string | number;
+  tobaccoAgeLimit: string | number;
+  bottleDepositRules: DepositRule[];
+  lotteryGameStubs: LotteryGameStub[];
+  lotteryPackSizeRules: PackSizeRule[];
+  notes: string;
+  active: boolean;
+}
+
+interface UsState {
+  code: string;
+  name: string;
+  country?: string;
+  defaultTaxRate?: number | null;
+  defaultLotteryCommission?: number | null;
+  instantSalesCommRate?: number | null;
+  instantCashingCommRate?: number | null;
+  machineSalesCommRate?: number | null;
+  machineCashingCommRate?: number | null;
+  alcoholAgeLimit?: number;
+  tobaccoAgeLimit?: number;
+  bottleDepositRules?: DepositRule[];
+  lotteryGameStubs?: LotteryGameStub[];
+  lotteryPackSizeRules?: PackSizeRule[];
+  notes?: string;
+  active?: boolean;
+}
+
+type ModalMode = 'create' | 'edit' | null;
+
+const BLANK: StateForm = {
   code: '', name: '', country: 'US',
   defaultTaxRate: '', defaultLotteryCommission: '',
   // 3e — per-revenue-stream commission rates (superadmin, state-wide)
@@ -27,12 +84,12 @@ const BLANK = {
   notes: '', active: true,
 };
 
-const BLANK_DEPOSIT  = { containerType: 'bottle', material: 'glass', minVolumeOz: '', maxVolumeOz: '', depositAmount: 0.05 };
-const BLANK_PACK_RULE = { maxPrice: '', packSize: '' };
+const BLANK_DEPOSIT: DepositRule  = { containerType: 'bottle', material: 'glass', minVolumeOz: '', maxVolumeOz: '', depositAmount: 0.05 };
+const BLANK_PACK_RULE: PackSizeRule = { maxPrice: '', packSize: '' };
 
 // Default pack-size rules for the US — prefilled when superadmin picks
 // "Use default" on an empty list. Matches the backend DEFAULT_PACK_SIZE_RULES.
-const DEFAULT_US_PACK_RULES = [
+const DEFAULT_US_PACK_RULES: PackSizeRule[] = [
   { maxPrice: 1,    packSize: 300 },
   { maxPrice: 2,    packSize: 200 },
   { maxPrice: 3,    packSize: 200 },
@@ -44,20 +101,22 @@ const DEFAULT_US_PACK_RULES = [
 ];
 
 export default function AdminStates() {
-  const [states,      setStates]   = useState([]);
+  const [states,      setStates]   = useState<UsState[]>([]);
   const [loading,     setLoading]  = useState(true);
   const [search,      setSearch]   = useState('');
-  const [modalMode,   setModalMode] = useState(null); // 'create' | 'edit' | null
-  const [form,        setForm]     = useState(BLANK);
+  const [modalMode,   setModalMode] = useState<ModalMode>(null);
+  const [form,        setForm]     = useState<StateForm>(BLANK);
   const [saving,      setSaving]   = useState(false);
 
   const loadStates = async () => {
     setLoading(true);
     try {
       const res = await listAdminStates();
-      setStates(res.states || []);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load states');
+      // Shared UsStateRecord types the JSON columns as unknown[]; the page uses
+      // narrower local shapes (DepositRule / PackSizeRule) derived from the same rows.
+      setStates((res.states || []) as UsState[]);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to load states');
     } finally {
       setLoading(false);
     }
@@ -75,7 +134,7 @@ export default function AdminStates() {
   }, [states, search]);
 
   const openCreate = () => { setForm(BLANK); setModalMode('create'); };
-  const openEdit   = (s) => {
+  const openEdit   = (s: UsState) => {
     setForm({
       code:                     s.code,
       name:                     s.name,
@@ -98,24 +157,24 @@ export default function AdminStates() {
   };
   const closeModal = () => setModalMode(null);
 
-  const setField = (patch) => setForm(f => ({ ...f, ...patch }));
+  const setField = (patch: Partial<StateForm>) => setForm(f => ({ ...f, ...patch }));
 
   const addDeposit    = () => setField({ bottleDepositRules: [...form.bottleDepositRules, { ...BLANK_DEPOSIT }] });
-  const updateDeposit = (idx, patch) => {
+  const updateDeposit = (idx: number, patch: Partial<DepositRule>) => {
     const next = [...form.bottleDepositRules];
     next[idx] = { ...next[idx], ...patch };
     setField({ bottleDepositRules: next });
   };
-  const removeDeposit = (idx) => setField({ bottleDepositRules: form.bottleDepositRules.filter((_, i) => i !== idx) });
+  const removeDeposit = (idx: number) => setField({ bottleDepositRules: form.bottleDepositRules.filter((_, i) => i !== idx) });
 
   // Lottery pack-size rule helpers
   const addPackRule     = () => setField({ lotteryPackSizeRules: [...form.lotteryPackSizeRules, { ...BLANK_PACK_RULE }] });
-  const updatePackRule  = (idx, patch) => {
+  const updatePackRule  = (idx: number, patch: Partial<PackSizeRule>) => {
     const next = [...form.lotteryPackSizeRules];
     next[idx] = { ...next[idx], ...patch };
     setField({ lotteryPackSizeRules: next });
   };
-  const removePackRule  = (idx) => setField({ lotteryPackSizeRules: form.lotteryPackSizeRules.filter((_, i) => i !== idx) });
+  const removePackRule  = (idx: number) => setField({ lotteryPackSizeRules: form.lotteryPackSizeRules.filter((_, i) => i !== idx) });
   const loadDefaultPackRules = () => setField({
     lotteryPackSizeRules: DEFAULT_US_PACK_RULES.map(r => ({ ...r })),
   });
@@ -169,21 +228,21 @@ export default function AdminStates() {
       }
       closeModal();
       loadStates();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to save state');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to save state');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (s) => {
+  const handleDelete = async (s: UsState) => {
     if (!window.confirm(`Delete ${s.name} (${s.code})?`)) return;
     try {
       await deleteAdminState(s.code);
       toast.success('State deleted');
       loadStates();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to delete state');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to delete state');
     }
   };
 

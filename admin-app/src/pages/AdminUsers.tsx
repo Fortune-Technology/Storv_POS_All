@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Plus, Edit3, Trash2, LogIn, Search, RefreshCw,
@@ -18,29 +18,63 @@ const STATUS_TABS = [
   { key: 'pending',   label: 'Pending' },
   { key: 'active',    label: 'Active' },
   { key: 'suspended', label: 'Suspended' },
-];
+] as const;
 
-const ROLE_OPTIONS = ['staff', 'cashier', 'manager', 'owner', 'admin', 'superadmin'];
-const STATUS_OPTIONS = ['pending', 'active', 'suspended'];
+const ROLE_OPTIONS = ['staff', 'cashier', 'manager', 'owner', 'admin', 'superadmin'] as const;
+const STATUS_OPTIONS = ['pending', 'active', 'suspended'] as const;
 
-const EMPTY_FORM = {
+type Role = typeof ROLE_OPTIONS[number];
+type UserStatus = typeof STATUS_OPTIONS[number];
+
+interface UserForm {
+  name: string;
+  email: string;
+  phone: string;
+  role: Role;
+  orgId: string;
+  status: UserStatus;
+}
+
+interface AdminUser {
+  id: string | number;
+  name: string;
+  email: string;
+  phone?: string;
+  role: Role;
+  status: UserStatus;
+  orgId?: string;
+  // Prisma relations serialize as `null` when missing; we keep `null` in the
+  // union so `res.data` from getAdminUsers assigns cleanly.
+  organization?: { id?: string | number; name?: string } | null;
+  createdAt?: string;
+}
+
+interface Organization {
+  id: string | number;
+  name: string;
+}
+
+type ModalState = { mode: 'create'; data: null } | { mode: 'edit'; data: AdminUser } | null;
+
+const EMPTY_FORM: UserForm = {
   name: '', email: '', phone: '', role: 'staff', orgId: '', status: 'pending',
 };
 
-const statusBadge = (status) => {
-  const icons = {
+const statusBadge = (status?: string): ReactNode => {
+  const icons: Record<string, ReactNode> = {
     pending: <Clock size={11} />,
     active: <Check size={11} />,
     suspended: <Ban size={11} />,
   };
+  const key = status || 'pending';
   return (
-    <span className={`admin-badge ${status || 'pending'}`}>
-      {icons[status] || icons.pending} {status}
+    <span className={`admin-badge ${key}`}>
+      {icons[key] || icons.pending} {status}
     </span>
   );
 };
 
-const roleBadge = (role) => (
+const roleBadge = (role?: string): ReactNode => (
   <span className={`admin-badge sm ${role || 'staff'}`}>{role}</span>
 );
 
@@ -50,18 +84,18 @@ const AdminUsers = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   /* table state */
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState(searchParams.get('status') || '');
+  const [activeTab, setActiveTab] = useState<string>(searchParams.get('status') || '');
   const [page, setPage] = useState(1);
   const limit = 25;
 
   /* modal state: null | { mode: 'create'|'edit', data: {...} } */
-  const [modal, setModal] = useState(null);
-  const [modalForm, setModalForm] = useState(EMPTY_FORM);
-  const [orgs, setOrgs] = useState([]);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [modalForm, setModalForm] = useState<UserForm>(EMPTY_FORM);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
   const [saving, setSaving] = useState(false);
 
   /* ---- data fetching ---- */
@@ -69,7 +103,7 @@ const AdminUsers = () => {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (activeTab) params.status = activeTab;
       if (search) params.search = search;
       const res = await getAdminUsers(params);
@@ -86,7 +120,7 @@ const AdminUsers = () => {
 
   /* ---- tab / search ---- */
 
-  const handleTabChange = (key) => {
+  const handleTabChange = (key: string) => {
     setActiveTab(key);
     setPage(1);
     if (key) setSearchParams({ status: key }); else setSearchParams({});
@@ -94,7 +128,7 @@ const AdminUsers = () => {
 
   /* ---- status actions (approve / suspend / reject) ---- */
 
-  const handleAction = async (action, userId, userName) => {
+  const handleAction = async (action: 'approve' | 'suspend' | 'reject', userId: string | number, userName: string) => {
     try {
       if (action === 'approve') {
         await approveAdminUser(userId);
@@ -107,27 +141,27 @@ const AdminUsers = () => {
         toast.success(`${userName} rejected`);
       }
       fetchUsers();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Action failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Action failed');
     }
   };
 
   /* ---- delete ---- */
 
-  const handleDelete = async (user) => {
+  const handleDelete = async (user: AdminUser) => {
     if (!window.confirm(`Delete user "${user.name}"? This action cannot be undone.`)) return;
     try {
       await deleteAdminUser(user.id);
       toast.success(`${user.name} deleted`);
       fetchUsers();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Delete failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Delete failed');
     }
   };
 
   /* ---- login as ---- */
 
-  const handleLoginAs = async (u) => {
+  const handleLoginAs = async (u: AdminUser) => {
     try {
       const res = await impersonateUser(u.id);
       const d = res.data || res;
@@ -138,8 +172,8 @@ const AdminUsers = () => {
         return;
       }
       window.open(`${portalBase}/impersonate?token=${d.token}&user=${userParam}`, '_blank');
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Impersonation failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Impersonation failed');
     }
   };
 
@@ -150,7 +184,7 @@ const AdminUsers = () => {
   //   4. null → caller shows a toast. Previously the fallback silently used
   //      admin-app's own origin, so the new tab had no /impersonate route
   //      and ended up bouncing to /dashboard — the bug we're fixing here.
-  function resolvePortalBase() {
+  function resolvePortalBase(): string | null {
     const envUrl = import.meta.env.VITE_PORTAL_URL;
     if (envUrl) return envUrl.replace(/\/$/, '');
     const origin = window.location.origin;
@@ -167,14 +201,14 @@ const AdminUsers = () => {
     loadOrgs();
   };
 
-  const openEditModal = async (user) => {
+  const openEditModal = async (user: AdminUser) => {
     setModal({ mode: 'edit', data: user });
     setModalForm({
       name: user.name || '',
       email: user.email || '',
       phone: user.phone || '',
       role: user.role || 'staff',
-      orgId: user.orgId || user.organization?.id || '',
+      orgId: user.orgId || (user.organization?.id !== undefined ? String(user.organization.id) : '') || '',
       status: user.status || 'pending',
     });
     loadOrgs();
@@ -200,6 +234,7 @@ const AdminUsers = () => {
   const handleModalSave = async () => {
     if (!modalForm.name.trim()) { toast.error('Name is required'); return; }
     if (!modalForm.email.trim()) { toast.error('Email is required'); return; }
+    if (!modal) return;
 
     setSaving(true);
     try {
@@ -212,14 +247,15 @@ const AdminUsers = () => {
       }
       closeModal();
       fetchUsers();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Save failed');
     } finally {
       setSaving(false);
     }
   };
 
-  const setField = (key, value) => setModalForm(f => ({ ...f, [key]: value }));
+  const setField = <K extends keyof UserForm>(key: K, value: UserForm[K]) =>
+    setModalForm(f => ({ ...f, [key]: value }));
 
   /* ---- render ---- */
 
@@ -293,7 +329,7 @@ const AdminUsers = () => {
                     <td>{u.organization?.name || '-'}</td>
                     <td>{roleBadge(u.role)}</td>
                     <td>{statusBadge(u.status)}</td>
-                    <td className="muted">{new Date(u.createdAt).toLocaleDateString()}</td>
+                    <td className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-'}</td>
                     <td>
                       <div className="admin-row-actions">
                         {/* Status actions */}
@@ -403,7 +439,7 @@ const AdminUsers = () => {
                 <div className="admin-modal-row">
                   <div className="admin-modal-field">
                     <label>Role</label>
-                    <select value={modalForm.role} onChange={e => setField('role', e.target.value)}>
+                    <select value={modalForm.role} onChange={e => setField('role', e.target.value as Role)}>
                       {ROLE_OPTIONS.map(r => (
                         <option key={r} value={r}>{r}</option>
                       ))}
@@ -411,7 +447,7 @@ const AdminUsers = () => {
                   </div>
                   <div className="admin-modal-field">
                     <label>Status</label>
-                    <select value={modalForm.status} onChange={e => setField('status', e.target.value)}>
+                    <select value={modalForm.status} onChange={e => setField('status', e.target.value as UserStatus)}>
                       {STATUS_OPTIONS.map(s => (
                         <option key={s} value={s}>{s}</option>
                       ))}
