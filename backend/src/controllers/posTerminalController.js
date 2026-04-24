@@ -61,6 +61,15 @@ export const getCatalogSnapshot = async (req, res) => {
             select: { retailPrice: true, costPrice: true, active: true, inStock: true, quantityOnHand: true },
             take:   1,
           } : false,
+          // Cashier pack-size picker — when a scanned product has 2+ pack sizes
+          // configured (e.g. single can / 6-pack / 12-pack), the cashier-app
+          // shows PackSizePickerModal instead of adding a default. Without
+          // including this here, the snapshot would lack packSizes and the
+          // picker logic in POSScreen.handleScan would silently never fire.
+          packSizes: {
+            select: { id: true, label: true, unitCount: true, packsPerCase: true, retailPrice: true, isDefault: true, sortOrder: true },
+            orderBy: { sortOrder: 'asc' },
+          },
         },
       }),
       // Only fetch tombstones on incremental syncs (since != null) AND on the
@@ -158,6 +167,20 @@ export const getCatalogSnapshot = async (req, res) => {
         departmentName: p.department?.name || null,
         active:         sp ? sp.active : p.active,
         inStock:        sp ? sp.inStock : true,
+        // Pack sizes for the cashier picker — flattened to JSON-friendly shape
+        // and persisted on each product row in IndexedDB. The cashier-app's
+        // POSScreen.handleScan reads `product.packSizes` and shows
+        // PackSizePickerModal when length > 1, or applies the single size
+        // silently when length === 1.
+        packSizes: (p.packSizes || []).map(ps => ({
+          id:           ps.id,
+          label:        ps.label,
+          unitCount:    ps.unitCount,
+          packsPerCase: ps.packsPerCase,
+          retailPrice:  Number(ps.retailPrice),
+          isDefault:    ps.isDefault,
+          sortOrder:    ps.sortOrder,
+        })),
         orgId,
         storeId:        storeId || null,
         updatedAt:      p.updatedAt.toISOString(),

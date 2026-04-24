@@ -59,6 +59,101 @@ const getOrgId = (req) => req.tenantId || req.user?.tenantId || req.user?.orgId;
 const getStoreId = (req) => req.storeId;
 
 // ─────────────────────────────────────────────────
+// UPC Uniqueness Assertion
+// ─────────────────────────────────────────────────
+// Two parallel UPC stores exist in the schema:
+//   1. MasterProduct.upc        — legacy single-UPC field, indexed (NOT unique)
+//   2. ProductUpc.upc           — multi-UPC table, @@unique([orgId, upc])
+//
+// The unique constraint on ProductUpc only protects rows added through that
+// table — it does NOT prevent two MasterProducts from sharing the same legacy
+// `upc`, nor does it stop a ProductUpc row from colliding with another product's
+// MasterProduct.upc. That created the conflict the user reported when scanning
+// a barcode that resolved to multiple candidate products.
+//
+// This helper consolidates the check across both tables. Pass `excludeProductId`
+// when updating an existing product so the product's own UPC doesn't trigger
+// a self-conflict. Returns the conflicting product's id+name+source when the
+// UPC is taken, or null when free.
+async function findUpcConflict(prisma, orgId, upc, excludeProductId = null) {
+  if (!upc) return null;
+  const normalized = (typeof upc === 'string' ? upc : String(upc)).replace(/[\s\-\.]/g, '');
+  if (!normalized) return null;
+
+  // 1) Conflict on legacy MasterProduct.upc?
+  const mp = await prisma.masterProduct.findFirst({
+    where: {
+      orgId,
+      upc: normalized,
+      deleted: false,
+      ...(excludeProductId != null ? { id: { not: parseInt(excludeProductId) } } : {}),
+    },
+    select: { id: true, name: true, upc: true },
+  });
+  if (mp) {
+    return { source: 'master', conflictingProductId: mp.id, conflictingProductName: mp.name, upc: mp.upc };
+  }
+
+  // 2) Conflict on ProductUpc table?
+  const pu = await prisma.productUpc.findFirst({
+    where: {
+      orgId,
+      upc: normalized,
+      ...(excludeProductId != null ? { masterProductId: { not: parseInt(excludeProductId) } } : {}),
+    },
+    select: { id: true, upc: true, masterProduct: { select: { id: true, name: true } } },
+  });
+  if (pu && pu.masterProduct) {
+    return {
+      source: 'productUpc',
+      conflictingProductId: pu.masterProduct.id,
+      conflictingProductName: pu.masterProduct.name,
+      upc: pu.upc,
+    };
+  }
+  return null;
+}
+
+// Throws a 409-flavoured error when a UPC is already taken. Caller surfaces
+// the message as a 409 response. The conflicting product's name + id are in
+// the message so the cashier knows exactly which product owns the barcode.
+async function assertUpcUnique(prisma, orgId, upc, excludeProductId = null) {
+  const conflict = await findUpcConflict(prisma, orgId, upc, excludeProductId);
+  if (conflict) {
+    const e = new Error(
+      `UPC "${conflict.upc}" is already used by product "${conflict.conflictingProductName}" (id ${conflict.conflictingProductId}). Each UPC must be unique within the organisation.`
+    );
+    e.status = 409;
+    e.code = 'UPC_CONFLICT';
+    e.conflict = conflict;
+    throw e;
+  }
+}
+
+// ─────────────────────────────────────────────────
+// Touch MasterProduct (bump updatedAt for incremental sync)
+// ─────────────────────────────────────────────────
+// Pack sizes and UPCs live in their own tables (ProductPackSize / ProductUpc)
+// so adding a pack size doesn't naturally bump the parent MasterProduct's
+// updatedAt timestamp. The cashier-app's incremental sync filters by
+// `updatedAt > lastSync` — without this manual bump, a freshly-configured
+// pack size never reaches the local IndexedDB cache and the cashier never
+// sees the picker on scan. Best-effort: failure to bump is non-fatal so
+// the underlying mutation still succeeds.
+async function touchMasterProduct(orgId, masterProductId) {
+  if (!masterProductId) return;
+  try {
+    await prisma.masterProduct.update({
+      where: { id: parseInt(masterProductId) },
+      data:  { updatedAt: new Date() },
+    });
+  } catch (e) {
+    // Product might be soft-deleted or wrong-org — log + swallow
+    console.warn(`[touchMasterProduct] Failed to bump product ${masterProductId} (org ${orgId}):`, e.message);
+  }
+}
+
+// ─────────────────────────────────────────────────
 // Deposit flattener — normalises every product payload so downstream
 // consumers (cashier cart, portal table, reports) can read a single
 // `depositAmount` field regardless of whether the deposit was set via
@@ -1873,6 +1968,23 @@ export const createMasterProduct = async (req, res) => {
 
     if (!name) return res.status(400).json({ success: false, error: 'name is required' });
 
+    // ── UPC uniqueness check ─────────────────────────────────────────────
+    // If a UPC is supplied, ensure no other product in this org claims it
+    // (either via legacy MasterProduct.upc or via the ProductUpc multi-UPC
+    // table). Otherwise scanning that barcode would resolve to multiple
+    // candidates and trigger the conflict the user reported.
+    const normalizedUpcForCheck = normalizeUPC(upc);
+    if (normalizedUpcForCheck) {
+      try {
+        await assertUpcUnique(prisma, orgId, normalizedUpcForCheck);
+      } catch (err) {
+        if (err.status === 409) {
+          return res.status(409).json({ success: false, error: err.message, conflict: err.conflict });
+        }
+        throw err;
+      }
+    }
+
     // ── taxRuleId validation + auto-mirror taxClass (Session 40 Phase 1) ──
     // If a taxRuleId is supplied, verify it belongs to this org and (when
     // taxClass wasn't explicitly set) mirror the rule's `appliesTo` into
@@ -2078,6 +2190,24 @@ export const updateMasterProduct = async (req, res) => {
     // Strip undefined values; coerce numerics
     const updates = {};
     const body = req.body;
+
+    // ── UPC uniqueness check ─────────────────────────────────────────────
+    // Only check when the UPC is actually being changed (and is non-null).
+    // `excludeProductId` skips the product's own row so it doesn't conflict
+    // with itself. Same dual-table check as createMasterProduct.
+    if (body.upc !== undefined) {
+      const normalizedUpc = normalizeUPC(body.upc);
+      if (normalizedUpc) {
+        try {
+          await assertUpcUnique(prisma, orgId, normalizedUpc, id);
+        } catch (err) {
+          if (err.status === 409) {
+            return res.status(409).json({ success: false, error: err.message, conflict: err.conflict });
+          }
+          throw err;
+        }
+      }
+    }
 
     if (body.name          !== undefined) updates.name          = body.name;
     if (body.upc           !== undefined) updates.upc           = normalizeUPC(body.upc) || null;
@@ -3048,6 +3178,22 @@ export const addProductUpc = async (req, res) => {
     const product = await prisma.masterProduct.findFirst({ where: { id: masterProductId, orgId } });
     if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
 
+    // ── UPC uniqueness check (covers BOTH MasterProduct.upc and ProductUpc) ──
+    // The @@unique([orgId, upc]) constraint on ProductUpc only catches
+    // ProductUpc-vs-ProductUpc conflicts. It does NOT prevent collision
+    // with another product's legacy MasterProduct.upc, which is the most
+    // common case (most products only ever set the legacy field).
+    // assertUpcUnique looks at both tables and rejects with a friendly
+    // message identifying the conflicting product by name + id.
+    try {
+      await assertUpcUnique(prisma, orgId, normalizedUpc, masterProductId);
+    } catch (err) {
+      if (err.status === 409) {
+        return res.status(409).json({ success: false, error: err.message, conflict: err.conflict });
+      }
+      throw err;
+    }
+
     // If setting as default, clear existing default
     if (isDefault) {
       await prisma.productUpc.updateMany({ where: { orgId, masterProductId }, data: { isDefault: false } });
@@ -3056,8 +3202,13 @@ export const addProductUpc = async (req, res) => {
     const row = await prisma.productUpc.create({
       data: { orgId, masterProductId, upc: normalizedUpc, label: label || null, isDefault: Boolean(isDefault) },
     });
+    // Bump parent product's updatedAt so the cashier-app's incremental sync
+    // picks this UPC change up — see touchMasterProduct comment for context.
+    await touchMasterProduct(orgId, masterProductId);
     res.status(201).json({ success: true, data: row });
   } catch (err) {
+    // P2002 only reachable if a race condition slipped past assertUpcUnique
+    // (extremely unlikely in practice — but kept as a safety net).
     if (err.code === 'P2002') return res.status(409).json({ success: false, error: 'This UPC is already registered to another product' });
     res.status(500).json({ success: false, error: err.message });
   }
@@ -3069,6 +3220,7 @@ export const deleteProductUpc = async (req, res) => {
     const masterProductId = parseInt(req.params.id);
     const upcId = req.params.upcId;
     await prisma.productUpc.deleteMany({ where: { id: upcId, orgId, masterProductId } });
+    await touchMasterProduct(orgId, masterProductId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -3119,6 +3271,9 @@ export const addProductPackSize = async (req, res) => {
         sortOrder:    sortOrder    ? parseInt(sortOrder)    : 0,
       },
     });
+    // Bump parent so cashier-app incremental sync picks the new pack size up
+    // and shows the picker on next scan.
+    await touchMasterProduct(orgId, masterProductId);
     res.status(201).json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -3148,6 +3303,7 @@ export const updateProductPackSize = async (req, res) => {
         ...(sortOrder    !== undefined && { sortOrder: parseInt(sortOrder) }),
       },
     });
+    await touchMasterProduct(orgId, masterProductId);
     res.json({ success: true, data: row });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ success: false, error: 'Pack size not found' });
@@ -3158,8 +3314,10 @@ export const updateProductPackSize = async (req, res) => {
 export const deleteProductPackSize = async (req, res) => {
   try {
     const orgId = getOrgId(req);
+    const masterProductId = parseInt(req.params.id);
     const sizeId = req.params.sizeId;
     await prisma.productPackSize.deleteMany({ where: { id: sizeId, orgId } });
+    await touchMasterProduct(orgId, masterProductId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -3207,6 +3365,9 @@ export const bulkReplacePackSizes = async (req, res) => {
       where: { orgId, masterProductId },
       orderBy: { sortOrder: 'asc' },
     });
+
+    // Bump parent so cashier-app incremental sync picks the change up
+    await touchMasterProduct(orgId, masterProductId);
 
     res.json({ success: true, data: created });
   } catch (err) {
