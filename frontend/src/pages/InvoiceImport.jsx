@@ -341,7 +341,7 @@ function ReviewPanel({
   invoice, editData,
   isConfirming, isSavingDraft, isRematching,
   onClose, onConfirm, onSaveDraft,
-  onHeaderChange, onItemChange, onApplyVendorToAll,
+  onHeaderChange, onItemChange,
   onInvoiceVendorChange, onRematch,
   onOpenSearch, onUpdatePOS, onCreatePOS,
   onDeleteItem, onAddItem, onAcceptAllHigh,
@@ -457,11 +457,20 @@ function ReviewPanel({
   };
 
   const inpStyle = (ro = false) => ({
-    width: '100%', background: ro ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)',
-    border: '1px solid var(--border-color)', borderRadius: '5px',
-    padding: '5px 8px', fontSize: '0.8rem', color: 'var(--text-primary)',
-    outline: 'none', boxSizing: 'border-box', colorScheme: 'dark',
-    cursor: ro ? 'not-allowed' : 'text', opacity: ro ? 0.7 : 1,
+    width: '100%',
+    // Light-theme input surfaces — explicit colors so inputs remain crisp
+    // white/near-white on a white page instead of the faded rgba(255,255,255,0.03)
+    // that was nearly invisible on light backgrounds.
+    background: ro ? '#f1f5f9' : '#ffffff',
+    border: '1px solid #e2e8f0', borderRadius: '5px',
+    padding: '5px 8px', fontSize: '0.8rem', color: '#0f172a',
+    outline: 'none', boxSizing: 'border-box',
+    // colorScheme removed — the previous 'dark' value forced the browser
+    // to render native form controls (select dropdowns, date pickers,
+    // number spinners) in dark mode, producing the muted dark inputs on
+    // a light page that made the UI hard to read. Defaulting to the OS
+    // scheme lets them match the surrounding white surface.
+    cursor: ro ? 'not-allowed' : 'text', opacity: ro ? 0.85 : 1,
   });
   const lbl = { fontSize: '0.62rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' };
 
@@ -765,38 +774,9 @@ function ReviewPanel({
             </div>
           </section>
 
-          {/* ── Common POS Vendor ── */}
-          {!readOnly && vendors.length > 0 && (() => {
-            // Compute whether all items already share the same vendorId
-            const ids = (editData?.lineItems || []).map(it => it.vendorId || '');
-            const allSame = ids.length > 0 && ids.every(v => v === ids[0]);
-            const commonVendorId = allSame ? (ids[0] || '') : '';
-            return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', background: 'var(--brand-05)', border: '1px solid var(--brand-20)', borderRadius: '8px', padding: '0.65rem 1rem' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  🏭 POS Vendor
-                </span>
-                <select
-                  style={{ ...inpStyle(false), flex: 1, minWidth: '200px', appearance: 'none' }}
-                  value={commonVendorId}
-                  onChange={e => onApplyVendorToAll(e.target.value)}
-                >
-                  <option value="">— Select to apply to all {(editData?.lineItems || []).length} items —</option>
-                  {vendors.map(v => <option key={posId(v)} value={posId(v)}>{posName(v)}</option>)}
-                </select>
-                {commonVendorId && (
-                  <span style={{ fontSize: '0.72rem', color: '#10b981', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                    ✓ All items set
-                  </span>
-                )}
-                {!commonVendorId && ids.some(v => v) && (
-                  <span style={{ fontSize: '0.72rem', color: '#f59e0b', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                    ⚠ Mixed — select to override all
-                  </span>
-                )}
-              </div>
-            );
-          })()}
+          {/* POS Vendor bulk-apply row removed — redundant with the invoice-level
+              vendor dropdown at the top of the review. Per-line vendor overrides
+              are still possible inline in the expanded edit panel. */}
 
           {/* ── Summary strip ── */}
           <div className="ii-summary-strip">
@@ -1577,10 +1557,13 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
   };
 
   const inpS = {
-    width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)',
-    border: '1px solid var(--border-color)', borderRadius: '8px',
-    fontSize: '0.875rem', color: 'var(--text-primary)', outline: 'none',
-    colorScheme: 'dark', boxSizing: 'border-box',
+    width: '100%', padding: '8px 12px', background: '#ffffff',
+    border: '1px solid #e2e8f0', borderRadius: '8px',
+    fontSize: '0.875rem', color: '#0f172a', outline: 'none',
+    boxSizing: 'border-box',
+    // colorScheme removed — forced native form-control dark rendering on
+    // the light modal surface, which made dropdowns and date pickers
+    // look muddy. Defaulting to OS scheme renders them clean on white.
   };
   const lbl = {
     fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600,
@@ -1951,13 +1934,6 @@ const InvoiceImport = () => {
   const closeReview = () => { setSelectedId(null); setEditData(null); };
 
   const handleHeaderChange = (field, value) => setEditData(p => ({ ...p, [field]: value }));
-
-  const handleApplyVendorToAll = (vendorId) => {
-    setEditData(prev => ({
-      ...prev,
-      lineItems: prev.lineItems.map(item => ({ ...item, vendorId })),
-    }));
-  };
 
   // Change the invoice-level vendor. Updates local editData only;
   // the user must click "Re-run matching" to actually re-score line items.
@@ -2633,7 +2609,6 @@ const InvoiceImport = () => {
           onInvoiceVendorChange={handleInvoiceVendorChange}
           onRematch={handleRematch}
           onItemChange={handleItemChange}
-          onApplyVendorToAll={handleApplyVendorToAll}
           onOpenSearch={(itemIdx, openTab = 'search') => setSearchModal({
             isOpen: true, itemIdx, tab: openTab,
             query: editData?.lineItems[itemIdx]?.description || '',

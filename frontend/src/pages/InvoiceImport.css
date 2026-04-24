@@ -119,21 +119,24 @@
 }
 
 /* ── Review Panel (full-screen overlay) ──────────────── */
+/* Clean white surface — the previous rgba(100,100,100,0.3) + blur
+   rendered a muddy gray tint over the portal page that made every
+   input and badge hard to read. Now the overlay is a solid light
+   page with subtle shadow; feels like a proper modal surface. */
 .ii-review-overlay {
   position: fixed; inset: 0; z-index: 200;
   display: flex; flex-direction: column;
-  background: rgba(100,100,100,0.3);
-  backdrop-filter: blur(25px);
+  background: #f8fafc;  /* matches portal --bg-primary */
 }
 
 .ii-review-topbar {
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-color);
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
   padding: 0.9rem 1.5rem;
   display: flex; align-items: center;
   justify-content: space-between;
   flex-shrink: 0; z-index: 1;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   gap: 1rem;
 }
 .ii-review-topbar-left { display: flex; align-items: center; gap: 1rem; min-width: 0; }
@@ -148,19 +151,24 @@
   width: 1px; height: 20px; background: var(--border-color); flex-shrink: 0;
 }
 
-.ii-review-body { flex: 1; display: flex; overflow: hidden; }
+.ii-review-body { flex: 1; display: flex; overflow: hidden; background: #f8fafc; }
 
 .ii-review-image-pane {
   width: 50%; flex-shrink: 0;
   display: flex; flex-direction: column;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid #e2e8f0;
   overflow: hidden;
+  background: #ffffff;
 }
 
 .ii-review-form-pane {
   flex: 1; overflow-y: auto;
   padding: 1.25rem 1.5rem;
   display: flex; flex-direction: column; gap: 1.5rem;
+  /* Solid white form pane — clean reading surface for all the dense
+     invoice data. Previously inherited the gray/blurred overlay which
+     washed out every label. */
+  background: #ffffff;
 }
 
 /* ── Image Viewer ────────────────────────────────────── */
@@ -223,21 +231,23 @@
 }
 
 .ii-form-input {
-  width: 100%; background: var(--bg-primary);
-  border: 1px solid var(--border-color); border-radius: 5px;
-  padding: 5px 8px; font-size: 0.8rem; color: var(--text-primary);
-  outline: none; box-sizing: border-box; color-scheme: dark;
+  width: 100%; background: #ffffff;
+  border: 1px solid #e2e8f0; border-radius: 5px;
+  padding: 5px 8px; font-size: 0.8rem; color: #0f172a;
+  outline: none; box-sizing: border-box;
+  /* color-scheme removed — forced browser to render native form
+     controls in dark mode on a white surface. */
 }
 .ii-form-input--readonly {
-  background: rgba(255,255,255,0.03);
-  cursor: not-allowed; opacity: 0.7;
+  background: #f1f5f9;
+  cursor: not-allowed; opacity: 0.85;
 }
 
 .ii-form-select {
-  width: 100%; background: var(--bg-secondary);
-  border: 1px solid var(--border-color); border-radius: 5px;
-  padding: 5px 8px; font-size: 0.8rem; color: var(--text-primary);
-  outline: none; box-sizing: border-box; appearance: none; color-scheme: dark;
+  width: 100%; background: #ffffff;
+  border: 1px solid #e2e8f0; border-radius: 5px;
+  padding: 5px 8px; font-size: 0.8rem; color: #0f172a;
+  outline: none; box-sizing: border-box; appearance: none;
 }
 
 .ii-section-title {
@@ -483,12 +493,11 @@
   max-width: 360px;
   padding: 6px 10px;
   font-size: 0.82rem;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   outline: none;
-  color-scheme: dark;
   cursor: pointer;
 }
 .ii-upload-vendor-select:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -609,12 +618,11 @@
   max-width: 360px;
   padding: 5px 9px;
   font-size: 0.82rem;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   outline: none;
-  color-scheme: dark;
   cursor: pointer;
 }
 .ii-vendor-select:disabled { opacity: 0.5; cursor: not-allowed; }
