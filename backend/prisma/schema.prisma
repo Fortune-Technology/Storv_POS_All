@@ -282,6 +282,12 @@ model Vendor {
   preferredServiceLevel String  @default("standard") // "critical","standard","low"
   vendorNotes           String? // internal notes
 
+  // Invoice cost sync — only consulted when store's invoiceCostSync.mode
+  // (in store.pos JSON) is set to 'per-vendor'. When true, this vendor's
+  // invoices will update matched products' defaultCasePrice. When false,
+  // cost changes from this vendor are skipped (manual only).
+  autoSyncCostFromInvoice Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -466,6 +472,13 @@ model MasterProduct {
   // Simplified deposit (v2)
   depositPerUnit Decimal? @db.Decimal(10, 4) // flat per-unit deposit
   caseDeposit    Decimal? @db.Decimal(10, 4) // total deposit for a full vendor case
+
+  // Invoice cost sync lock (Invoice Scanning feature)
+  // When true, invoice imports leave defaultCasePrice untouched even if the
+  // store's auto-sync mode is 'always' or per-vendor. Use case: stores that
+  // manually adjust cost to account for free-case credits / month-end
+  // rebates and don't want the next invoice to overwrite their figure.
+  lockManualCaseCost Boolean @default(false)
 
   // Session 4 — department-scoped + freeform attributes. Keys like
   // "vintage", "abv", "country" get promoted to typed DepartmentAttribute
@@ -1216,6 +1229,12 @@ model Invoice {
 
   // Match accuracy tracking
   matchStats Json? // { total, matched, unmatched, byTier: {upc, vendorMap, fuzzy, ai, manual, costProx, global}, avgConfidence }
+
+  // Cost-sync audit trail — populated by confirmInvoice when it decides
+  // whether each line's invoiceCaseCost should (or shouldn't) overwrite the
+  // matched product's defaultCasePrice. Shape:
+  // [{ productId, productName, invoiceCaseCost, decision: 'sync'|'skip'|'error', reason }]
+  costSyncAudit Json?
 
   // PO linkage — auto-matched after OCR
   linkedPurchaseOrderId String?

@@ -103,6 +103,11 @@ const EMPTY_FORM = {
   autoOrderEnabled: false,
   preferredServiceLevel: 'standard',
   vendorNotes: '',
+  // Invoice cost-sync per-vendor override — consulted only when the store's
+  // invoiceCostSync.mode = 'per-vendor'. Default true = existing behavior
+  // (auto-sync on). Turn off for vendors whose invoiced cost shouldn't move
+  // product cost (e.g. allocation vendors, re-billers).
+  autoSyncCostFromInvoice: true,
 };
 
 // ─── Vendor Form Panel ────────────────────────────────────────────────────────
@@ -135,6 +140,7 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
       orderCutoffDaysBefore: String(vendor.orderCutoffDaysBefore ?? 1),
       autoOrderEnabled:      vendor.autoOrderEnabled ?? false,
       preferredServiceLevel: vendor.preferredServiceLevel || 'standard',
+      autoSyncCostFromInvoice: vendor.autoSyncCostFromInvoice ?? true,
       vendorNotes:           vendor.vendorNotes || '',
     };
   });
@@ -189,6 +195,7 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
       autoOrderEnabled:      form.autoOrderEnabled,
       preferredServiceLevel: form.preferredServiceLevel || 'standard',
       vendorNotes:           form.vendorNotes?.trim() || null,
+      autoSyncCostFromInvoice: form.autoSyncCostFromInvoice !== false,
     };
     onSave(payload);
   };
@@ -394,6 +401,27 @@ function VendorForm({ vendor, onSave, onClose, saving }) {
             <span style={{ fontSize: '0.875rem', fontWeight: 600, color: form.autoOrderEnabled ? 'var(--green, var(--accent-primary))' : 'var(--text-muted, #6b7280)' }}>
               {form.autoOrderEnabled ? 'Auto-Order Enabled' : 'Auto-Order Disabled'}
             </span>
+          </div>
+
+          {/* Invoice cost-sync — per-vendor override. Only consulted when the
+              store's Invoice Import Settings is set to 'per-vendor'. When off,
+              this vendor's invoices will NOT update product cost even if the
+              product isn't manually locked. */}
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8,
+            padding: '0.55rem 0.75rem', borderRadius: 8,
+            border: '1px solid var(--border-color, #2a2a3a)',
+            background: 'var(--bg-tertiary, #1a1a2e)', cursor: 'pointer',
+          }} onClick={() => set('autoSyncCostFromInvoice', !form.autoSyncCostFromInvoice)}>
+            <Toggle checked={form.autoSyncCostFromInvoice} onChange={v => set('autoSyncCostFromInvoice', v)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: form.autoSyncCostFromInvoice ? 'var(--green, var(--accent-primary))' : 'var(--text-muted, #6b7280)' }}>
+                {form.autoSyncCostFromInvoice ? 'Auto-Sync Cost from Invoices' : 'Manual Cost Only (Invoice imports skipped)'}
+              </span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted, #6b7280)' }}>
+                Consulted only when Invoice Settings is in &ldquo;per-vendor&rdquo; mode.
+              </span>
+            </div>
           </div>
 
           <div>

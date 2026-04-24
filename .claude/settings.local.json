@@ -93,7 +93,10 @@
       "Bash(grep -nA 18 \"^model TaxRule\\\\b\" backend/prisma/schema.prisma)",
       "Bash(PGPASSWORD=password psql -h localhost -U postgres -d futurefoods_portal -c \"SELECT column_name FROM information_schema.columns WHERE table_name='master_products' AND column_name IN \\('taxRuleId','shipLengthIn','shipWidthIn','shipHeightIn','weight'\\) ORDER BY column_name;\")",
       "Bash(npm --prefix \"C:/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/storefront\" run type-check)",
-      "Bash(npm --prefix \"C:/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/storefront\" run build)"
+      "Bash(npm --prefix \"C:/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/storefront\" run build)",
+      "Bash(gh auth *)",
+      "Bash(grep -nA 2 \"^model Invoice \" backend/prisma/schema.prisma)",
+      "Bash(grep -n \"^export default InvoiceImport\\\\|^};\\\\s*$\\\\|^}\\\\s*$\" frontend/src/pages/InvoiceImport.jsx)"
     ]
   }
 }

@@ -554,9 +554,35 @@ export const confirmInvoice = async (req, res) => {
     // fuzzy-match memory. Here we populate the clean ProductVendor table keyed
     // on real FKs so the ProductForm's per-vendor cost table stays in sync.
     // First invoice to reference a product auto-sets it primary.
+    //
+    // At the same time, run the Invoice Cost Sync decision tree — for each
+    // matched line we may also update MasterProduct.defaultCasePrice so the
+    // store's active cost tracks what they're actually paying. The decision
+    // depends on (1) store's invoiceCostSync.mode setting, (2) vendor's
+    // autoSyncCostFromInvoice flag (only when store mode is 'per-vendor'),
+    // (3) the product's lockManualCaseCost flag (per-product manual override).
+    // Every skip is logged into the invoice's cost-sync audit trail so admins
+    // can later see exactly which products moved and which didn't, and why.
+    const costSyncAudit = [];
     try {
       const vId = existing.vendorId || null;
       if (vId) {
+        // Load vendor + store settings once for the decision tree.
+        const [vendor, store] = await Promise.all([
+          prisma.vendor.findFirst({
+            where: { id: vId, orgId: req.orgId },
+            select: { id: true, name: true, autoSyncCostFromInvoice: true },
+          }),
+          existing.storeId
+            ? prisma.store.findFirst({ where: { id: existing.storeId }, select: { pos: true } })
+            : Promise.resolve(null),
+        ]);
+        const posCfg = (store?.pos && typeof store.pos === 'object') ? store.pos : {};
+        const storeSyncMode =
+          posCfg?.invoiceCostSync?.mode === 'never'      ? 'never' :
+          posCfg?.invoiceCostSync?.mode === 'per-vendor' ? 'per-vendor' :
+                                                          'always';  // default = always
+
         for (const item of (lineItems || [])) {
           if (!['matched', 'manual'].includes(item.mappingStatus)) continue;
           if (!item.linkedProductId) continue;
@@ -566,6 +592,9 @@ export const confirmInvoice = async (req, res) => {
           // from caseCost / packUnits; fall back to originalUnitCost if present.
           const unitCost = item.unitCost != null ? Number(item.unitCost)
                          : (item.caseCost && item.packUnits > 0 ? Number(item.caseCost) / Number(item.packUnits) : null);
+
+          // (a) Always write the per-vendor mapping (this is catalog data, not
+          // cost-sync — useful even when cost sync is off).
           await upsertProductVendor(req.orgId, mpId, vId, {
             vendorItemCode: item.originalItemCode || null,
             description:    item.originalVendorDescription || null,
@@ -576,11 +605,73 @@ export const confirmInvoice = async (req, res) => {
           }).catch(e => {
             console.warn('[confirmInvoice] ProductVendor upsert failed:', e.message);
           });
+
+          // (b) Cost-sync decision tree — decide whether to write invoiceCaseCost
+          // back onto MasterProduct.defaultCasePrice.
+          const invoiceCaseCost = item.caseCost != null ? Number(item.caseCost) : null;
+          if (invoiceCaseCost == null) {
+            // Nothing to sync — skip silently, no audit entry.
+            continue;
+          }
+
+          let decision = 'sync';
+          let reason = '';
+          if (storeSyncMode === 'never') {
+            decision = 'skip';
+            reason = `Store auto-sync mode is 'never'`;
+          } else if (storeSyncMode === 'per-vendor' && vendor && vendor.autoSyncCostFromInvoice === false) {
+            decision = 'skip';
+            reason = `Vendor "${vendor.name}" has auto-sync disabled`;
+          } else {
+            // Still a candidate — check per-product lock.
+            const product = await prisma.masterProduct.findFirst({
+              where: { id: mpId, orgId: req.orgId },
+              select: { id: true, name: true, lockManualCaseCost: true, defaultCasePrice: true, unitPack: true, packInCase: true },
+            });
+            if (!product) {
+              decision = 'skip';
+              reason = `Product ${mpId} not found`;
+            } else if (product.lockManualCaseCost) {
+              decision = 'skip';
+              reason = `Product "${product.name}" has manual cost lock`;
+            } else {
+              // SYNC. Also derive defaultCostPrice from pack math if available.
+              const upd = { defaultCasePrice: invoiceCaseCost };
+              const units = (Number(product.unitPack) || 0) * (Number(product.packInCase) || 0);
+              if (units > 0) {
+                // Round to 4 decimals to match Prisma Decimal(10,4).
+                upd.defaultCostPrice = Math.round((invoiceCaseCost / units) * 10000) / 10000;
+              }
+              await prisma.masterProduct.update({
+                where: { id: mpId, orgId: req.orgId },
+                data:  upd,
+              }).catch(e => {
+                decision = 'error';
+                reason = `Write failed: ${e.message}`;
+              });
+            }
+          }
+
+          costSyncAudit.push({
+            productId: mpId,
+            productName: item.description || null,
+            invoiceCaseCost,
+            decision,
+            reason: reason || null,
+          });
         }
       }
     } catch (e) {
       // Never let this block invoice confirmation — OCR path is primary.
       console.warn('[confirmInvoice] ProductVendor sync pass error:', e.message);
+    }
+
+    // Persist the cost-sync audit trail on the invoice for admin review later.
+    if (costSyncAudit.length > 0) {
+      await prisma.invoice.update({
+        where: { id: existing.id },
+        data:  { costSyncAudit },
+      }).catch(() => { /* audit is best-effort — don't block confirm */ });
     }
 
     // ── Compute and save match stats ─────────────────────────────────────────

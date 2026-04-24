@@ -638,7 +638,7 @@ export const getVendors = async (req, res) => {
 export const createVendor = async (req, res) => {
   try {
     const orgId = getOrgId(req);
-    const { name, code, contactName, email, phone, address, website, terms, accountNo, aliases } = req.body;
+    const { name, code, contactName, email, phone, address, website, terms, accountNo, aliases, autoSyncCostFromInvoice } = req.body;
 
     if (!name) return res.status(400).json({ success: false, error: 'name is required' });
 
@@ -655,6 +655,8 @@ export const createVendor = async (req, res) => {
         terms:       terms || null,
         accountNo:   accountNo || null,
         aliases:     Array.isArray(aliases) ? aliases : [],
+        // Defaults to true — existing behavior (auto-sync cost) preserved for new vendors
+        autoSyncCostFromInvoice: autoSyncCostFromInvoice === false ? false : true,
       },
     });
 
@@ -687,6 +689,8 @@ export const updateVendor = async (req, res) => {
     if (body.accountNo   !== undefined) updates.accountNo   = body.accountNo || null;
     if (body.aliases     !== undefined) updates.aliases     = Array.isArray(body.aliases) ? body.aliases : [];
     if (body.active      !== undefined) updates.active      = Boolean(body.active);
+    // Invoice cost sync (per-vendor override when store mode = 'per-vendor')
+    if (body.autoSyncCostFromInvoice !== undefined) updates.autoSyncCostFromInvoice = Boolean(body.autoSyncCostFromInvoice);
 
     const vendor = await prisma.vendor.update({
       where: { id, orgId },
@@ -1854,6 +1858,9 @@ export const createMasterProduct = async (req, res) => {
       // when set; `taxClass` is the legacy string fallback for backward compat.
       taxRuleId, taxClass,
       defaultCostPrice, defaultRetailPrice, defaultCasePrice,
+      // Invoice cost sync lock — when true, invoice imports skip writing
+      // defaultCasePrice so manual cost adjustments stay intact.
+      lockManualCaseCost,
       byWeight, byUnit,
       ebtEligible, ageRequired, taxable, discountEligible, foodstamp,
       trackInventory, reorderPoint, reorderQty,
@@ -1950,6 +1957,7 @@ export const createMasterProduct = async (req, res) => {
         discountEligible:   discountEligible !== false,
         foodstamp:          Boolean(foodstamp),
         trackInventory:     trackInventory !== false,
+        lockManualCaseCost: Boolean(lockManualCaseCost),
         reorderPoint:       reorderPoint ? parseInt(reorderPoint) : null,
         reorderQty:         reorderQty   ? parseInt(reorderQty)   : null,
         hideFromEcom:       Boolean(hideFromEcom),
@@ -2118,6 +2126,8 @@ export const updateMasterProduct = async (req, res) => {
     if (body.byWeight      !== undefined) updates.byWeight      = Boolean(body.byWeight);
     if (body.byUnit        !== undefined) updates.byUnit        = Boolean(body.byUnit);
     if (body.trackInventory !== undefined) updates.trackInventory = Boolean(body.trackInventory);
+    // Invoice cost sync lock — see schema comment for usage
+    if (body.lockManualCaseCost !== undefined) updates.lockManualCaseCost = Boolean(body.lockManualCaseCost);
     if (body.reorderPoint  !== undefined) updates.reorderPoint  = body.reorderPoint ? parseInt(body.reorderPoint) : null;
     if (body.reorderQty    !== undefined) updates.reorderQty    = body.reorderQty   ? parseInt(body.reorderQty)   : null;
     if (body.active        !== undefined) updates.active        = Boolean(body.active);
