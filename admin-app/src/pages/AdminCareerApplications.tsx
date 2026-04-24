@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, ChevronUp, Download, Loader, Save, FileText } from 'lucide-react';
 
@@ -7,24 +7,53 @@ import { toast } from 'react-toastify';
 import '../styles/admin.css';
 import './AdminCareerApplications.css';
 
-const STATUS_COLORS = { new: '#3b82f6', reviewed: '#f59e0b', shortlisted: '#10b981', rejected: '#ef4444' };
-const STATUS_OPTIONS = ['new', 'reviewed', 'shortlisted', 'rejected'];
-const FILTER_TABS = ['All', 'New', 'Reviewed', 'Shortlisted', 'Rejected'];
+// Kept for future badge-color work; not currently read.
+const _STATUS_COLORS: Record<string, string> = { new: '#3b82f6', reviewed: '#f59e0b', shortlisted: '#10b981', rejected: '#ef4444' };
+void _STATUS_COLORS;
+const STATUS_OPTIONS = ['new', 'reviewed', 'shortlisted', 'rejected'] as const;
+const FILTER_TABS = ['All', 'New', 'Reviewed', 'Shortlisted', 'Rejected'] as const;
+
+type Status = typeof STATUS_OPTIONS[number];
+
+interface Application {
+  id: string | number;
+  name: string;
+  email: string;
+  phone?: string;
+  status: Status;
+  coverLetter?: string;
+  resumeUrl?: string;
+  adminNotes?: string;
+  createdAt?: string;
+}
+
+interface Posting {
+  title: string;
+  department?: string;
+}
+
+interface EditState {
+  status: Status;
+  adminNotes: string;
+}
 
 const AdminCareerApplications = () => {
-  const { careerPostingId } = useParams();
-  const [applications, setApplications] = useState([]);
-  const [posting, setPosting] = useState(null);
+  const { careerPostingId } = useParams<{ careerPostingId: string }>();
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [posting, setPosting] = useState<Posting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [expandedId, setExpandedId] = useState(null);
-  const [editState, setEditState] = useState({});
-  const [saving, setSaving] = useState(null);
+  const [activeFilter, setActiveFilter] = useState<(typeof FILTER_TABS)[number]>('All');
+  const [expandedId, setExpandedId] = useState<string | number | null>(null);
+  const [editState, setEditState] = useState<Record<string, EditState>>({});
+  const [saving, setSaving] = useState<string | number | null>(null);
 
   useEffect(() => {
+    if (!careerPostingId) return;
     getAdminCareerApplications(careerPostingId)
-      .then(r => {
-        setApplications(r.data || []);
+      .then((r) => {
+        // Backend returns Status as a narrower literal union; the shared type
+        // widens to string, so a cast is safe here.
+        setApplications((r.data || []) as Application[]);
         setPosting(r.posting || null);
       })
       .catch(() => toast.error('Failed to load applications'))
@@ -35,24 +64,31 @@ const AdminCareerApplications = () => {
     ? applications
     : applications.filter(a => a.status === activeFilter.toLowerCase());
 
-  const toggleExpand = (id) => {
+  const toggleExpand = (id: string | number) => {
     if (expandedId === id) {
       setExpandedId(null);
     } else {
       setExpandedId(id);
       const app = applications.find(a => a.id === id);
-      if (app && !editState[id]) {
-        setEditState(prev => ({ ...prev, [id]: { status: app.status, adminNotes: app.adminNotes || '' } }));
+      if (app && !editState[String(id)]) {
+        setEditState(prev => ({ ...prev, [String(id)]: { status: app.status, adminNotes: app.adminNotes || '' } }));
       }
     }
   };
 
-  const handleFieldChange = (id, field, value) => {
-    setEditState(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  const handleFieldChange = (id: string | number, field: keyof EditState, value: string) => {
+    const key = String(id);
+    setEditState(prev => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? { status: 'new', adminNotes: '' }),
+        [field]: value,
+      } as EditState,
+    }));
   };
 
-  const handleSave = async (id) => {
-    const state = editState[id];
+  const handleSave = async (id: string | number) => {
+    const state = editState[String(id)];
     if (!state) return;
     setSaving(id);
     try {
@@ -115,7 +151,7 @@ const AdminCareerApplications = () => {
           <div className="admin-card-list">
             {filtered.map(app => {
               const isExpanded = expandedId === app.id;
-              const state = editState[app.id] || { status: app.status, adminNotes: app.adminNotes || '' };
+              const state: EditState = editState[String(app.id)] || { status: app.status, adminNotes: app.adminNotes || '' };
               return (
                 <div key={app.id} className={`admin-expand-row ${isExpanded ? 'active' : ''}`}>
                   {/* Row Header */}

@@ -96,7 +96,8 @@
       "Bash(npm --prefix \"C:/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/storefront\" run build)",
       "Bash(gh auth *)",
       "Bash(grep -nA 2 \"^model Invoice \" backend/prisma/schema.prisma)",
-      "Bash(grep -n \"^export default InvoiceImport\\\\|^};\\\\s*$\\\\|^}\\\\s*$\" frontend/src/pages/InvoiceImport.jsx)"
+      "Bash(grep -n \"^export default InvoiceImport\\\\|^};\\\\s*$\\\\|^}\\\\s*$\" frontend/src/pages/InvoiceImport.jsx)",
+      "Bash(npx tsc *)"
     ]
   }
 }

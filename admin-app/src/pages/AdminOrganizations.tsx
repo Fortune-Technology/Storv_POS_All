@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { Plus, Edit3, Trash2, Building2, Search, RefreshCw, Loader, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -10,12 +10,35 @@ import {
 } from '../services/api';
 import '../styles/admin.css';
 
-const toSlug = (str) =>
+const toSlug = (str: string): string =>
   str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-const PLAN_OPTIONS = ['trial', 'starter', 'pro', 'enterprise'];
+const PLAN_OPTIONS = ['trial', 'starter', 'pro', 'enterprise'] as const;
 
-const EMPTY_FORM = {
+interface OrgForm {
+  name: string;
+  slug: string;
+  plan: string;
+  billingEmail: string;
+  maxStores: number | string;
+  maxUsers: number | string;
+  isActive: boolean;
+}
+
+interface Organization {
+  id: string | number;
+  name: string;
+  slug: string;
+  plan?: string;
+  billingEmail?: string;
+  maxStores?: number;
+  maxUsers?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  _count?: { users?: number; stores?: number };
+}
+
+const EMPTY_FORM: OrgForm = {
   name: '',
   slug: '',
   plan: 'trial',
@@ -25,15 +48,22 @@ const EMPTY_FORM = {
   isActive: true,
 };
 
-const planBadge = (plan) => (
+const planBadge = (plan?: string) => (
   <span className={`admin-badge sm ${plan || 'trial'}`}>{plan}</span>
 );
 
 /* ─── Modal ──────────────────────────────────────────────────── */
 
-const OrgModal = ({ open, onClose, onSaved, editOrg }) => {
+interface OrgModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  editOrg: Organization | null;
+}
+
+const OrgModal = ({ open, onClose, onSaved, editOrg }: OrgModalProps) => {
   const isEdit = !!editOrg;
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState<OrgForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [slugTouched, setSlugTouched] = useState(false);
 
@@ -57,29 +87,29 @@ const OrgModal = ({ open, onClose, onSaved, editOrg }) => {
 
   if (!open) return null;
 
-  const set = (field, value) => {
+  const set = <K extends keyof OrgForm>(field: K, value: OrgForm[K]) => {
     setForm((prev) => {
-      const next = { ...prev, [field]: value };
+      const next: OrgForm = { ...prev, [field]: value };
       if (field === 'name' && !slugTouched) {
-        next.slug = toSlug(value);
+        next.slug = toSlug(value as string);
       }
       return next;
     });
   };
 
-  const handleSlugChange = (value) => {
+  const handleSlugChange = (value: string) => {
     setSlugTouched(true);
     setForm((prev) => ({ ...prev, slug: value }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { toast.error('Name is required'); return; }
     if (!form.slug.trim()) { toast.error('Slug is required'); return; }
 
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: form.name.trim(),
         slug: form.slug.trim(),
         plan: form.plan,
@@ -87,7 +117,7 @@ const OrgModal = ({ open, onClose, onSaved, editOrg }) => {
         maxStores: Number(form.maxStores) || 1,
         maxUsers: Number(form.maxUsers) || 3,
       };
-      if (isEdit) {
+      if (isEdit && editOrg) {
         payload.isActive = form.isActive;
         await updateAdminOrganization(editOrg.id, payload);
         toast.success('Organization updated');
@@ -97,8 +127,8 @@ const OrgModal = ({ open, onClose, onSaved, editOrg }) => {
       }
       onSaved();
       onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.error || `Failed to ${isEdit ? 'update' : 'create'} organization`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || `Failed to ${isEdit ? 'update' : 'create'} organization`);
     } finally {
       setSaving(false);
     }
@@ -218,7 +248,7 @@ const OrgModal = ({ open, onClose, onSaved, editOrg }) => {
 /* ─── Page ───────────────────────────────────────────────────── */
 
 const AdminOrganizations = () => {
-  const [orgs, setOrgs] = useState([]);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -226,12 +256,12 @@ const AdminOrganizations = () => {
   const limit = 25;
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editOrg, setEditOrg] = useState(null);
+  const [editOrg, setEditOrg] = useState<Organization | null>(null);
 
   const fetchOrgs = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (search) params.search = search;
       const res = await getAdminOrganizations(params);
       setOrgs(res.data);
@@ -252,19 +282,19 @@ const AdminOrganizations = () => {
     setModalOpen(true);
   };
 
-  const openEdit = (org) => {
+  const openEdit = (org: Organization) => {
     setEditOrg(org);
     setModalOpen(true);
   };
 
-  const handleDelete = async (org) => {
+  const handleDelete = async (org: Organization) => {
     if (!window.confirm(`Deactivate "${org.name}"? This will suspend the organization.`)) return;
     try {
       await deleteAdminOrganization(org.id);
       toast.success(`${org.name} deactivated`);
       fetchOrgs();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to deactivate organization');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to deactivate organization');
     }
   };
 
@@ -344,7 +374,7 @@ const AdminOrganizations = () => {
                       </span>
                     </td>
                     <td className="muted">
-                      {new Date(o.createdAt).toLocaleDateString()}
+                      {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '-'}
                     </td>
                     <td>
                       <div className="admin-row-actions">

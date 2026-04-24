@@ -11,7 +11,7 @@
  * entry) or rejects.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, FormEvent } from 'react';
 import { toast } from 'react-toastify';
 import { Plus, Edit2, Trash2, Search, Ticket, Check, X, Save, Inbox, RotateCcw, RefreshCw, ChevronDown } from 'lucide-react';
 import {
@@ -23,9 +23,65 @@ import {
 } from '../services/api';
 import './AdminLottery.css';
 
-const CATEGORIES = ['instant', 'draw', 'daily', 'other'];
+const CATEGORIES = ['instant', 'draw', 'daily', 'other'] as const;
 
-const BLANK = {
+type Category = typeof CATEGORIES[number];
+
+interface SupportedState {
+  code: string;
+  name: string;
+}
+
+interface CatalogForm {
+  name: string;
+  gameNumber: string;
+  ticketPrice: number;
+  ticketsPerBook: number;
+  state: string;
+  category: Category;
+  active: boolean;
+}
+
+interface CatalogRow {
+  id: string | number;
+  name: string;
+  gameNumber?: string;
+  ticketPrice: number;
+  ticketsPerBook: number;
+  state?: string;
+  category?: string;
+  active?: boolean;
+}
+
+interface LotteryRequest {
+  id: string | number;
+  storeName?: string;
+  storeId?: string | number;
+  name: string;
+  gameNumber?: string;
+  ticketPrice?: number;
+  ticketsPerBook?: number;
+  state?: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  createdAt?: string;
+  notes?: string;
+}
+
+interface ReviewDraft {
+  name: string;
+  gameNumber: string;
+  ticketPrice: number;
+  ticketsPerBook: number;
+  state: string;
+  category: Category;
+  active: boolean;
+  adminNotes: string;
+}
+
+type ModalMode = 'create' | 'edit' | null;
+type ActiveFilter = 'all' | 'active' | 'inactive';
+
+const BLANK: CatalogForm = {
   name: '',
   gameNumber: '',
   ticketPrice: 1,
@@ -36,40 +92,42 @@ const BLANK = {
 };
 
 export default function AdminLottery() {
-  const [tab, setTab]               = useState('catalog');
-  const [catalog, setCatalog]       = useState([]);
-  const [requests, setRequests]     = useState([]);
-  const [supportedStates, setStates] = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [search, setSearch]         = useState('');
+  const [tab, setTab]                 = useState<'catalog' | 'requests'>('catalog');
+  const [catalog, setCatalog]         = useState<CatalogRow[]>([]);
+  const [requests, setRequests]       = useState<LotteryRequest[]>([]);
+  const [supportedStates, setStates]  = useState<SupportedState[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [search, setSearch]           = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [priceFilter, setPriceFilter] = useState('');
-  const [activeFilter, setActiveFilter] = useState('active'); // 'all' | 'active' | 'inactive'
-  const [modalMode, setModalMode]   = useState(null); // 'create' | 'edit' | null
-  const [form, setForm]             = useState(BLANK);
-  const [editingId, setEditingId]   = useState(null);
-  const [saving, setSaving]         = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active');
+  const [modalMode, setModalMode]     = useState<ModalMode>(null);
+  const [form, setForm]               = useState<CatalogForm>(BLANK);
+  const [editingId, setEditingId]     = useState<string | number | null>(null);
+  const [saving, setSaving]           = useState(false);
 
   // Requests tab
-  const [reviewing, setReviewing]   = useState(null); // Request being reviewed
+  const [reviewing, setReviewing]     = useState<LotteryRequest | null>(null);
 
   // Sync tab — pull latest games from state lottery's public feed
-  const [syncing, setSyncing]       = useState(null); // the state code currently syncing
+  const [syncing, setSyncing]         = useState<string | null>(null);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Fallback `[]` is accepted by the union return type of each list endpoint
+      // and keeps the Array.isArray guards below working.
       const [cat, reqs, sts] = await Promise.all([
-        listAdminLotteryCatalog().catch(() => ({ data: [] })),
-        listAdminLotteryRequests().catch(() => ({ data: [] })),
-        listAdminLotterySupportedStates().catch(() => []),
+        listAdminLotteryCatalog().catch(() => [] as CatalogRow[]),
+        listAdminLotteryRequests().catch(() => [] as LotteryRequest[]),
+        listAdminLotterySupportedStates().catch(() => [] as SupportedState[]),
       ]);
-      setCatalog(Array.isArray(cat) ? cat : cat?.data || cat?.tickets || []);
-      setRequests(Array.isArray(reqs) ? reqs : reqs?.data || reqs?.requests || []);
-      setStates(Array.isArray(sts) ? sts : sts?.states || []);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load lottery data');
+      setCatalog(Array.isArray(cat) ? cat : (cat?.data || cat?.tickets || []) as CatalogRow[]);
+      setRequests(Array.isArray(reqs) ? reqs : (reqs?.data || reqs?.requests || []) as LotteryRequest[]);
+      setStates(Array.isArray(sts) ? sts : (sts?.states || []) as SupportedState[]);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to load lottery data');
     } finally {
       setLoading(false);
     }
@@ -95,14 +153,14 @@ export default function AdminLottery() {
   }, [catalog, search, stateFilter, priceFilter, activeFilter]);
 
   const openCreate = () => { setForm(BLANK); setEditingId(null); setModalMode('create'); };
-  const openEdit = (row) => {
+  const openEdit = (row: CatalogRow) => {
     setForm({
       name:           row.name || '',
       gameNumber:     row.gameNumber || '',
       ticketPrice:    Number(row.ticketPrice) || 1,
       ticketsPerBook: Number(row.ticketsPerBook) || 30,
       state:          row.state || '',
-      category:       row.category || 'instant',
+      category:       (row.category || 'instant') as Category,
       active:         row.active !== false,
     });
     setEditingId(row.id);
@@ -110,13 +168,13 @@ export default function AdminLottery() {
   };
   const closeModal = () => { setModalMode(null); setEditingId(null); };
 
-  const setField = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const setField = (patch: Partial<CatalogForm>) => setForm((f) => ({ ...f, ...patch }));
 
-  const submit = async (e) => {
+  const submit = async (e?: FormEvent) => {
     e?.preventDefault?.();
-    if (!form.name.trim()) return toast.error('Name is required');
-    if (!form.state)       return toast.error('State is required');
-    if (!form.ticketPrice || Number(form.ticketPrice) <= 0) return toast.error('Ticket price must be > 0');
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
+    if (!form.state)       { toast.error('State is required'); return; }
+    if (!form.ticketPrice || Number(form.ticketPrice) <= 0) { toast.error('Ticket price must be > 0'); return; }
 
     setSaving(true);
     try {
@@ -129,7 +187,7 @@ export default function AdminLottery() {
         category:       form.category || 'instant',
         active:         !!form.active,
       };
-      if (modalMode === 'edit' && editingId) {
+      if (modalMode === 'edit' && editingId !== null) {
         await updateAdminLotteryCatalog(editingId, payload);
         toast.success('Game updated');
       } else {
@@ -138,25 +196,25 @@ export default function AdminLottery() {
       }
       closeModal();
       await load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = async (row) => {
+  const remove = async (row: CatalogRow) => {
     if (!window.confirm(`Delete "${row.name}" from the catalog? Stores will no longer see it.`)) return;
     try {
       await deleteAdminLotteryCatalog(row.id);
       toast.success('Removed');
       await load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
-  const handleSync = async (stateCode) => {
+  const handleSync = async (stateCode: string) => {
     if (syncing) return;
     const label = stateCode === 'all' ? 'all supported states' : stateCode;
     if (!window.confirm(`Pull the latest games for ${label} from the state lottery's public feed?\n\n• New games will be added as Active\n• Existing games refresh name + price\n• Games no longer in the feed are marked Inactive (never deleted)\n\nAdmin-set ticketsPerBook + active overrides are preserved on existing games.`)) return;
@@ -173,7 +231,7 @@ export default function AdminLottery() {
           { autoClose: 7000 }
         );
       } else if (Array.isArray(body?.results)) {
-        const summary = body.results.map((r) => r.error
+        const summary = body.results.map((r: any) => r.error
           ? `${r.state}: ${r.error}`
           : `${r.state}: +${r.created} / ~${r.updated} / -${r.nowInactive}`
         ).join(' · ');
@@ -182,18 +240,18 @@ export default function AdminLottery() {
         toast.info('Sync completed');
       }
       await load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     } finally {
       setSyncing(null);
     }
   };
 
-  const reviewRequest = async (action, catalogDraft = null) => {
+  const reviewRequest = async (action: 'approve' | 'reject', catalogDraft: ReviewDraft | null = null) => {
     if (!reviewing) return;
     try {
       // Backend shape: { status: 'approved'|'rejected', adminNotes?, addToCatalog?, catalogData? }
-      const payload = {
+      const payload: Record<string, unknown> = {
         status: action === 'approve' ? 'approved' : 'rejected',
         adminNotes: catalogDraft?.adminNotes || null,
       };
@@ -212,14 +270,14 @@ export default function AdminLottery() {
       toast.success(action === 'approve' ? 'Approved — added to catalog' : 'Rejected');
       setReviewing(null);
       await load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || err.message);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message);
     }
   };
 
   // Price tiers summary for the header strip
   const priceGroups = useMemo(() => {
-    const map = new Map();
+    const map = new Map<number, number>();
     for (const t of catalog) {
       if (!t.active) continue;
       const k = Number(t.ticketPrice);
@@ -319,7 +377,7 @@ export default function AdminLottery() {
                 <option key={s.code} value={s.code}>{s.code} — {s.name}</option>
               ))}
             </select>
-            <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value)}>
+            <select value={activeFilter} onChange={(e) => setActiveFilter(e.target.value as ActiveFilter)}>
               <option value="all">All statuses</option>
               <option value="active">Active only</option>
               <option value="inactive">Inactive only</option>
@@ -447,7 +505,7 @@ export default function AdminLottery() {
                 </div>
                 <div className="adm-lot-field">
                   <label>Category</label>
-                  <select value={form.category} onChange={(e) => setField({ category: e.target.value })}>
+                  <select value={form.category} onChange={(e) => setField({ category: e.target.value as Category })}>
                     {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
@@ -486,7 +544,13 @@ export default function AdminLottery() {
 /* ────────────────────────────────────────────────────────────────
  * Requests Tab — store-submitted "please add this game" tickets
  * ──────────────────────────────────────────────────────────────── */
-function RequestsTab({ requests, onReview, loading }) {
+interface RequestsTabProps {
+  requests: LotteryRequest[];
+  onReview: (r: LotteryRequest) => void;
+  loading: boolean;
+}
+
+function RequestsTab({ requests, onReview, loading }: RequestsTabProps) {
   const [statusFilter, setStatusFilter] = useState('pending');
   const filtered = requests.filter((r) => !statusFilter || (r.status || 'pending') === statusFilter);
   const pendingCount = requests.filter((r) => (r.status || 'pending') === 'pending').length;
@@ -557,8 +621,16 @@ function RequestsTab({ requests, onReview, loading }) {
 /* ────────────────────────────────────────────────────────────────
  * Review Request Modal — prefills the catalog form, admin confirms
  * ──────────────────────────────────────────────────────────────── */
-function ReviewRequestModal({ request, supportedStates, onClose, onApprove, onReject }) {
-  const [draft, setDraft] = useState({
+interface ReviewRequestModalProps {
+  request: LotteryRequest;
+  supportedStates: SupportedState[];
+  onClose: () => void;
+  onApprove: (draft: ReviewDraft) => void;
+  onReject: () => void;
+}
+
+function ReviewRequestModal({ request, supportedStates, onClose, onApprove, onReject }: ReviewRequestModalProps) {
+  const [draft, setDraft] = useState<ReviewDraft>({
     name:           request.name || '',
     gameNumber:     request.gameNumber || '',
     ticketPrice:    Number(request.ticketPrice) || 1,
@@ -568,7 +640,7 @@ function ReviewRequestModal({ request, supportedStates, onClose, onApprove, onRe
     active:         true,
     adminNotes:     '',
   });
-  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<ReviewDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   return (
     <div className="admin-modal-overlay" onClick={onClose}>

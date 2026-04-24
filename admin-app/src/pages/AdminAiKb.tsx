@@ -7,7 +7,7 @@
  * Gated by `ai_assistant.manage`.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Plus, Edit2, Trash2, Loader2, X, Check, Eye, EyeOff, Search } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -24,35 +24,64 @@ const CATEGORIES = [
   { value: 'troubleshoot', label: 'Troubleshoot' },
   { value: 'faq',          label: 'FAQ' },
   { value: 'feature',      label: 'Feature' },
-];
+] as const;
 
-const SOURCE_LABELS = {
+const SOURCE_LABELS: Record<string, string> = {
   seed:     'Seeded',
   curated:  'Curated',
   admin:    'Admin-authored',
 };
 
-const BLANK_FORM = { title: '', content: '', category: 'how-to', tags: '', active: true };
+interface KbArticle {
+  id: string | number;
+  title: string;
+  content: string;
+  category: string;
+  source?: string;
+  orgId?: string | null;
+  tags?: string[];
+  helpfulCount?: number;
+  unhelpfulCount?: number;
+  active: boolean;
+}
+
+interface Filters {
+  search: string;
+  category: string;
+  active: string;
+}
+
+interface FormState {
+  title: string;
+  content: string;
+  category: string;
+  tags: string;
+  active: boolean;
+}
+
+type EditingState = null | 'new' | KbArticle;
+
+const BLANK_FORM: FormState = { title: '', content: '', category: 'how-to', tags: '', active: true };
 
 export default function AdminAiKb() {
-  const [articles, setArticles] = useState([]);
+  const [articles, setArticles] = useState<KbArticle[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [filters, setFilters]   = useState({ search: '', category: '', active: '' });
+  const [filters, setFilters]   = useState<Filters>({ search: '', category: '', active: '' });
 
-  const [editing, setEditing]   = useState(null); // null | 'new' | article object
-  const [form, setForm]         = useState(BLANK_FORM);
+  const [editing, setEditing]   = useState<EditingState>(null);
+  const [form, setForm]         = useState<FormState>(BLANK_FORM);
   const [saving, setSaving]     = useState(false);
 
   const loadArticles = async () => {
     setLoading(true);
     try {
-      const params = {};
+      const params: Record<string, unknown> = {};
       if (filters.search)   params.search   = filters.search;
       if (filters.category) params.category = filters.category;
       if (filters.active !== '') params.active = filters.active;
       const res = await listKbArticles(params);
       setArticles(res.articles || []);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load articles');
     } finally {
       setLoading(false);
@@ -79,7 +108,7 @@ export default function AdminAiKb() {
     setForm(BLANK_FORM);
   };
 
-  const openEdit = async (article) => {
+  const openEdit = async (article: KbArticle) => {
     // Fetch full content (list omits some fields for bandwidth).
     try {
       const res = await getKbArticle(article.id);
@@ -113,21 +142,21 @@ export default function AdminAiKb() {
       if (editing === 'new') {
         await createKbArticle(payload);
         toast.success('Article created');
-      } else {
+      } else if (editing) {
         await updateKbArticle(editing.id, payload);
         toast.success('Article updated');
       }
       setEditing(null);
       setForm(BLANK_FORM);
       loadArticles();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Save failed');
     } finally {
       setSaving(false);
     }
   };
 
-  const toggleActive = async (article) => {
+  const toggleActive = async (article: KbArticle) => {
     try {
       await updateKbArticle(article.id, { active: !article.active });
       toast.success(article.active ? 'Deactivated' : 'Reactivated');
@@ -137,14 +166,14 @@ export default function AdminAiKb() {
     }
   };
 
-  const handleDelete = async (article) => {
+  const handleDelete = async (article: KbArticle) => {
     if (!window.confirm(`Deactivate "${article.title}"? It will stop appearing in search results.`)) return;
     try {
       await deleteKbArticle(article.id);
       toast.success('Article deactivated');
       loadArticles();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Delete failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Delete failed');
     }
   };
 
@@ -212,13 +241,13 @@ export default function AdminAiKb() {
               </div>
               <div className="kb-item-meta">
                 <span className={`kb-badge kb-badge--${a.category}`}>{CATEGORIES.find(c => c.value === a.category)?.label || a.category}</span>
-                <span className="kb-badge kb-badge--source">{SOURCE_LABELS[a.source] || a.source}</span>
+                <span className="kb-badge kb-badge--source">{SOURCE_LABELS[a.source || ''] || a.source}</span>
                 {a.orgId == null && <span className="kb-badge kb-badge--platform">Platform-wide</span>}
                 <span className="kb-item-ratings">
-                  {a.helpfulCount > 0 && <span className="kb-pos">+{a.helpfulCount}</span>}
-                  {a.unhelpfulCount > 0 && <span className="kb-neg">−{a.unhelpfulCount}</span>}
+                  {(a.helpfulCount ?? 0) > 0 && <span className="kb-pos">+{a.helpfulCount}</span>}
+                  {(a.unhelpfulCount ?? 0) > 0 && <span className="kb-neg">−{a.unhelpfulCount}</span>}
                 </span>
-                {a.tags?.length > 0 && <span className="kb-item-tags">{a.tags.slice(0, 3).join(' · ')}</span>}
+                {a.tags && a.tags.length > 0 && <span className="kb-item-tags">{a.tags.slice(0, 3).join(' · ')}</span>}
               </div>
               <div className="kb-item-preview">{a.content.slice(0, 160)}{a.content.length > 160 ? '…' : ''}</div>
             </div>

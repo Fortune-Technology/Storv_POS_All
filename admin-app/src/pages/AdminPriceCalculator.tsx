@@ -8,7 +8,7 @@
  *
  * Superadmin-only. Route: /price-calculator
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, ReactNode } from 'react';
 import { toast } from 'react-toastify';
 import {
   Calculator, Plus, Trash2, Save, Search, Loader,
@@ -43,7 +43,52 @@ const GP = {
   ipos:        9.95,
 };
 
-const BLANK_INPUTS = {
+interface Inputs {
+  storeName: string;
+  location: string;
+  mcc: string;
+  notes: string;
+  volume: number;
+  txns: number;
+  trueIc: number;
+  mcVol: number;
+  viVol: number;
+  discVol: number;
+  amexVol: number;
+  mcCredit: number;
+  mcDebit: number;
+  viCredit: number;
+  viDebit: number;
+  svPct: number;
+  svTxn: number;
+  svSaas: number;
+  currentProc: number;
+  currentPosSaas: number;
+}
+
+interface Results {
+  trueIc: number; total_da: number; ic_da: number;
+  da_mc_vol: number; da_vi_vol: number; da_disc_vol: number;
+  da_mc_nabu: number; da_vi_cr: number; da_vi_db: number; da_vi_b2: number;
+  pct_rev: number; txn_rev: number; batch_rev: number; markup: number;
+  fixed: number; total_proc: number; eff_rate: number; allin: number; allin_rate: number;
+  earn_pct: number; earn_txn: number; earn_batch: number; earn_pci: number; earn_breach: number; earn_gw: number;
+  sv_gross: number; sv_net: number; sv_total: number;
+  current_allin: number; saves_mo: number; saves_yr: number;
+  ic_pct: number; da_pct: number; markup_pct: number; fixed_pct: number;
+}
+
+interface Scenario {
+  id: string | number;
+  storeName: string;
+  location?: string;
+  mcc?: string;
+  notes?: string;
+  inputs?: Partial<Inputs>;
+  results?: Partial<Results>;
+}
+
+const BLANK_INPUTS: Inputs = {
   storeName: '',
   location: '',
   mcc: '',
@@ -55,11 +100,11 @@ const BLANK_INPUTS = {
   currentProc: 0, currentPosSaas: 0,
 };
 
-function calcAll(i) {
+function calcAll(i: Inputs): Results {
   const {
     volume, txns, trueIc,
     mcVol, viVol, discVol,
-    mcCredit, mcDebit, viCredit, viDebit,
+    viCredit, viDebit,
     svPct, svTxn, svSaas,
     currentProc, currentPosSaas,
   } = i;
@@ -125,11 +170,21 @@ function calcAll(i) {
   };
 }
 
-const fmt  = (n, d = 2) => `$${parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
-const fmtP = (n, d = 3) => `${parseFloat(n || 0).toFixed(d)}%`;
-const rateColor = (r) => r < 1.80 ? '#059669' : r < 2.00 ? '#10b981' : r < 2.20 ? '#f59e0b' : '#ef4444';
+const fmt  = (n: number | string, d = 2) => `$${parseFloat(String(n || 0)).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+const fmtP = (n: number | string, d = 3) => `${parseFloat(String(n || 0)).toFixed(d)}%`;
+const rateColor = (r: number) => r < 1.80 ? '#059669' : r < 2.00 ? '#10b981' : r < 2.20 ? '#f59e0b' : '#ef4444';
 
-function NumField({ label, value, onChange, prefix = '$', suffix = '', note, step = 0.01 }) {
+interface NumFieldProps {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  prefix?: string;
+  suffix?: string;
+  note?: ReactNode;
+  step?: number;
+}
+
+function NumField({ label, value, onChange, prefix = '$', suffix = '', note, step = 0.01 }: NumFieldProps) {
   return (
     <div className="apc-field">
       <div className="apc-field-head">
@@ -151,7 +206,15 @@ function NumField({ label, value, onChange, prefix = '$', suffix = '', note, ste
   );
 }
 
-function TextField({ label, value, onChange, placeholder, multi }) {
+interface TextFieldProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  multi?: boolean;
+}
+
+function TextField({ label, value, onChange, placeholder, multi }: TextFieldProps) {
   return (
     <div className="apc-field">
       <label className="apc-field-label">{label}</label>
@@ -176,23 +239,25 @@ function TextField({ label, value, onChange, placeholder, multi }) {
   );
 }
 
+type Tab = 'calculator' | 'breakdown' | 'earnings' | 'compare';
+
 export default function AdminPriceCalculator() {
-  const [scenarios,    setScenarios]    = useState([]);
+  const [scenarios,    setScenarios]    = useState<Scenario[]>([]);
   const [loadingList,  setLoadingList]  = useState(true);
   const [search,       setSearch]       = useState('');
-  const [activeId,     setActiveId]     = useState(null);
-  const [form,         setForm]         = useState(BLANK_INPUTS);
+  const [activeId,     setActiveId]     = useState<string | number | null>(null);
+  const [form,         setForm]         = useState<Inputs>(BLANK_INPUTS);
   const [dirty,        setDirty]        = useState(false);
   const [saving,       setSaving]       = useState(false);
-  const [tab,          setTab]          = useState('calculator');
+  const [tab,          setTab]          = useState<Tab>('calculator');
 
   const loadList = async () => {
     setLoadingList(true);
     try {
       const res = await listPriceScenarios();
       setScenarios(res.scenarios || []);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load scenarios');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to load scenarios');
     } finally {
       setLoadingList(false);
     }
@@ -200,9 +265,9 @@ export default function AdminPriceCalculator() {
 
   useEffect(() => { loadList(); }, []);
 
-  const setField = (patch) => { setForm(f => ({ ...f, ...patch })); setDirty(true); };
+  const setField = (patch: Partial<Inputs>) => { setForm(f => ({ ...f, ...patch })); setDirty(true); };
 
-  const results = useMemo(() => calcAll(form), [form]);
+  const results = useMemo<Results>(() => calcAll(form), [form]);
 
   const handleNew = () => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
@@ -212,7 +277,7 @@ export default function AdminPriceCalculator() {
     setTab('calculator');
   };
 
-  const handleLoad = async (id) => {
+  const handleLoad = async (id: string | number) => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
     try {
       const s = await getPriceScenario(id);
@@ -226,8 +291,8 @@ export default function AdminPriceCalculator() {
         notes:     s.notes     || '',
       });
       setDirty(false);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to load scenario');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to load scenario');
     }
   };
 
@@ -257,8 +322,8 @@ export default function AdminPriceCalculator() {
       }
       setDirty(false);
       loadList();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to save scenario');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to save scenario');
     } finally {
       setSaving(false);
     }
@@ -285,8 +350,8 @@ export default function AdminPriceCalculator() {
       setDirty(false);
       toast.success('Saved as copy');
       loadList();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to copy scenario');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to copy scenario');
     } finally {
       setSaving(false);
     }
@@ -302,8 +367,8 @@ export default function AdminPriceCalculator() {
       setForm(BLANK_INPUTS);
       setDirty(false);
       loadList();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to delete scenario');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to delete scenario');
     }
   };
 
@@ -397,12 +462,12 @@ export default function AdminPriceCalculator() {
         {/* ── Calculator body (right) ── */}
         <section className="apc-body">
           <div className="apc-tabs">
-            {[
+            {([
               { id: 'calculator', label: 'Calculator', icon: <Sliders size={13} /> },
               { id: 'breakdown',  label: 'Rate Breakdown', icon: <BarChart3 size={13} /> },
               { id: 'earnings',   label: 'Earnings', icon: <Wallet size={13} /> },
               { id: 'compare',    label: 'vs Current', icon: <Scale size={13} /> },
-            ].map(t => (
+            ] as { id: Tab; label: string; icon: ReactNode }[]).map(t => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
@@ -420,7 +485,7 @@ export default function AdminPriceCalculator() {
             <button className="apc-secondary-btn" onClick={handleSaveAs} disabled={saving}>
               <Copy size={13} /> Save As
             </button>
-            <button className="apc-primary-btn" onClick={handleSave} disabled={saving || !dirty && !!activeId}>
+            <button className="apc-primary-btn" onClick={handleSave} disabled={saving || (!dirty && !!activeId)}>
               {saving
                 ? <><Loader size={13} className="apc-spin" /> Saving…</>
                 : <><Save size={13} /> {activeId ? 'Save' : 'Save Scenario'}</>

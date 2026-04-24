@@ -1,13 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Save, Trash2, Loader, Settings, Database, Download, FileText, FileArchive, Image, Play, CheckCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Save, Loader, Settings, Database, FileText, FileArchive, Image, Play, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 import { getAdminSystemConfig, updateAdminSystemConfig, downloadDatabaseBackup, getImageRehostStatus, triggerImageRehost } from '../services/api';
 import '../styles/admin.css';
 import './AdminSystemConfig.css';
 
+interface SystemConfig {
+  id: string | number;
+  key: string;
+  value: string;
+  description?: string | null;
+}
+
+interface RehostStatus {
+  total: number;
+  rehosted: number;
+  pending: number;
+  diskSizeMB: number;
+}
+
+interface RehostResult {
+  succeeded: number;
+  failed: number;
+  remaining: number;
+}
+
 const AdminSystemConfig = () => {
-  const [configs, setConfigs] = useState([]);
+  const [configs, setConfigs] = useState<SystemConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -22,12 +42,12 @@ const AdminSystemConfig = () => {
 
   useEffect(() => { fetchConfig(); }, []);
 
-  const handleSave = async (key, value, description) => {
+  const handleSave = async (key: string, value: string, description: string | null) => {
     try {
       await updateAdminSystemConfig({ key, value, description });
       toast.success(`Config "${key}" saved`);
       fetchConfig();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
   };
 
   const handleAdd = async () => {
@@ -37,9 +57,9 @@ const AdminSystemConfig = () => {
   };
 
   /* ── Image Re-hosting logic ─────────────────────────────── */
-  const [rehostStatus, setRehostStatus] = useState(null);
+  const [rehostStatus, setRehostStatus] = useState<RehostStatus | null>(null);
   const [rehostRunning, setRehostRunning] = useState(false);
-  const [rehostResult, setRehostResult] = useState(null);
+  const [rehostResult, setRehostResult] = useState<RehostResult | null>(null);
 
   const fetchRehostStatus = async () => {
     try { setRehostStatus(await getImageRehostStatus()); }
@@ -51,27 +71,27 @@ const AdminSystemConfig = () => {
     setRehostRunning(true);
     setRehostResult(null);
     try {
-      const res = await triggerImageRehost(200);
+      const res: RehostResult = await triggerImageRehost(200);
       setRehostResult(res);
       toast.success(`Re-hosted ${res.succeeded} images (${res.failed} failed, ${res.remaining} remaining)`);
       fetchRehostStatus();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Re-hosting failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Re-hosting failed');
     } finally {
       setRehostRunning(false);
     }
   };
 
   /* ── Backup logic ──────────────────────────────────────── */
-  const [backupLoading, setBackupLoading] = useState({});
+  const [backupLoading, setBackupLoading] = useState<Record<string, boolean>>({});
 
-  const fmtDate = () => {
+  const fmtDate = (): string => {
     const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
+    const pad = (n: number) => String(n).padStart(2, '0');
     return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
   };
 
-  const handleBackup = async (target, format) => {
+  const handleBackup = async (target: string, format: string) => {
     const key = `${target}_${format}`;
     setBackupLoading((s) => ({ ...s, [key]: true }));
     try {
@@ -91,9 +111,9 @@ const AdminSystemConfig = () => {
       window.URL.revokeObjectURL(url);
 
       toast.success(`${target === 'main' ? 'Main' : 'E-commerce'} ${ext.toUpperCase()} backup downloaded`);
-    } catch (err) {
-      const msg = err.response?.data?.error
-        || err.response?.data?.detail
+    } catch (err: any) {
+      const msg = err?.response?.data?.error
+        || err?.response?.data?.detail
         || 'Backup failed — is pg_dump installed?';
       toast.error(msg);
     } finally {
@@ -257,7 +277,12 @@ const AdminSystemConfig = () => {
   );
 };
 
-const ConfigRow = ({ config, onSave }) => {
+interface ConfigRowProps {
+  config: SystemConfig;
+  onSave: (key: string, value: string, description: string | null) => void;
+}
+
+const ConfigRow = ({ config, onSave }: ConfigRowProps) => {
   const [value, setValue] = useState(config.value);
   const [desc, setDesc] = useState(config.description || '');
   const changed = value !== config.value || desc !== (config.description || '');

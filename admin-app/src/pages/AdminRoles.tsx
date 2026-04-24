@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Shield, Plus, Edit3, Trash2, X, Save, Loader, Search,
   RefreshCw, Check, Square, CheckSquare, Users,
@@ -11,18 +11,53 @@ import {
 import '../styles/admin.css';
 import './AdminRoles.css';
 
-const EMPTY_FORM = { key: '', name: '', description: '', status: 'active', permissions: [] };
+interface Permission {
+  key: string;
+  action: string;
+  label: string;
+  surface?: 'back-office' | 'cashier-app' | 'both';
+  moduleLabel?: string;
+}
+
+interface Role {
+  id: string | number;
+  key: string;
+  name: string;
+  description?: string;
+  status: 'active' | 'inactive';
+  permissions: string[];
+  isSystem?: boolean;
+  isCustomized?: boolean;
+  userCount: number;
+}
+
+interface RoleForm {
+  key: string;
+  name: string;
+  description: string;
+  status: 'active' | 'inactive';
+  permissions: string[];
+  _id?: string | number;
+  _isSystem?: boolean;
+  _isCustomized?: boolean;
+}
+
+type Scope = 'admin' | 'org';
+type SurfaceTab = 'back-office' | 'cashier-app';
+type ModalState = null | 'create' | Role;
+
+const EMPTY_FORM: RoleForm = { key: '', name: '', description: '', status: 'active', permissions: [] };
 
 const AdminRoles = () => {
-  const [scope, setScope] = useState('admin'); // admin | org
-  const [roles, setRoles] = useState([]);
-  const [permsGrouped, setPermsGrouped] = useState({});
+  const [scope, setScope] = useState<Scope>('admin');
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permsGrouped, setPermsGrouped] = useState<Record<string, Permission[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(null); // null | 'create' | { ...role }
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [form, setForm] = useState<RoleForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [surfaceTab, setSurfaceTab] = useState('back-office');
+  const [surfaceTab, setSurfaceTab] = useState<SurfaceTab>('back-office');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,7 +68,7 @@ const AdminRoles = () => {
       ]);
       setRoles(rolesRes.roles || []);
       setPermsGrouped(permsRes.grouped || {});
-    } catch (err) {
+    } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Failed to load roles');
     } finally {
       setLoading(false);
@@ -47,7 +82,7 @@ const AdminRoles = () => {
     setModal('create');
   };
 
-  const openEdit = (role) => {
+  const openEdit = (role: Role) => {
     setForm({
       key: role.key,
       name: role.name,
@@ -61,7 +96,7 @@ const AdminRoles = () => {
     setModal(role);
   };
 
-  const togglePerm = (key) => {
+  const togglePerm = (key: string) => {
     setForm(f => ({
       ...f,
       permissions: f.permissions.includes(key)
@@ -70,7 +105,7 @@ const AdminRoles = () => {
     }));
   };
 
-  const toggleModule = (modulePerms) => {
+  const toggleModule = (modulePerms: Permission[]) => {
     const keys = modulePerms.map(p => p.key);
     const allChecked = keys.every(k => form.permissions.includes(k));
     setForm(f => ({
@@ -82,9 +117,10 @@ const AdminRoles = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) return toast.error('Name is required');
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
     if (!form._id && !/^[a-z0-9_]+$/.test(form.key)) {
-      return toast.error('Key must be lowercase letters, digits, or underscores');
+      toast.error('Key must be lowercase letters, digits, or underscores');
+      return;
     }
 
     setSaving(true);
@@ -109,22 +145,22 @@ const AdminRoles = () => {
       }
       setModal(null);
       await load();
-    } catch (err) {
+    } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Save failed');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (role) => {
-    if (role.isSystem) return toast.error('System roles cannot be deleted');
-    if (role.userCount > 0) return toast.error(`Role is assigned to ${role.userCount} user(s) — unassign first`);
+  const handleDelete = async (role: Role) => {
+    if (role.isSystem) { toast.error('System roles cannot be deleted'); return; }
+    if (role.userCount > 0) { toast.error(`Role is assigned to ${role.userCount} user(s) — unassign first`); return; }
     if (!window.confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
     try {
       await deleteRole(role.id);
       toast.success('Role deleted');
       await load();
-    } catch (err) {
+    } catch (err: any) {
       toast.error(err?.response?.data?.error || 'Delete failed');
     }
   };
@@ -279,7 +315,7 @@ const AdminRoles = () => {
                   <label>Status</label>
                   <select
                     value={form.status}
-                    onChange={e => setForm({ ...form, status: e.target.value })}
+                    onChange={e => setForm({ ...form, status: e.target.value as 'active' | 'inactive' })}
                   >
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
@@ -339,10 +375,10 @@ const AdminRoles = () => {
                         all back-office (admin panel) so we hide the tabs. */}
                     {scope === 'org' && (
                       <div className="ar-surface-tabs">
-                        {[
+                        {([
                           { k: 'back-office', label: 'Back Office' },
                           { k: 'cashier-app', label: 'Cashier App' },
-                        ].map(s => {
+                        ] as { k: SurfaceTab; label: string }[]).map(s => {
                           const vis = Object.entries(permsGrouped).filter(([, perms]) => {
                             const surf = perms[0]?.surface || 'back-office';
                             return surf === s.k || surf === 'both';

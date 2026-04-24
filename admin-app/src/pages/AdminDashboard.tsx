@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Building2, Ticket, Clock, AlertCircle, CheckCircle, Loader,
@@ -13,7 +13,7 @@ import { getAdminDashboard } from '../services/api';
 import '../styles/admin.css';
 import './AdminDashboard.css';
 
-const ROLE_COLORS = {
+const ROLE_COLORS: Record<string, string> = {
   superadmin: '#ef4444',
   admin:      '#f59e0b',
   owner:      '#3d56b5',
@@ -22,13 +22,15 @@ const ROLE_COLORS = {
   staff:      '#6b7280',
 };
 
-const PLAN_COLORS = {
+// Kept for future Plan-breakdown chart — not currently rendered.
+const _PLAN_COLORS: Record<string, string> = {
   enterprise: '#f59e0b',
   pro:        '#8b5cf6',
   starter:    '#3b82f6',
   trial:      '#6b7280',
   none:       '#94a3b8',
 };
+void _PLAN_COLORS;
 
 // Recharts Tooltip contentStyle requires inline style objects — these are not JSX inline styles
 const tooltipStyle = {
@@ -40,7 +42,15 @@ const tooltipStyle = {
   boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
 };
 
-const StatCard = ({ icon, label, value, color, onClick }) => (
+interface StatCardProps {
+  icon: ReactNode;
+  label: string;
+  value: number | string | undefined;
+  color: string;
+  onClick?: () => void;
+}
+
+const StatCard = ({ icon, label, value, color, onClick }: StatCardProps) => (
   <div
     className={`admin-stat-card${onClick ? ' clickable' : ''}`}
     onClick={onClick}
@@ -55,35 +65,79 @@ const StatCard = ({ icon, label, value, color, onClick }) => (
   </div>
 );
 
-const fmtDate = (iso) => {
+const fmtDate = (iso?: string | null): string => {
   if (!iso) return '-';
   const d = new Date(iso);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-const fmtShortDate = (dateStr) => {
-  const d = new Date(dateStr);
+const fmtShortDate = (dateStr: unknown): string => {
+  if (dateStr === undefined || dateStr === null || dateStr === '') return '';
+  const d = new Date(dateStr as string);
+  if (isNaN(d.getTime())) return String(dateStr);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+interface RecentUser {
+  id: string | number;
+  name?: string;
+  email: string;
+  role: string;
+  status: string;
+  createdAt?: string;
+}
+
+interface RecentOrg {
+  id: string | number;
+  name: string;
+  plan?: string;
+  userCount?: number;
+  storeCount?: number;
+  createdAt?: string;
+}
+
+interface RecentTicket {
+  id: string | number;
+  subject: string;
+  status?: string;
+  priority?: string;
+  createdAt?: string;
+}
+
+interface ChartPoint {
+  date: string;
+  users: number;
+  orgs: number;
+}
+
+interface DashboardStats {
+  totalUsers?: number;
+  pendingUsers?: number;
+  totalOrgs?: number;
+  activeOrgs?: number;
+  openTickets?: number;
+  usersByRole?: Record<string, number>;
+  orgsByPlan?: Record<string, number>;
+  chartData?: ChartPoint[];
+  recentUsers?: RecentUser[];
+  recentOrgs?: RecentOrg[];
+  recentTickets?: RecentTicket[];
+}
+
 const AdminDashboard = () => {
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     getAdminDashboard()
-      .then(r => setStats(r.data))
+      .then((r: { data: DashboardStats }) => setStats(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   const roleData = stats?.usersByRole
     ? Object.entries(stats.usersByRole).map(([name, value]) => ({ name, value }))
-    : [];
-
-  const planData = stats?.orgsByPlan
-    ? Object.entries(stats.orgsByPlan).map(([name, value]) => ({ name, value }))
     : [];
 
   return (
@@ -260,11 +314,11 @@ const AdminDashboard = () => {
             )}
 
             {/* ── Pending alert ─────────────────────────────── */}
-            {stats?.pendingUsers > 0 && (
+            {(stats?.pendingUsers ?? 0) > 0 && (
               <div className="admin-alert warning" onClick={() => navigate('/users?status=pending')}>
                 <AlertCircle size={18} />
                 <span>
-                  {stats.pendingUsers} user{stats.pendingUsers > 1 ? 's' : ''} waiting for approval
+                  {stats?.pendingUsers} user{(stats?.pendingUsers ?? 0) > 1 ? 's' : ''} waiting for approval
                 </span>
               </div>
             )}

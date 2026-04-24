@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { Loader, Activity } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -8,20 +8,47 @@ import '../styles/admin.css';
 import './AdminUserActivity.css';
 
 const ROLE_COLORS = ['#3b82f6', 'var(--accent-primary)', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
-const STATUS_COLORS = { active: '#10b981', pending: '#f59e0b', suspended: '#ef4444' };
+const STATUS_COLORS: Record<string, string> = { active: '#10b981', pending: '#f59e0b', suspended: '#ef4444' };
 
-const ChartCard = ({ title, children }) => (
+interface RoleEntry { role?: string; count: number }
+interface StatusEntry { status?: string; count: number }
+interface WeeklySignupEntry { week: string; count: number }
+interface RecentSignup {
+  id: string | number;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  organization?: { name?: string } | null;
+  createdAt?: string | null;
+}
+interface UserActivityData {
+  roleDistribution?: RoleEntry[];
+  statusDistribution?: StatusEntry[];
+  weeklySignups?: WeeklySignupEntry[];
+  recentSignups?: RecentSignup[];
+}
+
+interface ChartCardProps { title: string; children: ReactNode }
+const ChartCard = ({ title, children }: ChartCardProps) => (
   <div className="admin-chart-card">
     <h2 className="admin-chart-title">{title}</h2>
     {children}
   </div>
 );
 
-const PieLegend = ({ data, colors }) => (
+interface LegendEntry { role?: string; status?: string; count: number }
+type LegendColors = string[] | ((entry: LegendEntry, i: number) => string);
+
+interface PieLegendProps { data: LegendEntry[]; colors: LegendColors }
+const PieLegend = ({ data, colors }: PieLegendProps) => (
   <div className="admin-chart-legend">
     {data.map((entry, i) => (
       <div key={entry.role || entry.status || i} className="admin-chart-legend-item">
-        <div className="admin-chart-legend-dot" style={{ background: typeof colors === 'function' ? colors(entry, i) : colors[i % colors.length] }} />
+        <div
+          className="admin-chart-legend-dot"
+          style={{ background: typeof colors === 'function' ? colors(entry, i) : colors[i % colors.length] }}
+        />
         {(entry.role || entry.status || 'Unknown')} ({entry.count})
       </div>
     ))}
@@ -31,12 +58,12 @@ const PieLegend = ({ data, colors }) => (
 const tooltipStyle = { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#1e293b' };
 
 const AdminUserActivity = () => {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<UserActivityData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getAdminUserActivity()
-      .then(r => setData(r.data))
+      .then((r: { data: UserActivityData }) => setData(r.data))
       .catch(() => toast.error('Failed to load user activity'))
       .finally(() => setLoading(false));
   }, []);
@@ -82,12 +109,15 @@ const AdminUserActivity = () => {
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
                     <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={40} paddingAngle={3}>
-                      {statusData.map((entry, i) => <Cell key={i} fill={STATUS_COLORS[entry.name] || '#6b7280'} />)}
+                      {statusData.map((entry, i) => <Cell key={i} fill={STATUS_COLORS[entry.name || ''] || '#6b7280'} />)}
                     </Pie>
                     <Tooltip contentStyle={tooltipStyle} />
                   </PieChart>
                 </ResponsiveContainer>
-                <PieLegend data={data?.statusDistribution || []} colors={(entry) => STATUS_COLORS[entry.status] || '#6b7280'} />
+                <PieLegend
+                  data={data?.statusDistribution || []}
+                  colors={(entry: LegendEntry) => STATUS_COLORS[entry.status || ''] || '#6b7280'}
+                />
               </ChartCard>
 
               {/* Weekly Signups */}

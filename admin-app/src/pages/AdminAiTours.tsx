@@ -13,7 +13,7 @@
  * Gated by `ai_assistant.manage`.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Compass, Plus, Edit2, Trash2, Loader2, X, Check, Eye, EyeOff, Play } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -29,31 +29,67 @@ const CATEGORIES = [
   { value: 'onboarding',   label: 'Onboarding' },
   { value: 'feature',      label: 'Feature' },
   { value: 'troubleshoot', label: 'Troubleshoot' },
-];
+] as const;
 
-const BLANK_FORM = {
+interface TourStep {
+  title: string;
+  body: string;
+  url?: string;
+  selector?: string;
+}
+
+interface Tour {
+  id: string | number;
+  slug: string;
+  name: string;
+  description?: string;
+  category: string;
+  triggers?: string[];
+  steps?: TourStep[];
+  active: boolean;
+  orgId?: string | null;
+}
+
+interface Filters {
+  category: string;
+  active: string;
+}
+
+interface FormState {
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  triggers: string;
+  steps: string;
+  active: boolean;
+}
+
+type EditingState = null | 'new' | Tour;
+
+const BLANK_FORM: FormState = {
   slug: '', name: '', description: '', category: 'onboarding',
   triggers: '', steps: '[\n  {\n    "title": "1. Step title",\n    "body": "Step body text. Supports **bold** and `code`.",\n    "url": "/portal/..."\n  }\n]',
   active: true,
 };
 
 export default function AdminAiTours() {
-  const [tours, setTours]       = useState([]);
+  const [tours, setTours]       = useState<Tour[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [filters, setFilters]   = useState({ category: '', active: '' });
-  const [editing, setEditing]   = useState(null);   // null | 'new' | tour object
-  const [form, setForm]         = useState(BLANK_FORM);
+  const [filters, setFilters]   = useState<Filters>({ category: '', active: '' });
+  const [editing, setEditing]   = useState<EditingState>(null);
+  const [form, setForm]         = useState<FormState>(BLANK_FORM);
   const [saving, setSaving]     = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const params = {};
+      const params: Record<string, unknown> = {};
       if (filters.category) params.category = filters.category;
       if (filters.active !== '') params.active = filters.active;
       const res = await listAiTours(params);
       setTours(res.tours || []);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load tours');
     } finally {
       setLoading(false);
@@ -74,10 +110,10 @@ export default function AdminAiTours() {
     setForm(BLANK_FORM);
   };
 
-  const openEdit = async (tour) => {
+  const openEdit = async (tour: Tour) => {
     try {
       const res = await getAiTour(tour.id);
-      const t = res.tour;
+      const t: Tour = res.tour;
       setEditing(t);
       setForm({
         slug: t.slug,
@@ -97,14 +133,14 @@ export default function AdminAiTours() {
     if (!form.name.trim()) { toast.error('Name is required'); return; }
     if (editing === 'new' && !form.slug.trim()) { toast.error('Slug is required'); return; }
 
-    let parsedSteps;
+    let parsedSteps: TourStep[];
     try {
       parsedSteps = JSON.parse(form.steps);
       if (!Array.isArray(parsedSteps) || parsedSteps.length === 0) {
         toast.error('Steps must be a non-empty JSON array');
         return;
       }
-    } catch (err) {
+    } catch {
       toast.error('Steps must be valid JSON — check for missing commas or quotes');
       return;
     }
@@ -112,7 +148,7 @@ export default function AdminAiTours() {
     const triggers = form.triggers.split('\n').map(t => t.trim()).filter(Boolean);
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: form.name.trim(),
         description: form.description.trim() || null,
         category: form.category,
@@ -124,21 +160,21 @@ export default function AdminAiTours() {
         payload.slug = form.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
         await createAiTour(payload);
         toast.success('Tour created');
-      } else {
+      } else if (editing) {
         await updateAiTour(editing.id, payload);
         toast.success('Tour updated');
       }
       setEditing(null);
       setForm(BLANK_FORM);
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Save failed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Save failed');
     } finally {
       setSaving(false);
     }
   };
 
-  const toggleActive = async (tour) => {
+  const toggleActive = async (tour: Tour) => {
     try {
       await updateAiTour(tour.id, { active: !tour.active });
       toast.success(tour.active ? 'Deactivated' : 'Reactivated');
@@ -146,7 +182,7 @@ export default function AdminAiTours() {
     } catch { toast.error('Update failed'); }
   };
 
-  const handleDelete = async (tour) => {
+  const handleDelete = async (tour: Tour) => {
     if (!window.confirm(`Deactivate "${tour.name}"? Users will no longer be offered this tour.`)) return;
     try {
       await deleteAiTour(tour.id);
@@ -155,7 +191,7 @@ export default function AdminAiTours() {
     } catch { toast.error('Delete failed'); }
   };
 
-  const testTour = (slug) => {
+  const testTour = (slug: string) => {
     // Open the portal and dispatch the tour-start event via URL param.
     const portalBase = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5173';
     window.open(`${portalBase}/portal/realtime?startTour=${encodeURIComponent(slug)}`, '_blank');

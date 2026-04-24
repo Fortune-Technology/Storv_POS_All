@@ -1,5 +1,5 @@
 /**
- * AdminBilling.jsx
+ * AdminBilling.tsx
  * Superadmin billing console — 4 tabs:
  *   Plans        — subscription plan + add-on CRUD
  *   Subscriptions — per-org subscription overview & overrides
@@ -7,12 +7,11 @@
  *   Equipment    — hardware products & order fulfillment
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, FormEvent, ReactNode } from 'react';
 import {
   Plus, Edit3, Trash2, RefreshCw, Loader, Save, X,
-  ChevronLeft, ChevronRight, Search, Package, FileText,
-  CreditCard, Building2, CheckCircle, AlertCircle, Clock,
-  Truck, ToggleLeft, ToggleRight,
+  ChevronLeft, ChevronRight, Package, FileText,
+  CreditCard, Building2,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -25,15 +24,27 @@ import {
   adminListEquipmentOrders, adminUpdateEquipmentOrder,
   adminListEquipmentProducts, adminCreateEquipmentProduct, adminUpdateEquipmentProduct,
 } from '../services/api';
+import type {
+  BillingPlan as Plan,
+  BillingAddon as Addon,
+  Subscription,
+  BillingInvoice as Invoice,
+  EquipmentProduct as Product,
+  EquipmentOrder,
+  EquipmentOrderItem as OrderItem,
+  SubscriptionStatus as SubStatus,
+} from '../services/types';
 import '../styles/admin.css';
 import './AdminBilling.css';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
-const fmtMoney = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
+const fmtDate = (d?: string | Date | null): string => d ? new Date(d).toLocaleDateString() : '—';
+const fmtMoney = (n: number | string | null | undefined): string => n != null ? `$${Number(n).toFixed(2)}` : '—';
 
-const BADGE_COLORS = {
+interface BadgeColor { bg: string; border: string; text: string }
+
+const BADGE_COLORS: Record<string, BadgeColor> = {
   trial:       { bg: 'rgba(59,130,246,.13)',  border: 'rgba(59,130,246,.3)',  text: '#3b82f6' },
   active:      { bg: 'rgba(34,197,94,.13)',   border: 'rgba(34,197,94,.3)',   text: '#22c55e' },
   past_due:    { bg: 'rgba(249,115,22,.13)',  border: 'rgba(249,115,22,.3)',  text: '#f97316' },
@@ -48,8 +59,10 @@ const BADGE_COLORS = {
   delivered:   { bg: 'rgba(34,197,94,.13)',   border: 'rgba(34,197,94,.3)',   text: '#22c55e' },
 };
 
-function Badge({ val }) {
-  const c = BADGE_COLORS[val] || BADGE_COLORS.pending;
+interface BadgeProps { val?: string | null }
+
+function Badge({ val }: BadgeProps) {
+  const c = (val && BADGE_COLORS[val]) || BADGE_COLORS.pending;
   return (
     <span className="ab-badge" style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text }}>
       <span className="ab-badge-dot" style={{ background: c.text }} />
@@ -58,7 +71,9 @@ function Badge({ val }) {
   );
 }
 
-function Toggle({ checked, onChange }) {
+interface ToggleProps { checked: boolean; onChange: (v: boolean) => void }
+
+function Toggle({ checked, onChange }: ToggleProps) {
   return (
     <div onClick={() => onChange(!checked)} className={`ab-toggle ${checked ? 'ab-toggle--on' : 'ab-toggle--off'}`}>
       <div className={`ab-toggle-knob ${checked ? 'ab-toggle-knob--on' : 'ab-toggle-knob--off'}`} />
@@ -68,21 +83,47 @@ function Toggle({ checked, onChange }) {
 
 // ── PLANS TAB ─────────────────────────────────────────────────────────────────
 
-const EMPTY_PLAN = { name:'', slug:'', description:'', basePrice:'', pricePerStore:0, pricePerRegister:0,
+// PlanForm is the local form-state shape — the shared Plan type has
+// description? optional but the form always maintains a string (may be "").
+interface PlanForm {
+  name: string;
+  slug: string;
+  description: string;
+  basePrice: number | string;
+  pricePerStore: number | string;
+  pricePerRegister: number | string;
+  includedStores: number;
+  includedRegisters: number;
+  trialDays: number;
+  isPublic: boolean;
+  isActive: boolean;
+  includedAddons: string[];
+  sortOrder: number;
+}
+
+interface AddonForm {
+  key: string;
+  name: string;
+  description: string;
+  monthlyPrice: number | string;
+  sortOrder: number;
+}
+
+const EMPTY_PLAN: PlanForm = { name:'', slug:'', description:'', basePrice:'', pricePerStore:0, pricePerRegister:0,
   includedStores:1, includedRegisters:1, trialDays:14, isPublic:true, isActive:true, includedAddons:[], sortOrder:0 };
 
-const toSlug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const toSlug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 function PlansTab() {
-  const [plans,    setPlans]    = useState([]);
-  const [addons,   setAddons]   = useState([]);
+  const [plans,    setPlans]    = useState<Plan[]>([]);
+  const [addons,   setAddons]   = useState<Addon[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [editPlan, setEditPlan] = useState(null);
-  const [form,     setForm]     = useState(EMPTY_PLAN);
+  const [editPlan, setEditPlan] = useState<Plan | 'new' | null>(null);
+  const [form,     setForm]     = useState<PlanForm>(EMPTY_PLAN);
   const [saving,   setSaving]   = useState(false);
   const [showAddonForm, setShowAddonForm] = useState(false);
-  const [addonForm, setAddonForm] = useState({ key:'', name:'', description:'', monthlyPrice:'', sortOrder:0 });
-  const [editAddonId, setEditAddonId] = useState(null);
+  const [addonForm, setAddonForm] = useState<AddonForm>({ key:'', name:'', description:'', monthlyPrice:'', sortOrder:0 });
+  const [editAddonId, setEditAddonId] = useState<string | number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,7 +137,7 @@ function PlansTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const startEdit = (plan) => {
+  const startEdit = (plan: Plan | 'new') => {
     setEditPlan(plan);
     setForm(plan === 'new' ? EMPTY_PLAN : {
       name: plan.name, slug: plan.slug||'', description: plan.description||'', basePrice: plan.basePrice,
@@ -107,7 +148,7 @@ function PlansTab() {
     });
   };
 
-  const handleSavePlan = async (e) => {
+  const handleSavePlan = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -123,26 +164,26 @@ function PlansTab() {
       if (editPlan === 'new') {
         await adminCreatePlan(payload);
         toast.success('Plan created');
-      } else {
+      } else if (editPlan) {
         await adminUpdatePlan(editPlan.id, payload);
         toast.success('Plan updated');
       }
       setEditPlan(null);
       load();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
     finally { setSaving(false); }
   };
 
-  const handleDeletePlan = async (plan) => {
+  const handleDeletePlan = async (plan: Plan) => {
     if (!window.confirm(`Delete plan "${plan.name}"?`)) return;
     try {
       await adminDeletePlan(plan.id);
       toast.success('Plan deleted');
       load();
-    } catch (err) { toast.error(err.response?.data?.error || 'Delete failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Delete failed'); }
   };
 
-  const toggleAddon = (key) => {
+  const toggleAddon = (key: string) => {
     setForm(f => ({
       ...f,
       includedAddons: f.includedAddons.includes(key)
@@ -151,7 +192,7 @@ function PlansTab() {
     }));
   };
 
-  const handleSaveAddon = async (e) => {
+  const handleSaveAddon = async (e: FormEvent) => {
     e.preventDefault();
     try {
       if (editAddonId) {
@@ -165,10 +206,10 @@ function PlansTab() {
       setEditAddonId(null);
       setAddonForm({ key:'', name:'', description:'', monthlyPrice:'', sortOrder:0 });
       load();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
   };
 
-  const startEditAddon = (addon) => {
+  const startEditAddon = (addon: Addon) => {
     setEditAddonId(addon.id);
     setAddonForm({ key: addon.key, name: addon.name, description: addon.description||'',
       monthlyPrice: addon.monthlyPrice, sortOrder: addon.sortOrder });
@@ -204,7 +245,7 @@ function PlansTab() {
                   </div>
                   {Array.isArray(plan.includedAddons) && plan.includedAddons.length > 0 && (
                     <div className="ab-addon-tags">
-                      {plan.includedAddons.map(k => (
+                      {plan.includedAddons.map((k: string) => (
                         <span key={k} className="ab-addon-tag">{k}</span>
                       ))}
                     </div>
@@ -322,19 +363,37 @@ function PlansTab() {
 
 // ── SUBSCRIPTIONS TAB ─────────────────────────────────────────────────────────
 
+interface ManageForm {
+  planId: string | number;
+  overrideMaxStores: number | string;
+  overrideMaxRegisters: number | string;
+  extraAddons: string[];
+  discountType: string;
+  discountValue: number | string;
+  discountNote: string;
+  discountExpiry: string;
+  status: SubStatus;
+  trialEndsAt: string;
+}
+
 function SubscriptionsTab() {
-  const [subs,     setSubs]     = useState([]);
+  const [subs,     setSubs]     = useState<Subscription[]>([]);
   const [total,    setTotal]    = useState(0);
-  const [orgs,     setOrgs]     = useState([]);
-  const [plans,    setPlans]    = useState([]);
-  const [addons,   setAddons]   = useState([]);
+  const [_orgs,    setOrgs]     = useState<unknown[]>([]);
+  const [plans,    setPlans]    = useState<Plan[]>([]);
+  const [addons,   setAddons]   = useState<Addon[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [statusF,  setStatusF]  = useState('');
+  const [statusF,  setStatusF]  = useState<SubStatus | ''>('');
   const [page,     setPage]     = useState(1);
-  const [managing, setManaging] = useState(null);
-  const [mForm,    setMForm]    = useState({});
+  const [managing, setManaging] = useState<Subscription | null>(null);
+  const [mForm,    setMForm]    = useState<ManageForm>({
+    planId: '', overrideMaxStores: '', overrideMaxRegisters: '', extraAddons: [],
+    discountType: '', discountValue: '', discountNote: '', discountExpiry: '',
+    status: 'trial', trialEndsAt: '',
+  });
   const [saving,   setSaving]   = useState(false);
   const limit = 50;
+  void _orgs;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -346,8 +405,9 @@ function SubscriptionsTab() {
       ]);
       setSubs(subsR.data || []);
       setTotal(subsR.meta?.total || 0);
-      setPlans(plansR.data?.plans || []);
-      setAddons(plansR.data?.addons || []);
+      // adminListPlans returns { plans, addons } at the top level (not nested under .data).
+      setPlans(plansR.plans || []);
+      setAddons(plansR.addons || []);
       setOrgs(orgsR.data || []);
     } catch { toast.error('Failed to load subscriptions'); }
     finally { setLoading(false); }
@@ -355,12 +415,12 @@ function SubscriptionsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const STATUS_COUNTS = ['trial','active','past_due','suspended','cancelled'].reduce((acc, s) => {
+  const STATUS_COUNTS = (['trial','active','past_due','suspended','cancelled'] as SubStatus[]).reduce((acc, s) => {
     acc[s] = subs.filter(x => x.status === s).length;
     return acc;
-  }, {});
+  }, {} as Record<SubStatus, number>);
 
-  const openManage = (sub) => {
+  const openManage = (sub: Subscription) => {
     setManaging(sub);
     setMForm({
       planId: sub.planId,
@@ -376,11 +436,12 @@ function SubscriptionsTab() {
     });
   };
 
-  const handleSave = async (e) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
+    if (!managing) return;
     setSaving(true);
     try {
-      const payload = { ...mForm };
+      const payload: Record<string, unknown> = { ...mForm };
       if (!payload.overrideMaxStores) payload.overrideMaxStores = null;
       if (!payload.overrideMaxRegisters) payload.overrideMaxRegisters = null;
       if (!payload.discountType) { payload.discountType = null; payload.discountValue = null; }
@@ -390,11 +451,11 @@ function SubscriptionsTab() {
       toast.success('Subscription updated');
       setManaging(null);
       load();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
     finally { setSaving(false); }
   };
 
-  const toggleExtra = (key) => setMForm(f => ({
+  const toggleExtra = (key: string) => setMForm(f => ({
     ...f,
     extraAddons: f.extraAddons.includes(key) ? f.extraAddons.filter(k=>k!==key) : [...f.extraAddons, key],
   }));
@@ -405,8 +466,8 @@ function SubscriptionsTab() {
     <div>
       {/* Stat row */}
       <div className="ab-stat-row">
-        {[['Total', total, '#3b82f6'], ['Active', STATUS_COUNTS.active, '#22c55e'], ['Trial', STATUS_COUNTS.trial, '#3b82f6'],
-          ['Past Due', STATUS_COUNTS.past_due, '#f97316'], ['Suspended', STATUS_COUNTS.suspended, '#ef4444']].map(([l,v,c]) => (
+        {([['Total', total, '#3b82f6'], ['Active', STATUS_COUNTS.active, '#22c55e'], ['Trial', STATUS_COUNTS.trial, '#3b82f6'],
+          ['Past Due', STATUS_COUNTS.past_due, '#f97316'], ['Suspended', STATUS_COUNTS.suspended, '#ef4444']] as [string, number, string][]).map(([l,v,c]) => (
           <div key={l} className="ab-stat-card">
             <div className="ab-stat-label">{l}</div>
             <div className="ab-stat-value" style={{ color: c }}>{v ?? 0}</div>
@@ -416,9 +477,9 @@ function SubscriptionsTab() {
 
       {/* Filters */}
       <div className="ab-filter-row">
-        <select className="admin-select ab-select-inline" value={statusF} onChange={e=>{setStatusF(e.target.value);setPage(1);}}>
+        <select className="admin-select ab-select-inline" value={statusF} onChange={e=>{setStatusF(e.target.value as SubStatus | '');setPage(1);}}>
           <option value="">All Statuses</option>
-          {['trial','active','past_due','suspended','cancelled'].map(s=><option key={s} value={s}>{s.replace('_',' ')}</option>)}
+          {(['trial','active','past_due','suspended','cancelled'] as SubStatus[]).map(s=><option key={s} value={s}>{s.replace('_',' ')}</option>)}
         </select>
         <button className="admin-btn admin-btn-secondary" onClick={load}><RefreshCw size={13} /></button>
       </div>
@@ -435,7 +496,7 @@ function SubscriptionsTab() {
                   <tr><td colSpan={6} className="ab-empty">No subscriptions found</td></tr>
                 ) : subs.map(s => (
                   <tr key={s.id}>
-                    <td className="ab-cell-bold">{s.org?.name || s.orgId.slice(0,8)}</td>
+                    <td className="ab-cell-bold">{s.org?.name || String(s.orgId).slice(0,8)}</td>
                     <td className="ab-cell-sm">{s.plan?.name || '—'}</td>
                     <td><Badge val={s.status} /></td>
                     <td className="ab-cell-xs ab-cell-muted">{fmtDate(s.nextBillingDate)}</td>
@@ -508,8 +569,8 @@ function SubscriptionsTab() {
                 </>}
                 <div>
                   <label className="ab-label">Status</label>
-                  <select className="admin-select ab-select-inline" value={mForm.status} onChange={e=>setMForm(f=>({...f,status:e.target.value}))}>
-                    {['trial','active','past_due','suspended','cancelled'].map(s=><option key={s} value={s}>{s.replace('_',' ')}</option>)}
+                  <select className="admin-select ab-select-inline" value={mForm.status} onChange={e=>setMForm(f=>({...f,status:e.target.value as SubStatus}))}>
+                    {(['trial','active','past_due','suspended','cancelled'] as SubStatus[]).map(s=><option key={s} value={s}>{s.replace('_',' ')}</option>)}
                   </select>
                 </div>
                 {mForm.status === 'trial' && (
@@ -529,21 +590,30 @@ function SubscriptionsTab() {
 
 // ── INVOICES TAB ──────────────────────────────────────────────────────────────
 
+interface InvoiceOrg { id: string | number; name: string }
+
+interface InvoiceFilters {
+  orgId: string;
+  status: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
 function InvoicesTab() {
-  const [invoices, setInvoices] = useState([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [total,    setTotal]    = useState(0);
-  const [orgs,     setOrgs]     = useState([]);
+  const [orgs,     setOrgs]     = useState<InvoiceOrg[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [filters,  setFilters]  = useState({ orgId:'', status:'', dateFrom:'', dateTo:'' });
+  const [filters,  setFilters]  = useState<InvoiceFilters>({ orgId:'', status:'', dateFrom:'', dateTo:'' });
   const [page,     setPage]     = useState(1);
   const limit = 50;
 
-  useEffect(() => { getAdminOrganizations({ limit:500 }).then(r=>setOrgs(r.data||[])).catch(()=>{}); }, []);
+  useEffect(() => { getAdminOrganizations({ limit:500 }).then((r: { data?: InvoiceOrg[] })=>setOrgs(r.data||[])).catch(()=>{}); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit };
+      const params: Record<string, unknown> = { page, limit };
       if (filters.orgId)    params.orgId  = filters.orgId;
       if (filters.status)   params.status = filters.status;
       const r = await adminListInvoices(params);
@@ -555,13 +625,13 @@ function InvoicesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleWriteOff = async (id) => {
+  const handleWriteOff = async (id: string | number) => {
     if (!window.confirm('Write off this invoice?')) return;
     try { await adminWriteOffInvoice(id); toast.success('Invoice written off'); load(); }
     catch { toast.error('Failed'); }
   };
 
-  const handleRetry = async (id) => {
+  const handleRetry = async (id: string | number) => {
     try { await adminRetryInvoice(id); toast.success('Retry triggered'); load(); }
     catch { toast.error('Failed'); }
   };
@@ -593,7 +663,7 @@ function InvoicesTab() {
             ) : invoices.map(inv => (
               <tr key={inv.id}>
                 <td className="ab-inv-number">{inv.invoiceNumber}</td>
-                <td className="ab-inv-org">{inv.subscription?.org?.name || inv.orgId.slice(0,8)}</td>
+                <td className="ab-inv-org">{inv.subscription?.org?.name || String(inv.orgId).slice(0,8)}</td>
                 <td className="ab-inv-period">{fmtDate(inv.periodStart)} – {fmtDate(inv.periodEnd)}</td>
                 <td className="ab-inv-base">{fmtMoney(inv.baseAmount)}</td>
                 <td className="ab-inv-disc">{Number(inv.discountAmount)>0?`-${fmtMoney(inv.discountAmount)}`:'—'}</td>
@@ -631,27 +701,49 @@ const CARRIERS = ['UPS','FedEx','USPS','DHL','Other'];
 const ORDER_STATUSES = ['pending','processing','shipped','delivered','cancelled'];
 const CATEGORIES = ['terminal','printer','scanner','bundle','accessory'];
 
+interface OrderForm {
+  status: string;
+  trackingNumber: string;
+  trackingCarrier: string;
+  notes: string;
+}
+
+interface ProductForm {
+  name: string;
+  slug: string;
+  description: string;
+  price: number | string;
+  comparePrice: number | string;
+  category: string;
+  stock: number;
+  trackStock: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  specs: string;
+  images: string;
+}
+
 function EquipmentTab() {
-  const [orders,       setOrders]       = useState([]);
+  const [orders,       setOrders]       = useState<EquipmentOrder[]>([]);
   const [ordersTotal,  setOrdersTotal]  = useState(0);
-  const [products,     setProducts]     = useState([]);
+  const [products,     setProducts]     = useState<Product[]>([]);
   const [orderStatus,  setOrderStatus]  = useState('');
   const [ordersPage,   setOrdersPage]   = useState(1);
   const [loadingOrders,setLoadingOrders]= useState(true);
-  const [editOrder,    setEditOrder]    = useState(null);
-  const [orderForm,    setOrderForm]    = useState({ status:'', trackingNumber:'', trackingCarrier:'', notes:'' });
+  const [editOrder,    setEditOrder]    = useState<EquipmentOrder | null>(null);
+  const [orderForm,    setOrderForm]    = useState<OrderForm>({ status:'', trackingNumber:'', trackingCarrier:'', notes:'' });
   const [savingOrder,  setSavingOrder]  = useState(false);
   const [showProducts, setShowProducts] = useState(false);
   const [showProdForm, setShowProdForm] = useState(false);
-  const [editProduct,  setEditProduct]  = useState(null);
-  const [prodForm,     setProdForm]     = useState({ name:'', slug:'', description:'', price:'', comparePrice:'', category:'terminal', stock:0, trackStock:true, isActive:true, sortOrder:0, specs:'', images:'' });
+  const [editProduct,  setEditProduct]  = useState<Product | null>(null);
+  const [prodForm,     setProdForm]     = useState<ProductForm>({ name:'', slug:'', description:'', price:'', comparePrice:'', category:'terminal', stock:0, trackStock:true, isActive:true, sortOrder:0, specs:'', images:'' });
   const [savingProd,   setSavingProd]   = useState(false);
   const limit = 25;
 
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
-      const params = { page: ordersPage, limit };
+      const params: Record<string, unknown> = { page: ordersPage, limit };
       if (orderStatus) params.status = orderStatus;
       const r = await adminListEquipmentOrders(params);
       setOrders(r.data || []);
@@ -670,13 +762,14 @@ function EquipmentTab() {
   useEffect(() => { loadOrders(); }, [loadOrders]);
   useEffect(() => { if (showProducts) loadProducts(); }, [showProducts, loadProducts]);
 
-  const openEditOrder = (order) => {
+  const openEditOrder = (order: EquipmentOrder) => {
     setEditOrder(order);
     setOrderForm({ status: order.status, trackingNumber: order.trackingNumber||'', trackingCarrier: order.trackingCarrier||'', notes: order.notes||'' });
   };
 
-  const handleSaveOrder = async (e) => {
+  const handleSaveOrder = async (e: FormEvent) => {
     e.preventDefault();
+    if (!editOrder) return;
     setSavingOrder(true);
     try {
       await adminUpdateEquipmentOrder(editOrder.id, orderForm);
@@ -687,11 +780,11 @@ function EquipmentTab() {
     finally { setSavingOrder(false); }
   };
 
-  const startEditProduct = (prod) => {
+  const startEditProduct = (prod: Product) => {
     setEditProduct(prod);
     setProdForm({
       name: prod.name, slug: prod.slug, description: prod.description||'',
-      price: prod.price, comparePrice: prod.comparePrice||'',
+      price: prod.price, comparePrice: (prod.comparePrice ?? '') as number | string,
       category: prod.category||'terminal', stock: prod.stock, trackStock: prod.trackStock,
       isActive: prod.isActive, sortOrder: prod.sortOrder,
       specs: prod.specs ? JSON.stringify(prod.specs) : '',
@@ -700,11 +793,11 @@ function EquipmentTab() {
     setShowProdForm(true);
   };
 
-  const handleSaveProduct = async (e) => {
+  const handleSaveProduct = async (e: FormEvent) => {
     e.preventDefault();
     setSavingProd(true);
     try {
-      let specs = null;
+      let specs: unknown = null;
       try { specs = prodForm.specs ? JSON.parse(prodForm.specs) : null; } catch { specs = null; }
       const images = prodForm.images ? prodForm.images.split('\n').map(s=>s.trim()).filter(Boolean) : [];
       const payload = { ...prodForm, price: Number(prodForm.price), comparePrice: prodForm.comparePrice ? Number(prodForm.comparePrice) : null, specs, images };
@@ -718,11 +811,11 @@ function EquipmentTab() {
       setShowProdForm(false);
       setEditProduct(null);
       loadProducts();
-    } catch (err) { toast.error(err.response?.data?.error || 'Save failed'); }
+    } catch (err: any) { toast.error(err?.response?.data?.error || 'Save failed'); }
     finally { setSavingProd(false); }
   };
 
-  const autoSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+  const autoSlug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
   const totalPages = Math.ceil(ordersTotal / limit);
 
   return (
@@ -877,7 +970,11 @@ function EquipmentTab() {
 
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 
-const TABS = [
+type TopTab = 'plans' | 'subscriptions' | 'invoices' | 'equipment';
+
+interface TabDef { id: TopTab; label: string; icon: ReactNode }
+
+const TABS: TabDef[] = [
   { id:'plans',         label:'Plans & Add-ons', icon:<CreditCard size={14}/> },
   { id:'subscriptions', label:'Subscriptions',   icon:<Building2  size={14}/> },
   { id:'invoices',      label:'Invoices',         icon:<FileText   size={14}/> },
@@ -885,7 +982,7 @@ const TABS = [
 ];
 
 export default function AdminBilling() {
-  const [tab, setTab] = useState('plans');
+  const [tab, setTab] = useState<TopTab>('plans');
 
   return (
     <>
