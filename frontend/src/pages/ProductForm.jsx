@@ -832,6 +832,9 @@ export default function ProductForm() {
     // Inventory
     reorderPoint: '', reorderQty: '',
     trackInventory: true,
+    // Invoice cost-sync lock — when true, invoice imports leave
+    // defaultCasePrice untouched (manual cost wins). Default off.
+    lockManualCaseCost: false,
     // Session 4 — department-scoped + freeform attributes bucket
     attributes: {},
   };
@@ -944,6 +947,7 @@ export default function ProductForm() {
           reorderPoint:       p.reorderPoint != null ? String(p.reorderPoint) : '',
           reorderQty:         p.reorderQty != null ? String(p.reorderQty) : '',
           trackInventory:     p.trackInventory ?? true,
+          lockManualCaseCost: p.lockManualCaseCost ?? false,
           // Session 4 attributes bucket (keeps all typed + unknown values)
           attributes:         (p.attributes && typeof p.attributes === 'object') ? p.attributes : {},
         });
@@ -1402,6 +1406,9 @@ export default function ProductForm() {
         plu:                groceryEnabled ? (form.plu || null) : null,
         // Inventory tracking toggle (deduct on sale; off for service / manual-entry items)
         trackInventory:     form.trackInventory,
+        // Invoice cost-sync lock — see schema comment. Sent on every save so
+        // checkbox toggling in the form persists through to MasterProduct.
+        lockManualCaseCost: !!form.lockManualCaseCost,
         // E-Commerce extended — previously saved on create only; update route
         // now also accepts these (catalog controller fix in the same batch).
         ecomPrice:          form.ecomPrice         || null,
@@ -2598,7 +2605,13 @@ export default function ProductForm() {
                 </div>
 
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pf-label">Case Cost (invoice)</label>
+                  <label className="pf-label" style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                    <span>Case Cost (invoice)</span>
+                    {form.lockManualCaseCost && (
+                      <span title="Manual cost lock is on — invoice imports won't overwrite"
+                        style={{ color:'#f59e0b', fontSize:'0.7rem' }}>🔒 locked</span>
+                    )}
+                  </label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
                     <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
@@ -2606,6 +2619,31 @@ export default function ProductForm() {
                       onChange={(v) => setF('defaultCasePrice', v)}
                       onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                   </div>
+
+                  {/* Invoice Scanning feature — lock flag prevents invoice imports
+                      from overwriting this manually-set case cost. Useful when a
+                      store has accounted for free-case credits or month-end rebates
+                      and their internal cost is intentionally lower than what the
+                      vendor's invoice shows. Every confirmInvoice logs a skip reason
+                      onto the invoice when this flag stops a write. */}
+                  <label style={{
+                    display:'flex', alignItems:'flex-start', gap:'0.5rem',
+                    marginTop:'0.4rem', cursor:'pointer', fontSize:'0.72rem',
+                    color:'var(--text-muted)',
+                  }}>
+                    <input type="checkbox"
+                      checked={!!form.lockManualCaseCost}
+                      onChange={e => setF('lockManualCaseCost', e.target.checked)}
+                      style={{ marginTop:'0.1rem', cursor:'pointer' }} />
+                    <span>
+                      Lock case cost — invoice imports won&apos;t overwrite this value.
+                      <br />
+                      <span style={{ fontSize:'0.66rem', opacity: 0.8 }}>
+                        Turn on when your case cost reflects a free-case credit or
+                        rebate not visible on the vendor&apos;s invoice.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 {/* ── Additional vendors (Session 40) ───────────────────────

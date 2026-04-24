@@ -767,6 +767,9 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
     // Inventory
     reorderPoint: '', reorderQty: '',
     trackInventory: true,
+    // Invoice cost-sync lock — mirrors portal ProductForm. When true, invoice
+    // imports leave defaultCasePrice untouched (manual cost wins).
+    lockManualCaseCost: false,
     // Session 4 — department-scoped + freeform attributes bucket
     attributes: {},
   };
@@ -879,6 +882,7 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
           reorderPoint:       p.reorderPoint != null ? String(p.reorderPoint) : '',
           reorderQty:         p.reorderQty != null ? String(p.reorderQty) : '',
           trackInventory:     p.trackInventory ?? true,
+          lockManualCaseCost: p.lockManualCaseCost ?? false,
           // Session 4 attributes bucket (keeps all typed + unknown values)
           attributes:         (p.attributes && typeof p.attributes === 'object') ? p.attributes : {},
         });
@@ -1255,6 +1259,7 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
         plu:                groceryEnabled ? (form.plu || null) : null,
         // Inventory tracking toggle (deduct on sale; off for service / manual items)
         trackInventory:     form.trackInventory,
+        lockManualCaseCost: !!form.lockManualCaseCost,
         // E-Commerce extended — Session 40 Item 55/56 merge (ecomSummary removed)
         ecomPrice:          form.ecomPrice         || null,
         ecomSalePrice:      form.ecomSalePrice     || null,
@@ -2426,7 +2431,13 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                 </div>
 
                 <div style={{ marginBottom:'0.75rem' }}>
-                  <label className="pf-label">Case Cost (invoice)</label>
+                  <label className="pf-label" style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                    <span>Case Cost (invoice)</span>
+                    {form.lockManualCaseCost && (
+                      <span title="Manual cost lock is on — invoice imports won't overwrite"
+                        style={{ color:'#f59e0b', fontSize:'0.7rem' }}>🔒 locked</span>
+                    )}
+                  </label>
                   <div className="pf-dollar-wrap">
                     <span className="pf-dollar-sign">$</span>
                     <PriceInput className="form-input pf-dollar-input" style={{ width:'100%' }}
@@ -2434,6 +2445,26 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                       onChange={(v) => setF('defaultCasePrice', v)}
                       onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
                   </div>
+
+                  {/* Invoice cost-sync lock — mirrors portal ProductForm */}
+                  <label style={{
+                    display:'flex', alignItems:'flex-start', gap:'0.5rem',
+                    marginTop:'0.4rem', cursor:'pointer', fontSize:'0.72rem',
+                    color:'var(--text-muted)',
+                  }}>
+                    <input type="checkbox"
+                      checked={!!form.lockManualCaseCost}
+                      onChange={e => setF('lockManualCaseCost', e.target.checked)}
+                      style={{ marginTop:'0.1rem', cursor:'pointer' }} />
+                    <span>
+                      Lock case cost — invoice imports won&apos;t overwrite this value.
+                      <br />
+                      <span style={{ fontSize:'0.66rem', opacity: 0.8 }}>
+                        Turn on when case cost reflects a free-case credit or
+                        rebate not visible on the vendor&apos;s invoice.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <button type="button" onClick={() => setShowVendMgr(true)}

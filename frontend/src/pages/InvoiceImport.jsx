@@ -22,6 +22,7 @@ import {
   ChevronUp,
   FileUp,
   Info,
+  Settings,
 } from 'lucide-react';
 
 import {
@@ -42,6 +43,12 @@ import {
   clearInvoicePOSCache,
   adjustStoreStock,
   rematchInvoice,
+  // Invoice Settings tab — settings persist inside store.pos JSON via the
+  // existing POS config endpoints (no dedicated endpoint needed). Vendor list
+  // powers the per-vendor auto-sync toggle table.
+  getPOSConfig,
+  updatePOSConfig,
+  updateCatalogVendor,
 } from '../services/api';
 import { toast } from 'react-toastify';
 
@@ -339,6 +346,10 @@ function ReviewPanel({
   onOpenSearch, onUpdatePOS, onCreatePOS,
   onDeleteItem, onAddItem, onAcceptAllHigh,
   readOnly, onConfirmWithPO,
+  // Invoice Scanning feature — threshold (in cents) above which a
+  // line-items-total vs invoice-total mismatch triggers a warning.
+  // Default 50¢ when settings haven't been loaded.
+  mismatchThresholdCents = 50,
 }) {
   const [expanded,    setExpanded]    = useState({});
   const [posLoading,  setPosLoading]  = useState(false);
@@ -1281,15 +1292,34 @@ function ReviewPanel({
               )}
             </div>
 
-            {/* ── Line Items Total ── */}
+            {/* ── Footer totals: Total Cases + Line Items Total + Invoice Total + mismatch ──
+                 Configurable threshold (mismatchThresholdCents) lets the store decide how
+                 much difference is tolerable before showing a warning — small differences
+                 (cents) are usually invoice rounding, larger differences may indicate a
+                 missing line, mis-scanned qty, or a discount we didn't capture. */}
             {(() => {
               const lineTotal    = lineItems.reduce((s, it) => s + (parseFloat(it.totalAmount || (parseFloat(it.caseCost||0) * parseFloat(it.quantity||0))) || 0), 0);
+              const totalCases   = lineItems.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
               const invoiceTotal = parseFloat((editData || invoice).totalInvoiceAmount) || 0;
               const diff         = lineTotal - invoiceTotal;
               const matched      = lineItems.filter(it => it.mappingStatus === 'matched' || it.mappingStatus === 'manual').length;
+              // Convert threshold to dollars. Beyond this → amber warning.
+              // Beyond 2× threshold → red (larger discrepancy, likely real data issue).
+              const thresholdDollars = (mismatchThresholdCents || 50) / 100;
+              const absDiff          = Math.abs(diff);
+              const diffColor        = absDiff > (2 * thresholdDollars) ? '#ef4444'
+                                     : absDiff > thresholdDollars       ? '#f59e0b'
+                                     : 'var(--text-muted)';
               return (
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', marginTop: '0.25rem' }}>
                   <div style={{ flex: 1, display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    {/* Total Cases — sum of qty across all lines */}
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Total Cases:</span>
+                      <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                        {Number.isInteger(totalCases) ? totalCases : totalCases.toFixed(2)}
+                      </span>
+                    </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Line Items Total:</span>
                       <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${lineTotal.toFixed(2)}</span>
@@ -1300,15 +1330,18 @@ function ReviewPanel({
                         <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>${invoiceTotal.toFixed(2)}</span>
                       </div>
                     )}
-                    {invoiceTotal > 0 && Math.abs(diff) > 0.01 && (
+                    {invoiceTotal > 0 && absDiff > thresholdDollars && (
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Difference:</span>
-                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: Math.abs(diff) > 1 ? '#ef4444' : '#f59e0b' }}>
-                          {diff > 0 ? '+' : ''}{diff.toFixed(2)}
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: diffColor }}>
+                          {diff > 0 ? '+' : ''}{diff.toFixed(2)} ⚠
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          (exceeds {thresholdDollars.toFixed(2)}¢ threshold — confirm is still allowed)
                         </span>
                       </div>
                     )}
-                    {invoiceTotal > 0 && Math.abs(diff) <= 0.01 && (
+                    {invoiceTotal > 0 && absDiff <= thresholdDollars && (
                       <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>✓ Totals match</span>
                     )}
                   </div>
@@ -1637,6 +1670,19 @@ const InvoiceImport = () => {
   const [isRematching,      setIsRematching]      = useState(false);
   const pollRef = useRef(null);
 
+  // Invoice Settings — top-level tab state (page has: invoices | settings)
+  // 'invoices' is the existing UI (upload + history + review editor), 'settings'
+  // is the new invoice-cost-sync configuration surface. Stored per-store in
+  // store.pos.invoiceCostSync, loaded via getPOSConfig.
+  const [pageTab, setPageTab] = useState('invoices');
+  const [invoiceSettings, setInvoiceSettings] = useState({
+    mode: 'always',                    // 'always' | 'never' | 'per-vendor'
+    mismatchThresholdCents: 50,
+  });
+  const [invoiceSettingsDirty, setInvoiceSettingsDirty] = useState(false);
+  const [allVendors, setAllVendors] = useState([]);  // for per-vendor table
+  const activeStoreId = typeof window !== 'undefined' ? localStorage.getItem('activeStoreId') : null;
+
   const selectedInvoice = invoices.find(inv => inv.id === selectedId) || null;
 
   const loadInvoices = useCallback(async () => {
@@ -1658,14 +1704,32 @@ const InvoiceImport = () => {
     loadInvoices();
     // Also load vendor list for the upload-area dropdown. Failures are
     // non-fatal; the dropdown just stays empty / falls back to "Auto-detect".
+    // Reused by the Settings tab's per-vendor auto-sync table (setAllVendors).
     getCatalogVendors()
       .then(v => {
         const list = Array.isArray(v) ? v : (v?.data || []);
-        setParentVendors(list.filter(x => !x.deleted && x.active !== false));
+        const active = list.filter(x => !x.deleted && x.active !== false);
+        setParentVendors(active);
+        setAllVendors(active);
       })
       .catch(err => console.warn('Failed to load vendors for upload picker:', err?.message));
+
+    // Load the store's invoice cost-sync settings (lives in store.pos JSON).
+    // Safe to call with no active store — we just show defaults.
+    if (activeStoreId) {
+      getPOSConfig(activeStoreId)
+        .then(cfg => {
+          const s = cfg?.invoiceCostSync || {};
+          setInvoiceSettings({
+            mode: s.mode === 'never' || s.mode === 'per-vendor' ? s.mode : 'always',
+            mismatchThresholdCents: typeof s.mismatchThresholdCents === 'number' ? s.mismatchThresholdCents : 50,
+          });
+        })
+        .catch(err => console.warn('Failed to load invoice settings:', err?.message));
+    }
+
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [loadInvoices]);
+  }, [loadInvoices, activeStoreId]);
 
   useEffect(() => {
     const hasProcessing = invoices.some(inv => inv.status === 'processing');
@@ -2235,6 +2299,83 @@ const InvoiceImport = () => {
           </div>
         </div>
 
+        {/* ── Top-level page tabs: invoices | settings ────────────────────────
+            Flag-new — mirrors the tabbed pattern used on other hub pages.
+            Placed above the upload picker so the whole invoice workspace
+            (upload + history + review) is one tab, and Invoice Settings
+            (cost-sync mode + per-vendor table + threshold) is the other. */}
+        <div style={{
+          display: 'flex', gap: '0.25rem',
+          borderBottom: '1px solid var(--border-color)',
+          marginBottom: '1rem',
+        }}>
+          {[
+            { id: 'invoices', label: 'Invoices', icon: FileUp },
+            { id: 'settings', label: 'Settings', icon: Settings },
+          ].map(t => {
+            const Icon = t.icon;
+            const active = pageTab === t.id;
+            return (
+              <button key={t.id} onClick={() => setPageTab(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.55rem 1rem',
+                  background: active ? 'var(--bg-secondary)' : 'transparent',
+                  border: 'none',
+                  borderBottom: active ? '2px solid var(--brand-primary)' : '2px solid transparent',
+                  color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+                  fontWeight: active ? 600 : 500,
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  marginBottom: '-1px',
+                }}>
+                <Icon size={14} /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* When on the Settings tab, everything below (uploader, invoice list,
+            review editor) is hidden — the Settings panel fully replaces it. */}
+        {pageTab === 'settings' && (
+          <InvoiceSettingsPanel
+            activeStoreId={activeStoreId}
+            vendors={allVendors}
+            settings={invoiceSettings}
+            dirty={invoiceSettingsDirty}
+            onChange={(next) => { setInvoiceSettings(next); setInvoiceSettingsDirty(true); }}
+            onSave={async () => {
+              if (!activeStoreId) { toast.error('Select a store first'); return; }
+              try {
+                // Merge into the store's existing pos config (don't clobber
+                // other keys like lottery, ecomEnabled, ageLimits).
+                const existing = await getPOSConfig(activeStoreId).catch(() => ({}));
+                await updatePOSConfig({
+                  storeId: activeStoreId,
+                  config: { ...existing, invoiceCostSync: invoiceSettings },
+                });
+                toast.success('Invoice settings saved');
+                setInvoiceSettingsDirty(false);
+              } catch (e) {
+                toast.error(e.response?.data?.error || 'Failed to save settings');
+              }
+            }}
+            onVendorToggle={async (vendorId, nextVal) => {
+              // Optimistic update
+              setAllVendors(list => list.map(v => v.id === vendorId ? { ...v, autoSyncCostFromInvoice: nextVal } : v));
+              try {
+                await updateCatalogVendor(vendorId, { autoSyncCostFromInvoice: nextVal });
+              } catch (e) {
+                // Revert on failure
+                setAllVendors(list => list.map(v => v.id === vendorId ? { ...v, autoSyncCostFromInvoice: !nextVal } : v));
+                toast.error(e.response?.data?.error || 'Failed to update vendor');
+              }
+            }}
+          />
+        )}
+
+        {pageTab === 'invoices' && <>
+
         {/* ── Upload vendor picker — applied to all files queued in this batch ── */}
         <div className="ii-upload-vendor-row">
           <label htmlFor="ii-upload-vendor" className="ii-upload-vendor-label">
@@ -2370,6 +2511,7 @@ const InvoiceImport = () => {
           onAddItem={handleAddItem}
           onAcceptAllHigh={handleAcceptAllHigh}
           readOnly={selectedInvoice?.status === 'synced' || selectedInvoice?.status === 'processed'}
+          mismatchThresholdCents={invoiceSettings.mismatchThresholdCents}
         />
       )}
 
@@ -2395,8 +2537,163 @@ const InvoiceImport = () => {
           onClose={() => setMultiPageModal(null)}
         />
       )}
+
+        </>}{/* end pageTab === 'invoices' */}
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InvoiceSettingsPanel — Invoice Scanning feature
+// ─────────────────────────────────────────────────────────────────────────────
+// Store-level cost-sync preferences. Persists into store.pos.invoiceCostSync.
+// Three modes: always | never | per-vendor. Per-vendor unlocks a per-row
+// autoSyncCostFromInvoice toggle against the Vendors table.
+//
+// Also exposes the mismatchThresholdCents knob — the tolerance (in cents) by
+// which a computed line-items total may differ from the invoice's stated total
+// before the review footer shows an amber warning. Default 50¢.
+function InvoiceSettingsPanel({
+  activeStoreId, vendors, settings, dirty, onChange, onSave, onVendorToggle,
+}) {
+  if (!activeStoreId) {
+    return (
+      <div style={{ padding: '2rem', background: 'var(--bg-secondary)', borderRadius: 12, textAlign: 'center' }}>
+        <Info size={24} style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }} />
+        <p style={{ color: 'var(--text-muted)' }}>Select a store to configure invoice settings.</p>
+      </div>
+    );
+  }
+
+  const modeOptions = [
+    { value: 'always',     label: 'Always',      desc: 'Every invoice updates matched products\' case cost.' },
+    { value: 'never',      label: 'Never',       desc: 'Cost changes are manual only. Invoice imports never overwrite.' },
+    { value: 'per-vendor', label: 'Per Vendor',  desc: 'Decide per vendor below. Individual product locks always take priority.' },
+  ];
+
+  return (
+    <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div style={{
+        background: 'var(--bg-secondary)', padding: '1.25rem 1.5rem',
+        borderRadius: 12, border: '1px solid var(--border-color)',
+      }}>
+        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+          Auto-Sync Case Cost from Invoices
+        </h2>
+        <p style={{ margin: '0.25rem 0 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          When an invoice is confirmed, should the invoice&apos;s case cost automatically update the matched product&apos;s case cost?
+          Per-product <em>Lock Case Cost</em> flag always wins — if that&apos;s on, this setting is ignored for that product.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {modeOptions.map(opt => (
+            <label key={opt.value} style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+              padding: '0.75rem 1rem', borderRadius: 8,
+              border: '1px solid ' + (settings.mode === opt.value ? 'var(--brand-primary)' : 'var(--border-color)'),
+              background: settings.mode === opt.value ? 'rgba(61, 86, 181, 0.05)' : 'transparent',
+              cursor: 'pointer',
+            }}>
+              <input type="radio"
+                name="invoice-cost-sync-mode"
+                value={opt.value}
+                checked={settings.mode === opt.value}
+                onChange={() => onChange({ ...settings, mode: opt.value })}
+                style={{ marginTop: '0.15rem' }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                  {opt.label}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  {opt.desc}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div style={{ marginTop: '1rem' }}>
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
+            Mismatch warning threshold (cents)
+          </label>
+          <input type="number" min={0} max={10000}
+            value={settings.mismatchThresholdCents}
+            onChange={e => onChange({ ...settings, mismatchThresholdCents: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            style={{
+              width: 140, padding: '0.5rem 0.75rem', borderRadius: 6,
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+            }} />
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+            Invoice review footer shows an amber warning when the difference between computed and stated totals exceeds this amount. Default 50¢.
+          </div>
+        </div>
+
+        <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.5rem' }}>
+          <button onClick={onSave} disabled={!dirty}
+            style={{
+              padding: '0.55rem 1.25rem', borderRadius: 6,
+              border: 'none', fontSize: '0.85rem', fontWeight: 600,
+              background: dirty ? 'var(--brand-primary)' : 'var(--bg-tertiary)',
+              color: dirty ? 'white' : 'var(--text-muted)',
+              cursor: dirty ? 'pointer' : 'not-allowed',
+            }}>
+            {dirty ? 'Save Settings' : 'Saved'}
+          </button>
+        </div>
+      </div>
+
+      {/* Per-vendor table — only shown in per-vendor mode */}
+      {settings.mode === 'per-vendor' && (
+        <div style={{
+          background: 'var(--bg-secondary)', padding: '1.25rem 1.5rem',
+          borderRadius: 12, border: '1px solid var(--border-color)',
+        }}>
+          <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            Vendor Overrides
+          </h3>
+          <p style={{ margin: '0.25rem 0 1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Toggle on each vendor whose invoices should update product cost. Changes save per-row immediately (no Save button).
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: 500, overflowY: 'auto' }}>
+            {vendors.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>No vendors yet — add one via the Vendors page.</p>
+            ) : vendors.map(v => (
+              <div key={v.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0.6rem 0.9rem', borderRadius: 6,
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-color)',
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {v.name}
+                  </div>
+                  {v.code && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                      {v.code}
+                    </div>
+                  )}
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox"
+                    checked={v.autoSyncCostFromInvoice !== false}
+                    onChange={e => onVendorToggle(v.id, e.target.checked)}
+                    style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                  <span style={{
+                    fontSize: '0.75rem', fontWeight: 600,
+                    color: v.autoSyncCostFromInvoice !== false ? '#10b981' : 'var(--text-muted)',
+                  }}>
+                    {v.autoSyncCostFromInvoice !== false ? 'Auto-sync ON' : 'Auto-sync OFF'}
+                  </span>
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default InvoiceImport;
