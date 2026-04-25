@@ -9,7 +9,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users as UsersIcon, Plus, Edit2, Trash2, Save, X, RefreshCw,
-  Package, Loader, Check, AlertCircle, DollarSign,
+  Package, Loader, Check, AlertCircle, DollarSign, Eye,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -286,6 +286,100 @@ function GroupForm({ group, departments, vendors, onSave, onClose, saving }) {
   );
 }
 
+function GroupDetailModal({ group, departments, vendors, onClose, onEdit }) {
+  if (!group) return null;
+  const dept   = departments.find(d => String(d.id) === String(group.departmentId));
+  const vendor = vendors.find(v => String(v.id) === String(group.vendorId));
+  const fmt$   = (n) => (n != null ? `$${Number(n).toFixed(2)}` : '—');
+  const fmtBool = (b) => b == null ? '—' : (b ? 'Yes' : 'No');
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
+
+  return (
+    <div className="pg-modal-overlay" onClick={onClose}>
+      <div className="pg-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="pg-modal-header">
+          <div className="pg-modal-title">
+            {group.color && <span className="pg-color-chip" style={{ background: group.color }} />}
+            <UsersIcon size={18} />
+            {group.name}
+            {!group.active && <span className="pg-badge" style={{ marginLeft: 8 }}>Inactive</span>}
+          </div>
+          <button onClick={onClose} className="pg-close-btn">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="pg-modal-body">
+          {group.description && (
+            <div className="pg-desc" style={{ marginBottom: '0.75rem' }}>{group.description}</div>
+          )}
+
+          <div className="pg-section-label">Members</div>
+          <div className="pg-grid-3">
+            <DetailField label="Member products" value={String(group._count?.products ?? 0)} />
+            <DetailField label="Auto-sync" value={group.autoSync ? 'Yes — cascades on save' : 'Manual'} />
+            <DetailField label="Status" value={group.active ? 'Active' : 'Inactive'} />
+          </div>
+
+          <div className="pg-section-label">Classification</div>
+          <div className="pg-grid-2">
+            <DetailField label="Department" value={dept?.name || '—'} />
+            <DetailField label="Default Vendor" value={vendor?.name || '—'} />
+          </div>
+          <div className="pg-grid-2">
+            <DetailField label="Tax Class" value={group.taxClass || '—'} />
+            <DetailField label="Age Required" value={group.ageRequired ? `${group.ageRequired}+` : '—'} />
+          </div>
+          <div className="pg-grid-3">
+            <DetailField label="EBT Eligible" value={fmtBool(group.ebtEligible)} />
+            <DetailField label="Taxable" value={fmtBool(group.taxable)} />
+            <DetailField label="Discount Eligible" value={fmtBool(group.discountEligible)} />
+          </div>
+
+          <div className="pg-section-label">Size & Pack</div>
+          <div className="pg-grid-3">
+            <DetailField label="Size" value={group.size ? `${group.size} ${group.sizeUnit || ''}`.trim() : '—'} />
+            <DetailField label="Pack" value={group.pack != null ? String(group.pack) : '—'} />
+            <DetailField label="Case Packs" value={group.casePacks != null ? String(group.casePacks) : '—'} />
+          </div>
+
+          <div className="pg-section-label">Default Pricing</div>
+          <div className="pg-grid-3">
+            <DetailField label="Retail Price" value={fmt$(group.defaultRetailPrice)} mono />
+            <DetailField label="Cost Price" value={fmt$(group.defaultCostPrice)} mono />
+            <DetailField label="Case Cost" value={fmt$(group.defaultCasePrice)} mono />
+          </div>
+
+          <div className="pg-section-label">Sale Price</div>
+          <div className="pg-grid-3">
+            <DetailField label="Sale Price" value={fmt$(group.salePrice)} mono />
+            <DetailField label="Start" value={fmtDate(group.saleStart)} />
+            <DetailField label="End" value={fmtDate(group.saleEnd)} />
+          </div>
+        </div>
+
+        <div className="pg-modal-footer">
+          <button onClick={onClose} className="pg-btn pg-btn-secondary">Close</button>
+          <button onClick={() => { onEdit(group); onClose(); }} className="pg-btn pg-btn-primary">
+            <Edit2 size={13} /> Edit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value, mono }) {
+  return (
+    <div>
+      <div className="pg-label">{label}</div>
+      <div className={mono ? 'pg-td-mono' : ''} style={{ fontSize: '0.88rem', fontWeight: 600 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export default function ProductGroups() {
   const navigate = useNavigate();
   const [groups,      setGroups]      = useState([]);
@@ -295,6 +389,7 @@ export default function ProductGroups() {
   const [saving,      setSaving]      = useState(false);
   const [showForm,    setShowForm]    = useState(false);
   const [editing,     setEditing]     = useState(null);
+  const [viewing,     setViewing]     = useState(null);
   const [applying,    setApplying]    = useState(null);
 
   const load = useCallback(async () => {
@@ -418,7 +513,7 @@ export default function ProductGroups() {
                 <th>Sale</th>
                 <th>Members</th>
                 <th>Sync</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
+                <th style={{ textAlign: 'left' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -456,6 +551,9 @@ export default function ProductGroups() {
                   </td>
                   <td>
                     <div className="pg-actions">
+                      <button onClick={() => setViewing(g)} className="pg-btn-icon" title="View details">
+                        <Eye size={13} />
+                      </button>
                       {!g.autoSync && (
                         <button onClick={() => handleApply(g)} disabled={applying === g.id}
                           className="pg-btn-icon" title="Apply template to all members">
@@ -485,6 +583,16 @@ export default function ProductGroups() {
           onSave={handleSave}
           onClose={() => { setShowForm(false); setEditing(null); }}
           saving={saving}
+        />
+      )}
+
+      {viewing && (
+        <GroupDetailModal
+          group={viewing}
+          departments={departments}
+          vendors={vendors}
+          onClose={() => setViewing(null)}
+          onEdit={handleEdit}
         />
       )}
     </div>
