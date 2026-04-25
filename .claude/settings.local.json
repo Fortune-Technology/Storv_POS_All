@@ -112,7 +112,15 @@
       "Bash(npx --no-install tsc --noEmit)",
       "Bash(xargs sed *)",
       "Bash(grep -rn \"from ['\\\\\"]\\\\\\\\..*services/types['\\\\\"]\" --include=\"*.ts\" --include=\"*.tsx\" admin-app/)",
-      "Bash(grep -rn \"from ['\\\\\"]\\\\\\\\..*lib/types['\\\\\"]\" --include=\"*.ts\" --include=\"*.tsx\" storefront/)"
+      "Bash(grep -rn \"from ['\\\\\"]\\\\\\\\..*lib/types['\\\\\"]\" --include=\"*.ts\" --include=\"*.tsx\" storefront/)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; grep \"@storeveu\" {}')",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; grep -A1 \"\\\\\"test\\\\\"\" {} | head -5')",
+      "Bash(findstr :5000)",
+      "Bash(findstr LISTENING)",
+      "Bash(tasklist /FI \"IMAGENAME eq node.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(break)",
+      "Bash(taskkill //PID 11480 //F)"
     ]
   }
 }

@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@storeveu/types": "*",
+    "@storeveu/types": "file:../packages/types",
     "axios": "^1.13.6",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",

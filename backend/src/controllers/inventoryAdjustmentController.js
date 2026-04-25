@@ -53,6 +53,7 @@ export const createAdjustment = async (req, res, next) => {
         lastStockUpdate: new Date(),
       },
       create: {
+        orgId: req.orgId,
         storeId,
         masterProductId: parseInt(masterProductId),
         quantityOnHand: newQty,
