@@ -70,6 +70,12 @@ export const getCatalogSnapshot = async (req, res) => {
             select: { id: true, label: true, unitCount: true, packsPerCase: true, retailPrice: true, isDefault: true, sortOrder: true },
             orderBy: { sortOrder: 'asc' },
           },
+          // Alternate UPCs — same product, different barcodes (case label vs
+          // single-can label, manufacturer rebrand, regional variants). The
+          // cashier-app indexes both the primary `upc` AND every entry from
+          // this list so a scan / search of any registered barcode resolves
+          // to the same product.
+          upcs: { select: { upc: true } },
         },
       }),
       // Only fetch tombstones on incremental syncs (since != null) AND on the
@@ -181,6 +187,11 @@ export const getCatalogSnapshot = async (req, res) => {
           isDefault:    ps.isDefault,
           sortOrder:    ps.sortOrder,
         })),
+        // Flat array of alternate UPC strings only — small, JSON-friendly,
+        // and indexed in IndexedDB via a multi-entry `*upcs` index so that
+        // both `lookupByUPC` and `searchProducts` resolve any registered
+        // barcode (primary OR alternate) without a table scan.
+        upcs: (p.upcs || []).map(u => u.upc).filter(Boolean),
         orgId,
         storeId:        storeId || null,
         updatedAt:      p.updatedAt.toISOString(),

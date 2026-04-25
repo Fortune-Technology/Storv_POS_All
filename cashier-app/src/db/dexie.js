@@ -71,6 +71,27 @@ db.version(5).stores({
   cashiers:          'id, orgId, storeId',
 });
 
+// Version 6: multi-UPC support. Adds a multi-entry index `*upcs` on the
+// products table so a scan / search of any registered alternate barcode
+// resolves to the same product via an indexed lookup (no full-table scan).
+// `*` marks a multi-entry index — Dexie indexes EACH element of the array
+// separately. The primary `upc` index stays intact so legacy single-UPC
+// scans still hit it directly. New `where('upcs').equals(v)` queries cover
+// the alternates without duplicating product rows.
+db.version(6).stores({
+  products:          '++id, upc, *upcs, orgId, storeId, departmentId, updatedAt, active',
+  taxRules:          '++id, orgId, storeId',
+  depositRules:      '++id, orgId',
+  txQueue:           '++localId, status, createdAt, storeId, txNumber',
+  txHistory:         'id, txNumber, storeId, cashierId, createdAt',
+  syncMeta:          'key',
+  heldTransactions:  '++id, storeId, heldAt',
+  scanFrequency:     'productId, count, lastAt',
+  departments:       'id, orgId, active, sortOrder',
+  promotions:        'id, orgId, active, promoType',
+  cashiers:          'id, orgId, storeId',
+});
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 export async function getLastSync(key) {
@@ -88,19 +109,27 @@ export async function lookupByUPC(upc, storeId) {
   const variants = upcVariants(upc);
   if (!variants.length) return null;
 
-  // Try store-specific first across all variants, then fall back to any storeId
-  for (const v of variants) {
-    const hit = await db.products
+  // Indexed-OR lookup: resolves either the primary `upc` index OR the
+  // multi-entry `*upcs` index in a single query per variant. Dedupes results
+  // automatically. Without this, alternate barcodes registered via the
+  // portal's "Add another UPC" UI would silently miss in the cashier-app
+  // even though the server's online search resolves them correctly.
+  const tryVariant = async (v, scopedToStore) => {
+    const rows = await db.products
       .where('upc').equals(v)
-      .and(p => p.storeId === storeId && p.active !== false)
-      .first();
+      .or('upcs').equals(v)
+      .and(p => (scopedToStore ? p.storeId === storeId : true) && p.active !== false)
+      .toArray();
+    return rows[0] || null;
+  };
+
+  // Store-scoped first across all variants, then any-store fallback
+  for (const v of variants) {
+    const hit = await tryVariant(v, true);
     if (hit) return decorateProductWithDeptTaxClass(hit);
   }
   for (const v of variants) {
-    const hit = await db.products
-      .where('upc').equals(v)
-      .and(p => p.active !== false)
-      .first();
+    const hit = await tryVariant(v, false);
     if (hit) return decorateProductWithDeptTaxClass(hit);
   }
   return null;
@@ -114,7 +143,11 @@ export async function searchProducts(query, storeId, limit = 30) {
       p.active !== false &&
       (p.name?.toLowerCase().includes(q) ||
        p.brand?.toLowerCase().includes(q) ||
-       p.upc?.includes(q))
+       p.upc?.includes(q) ||
+       // Alternate UPCs registered via the portal's multi-UPC UI. Match if
+       // ANY entry contains the typed substring so partial typing of an
+       // alternate barcode (e.g. last 6 digits) still surfaces the product.
+       (Array.isArray(p.upcs) && p.upcs.some(u => u && u.includes(q))))
     )
     .limit(limit)
     .toArray();

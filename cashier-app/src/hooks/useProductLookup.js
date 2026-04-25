@@ -56,11 +56,20 @@ export function useProductLookup() {
           // Session 39 Round 5 — ensure depositAmount is populated BEFORE
           // we cache the row, so the cart + all future cache hits see it.
           const withDeposit = ensureDepositAmount(remote);
-          // Cache with normalized UPC so future scans hit IndexedDB
+          // Cache with normalized UPC so future scans hit IndexedDB.
+          // The search endpoint returns `upcs` as objects ({id, upc, label,
+          // isDefault}) — flatten to a normalized string array so the Dexie
+          // multi-entry `*upcs` index resolves alternate-barcode lookups.
+          const altUpcs = Array.isArray(withDeposit.upcs)
+            ? withDeposit.upcs
+                .map(u => normalizeUPC(u?.upc || u) || u?.upc || u)
+                .filter(v => typeof v === 'string' && v.length > 0)
+            : [];
           await upsertProducts([{
             ...withDeposit,
             id:          withDeposit.id,
             upc:         normalizeUPC(withDeposit.upc) || withDeposit.upc,
+            upcs:        altUpcs,
             retailPrice: Number(withDeposit.defaultRetailPrice || 0),
             storeId:     storeId || null,
             orgId:       withDeposit.orgId,

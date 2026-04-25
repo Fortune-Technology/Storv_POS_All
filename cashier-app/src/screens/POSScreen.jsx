@@ -663,6 +663,39 @@ export default function POSScreen() {
     flash('hit');
   }, [addWithAgeCheck, flash]);
 
+  // Shared "add product from catalog" path. Every entry point that resolves
+  // a Product (barcode scan, search dropdown click, catalog tile, quick-add
+  // tile, freshly-created product from the "scan not found" flow) MUST go
+  // through this so the pack-size picker fires consistently. Without this
+  // shared path, only the hardware barcode-scan code branch honored
+  // packSizes and every other path (search box, tile click) went straight
+  // to addWithAgeCheck — silently dropping into the wrong price for any
+  // product with 2+ pack sizes configured.
+  const addProductFromCatalog = useCallback((product) => {
+    if (!product) return;
+    // Multi-pack → show picker
+    if (Array.isArray(product.packSizes) && product.packSizes.length > 1) {
+      setPackPickerProduct(product);
+      return;
+    }
+    // Single pack → apply silently
+    if (Array.isArray(product.packSizes) && product.packSizes.length === 1) {
+      const size = product.packSizes[0];
+      addWithAgeCheck({
+        ...product,
+        retailPrice: Number(size.retailPrice),
+        packSizeLabel: size.label,
+        packSizeId: size.id,
+        unitCount: size.unitCount,
+      });
+      flash('hit');
+      return;
+    }
+    // No pack sizes → standard add
+    addWithAgeCheck({ ...product, retailPrice: product.retailPrice });
+    flash('hit');
+  }, [addWithAgeCheck, flash]);
+
   // ── Barcode scan ─────────────────────────────────────────────────────────
   const handleScan = useCallback(async (raw) => {
     if (scanMode !== 'normal') return;
@@ -689,26 +722,10 @@ export default function POSScreen() {
       showScanError(raw);
       return;
     }
-    // If multiple pack sizes are configured, show picker instead of adding immediately
-    if (Array.isArray(product.packSizes) && product.packSizes.length > 1) {
-      setPackPickerProduct(product);
-      return;
-    }
-    // If exactly one pack size, use it silently
-    if (Array.isArray(product.packSizes) && product.packSizes.length === 1) {
-      const size = product.packSizes[0];
-      addWithAgeCheck({
-        ...product,
-        retailPrice: Number(size.retailPrice),
-        packSizeLabel: size.label,
-        packSizeId: size.id,
-        unitCount: size.unitCount,
-      });
-      flash('hit');
-      return;
-    }
-    // If by-weight product, use scale weight as quantity
-    if (product.byWeight) {
+    // By-weight branch lives only on the scanner path because it needs the
+    // physical scale reading. Tile / search clicks fall through to the
+    // shared addProductFromCatalog (which honors pack sizes).
+    if (product.byWeight && !(Array.isArray(product.packSizes) && product.packSizes.length > 0)) {
       if (scale?.weight > 0 && scale?.stable) {
         const weightQty = scale.weight;
         addWithAgeCheck({ ...product, qty: weightQty, unitPrice: product.retailPrice, retailPrice: product.retailPrice });
@@ -721,9 +738,8 @@ export default function POSScreen() {
       }
       return;
     }
-    addWithAgeCheck({ ...product, retailPrice: product.retailPrice });
-    flash('hit');
-  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale]);
+    addProductFromCatalog(product);
+  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale, addProductFromCatalog]);
 
   useBarcodeScanner(handleScan, scanMode === 'normal');
 
@@ -734,11 +750,10 @@ export default function POSScreen() {
   }, [searchQuery, storeId]);
 
   const handleSearchSelect = (product) => {
-    addWithAgeCheck(product);
+    addProductFromCatalog(product);
     setSearchQuery('');
     setSearchResults([]);
     setShowSearch(false);
-    flash('hit');
   };
 
   // ── Numpad helpers ───────────────────────────────────────────────────────
@@ -1333,8 +1348,7 @@ export default function POSScreen() {
                   hiddenDepartments: posConfig.hiddenDepartments || [],
                 }}
                 onAddProduct={(product) => {
-                  addWithAgeCheck(product);
-                  flash('hit');
+                  addProductFromCatalog(product);
                 }}
               />
             </div>
@@ -2397,12 +2411,13 @@ export default function POSScreen() {
           onSaved={(product) => {
             setAddProductUpc(null);
             if (!product) return;
-            // Add newly created product to cart immediately
-            addWithAgeCheck({
+            // Add newly created product to cart immediately — through the
+            // shared catalog path so pack sizes (if the cashier configured
+            // any in the inline form) trigger the picker.
+            addProductFromCatalog({
               ...product,
               retailPrice: product.retailPrice ?? Number(product.defaultRetailPrice ?? 0),
             });
-            flash('hit');
           }}
         />
       )}
