@@ -1,0 +1,62 @@
+{
+  "compilerOptions": {
+    /* ─── Target / module ──────────────────────────────────────────────
+     * Backend runs on Node 18+. We use the `NodeNext` resolver because
+     * package.json has `"type": "module"` and existing imports already
+     * carry the `.js` extension (e.g. `import prisma from '../config/postgres.js'`).
+     * `NodeNext` honours that convention and emits the same shape Node expects.
+     */
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    /* ─── Gradual migration ────────────────────────────────────────────
+     * `allowJs` lets new .ts files coexist with the existing .js codebase.
+     * `checkJs: false` so the migration can land in slices — TS only
+     * type-checks files we actively convert. Phase 4 will flip checkJs
+     * back to `true` (or migrate everything to .ts) at the end.
+     */
+    "allowJs": true,
+    "checkJs": false,
+
+    /* ─── Strictness ──────────────────────────────────────────────────
+     * Strict for new TS code from day one. The cost of relaxing later
+     * is much higher than the friction of doing it right now.
+     */
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* ─── Interop ─────────────────────────────────────────────────────
+     * `esModuleInterop` lets `import jwt from 'jsonwebtoken'` work for
+     * CJS-only packages. `resolveJsonModule` for the few config files
+     * that load via JSON.
+     */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* ─── Output ──────────────────────────────────────────────────────
+     * TS is for type-checking only. Node runs the original .js (and
+     * eventually .ts via tsx or compiled at deploy time). No emit.
+     */
+    "noEmit": true,
+
+    /* ─── Library type-checking ───────────────────────────────────────
+     * Prisma's generated client is enormous and re-checking its declaration
+     * files on every type-check adds ~10s to a clean run. Skip them.
+     */
+    "skipLibCheck": true
+  },
+
+  /* Only type-check `src/` for now. `prisma/seed*.js` and `tests/` migrate
+   * later as their own slices.
+   */
+  "include": ["src/**/*.ts", "src/**/*.js", "global.d.ts"],
+  "exclude": ["node_modules", "dist", "build", "**/*.test.mjs", "**/*.test.js"]
+}
