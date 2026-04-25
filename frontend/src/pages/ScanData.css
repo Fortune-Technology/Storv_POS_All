@@ -284,6 +284,137 @@
   display: flex; flex-direction: column;
   box-shadow: var(--modal-shadow, 0 24px 64px rgba(0,0,0,0.4));
 }
+.sd-modal--wide { max-width: 960px; }
+
+.sd-table-row-clickable { cursor: pointer; transition: background 0.12s; }
+.sd-table-row-clickable:hover td { background: rgba(61, 86, 181, 0.06); }
+
+.sd-btn-link--active {
+  background: rgba(61, 86, 181, 0.10);
+  color: var(--brand-primary, #3d56b5);
+  font-weight: 700;
+}
+
+/* ── Cert modal (Session 49) ─────────────────────────────────────────── */
+.sd-cert-progress {
+  background: var(--bg-tertiary, #f8fafc);
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+.sd-cert-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 0.55rem;
+}
+.sd-cert-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3d56b5, #16a34a);
+  transition: width 0.4s;
+}
+.sd-cert-progress-meta {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  font-size: 0.82rem; color: var(--text-secondary);
+}
+
+.sd-cert-steps {
+  display: flex; flex-direction: column; gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+.sd-cert-step {
+  display: flex; gap: 0.65rem;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+}
+.sd-cert-step-icon {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; flex-shrink: 0;
+}
+.sd-cert-step-body { flex: 1; min-width: 0; }
+.sd-cert-step-label { font-weight: 600; font-size: 0.88rem; color: var(--text-primary); }
+.sd-cert-step-detail { font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px; }
+.sd-cert-step-hint {
+  font-size: 0.74rem; color: var(--text-secondary);
+  margin-top: 4px; padding: 4px 8px;
+  background: rgba(61, 86, 181, 0.06);
+  border-radius: 4px;
+}
+
+.sd-cert-sample { padding-top: 0.5rem; }
+.sd-cert-scenarios {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.4rem;
+}
+.sd-cert-scenario {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color);
+  border-left-width: 3px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+.sd-cert-file-preview {
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 0.74rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.85rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+.sd-cert-playbook { padding-top: 0.5rem; }
+.sd-cert-playbook-overview {
+  font-size: 0.88rem; line-height: 1.5;
+  color: var(--text-primary);
+  background: rgba(61, 86, 181, 0.04);
+  border-left: 3px solid var(--brand-primary, #3d56b5);
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  margin: 0 0 0.85rem;
+}
+.sd-cert-playbook-meta {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 0.82rem; color: var(--text-secondary);
+  margin-bottom: 0.85rem;
+}
+.sd-cert-playbook-steps {
+  margin: 0 0 1rem; padding-left: 1.2rem;
+  font-size: 0.85rem; color: var(--text-primary);
+  line-height: 1.55;
+}
+.sd-cert-playbook-steps li { margin-bottom: 0.35rem; }
+
+.sd-banner--warn {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245, 158, 11, 0.08);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.sd-spin {
+  animation: sd-spin 1s linear infinite;
+}
+@keyframes sd-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 .sd-modal-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 0.85rem 1rem;

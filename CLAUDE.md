@@ -8201,5 +8201,364 @@ No schema migration. No new permissions (Session 45's `scan_data.submit` and `sc
 
 *Last updated: April 2026 — Session 47: File Formatters + SFTP + Nightly Scheduler — 7 per-mfr formatters (3 distinct format families: ITG pipe-delimited, Altria pipe-delimited, RJR fixed-width), discount-split logic via `TobaccoProductMap.fundingType` (buydown/multipack/promotion/regular), `sftpService.js` with dynamic ssh2-sftp-client + 3-attempt retry + cryptoVault password decryption, `generator.js` orchestrator with dry-run mode + local file storage at `backend/uploads/scan-data/{date}/{store}/{mfr}/`, `scanDataScheduler.js` 15-min sweep with store-local 02:00-06:00 window, manual `regenerate` + `download` + `test-connection` endpoints. End-to-end verified: ITG dry-run produces 3-line file with correct buydown split, Altria PMUSA dry-run with full-spec field order, RJR EDLP fixed-width 139-char sale records byte-aligned, files written to disk, download endpoint streams with proper headers, stub mode (no SFTP lib) returns clean error and keeps submission queued for retry. Daily nightly submission auto-flows coupon redemptions to mfrs for ~30-day reimbursement.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 48)
+
+### Ack Parsing + Reimbursement Reconciliation (Phase 4 of 5)
+
+The closing half of the scan-data round-trip. Manufacturers respond to daily submissions with ack files listing per-record accept/reject status. This session ingests those acks, matches lines back to original transactions + coupon redemptions, stamps `reimbursedAt` / `rejectedAt`, and surfaces the per-line breakdown in the back-office portal so admins can see exactly what was rejected and why.
+
+#### Architecture
+
+```
+SFTP /ack/ dir (mfr drops response files)
+    │  every 30 min
+    ▼
+ackPoller.js
+    │  match by filename prefix → ScanDataSubmission row
+    ▼
+ackParsers/{itg,altria,rjr}.js (dispatch by manufacturer.code)
+    │  produce canonical AckLine[] + summary
+    ▼
+reconciliation.js
+    │  1. update submission (status, ackedAt, ackLines JSON, accepted/rejected counts)
+    │  2. join CouponRedemption by (txNumber, qualifyingUpc) → stamp reimbursedAt | rejectedAt
+    │  3. on rejection → email org admin via sendScanDataAckRejection()
+    ▼
+Portal Submissions tab — clickable row → SubmissionDetailModal
+    │  per-line ack table with code/reason
+    │  filter accepted/rejected/warning
+    │  manual ack-paste during cert (when mfr delivers via portal/email instead of SFTP)
+```
+
+#### Schema additions (3 fields on `ScanDataSubmission`, additive)
+
+```prisma
+ackLines        Json?    // [{ recordRef, status, reason, code, txNumber, upc, originalLine }]
+acceptedCount   Int      @default(0)
+rejectedCount   Int      @default(0)
+```
+
+`ackLines` JSON instead of a new model — typical ack files are <10KB even with hundreds of lines, no need for indexable per-line rows. If querying becomes important (e.g. cross-submission rejection analytics), promote to a model later.
+
+#### Per-mfr ack parsers — canonical output shape
+
+Every parser exports `parseAck(content, fileName, mfrCode?) → AckResult` with the same shape so reconciliation stays generic:
+
+```js
+{
+  mfrCode, fileName, processedAt,
+  summary: { acceptedCount, rejectedCount, warningCount },
+  lines: [{ recordRef, status, reason?, code?, txNumber?, upc?, originalLine }],
+  parseErrors: string[],   // unrecognised record types — logged, not thrown
+  batchAccepted?: boolean,  // Altria/RJR — if false, all 'accepted' lines flip to 'rejected'
+}
+```
+
+| Parser | Format | Notable behavior |
+|---|---|---|
+| `ackParsers/itg.js` | Pipe-delimited `H | A | T` | Distinguishes reject CODE (`/^[A-Z0-9_-]{1,8}$/`) from free-text REASON in field 4 |
+| `ackParsers/altria.js` | Pipe-delimited `H | R | T` | Trailer's batchAccepted='N' flips ALL accepted lines to rejected with code `BATCH_REJECTED` (Altria's strict-cert rule) |
+| `ackParsers/rjr.js` | Fixed-width `H/R/T` records | Column-precise byte slicing per the EDLP v4.x spec; same batch-rejection escalation as Altria |
+| `ackParsers/common.js` | Shared helpers | `normalizeStatus()` (maps "OK"/"ACCEPT"/"PASS" → 'accepted', "FAIL"/"E"/"R" → 'rejected'), `buildRecordRef()`, `splitLines()` (CRLF-tolerant), `summarize()` |
+
+The dispatch table (`ackParsers/index.js`) maps `manufacturer.code` → parser. ITG uses its own; the 3 Altria sub-feeds share `altria.js`; the 3 RJR programs share `rjr.js`.
+
+#### Reconciliation engine ([reconciliation.js](backend/src/services/scanData/reconciliation.js))
+
+`reconcileAck({ submission, ack, options }) → result` executes 5 steps in one pass:
+
+1. **Compute next status** — `rejected=0` → `acknowledged`; `accepted=0` → `rejected`; mixed → `acknowledged` (partial success — submission accepted, individual lines flagged)
+2. **Persist ack details** on the submission row: `ackLines` JSON, `ackContent` (joined raw lines), `acceptedCount`, `rejectedCount`, `ackedAt`, `status`, `errorMessage` (when rejections present)
+3. **Match → redemptions** — `CouponRedemption` rows where `submissionId == submission.id` get joined manually against `Transaction.txNumber` (the FK is a plain string column, not a Prisma relation), keyed by `${txNumber}|${qualifyingUpc}`
+4. **Stamp redemptions** — accepted lines that haven't been stamped yet → `reimbursedAt = now()`; rejected lines → `rejectedAt + rejectionReason`. Idempotent: re-processing the same ack does NOT re-stamp.
+5. **Email** the org's owner/admin via the new `sendScanDataAckRejection()` template when there's at least one rejected line. Best-effort — failures don't crash reconciliation. `options.skipEmail` short-circuits for synthetic-data tests.
+
+#### SFTP ack poller ([ackPoller.js](backend/src/services/scanData/ackPoller.js))
+
+Same dynamic-import stub pattern as the upload service. Sweeps every 30 min (env override `SCAN_DATA_ACK_POLL_INTERVAL_MS`). Per active+certifying enrollment with an SFTP host:
+
+1. List files in `/ack/` (env override `SCAN_DATA_ACK_REMOTE_PATH`)
+2. Match each by filename-prefix to a `ScanDataSubmission` row (skip those already `ackedAt`)
+3. Download → parse via dispatch table → reconcile
+4. Best-effort move to `/ack/processed/` (mfrs that don't allow rename are silently tolerated)
+
+Stub mode (no `ssh2-sftp-client` installed) returns `{ skipped: true }` — manual `POST /scan-data/submissions/:id/process-ack` still works, which is the primary cert-time path anyway since mfrs deliver acks via email/web portal during cert before SFTP creds are blessed.
+
+#### New endpoints
+
+| Method | Route | Permission | Purpose |
+|---|---|---|---|
+| `GET` | `/scan-data/submissions/:id/ack-lines` | `scan_data.view` | Fetch parsed ack lines for the SubmissionDetailModal |
+| `POST` | `/scan-data/submissions/:id/process-ack` | `scan_data.submit` | Manual reconciliation. Body: `{ ackContent, fileName? }` (raw text — runs through parser) OR `{ ackLines: [...] }` (pre-parsed). Used during cert when mfrs send acks via email/portal. |
+
+#### Email template — `sendScanDataAckRejection`
+
+New per-template export in `emailService.js`. Sends a branded HTML email with:
+- Manufacturer name + period range
+- Counts: accepted (green) / rejected (red)
+- Top-10 rejected-line table with txNumber, UPC, code, reason
+- Direct link to `/portal/scan-data?tab=submissions`
+- Subject: `[Storeveu] N scan-data line(s) rejected — {mfr}`
+
+Hits the same `getTransporter()` lazy SMTP singleton used by every other email. Silent if SMTP isn't configured (logged warn).
+
+#### Portal — `SubmissionDetailModal`
+
+Submissions tab rows are now clickable (`.sd-table-row-clickable` cursor + hover). Clicking opens a wide modal showing:
+
+- **Header strip** — manufacturer, period, status badge, error message (when set)
+- **4-card stats** — Tx Submitted / Coupon Redemptions / Lines Accepted / Lines Rejected
+- **Ack section**:
+  - **No ack yet** — manual paste textarea (monospace, 160px) + "Process Ack" button. Toast on success: `"Ack processed — N accepted, M rejected (X reimbursed, Y flagged)."`
+  - **Ack present** — filter buttons (All / Accepted / Rejected / Warning with counts) + per-line table (Tx # / UPC / Status / Code / Reason)
+- **Footer** — Download Submission File link (uses Session 47 `/download` endpoint) + Close
+
+Filtering uses `useMemo` so re-render is cheap on tab switches. Status chips reuse the existing `.sd-sub-status` styles (acknowledged=green, rejected=red, queued/warning=blue).
+
+Submissions table also gained a new "Lines (✓ / ✗)" column showing `acceptedCount / rejectedCount` per submission with green/red colour coding — at-a-glance health view across the log.
+
+#### Verification
+
+Synthetic ack files for all 3 format families parsed correctly:
+
+| Test | Result |
+|---|---|
+| **ITG** mixed ack — 1 accepted + 1 rejected with code `E101` + 1 rejected free-text reason | ✓ summary `{accepted:1, rejected:2}`, both rejection forms parsed, code/reason correctly distinguished by regex |
+| **Altria** with `batchAccepted=N` trailer flag | ✓ summary `{accepted:0, rejected:2}` — strict-batch rule auto-flipped accepted line to rejected with code `BATCH_REJECTED` |
+| **RJR** fixed-width — column-precise byte-slicing | ✓ accept status from col 28, code from col 29-36, reason from col 37+ — all parsed correctly |
+
+Full reconciliation against the dev DB:
+
+| Check | Result |
+|---|---|
+| Submission status flips `queued → acknowledged` | ✓ |
+| `acceptedCount: 1, rejectedCount: 1` persisted | ✓ |
+| `ackedAt` timestamped | ✓ |
+| `ackLines` JSON written with 2 records | ✓ |
+| `errorMessage: "1 line(s) rejected by manufacturer."` | ✓ |
+| Idempotency on re-run — `redemptionsAccepted: 0, redemptionsRejected: 0` (no double-stamping) | ✓ |
+| Portal build clean (18.66s) | ✓ |
+| All 5 new modules import without error | ✓ |
+
+#### Files Added (Session 48)
+
+| File | Purpose |
+|---|---|
+| `backend/src/services/scanData/ackParsers/common.js` | Status normalization, record-ref helpers, line splitting, empty-result builder, summarizer |
+| `backend/src/services/scanData/ackParsers/itg.js` | ITG pipe-delimited ack parser |
+| `backend/src/services/scanData/ackParsers/altria.js` | Altria pipe-delimited ack parser (handles all 3 sub-feeds + batch-rejection rule) |
+| `backend/src/services/scanData/ackParsers/rjr.js` | RJR fixed-width ack parser (handles all 3 programs + batch-rejection rule) |
+| `backend/src/services/scanData/ackParsers/index.js` | Dispatch table from manufacturer.code → parser |
+| `backend/src/services/scanData/reconciliation.js` | Match ack lines → submission + redemptions, stamp reimbursedAt/rejectedAt, email on rejection |
+| `backend/src/services/scanData/ackPoller.js` | Periodic SFTP `/ack/` watcher with stub-mode dynamic import |
+
+#### Files Modified (Session 48)
+
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +3 fields on ScanDataSubmission (`ackLines Json?`, `acceptedCount Int @default(0)`, `rejectedCount Int @default(0)`) |
+| `backend/src/services/emailService.js` | +`sendScanDataAckRejection` template with rejected-line preview table |
+| `backend/src/controllers/scanDataController.js` | +`processSubmissionAck` (manual ack reconciliation), +`getSubmissionAckLines` (modal fetch) |
+| `backend/src/routes/scanDataRoutes.js` | +2 routes (`POST /:id/process-ack` manager+, `GET /:id/ack-lines` manager+) |
+| `backend/src/server.js` | Mount `startAckPoller()` after `startScanDataScheduler()` |
+| `frontend/src/services/api.js` | +3 helpers (`getSubmissionAckLines`, `processSubmissionAck`, `regenerateScanDataSubmission`) |
+| `frontend/src/pages/ScanData.jsx` | SubmissionsTab — clickable rows, accepted/rejected count column, +`SubmissionDetailModal` (270 lines) with manual ack paste + per-line filtering + download link |
+| `frontend/src/pages/ScanData.css` | +`.sd-modal--wide`, `.sd-table-row-clickable`, `.sd-btn-link--active` |
+
+#### Manual deployment steps
+
+```bash
+cd backend
+git pull
+npx prisma db push                     # additive, 3 new columns
+npx prisma generate --schema prisma/schema.prisma
+pm2 restart api-pos                    # picks up routes + ack poller
+```
+
+Frontend rebuild: `cd frontend && npm run build`.
+
+No new permissions, no new packages, no schema migration. Session 47's `scan_data.view` and `scan_data.submit` cover everything.
+
+#### Deferred to Session 49
+
+The cert harness — sample-data generator that produces a synthetic full day of transactions matching mfr cert criteria, per-mfr cert checklist UI, and the kickoff for real-world certification with each manufacturer (2-8 weeks per mfr, ITG first as the easiest path to revenue).
+
+---
+
+*Last updated: April 2026 — Session 48: Ack Parsing + Reimbursement Reconciliation — 3 per-mfr ack parsers (ITG pipe + Altria pipe + RJR fixed-width) with batch-rejection rule for the strict-cert mfrs, `reconciliation.js` engine that updates submissions + stamps `CouponRedemption.reimbursedAt`/`rejectedAt` idempotently, `ackPoller.js` with stub-mode dynamic SFTP, manual `POST /process-ack` endpoint for cert-time email/portal-delivered acks, branded `sendScanDataAckRejection` email template, portal `SubmissionDetailModal` with per-line filter + manual ack paste + download. End-to-end verified: 3 synthetic ack files parse correctly across all format families, full reconciliation cycle against dev DB updates submission + persists ackLines JSON + idempotent on re-run, portal build clean. Closes the round-trip — submitted line → mfr ack → reimbursed/rejected timestamp on the redemption row, ready for cert.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 49)
+
+### Cert Harness + ITG Cert Kickoff (Phase 5 of 5 — Scan Data Feature Complete)
+
+The closing piece. Manufacturers require a cert pass before activating a retailer in production — typically 2-8 weeks of submitting sample files, getting feedback, fixing format issues, resubmitting. This session ships everything an admin needs to drive that process from inside the portal: synthetic sample-file generator, per-enrollment progress checklist, per-mfr cert playbooks, and a unified "Cert" modal that replaces the prior inline status-change buttons.
+
+#### Architecture
+
+```
+Enrollment card → "Cert" button → CertModal (3 sub-tabs)
+    │
+    ├── Checklist tab    ← certChecklist.js  (10-step DB-derived progress report)
+    ├── Sample File tab  ← certHarness.js    (in-memory synthetic file gen, no DB writes)
+    └── Playbook tab     ← certPlaybook.js   (per-mfr cert guide content)
+```
+
+#### Sample-data generator ([`certHarness.js`](backend/src/services/scanData/certHarness.js))
+
+Produces a representative sample file covering all 9 cert-required scenarios in-memory — **no DB writes**, so cert traffic NEVER pollutes real transaction history:
+
+```js
+CERT_SCENARIOS = [
+  'single_sale',         // qty=1, no discounts
+  'multi_qty',           // qty=2 with retail × qty
+  'multipack_promo',     // line with promoAdjustment, fundingType='multipack'
+  'mfr_coupon',          // coupon redemption (mfrCouponAmount + serial)
+  'voided_tx',           // status='voided', saleType='V'
+  'refund_tx',           // status='refund',  saleType='R'
+  'age_verified',        // ageVerifications populated
+  'mixed_line',          // tobacco + non-tobacco line; non-tobacco filtered out by formatter
+  'buydown_funded',      // fundingType='buydown' product
+];
+```
+
+The harness:
+1. Loads the org's existing `TobaccoProductMap` rows for the mfr — uses real UPCs when available (high cert fidelity)
+2. Falls back to synthetic UPCs (`9999xxxxxxxx`) when no mappings exist + emits a warning that the format is being certified, not the data
+3. Builds an enrollment-shaped object so the existing per-mfr formatter accepts it
+4. Computes scenario coverage by checking which `CERT-N-SCENARIO` txNumbers made it into the file body
+5. Returns `{ filename, body, scenarios, txCount, lineCount, couponCount, totalAmount, warnings }`
+
+#### Per-enrollment cert checklist ([`certChecklist.js`](backend/src/services/scanData/certChecklist.js))
+
+10-step progress report derived from the live DB:
+
+| # | Step | Source |
+|---|---|---|
+| 1 | Manufacturer retailer ID set | `enrollment.mfrRetailerId` |
+| 2 | SFTP credentials configured | `enrollment.sftpHost + sftpUsername + sftpPasswordEnc` |
+| 3 | Environment set to UAT (during cert) | `enrollment.environment === 'uat'` |
+| 4 | At least 5 product mappings configured | `count(TobaccoProductMap)` |
+| 5 | Multiple brand families mapped | `groupBy(brandFamily)` |
+| 6 | Sample submission generated | `findFirst(ScanDataSubmission)` |
+| 7 | Real (non-cert) submission uploaded | `status IN ('uploaded', 'acknowledged')` |
+| 8 | Manufacturer ack received | `ackedAt: { not: null }` |
+| 9 | No rejected lines in last 7 days | `sum(rejectedCount) WHERE ackedAt >= 7d ago` |
+| 10 | Status flipped to active | `enrollment.status === 'active'` |
+
+Each step returns `{ status: 'done' | 'pending' | 'warning', detail, action? }`. The modal renders this as a green/amber/grey list with optional "next-action hints" inline. Overall progress is the percentage of `done` steps. `readyToActivate` is true when steps 1-9 are all green — gates the "Mark Active (Cert Pass)" button at the modal footer.
+
+#### Per-mfr cert playbooks ([`certPlaybook.js`](backend/src/services/scanData/certPlaybook.js))
+
+Three playbooks cover the entire mfr catalog (sub-feeds delegate to their parent):
+
+| Mfr | Estimated duration | Steps | Common rejects documented |
+|---|---|---|---|
+| **ITG** | 2-4 weeks | 8 | 3 (E101 invalid UPC, E102 brand mismatch, E201 missing field) |
+| **Altria** (PMUSA / USSTC / Middleton — separate cert tracks) | 4-8 weeks per sub-feed | 8 | 4 (BATCH_REJECTED, E202 age, E303 qty, E450 discount mismatch) |
+| **RJR / RAI** (EDLP / ScanData / VAP) | 3-6 weeks per program | 8 | 3 (COLUMN_OFFSET, AMT_FORMAT, QTY_PRECISION) |
+
+Each playbook contains: overview, contact path, estimated duration, step-by-step process, common rejection codes with fixes, mfr-specific notes. `getPlaybook(mfrCode)` resolves sub-feeds to their parent: `altria_pmusa` → altria, `rjr_edlp` → rjr, `itg` → itg.
+
+#### Backend endpoints (4 new)
+
+| Method | Route | Permission | Purpose |
+|---|---|---|---|
+| `POST` | `/scan-data/cert/sample-file` | `scan_data.submit` | Generate in-memory cert sample file. Body: `{ manufacturerId, periodStart? }` |
+| `GET`  | `/scan-data/cert/checklist?enrollmentId=` | `scan_data.view` | 10-step progress report for a specific enrollment |
+| `GET`  | `/scan-data/cert/scenarios` | `scan_data.view` | Canonical `CERT_SCENARIOS` list |
+| `GET`  | `/scan-data/cert/playbook/:mfrCode` | `scan_data.view` | Per-mfr cert guide content |
+
+#### Portal — `CertModal` ([`ScanData.jsx`](frontend/src/pages/ScanData.jsx))
+
+EnrollmentCard "Cert" button (replaces the prior `Start Cert` / `Mark Active` inline buttons) opens a modal with:
+
+**Header strip** — overall progress bar (gradient brand→green) + meta line: status chip / mapping count / brand-family coverage.
+
+**3 sub-tabs**:
+
+1. **Checklist** — 10 step rows, each with status icon (✓ green / ⚠ amber / ⏱ grey), label, detail text, optional action hint. Right-aligned "Re-check" button at the bottom.
+2. **Sample File** — "Generate Sample File" button. On success: 4-card stats (txCount / lineCount / couponLines / netTotal), warning banners (e.g. "no real product mappings — using synthetic UPCs"), scenario coverage grid (9 scenarios with ✓/⏱ icons), file preview pane (dark monospace, first 4000 chars), Re-generate + Download buttons. Download builds a Blob and triggers browser save with the mfr-specific extension (.csv / .txt / .dat).
+3. **Playbook** — overview banner, meta strip (estimated duration + contact path), numbered step list, common-rejects table (Code / Meaning / Fix), notes info-banner.
+
+**Footer** — context-aware action buttons:
+- Status `draft` → "Start Cert" (advances to certifying)
+- `readyToActivate=true` AND status `!= active` → primary "Mark Active (Cert Pass)" button (only appears when ALL 9 prior steps green)
+
+**API helpers added** ([`api.js`](frontend/src/services/api.js)): `generateCertSampleFile`, `getEnrollmentCertChecklist`, `getCertScenarios`, `getCertPlaybookByMfr`.
+
+#### Verification
+
+| Test | Result |
+|---|---|
+| `generateSampleFile` for ITG against the dev DB | ✓ 9 transactions covering all 9 scenarios, file structure correct, warning surfaced because no real mappings |
+| Discount-split correctness in sample file | ✓ `multipack_promo` shows `multipack=$3.00` (not buydown), `mfr_coupon` shows `mfrCoupon=$1.00` with serial `CERT-COUPON-001`, `voided_tx` saleType `V` |
+| `getChecklist` against the live ITG cert enrollment | ✓ 60% progress, 10 steps reported with correct status (✓ done for retailerId/SFTP/UAT/sample/upload/ack, ⚠ warning for "rejected lines in last 7d" picking up yesterday's reconcile test, ○ pending for mappings + brand coverage + activation) |
+| `getPlaybook('altria_pmusa')` resolves to altria parent playbook | ✓ |
+| `getPlaybook('rjr_edlp')` resolves to rjr parent playbook | ✓ |
+| `getPlaybook('unknown_xyz')` returns null | ✓ |
+| Portal build clean (16.93s) | ✓ |
+| All 5 backend modules import without error | ✓ |
+
+#### Files Added (Session 49)
+
+| File | Purpose |
+|---|---|
+| `backend/src/services/scanData/certHarness.js` | 9-scenario synthetic sample-file generator (no DB writes) |
+| `backend/src/services/scanData/certChecklist.js` | 10-step DB-derived per-enrollment progress report |
+| `backend/src/services/scanData/certPlaybook.js` | Per-mfr cert playbooks for ITG / Altria / RJR (sub-feeds delegate) |
+
+#### Files Modified (Session 49)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/scanDataController.js` | +4 cert handlers (`generateCertSampleFile`, `getEnrollmentCertChecklist`, `getCertPlaybook`, `getCertScenarios`) |
+| `backend/src/routes/scanDataRoutes.js` | +4 cert routes |
+| `frontend/src/services/api.js` | +4 cert API helpers |
+| `frontend/src/pages/ScanData.jsx` | EnrollmentCard `Cert` button replaces inline status buttons; +`CertModal` (240 lines) with `CertChecklistView` + `CertSampleView` + `CertPlaybookView` sub-views |
+| `frontend/src/pages/ScanData.css` | +cert progress bar, step row, scenario grid, file preview pane, playbook layout, spinner animation |
+
+#### Manual deployment steps
+
+```bash
+cd backend && git pull && pm2 restart api-pos
+cd ../frontend && git pull && npm run build
+```
+
+No schema migration. No new permissions. No new packages. Existing enrollments unaffected — admins just see a richer Cert modal when they click the new button.
+
+---
+
+### 🎯 Scan Data Feature — Complete (Sessions 45-49)
+
+5 sessions, ~3,500 lines of new code, full retailer cert pipeline shipped. The user can now:
+
+1. **Configure** — enroll a store with each mfr feed, store SFTP creds (encrypted at rest with AES-256-GCM), tag tobacco products with brand family + funding type [Session 45]
+2. **Redeem at POS** — cashier scans/keys coupon serial, backend validates against catalog (7-rule pipeline), threshold-aware manager-PIN gate, line-item tagging persists through qty/price/promo changes [Session 46]
+3. **Submit** — nightly scheduler builds per-mfr files (ITG pipe / Altria pipe with 3 sub-feeds / RJR fixed-width with 3 programs), uploads via SFTP with retry, writes submission row [Session 47]
+4. **Reconcile** — ack poller watches `/ack/` SFTP dir OR admin pastes ack manually, parser dispatches by mfr code, reconciliation engine matches lines back to redemptions and stamps `reimbursedAt` / `rejectedAt`, email alert on rejections [Session 48]
+5. **Certify** — synthetic sample-file generator covers all 9 cert scenarios without polluting real tx data, per-enrollment 10-step progress checklist, per-mfr playbook with rejection-code reference, all in one CertModal [Session 49]
+
+What's left for the user (no more code):
+
+1. Run the deploy steps from each session in production order
+2. Run `npm i ssh2-sftp-client` once you have ITG UAT creds
+3. Open the CertModal for the ITG enrollment, generate the sample file, and email it to your ITG rep along with the cert request
+4. Walk through the playbook step-by-step. Total effort: ~30 min/day during the 2-4 week ITG cert window
+5. After ITG passes, move to Altria + RJR using the same harness
+
+The feature is production-ready as of this session.
+
+---
+
+*Last updated: April 2026 — Session 49: Cert Harness + ITG Cert Kickoff (Scan Data feature complete) — `certHarness.js` 9-scenario synthetic sample-file generator (no DB writes), `certChecklist.js` 10-step DB-derived per-enrollment progress report, `certPlaybook.js` per-mfr guides for ITG (2-4w) / Altria (4-8w/sub-feed) / RJR (3-6w/program) with documented common rejection codes, 4 new backend endpoints (sample-file / checklist / scenarios / playbook), `CertModal` in portal with 3 sub-tabs (Checklist / Sample File / Playbook) replacing prior inline status buttons, "Mark Active (Cert Pass)" footer button gated on `readyToActivate=true`. End-to-end verified: ITG sample produces 9-scenario file covering all cert paths with correct discount split (multipack/buydown/mfrCoupon buckets), checklist correctly reports 60% progress on the dev ITG enrollment with detail per step, sub-feed codes (altria_pmusa, rjr_edlp) resolve to parent playbooks. Closes the 5-session scan-data arc — full retailer cert pipeline from enrollment → POS coupon redemption → nightly mfr submission → ack reconciliation → cert pass → production active.*
+
+
+
+
+
 
 

@@ -13,6 +13,7 @@ import {
   ShieldCheck, Plus, X, Edit2, Trash2, RefreshCw, Upload as UploadIcon,
   Tag as TagIcon, Building2, ScanLine, FileText, AlertCircle,
   CheckCircle2, Clock, PauseCircle, XCircle, Lock, Eye, EyeOff,
+  BookOpen, Download, Award, Activity, Loader2,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -21,6 +22,8 @@ import {
   listProductMappings, upsertProductMapping, bulkUpsertProductMappings, deleteProductMapping,
   listTobaccoProducts,
   listScanDataSubmissions, getScanDataSubmissionStats,
+  getSubmissionAckLines, processSubmissionAck, regenerateScanDataSubmission,
+  generateCertSampleFile, getEnrollmentCertChecklist, getCertPlaybookByMfr,
   listManufacturerCoupons, createManufacturerCoupon, deleteManufacturerCoupon,
   importCouponsCsvData, getCouponRedemptionStats,
   getStores,
@@ -160,6 +163,7 @@ function EnrollmentsTab({ manufacturers, stores }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [editing, setEditing] = useState(null); // { storeId, manufacturerId, ...existing }
+  const [certingEnrollment, setCertingEnrollment] = useState(null); // an existing enrollment row to walk cert for
 
   const refresh = useCallback(async () => {
     try {
@@ -255,6 +259,7 @@ function EnrollmentsTab({ manufacturers, stores }) {
                           toast.error(err?.response?.data?.error || err.message);
                         }
                       }}
+                      onOpenCert={() => setCertingEnrollment({ ...e, manufacturer: mfr })}
                     />
                   );
                 })}
@@ -274,11 +279,19 @@ function EnrollmentsTab({ manufacturers, stores }) {
           }}
         />
       )}
+
+      {certingEnrollment && (
+        <CertModal
+          enrollment={certingEnrollment}
+          onClose={() => setCertingEnrollment(null)}
+          onChanged={() => { setCertingEnrollment(null); refresh(); }}
+        />
+      )}
     </div>
   );
 }
 
-function EnrollmentCard({ mfr, enrollment, status, onEdit, onStatusChange }) {
+function EnrollmentCard({ mfr, enrollment, status, onEdit, onStatusChange, onOpenCert }) {
   const badge = STATUS_BADGES[status] || { label: 'Not enrolled', color: '#94a3b8', icon: Plus };
   const Icon = badge.icon;
   return (
@@ -316,11 +329,10 @@ function EnrollmentCard({ mfr, enrollment, status, onEdit, onStatusChange }) {
         <button className="sd-btn-secondary sd-btn-sm" onClick={onEdit}>
           {enrollment ? <><Edit2 size={12} /> Edit</> : <><Plus size={12} /> Enroll</>}
         </button>
-        {enrollment && status === 'draft' && (
-          <button className="sd-btn-link" onClick={() => onStatusChange('certifying')}>Start Cert</button>
-        )}
-        {enrollment && status === 'certifying' && (
-          <button className="sd-btn-link" onClick={() => onStatusChange('active')}>Mark Active</button>
+        {enrollment && (
+          <button className="sd-btn-link" onClick={onOpenCert}>
+            <Award size={12} /> Cert
+          </button>
         )}
         {enrollment && status === 'active' && (
           <button className="sd-btn-link sd-btn-warn" onClick={() => onStatusChange('suspended')}>Suspend</button>
@@ -761,6 +773,321 @@ function ProductMappingsModal({ product, manufacturers, onClose, onSaved }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   CERT MODAL (Session 49)
+   Per-enrollment cert harness — checklist + sample-file generator + playbook.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const STEP_ICON = {
+  done:    { icon: CheckCircle2, color: '#16a34a', bg: 'rgba(22, 163, 74, 0.10)' },
+  warning: { icon: AlertCircle,  color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.10)' },
+  pending: { icon: Clock,        color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.10)' },
+};
+
+function CertModal({ enrollment, onClose, onChanged }) {
+  const [tab, setTab]         = useState('checklist'); // 'checklist' | 'sample' | 'playbook'
+  const [checklist, setChecklist] = useState(null);
+  const [playbook, setPlaybook]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [err, setErr]             = useState(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [cRes, pRes] = await Promise.all([
+        getEnrollmentCertChecklist(enrollment.id),
+        getCertPlaybookByMfr(enrollment.manufacturer.code).catch(() => ({ data: null })),
+      ]);
+      setChecklist(cRes.data);
+      setPlaybook(pRes.data);
+      setErr(null);
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [enrollment.id, enrollment.manufacturer.code]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const advanceStatus = async (newStatus) => {
+    try {
+      await updateEnrollmentStatus(enrollment.id, newStatus);
+      toast.success(`Status changed to ${newStatus}`);
+      onChanged?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.error || e.message);
+    }
+  };
+
+  return (
+    <div className="sd-modal-backdrop" onClick={onClose}>
+      <div className="sd-modal sd-modal--wide" onClick={(e) => e.stopPropagation()}>
+        <div className="sd-modal-head">
+          <h3>
+            <Award size={18} style={{ verticalAlign: '-3px', marginRight: '6px' }} />
+            Cert — {enrollment.manufacturer.name}
+          </h3>
+          <button className="sd-icon-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div className="sd-modal-body">
+          {loading ? (
+            <div className="sd-loading">Loading cert state…</div>
+          ) : err ? (
+            <div className="sd-error"><AlertCircle size={16} /><span>{err}</span></div>
+          ) : checklist ? (
+            <>
+              {/* Progress strip */}
+              <div className="sd-cert-progress">
+                <div className="sd-cert-progress-bar">
+                  <div className="sd-cert-progress-fill" style={{ width: `${checklist.overallProgress}%` }} />
+                </div>
+                <div className="sd-cert-progress-meta">
+                  <span><strong>{checklist.overallProgress}%</strong> ready</span>
+                  <span>·</span>
+                  <span>Status: <span className={`sd-sub-status sd-sub-status--${checklist.enrollment.status}`}>{checklist.enrollment.status}</span></span>
+                  <span>·</span>
+                  <span>Mappings: <strong>{checklist.stats.mappingCount}</strong></span>
+                  <span>·</span>
+                  <span>Brands: <strong>{checklist.stats.brandFamiliesCovered}/{checklist.stats.brandFamiliesAvailable}</strong></span>
+                </div>
+              </div>
+
+              {/* Sub-tabs */}
+              <div className="sd-tabs" style={{ marginTop: '0.75rem' }}>
+                <button
+                  className={`sd-tab ${tab === 'checklist' ? 'sd-tab--active' : ''}`}
+                  onClick={() => setTab('checklist')}
+                ><Activity size={14} /> Checklist</button>
+                <button
+                  className={`sd-tab ${tab === 'sample' ? 'sd-tab--active' : ''}`}
+                  onClick={() => setTab('sample')}
+                ><Download size={14} /> Sample File</button>
+                <button
+                  className={`sd-tab ${tab === 'playbook' ? 'sd-tab--active' : ''}`}
+                  onClick={() => setTab('playbook')}
+                ><BookOpen size={14} /> Playbook</button>
+              </div>
+
+              {tab === 'checklist' && (
+                <CertChecklistView checklist={checklist} onRefresh={refresh} onAdvance={advanceStatus} />
+              )}
+              {tab === 'sample' && (
+                <CertSampleView enrollment={enrollment} onSampleGenerated={refresh} />
+              )}
+              {tab === 'playbook' && (
+                <CertPlaybookView playbook={playbook} mfrCode={enrollment.manufacturer.code} />
+              )}
+            </>
+          ) : null}
+        </div>
+
+        <div className="sd-modal-foot">
+          {checklist?.readyToActivate && checklist.enrollment.status !== 'active' && (
+            <button className="sd-btn-primary" onClick={() => advanceStatus('active')}>
+              <Award size={14} /> Mark Active (Cert Pass)
+            </button>
+          )}
+          {checklist?.enrollment.status === 'draft' && (
+            <button className="sd-btn-secondary" onClick={() => advanceStatus('certifying')}>
+              Start Cert
+            </button>
+          )}
+          <button className="sd-btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertChecklistView({ checklist, onRefresh, onAdvance }) {
+  return (
+    <div className="sd-cert-steps">
+      {checklist.steps.map((step) => {
+        const cfg = STEP_ICON[step.status] || STEP_ICON.pending;
+        const Icon = cfg.icon;
+        return (
+          <div key={step.key} className="sd-cert-step" style={{ borderLeftColor: cfg.color }}>
+            <div className="sd-cert-step-icon" style={{ background: cfg.bg, color: cfg.color }}>
+              <Icon size={16} />
+            </div>
+            <div className="sd-cert-step-body">
+              <div className="sd-cert-step-label">{step.label}</div>
+              {step.detail && <div className="sd-cert-step-detail">{step.detail}</div>}
+              {step.action && (
+                <div className="sd-cert-step-hint">
+                  <strong>{step.action.label}:</strong> {step.action.hint}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+        <button className="sd-btn-secondary sd-btn-sm" onClick={onRefresh}>
+          <RefreshCw size={12} /> Re-check
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CertSampleView({ enrollment, onSampleGenerated }) {
+  const [sample, setSample]     = useState(null);
+  const [generating, setGen]    = useState(false);
+  const [err, setErr]           = useState(null);
+
+  const generate = async () => {
+    setGen(true);
+    setErr(null);
+    try {
+      const res = await generateCertSampleFile({
+        manufacturerId: enrollment.manufacturerId,
+      });
+      setSample(res.data);
+      onSampleGenerated?.();
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message);
+    } finally {
+      setGen(false);
+    }
+  };
+
+  const download = () => {
+    if (!sample) return;
+    const blob = new Blob([sample.body], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = sample.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="sd-cert-sample">
+      <p className="sd-form-hint">
+        Builds a representative sample file in-memory covering all 9 cert scenarios — single sale, multi-qty, multipack-promo, mfr coupon, void, refund, age-verified, mixed-line, buydown-funded.
+        No real transaction data is touched. Use this file as your first UAT submission to the manufacturer.
+      </p>
+
+      {err && <div className="sd-error"><AlertCircle size={14} /><span>{err}</span></div>}
+
+      <div style={{ marginTop: '0.75rem' }}>
+        <button className="sd-btn-primary" onClick={generate} disabled={generating}>
+          {generating ? <><Loader2 size={14} className="sd-spin" /> Generating…</> : <><Download size={14} /> Generate Sample File</>}
+        </button>
+      </div>
+
+      {sample && (
+        <>
+          <div className="sd-stats-grid" style={{ marginTop: '1rem' }}>
+            <StatCard label="Transactions" value={sample.txCount} />
+            <StatCard label="Line Items" value={sample.lineCount} />
+            <StatCard label="Coupon Lines" value={sample.couponCount} />
+            <StatCard label="Net Total" value={`$${Number(sample.totalAmount || 0).toFixed(2)}`} />
+          </div>
+
+          {sample.warnings?.length > 0 && sample.warnings.map((w, i) => (
+            <div key={i} className="sd-banner sd-banner--warn" style={{ marginTop: '0.6rem' }}>
+              <AlertCircle size={14} /><span>{w}</span>
+            </div>
+          ))}
+
+          <div className="sd-form-section-label">Cert Scenario Coverage</div>
+          <div className="sd-cert-scenarios">
+            {sample.scenarios.map((s) => {
+              const cfg = STEP_ICON[s.included ? 'done' : 'pending'];
+              const Icon = cfg.icon;
+              return (
+                <div key={s.key} className="sd-cert-scenario" style={{ borderLeftColor: cfg.color }}>
+                  <Icon size={14} style={{ color: cfg.color }} />
+                  <span>{s.label}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="sd-form-section-label">File Preview</div>
+          <pre className="sd-cert-file-preview">
+            {sample.body.slice(0, 4000)}{sample.body.length > 4000 ? '\n…(truncated)' : ''}
+          </pre>
+
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+            <button className="sd-btn-secondary" onClick={generate} disabled={generating}>
+              <RefreshCw size={14} /> Re-generate
+            </button>
+            <button className="sd-btn-primary" onClick={download}>
+              <Download size={14} /> Download .{sample.manufacturer.fileExtension || 'txt'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CertPlaybookView({ playbook, mfrCode }) {
+  if (!playbook) {
+    return (
+      <div className="sd-empty">
+        <BookOpen size={28} />
+        <h3>No playbook for {mfrCode}</h3>
+        <p>Cert playbooks exist for ITG, Altria (PMUSA/USSTC/Middleton), and RJR (EDLP/ScanData/VAP).</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sd-cert-playbook">
+      <p className="sd-cert-playbook-overview">{playbook.overview}</p>
+
+      <div className="sd-cert-playbook-meta">
+        <div><strong>Estimated duration:</strong> {playbook.estimatedDuration}</div>
+        <div><strong>Contact path:</strong> {playbook.contactPath}</div>
+      </div>
+
+      <div className="sd-form-section-label">Cert Steps</div>
+      <ol className="sd-cert-playbook-steps">
+        {playbook.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+
+      {playbook.commonRejects?.length > 0 && (
+        <>
+          <div className="sd-form-section-label">Common Rejection Codes</div>
+          <div className="sd-table-wrap">
+            <table className="sd-table">
+              <thead>
+                <tr><th>Code</th><th>Meaning</th><th>Fix</th></tr>
+              </thead>
+              <tbody>
+                {playbook.commonRejects.map((r, i) => (
+                  <tr key={i}>
+                    <td><code>{r.code}</code></td>
+                    <td>{r.meaning}</td>
+                    <td>{r.fix}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {playbook.notes && (
+        <div className="sd-info-banner" style={{ marginTop: '1rem' }}>
+          <FileText size={14} /><span>{playbook.notes}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════
    COUPONS TAB
    Catalog list + create + CSV import. POS redemption flow ships in S46.
    ═══════════════════════════════════════════════════════════════════════ */
@@ -1092,6 +1419,7 @@ function SubmissionsTab({ manufacturers, stores }) {
   const [submissions, setSubmissions] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [detailFor, setDetailFor] = useState(null); // submission row being inspected
 
   const refresh = useCallback(async () => {
     try {
@@ -1122,13 +1450,13 @@ function SubmissionsTab({ manufacturers, stores }) {
         </div>
       )}
 
-      <div className="sd-info-banner">
-        <FileText size={16} />
-        <span>
-          Daily file generation + SFTP submission + ack processing ships in <strong>Session 47</strong>.
-          Once enabled, every active enrollment will produce a file at the configured submission hour
-          (default 2am store-local) and you'll see one row per (store × manufacturer × date) here.
+      <div className="sd-tab-toolbar">
+        <span className="sd-toolbar-info">
+          Click any row to inspect line-by-line ack details, paste a manufacturer ack file for reconciliation, or download the original submission.
         </span>
+        <button className="sd-btn-secondary" onClick={refresh}>
+          <RefreshCw size={14} /> Refresh
+        </button>
       </div>
 
       {loading ? (
@@ -1137,7 +1465,7 @@ function SubmissionsTab({ manufacturers, stores }) {
         <div className="sd-empty">
           <FileText size={28} />
           <h3>No submissions yet</h3>
-          <p>The submission scheduler is queued for Session 47. Until then this tab shows manual replays only.</p>
+          <p>Once at least one enrollment is in <strong>certifying</strong> or <strong>active</strong> state, the nightly scheduler will produce a file per (store × manufacturer × date) here. You can also use <code>POST /scan-data/submissions/regenerate</code> to manually create one for any date range.</p>
         </div>
       ) : (
         <div className="sd-table-wrap">
@@ -1149,20 +1477,28 @@ function SubmissionsTab({ manufacturers, stores }) {
                 <th>Manufacturer</th>
                 <th>File</th>
                 <th>Tx</th>
-                <th>Coupons</th>
+                <th>Lines (✓ / ✗)</th>
                 <th>Status</th>
                 <th>Acknowledged</th>
               </tr>
             </thead>
             <tbody>
               {submissions.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className="sd-table-row-clickable" onClick={() => setDetailFor(s)}>
                   <td>{fmtDate(s.submissionDate)}</td>
                   <td>{stores.find((st) => st.id === s.storeId)?.name || s.storeId}</td>
                   <td>{s.manufacturer?.shortName}</td>
                   <td><code>{s.fileName}</code></td>
                   <td>{s.txCount}</td>
-                  <td>{s.couponCount}</td>
+                  <td>
+                    {(s.acceptedCount > 0 || s.rejectedCount > 0)
+                      ? <>
+                          <span style={{ color: '#16a34a', fontWeight: 600 }}>{s.acceptedCount}</span>
+                          {' / '}
+                          <span style={{ color: '#dc2626', fontWeight: 600 }}>{s.rejectedCount}</span>
+                        </>
+                      : '—'}
+                  </td>
                   <td><span className={`sd-sub-status sd-sub-status--${s.status}`}>{s.status}</span></td>
                   <td>{s.ackedAt ? fmtDateTime(s.ackedAt) : '—'}</td>
                 </tr>
@@ -1171,6 +1507,197 @@ function SubmissionsTab({ manufacturers, stores }) {
           </table>
         </div>
       )}
+
+      {detailFor && (
+        <SubmissionDetailModal
+          submissionRow={detailFor}
+          onClose={() => setDetailFor(null)}
+          onChanged={() => { setDetailFor(null); refresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SUBMISSION DETAIL MODAL (Session 48)
+   Per-line ack status + manual ack paste + download.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function SubmissionDetailModal({ submissionRow, onClose, onChanged }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr]         = useState(null);
+  const [ackText, setAckText] = useState('');
+  const [pasting, setPasting] = useState(false);
+  const [filter, setFilter]   = useState('all'); // 'all' | 'accepted' | 'rejected' | 'warning'
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const res = await getSubmissionAckLines(submissionRow.id);
+        if (cancelled) return;
+        setData(res.data);
+      } catch (e) {
+        if (cancelled) return;
+        setErr(e?.response?.data?.error || e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [submissionRow.id]);
+
+  const submitAck = async () => {
+    if (!ackText.trim()) {
+      toast.warn('Paste the ack file contents first.');
+      return;
+    }
+    setPasting(true);
+    try {
+      const res = await processSubmissionAck(submissionRow.id, {
+        ackContent: ackText,
+        fileName:   `manual-${Date.now()}`,
+      });
+      const r = res.data || {};
+      toast.success(
+        `Ack processed — ${r.acceptedCount || 0} accepted, ${r.rejectedCount || 0} rejected ` +
+        `(${r.redemptionsAccepted || 0} reimbursed, ${r.redemptionsRejected || 0} flagged).`
+      );
+      setAckText('');
+      onChanged?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.error || e.message);
+    } finally {
+      setPasting(false);
+    }
+  };
+
+  const filteredLines = useMemo(() => {
+    if (!data) return [];
+    if (filter === 'all') return data.ackLines;
+    return data.ackLines.filter((l) => l.status === filter);
+  }, [data, filter]);
+
+  return (
+    <div className="sd-modal-backdrop" onClick={onClose}>
+      <div className="sd-modal sd-modal--wide" onClick={(e) => e.stopPropagation()}>
+        <div className="sd-modal-head">
+          <h3>Submission Detail — {submissionRow.fileName}</h3>
+          <button className="sd-icon-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="sd-modal-body">
+          {loading ? (
+            <div className="sd-loading">Loading ack details…</div>
+          ) : err ? (
+            <div className="sd-error"><AlertCircle size={16} /><span>{err}</span></div>
+          ) : data ? (
+            <>
+              <div className="sd-modal-info">
+                <span><strong>Manufacturer:</strong> {data.submission.manufacturer?.name}</span>
+                <span><strong>Period:</strong> {fmtDate(data.submission.periodStart)} – {fmtDate(data.submission.periodEnd)}</span>
+                <span><strong>Status:</strong> <span className={`sd-sub-status sd-sub-status--${data.submission.status}`}>{data.submission.status}</span></span>
+                {data.submission.errorMessage && (
+                  <span><strong>Error:</strong> <em>{data.submission.errorMessage}</em></span>
+                )}
+              </div>
+
+              <div className="sd-stats-grid" style={{ marginBottom: '1rem' }}>
+                <StatCard label="Tx Submitted"       value={data.submission.txCount} />
+                <StatCard label="Coupon Redemptions" value={data.submission.couponCount} />
+                <StatCard label="Lines Accepted"     value={data.submission.acceptedCount || 0} />
+                <StatCard label="Lines Rejected"     value={data.submission.rejectedCount || 0} />
+              </div>
+
+              <div className="sd-form-section-label">Manufacturer Ack File</div>
+              {data.ackLines.length === 0 ? (
+                <>
+                  <p className="sd-form-hint">
+                    No ack received yet. The SFTP poller checks the manufacturer's <code>/ack/</code> directory every 30 minutes.
+                    During cert (when mfrs deliver acks via email/portal instead of SFTP), paste the ack file contents below to run reconciliation manually.
+                  </p>
+                  <textarea
+                    className="sd-search"
+                    style={{ width: '100%', minHeight: '160px', fontFamily: 'monospace', fontSize: '0.78rem' }}
+                    placeholder="Paste the manufacturer ack file contents here…"
+                    value={ackText}
+                    onChange={(e) => setAckText(e.target.value)}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                    <button className="sd-btn-primary" onClick={submitAck} disabled={pasting || !ackText.trim()}>
+                      {pasting ? 'Processing…' : 'Process Ack'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="sd-tab-toolbar" style={{ marginBottom: '0.5rem' }}>
+                    <span className="sd-toolbar-info">
+                      {data.ackLines.length} line{data.ackLines.length === 1 ? '' : 's'} ·
+                      Filter:
+                    </span>
+                    {['all', 'accepted', 'rejected', 'warning'].map((f) => (
+                      <button
+                        key={f}
+                        className={`sd-btn-link ${filter === f ? 'sd-btn-link--active' : ''}`}
+                        onClick={() => setFilter(f)}
+                      >
+                        {f === 'all' ? 'All' :
+                          f === 'accepted' ? `Accepted (${data.ackLines.filter(l => l.status === 'accepted').length})` :
+                          f === 'rejected' ? `Rejected (${data.ackLines.filter(l => l.status === 'rejected').length})` :
+                          `Warning (${data.ackLines.filter(l => l.status === 'warning').length})`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="sd-table-wrap">
+                    <table className="sd-table">
+                      <thead>
+                        <tr>
+                          <th>Tx #</th>
+                          <th>UPC</th>
+                          <th>Status</th>
+                          <th>Code</th>
+                          <th>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLines.map((line, i) => (
+                          <tr key={`${line.recordRef}-${i}`}>
+                            <td><code>{line.txNumber || '—'}</code></td>
+                            <td><code>{line.upc || '—'}</code></td>
+                            <td>
+                              <span className={`sd-sub-status sd-sub-status--${line.status === 'accepted' ? 'acknowledged' : line.status === 'rejected' ? 'rejected' : 'queued'}`}>
+                                {line.status}
+                              </span>
+                            </td>
+                            <td>{line.code ? <code>{line.code}</code> : '—'}</td>
+                            <td>{line.reason || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          ) : null}
+        </div>
+        <div className="sd-modal-foot">
+          {data && (
+            <a
+              className="sd-btn-secondary"
+              href={`/api/scan-data/submissions/${submissionRow.id}/download`}
+              download={data.submission.fileName}
+            >
+              Download Submission File
+            </a>
+          )}
+          <button className="sd-btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }

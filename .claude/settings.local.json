@@ -120,7 +120,10 @@
       "Bash(tasklist /FI \"IMAGENAME eq node.exe\")",
       "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
       "Bash(break)",
-      "Bash(taskkill //PID 11480 //F)"
+      "Bash(taskkill //PID 11480 //F)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('package.json'\\)\\); print\\('name:', d['name']\\); print\\('type:', d.get\\('type'\\)\\); print\\('main:', d.get\\('main'\\)\\); print\\('scripts:', list\\(d.get\\('scripts', {}\\).keys\\(\\)\\)\\); print\\('node engines:', d.get\\('engines'\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('package.json'\\)\\); deps={**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}; types=[k for k in deps if k.startswith\\('@types/'\\)]; print\\('\\\\n'.join\\(sorted\\(types\\)\\) if types else 'none'\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('package.json'\\)\\); deps=d.get\\('dependencies',{}\\); print\\('\\\\n'.join\\([k for k in sorted\\(deps\\) if not k.startswith\\('@'\\)][:25]\\)\\)\")"
     ]
   }
 }
