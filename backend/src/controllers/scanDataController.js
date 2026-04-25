@@ -23,6 +23,11 @@ import prisma from '../config/postgres.js';
 import { encrypt, mask } from '../utils/cryptoVault.js';
 import { generateSubmission, generateForStore } from '../services/scanData/generator.js';
 import { testConnection } from '../services/scanData/sftpService.js';
+import { parseAck as parseAckByMfr } from '../services/scanData/ackParsers/index.js';
+import { reconcileAck } from '../services/scanData/reconciliation.js';
+import { generateSampleFile, CERT_SCENARIOS } from '../services/scanData/certHarness.js';
+import { getChecklist as getCertChecklist } from '../services/scanData/certChecklist.js';
+import { getPlaybook, listAvailablePlaybooks } from '../services/scanData/certPlaybook.js';
 
 const getOrgId = (req) => req.orgId || req.user?.orgId;
 
@@ -520,6 +525,180 @@ export const downloadSubmission = async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+};
+
+// ── POST /scan-data/submissions/:id/process-ack (manager+ via scan_data.submit) ──
+//
+// Manual ack reconciliation. Two body shapes supported:
+//   { ackContent: "<raw text>", fileName?: "STORV-001_20260424.csv.ack" }
+//     → parse with the manufacturer's parser, run reconciliation
+//   { ackLines: [{ recordRef, status, reason?, code?, ... }] }
+//     → already-parsed structure, skip parser, run reconciliation directly
+//
+// Use case: during cert, mfrs often deliver ack files via email or web
+// portal rather than SFTP. Admins paste the file body here to drive the
+// same reconciliation flow as the automated SFTP poller.
+export const processSubmissionAck = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const { ackContent, fileName, ackLines } = req.body || {};
+    if (!ackContent && !Array.isArray(ackLines)) {
+      return res.status(400).json({ success: false, error: 'ackContent (raw text) or ackLines (parsed array) is required.' });
+    }
+
+    const submission = await prisma.scanDataSubmission.findFirst({
+      where: { id, orgId },
+      include: { manufacturer: true },
+    });
+    if (!submission) return res.status(404).json({ success: false, error: 'Submission not found' });
+
+    let parsed;
+    if (Array.isArray(ackLines)) {
+      // Pre-parsed shape — assume the caller knows what they're doing
+      const accepted = ackLines.filter(l => l.status === 'accepted').length;
+      const rejected = ackLines.filter(l => l.status === 'rejected').length;
+      const warning  = ackLines.filter(l => l.status === 'warning').length;
+      parsed = {
+        mfrCode: submission.manufacturer.code,
+        fileName: fileName || null,
+        processedAt: new Date(),
+        summary: { acceptedCount: accepted, rejectedCount: rejected, warningCount: warning },
+        lines: ackLines,
+        parseErrors: [],
+      };
+    } else {
+      parsed = parseAckByMfr({
+        mfrCode:  submission.manufacturer.code,
+        content:  ackContent,
+        fileName: fileName || null,
+      });
+    }
+
+    const result = await reconcileAck({ submission, ack: parsed });
+    res.json({ success: true, data: { ...result, parseErrors: parsed.parseErrors } });
+  } catch (err) {
+    console.error('[scanData] processSubmissionAck failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /scan-data/submissions/:id/ack-lines (manager+ via scan_data.view) ──
+//
+// Fetches the ackLines JSON for a submission so the portal SubmissionDetailModal
+// can render the per-line status table. Returns the raw array; UI filters/sorts
+// client-side.
+export const getSubmissionAckLines = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { id } = req.params;
+    const submission = await prisma.scanDataSubmission.findFirst({
+      where: { id, orgId },
+      include: { manufacturer: { select: { id: true, code: true, name: true, shortName: true } } },
+    });
+    if (!submission) return res.status(404).json({ success: false, error: 'Submission not found' });
+    res.json({
+      success: true,
+      data: {
+        submission: {
+          id:             submission.id,
+          fileName:       submission.fileName,
+          status:         submission.status,
+          ackedAt:        submission.ackedAt,
+          acceptedCount:  submission.acceptedCount,
+          rejectedCount:  submission.rejectedCount,
+          txCount:        submission.txCount,
+          couponCount:    submission.couponCount,
+          totalAmount:    submission.totalAmount,
+          periodStart:    submission.periodStart,
+          periodEnd:      submission.periodEnd,
+          uploadedAt:     submission.uploadedAt,
+          errorMessage:   submission.errorMessage,
+          manufacturer:   submission.manufacturer,
+        },
+        ackLines: Array.isArray(submission.ackLines) ? submission.ackLines : [],
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── POST /scan-data/cert/sample-file (manager+ via scan_data.submit) ──────
+//
+// Builds a representative sample file for cert in-memory and returns the
+// file body + scenario coverage report. NO DB writes — synthetic
+// transactions never pollute real tx history.
+//
+// Body: { manufacturerId, periodStart? }
+// Returns: {
+//   manufacturer: { code, name, ... },
+//   filename:  suggested filename for the mfr UAT submission,
+//   body:      the raw file contents as a string,
+//   scenarios: [{ key, label, included }] — coverage report,
+//   txCount, lineCount, couponCount, totalAmount,
+//   warnings:  string[] — soft warnings (e.g. "no real product mappings yet")
+// }
+export const generateCertSampleFile = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { manufacturerId, periodStart } = req.body || {};
+    if (!manufacturerId) return res.status(400).json({ success: false, error: 'manufacturerId is required' });
+
+    const result = await generateSampleFile({ orgId, manufacturerId, periodStart });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('[scanData] generateCertSampleFile failed:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /scan-data/cert/checklist?enrollmentId=... (manager+ via scan_data.view) ──
+//
+// Derives the cert progress for a given enrollment from the DB. Used by
+// the portal CertModal to render the green/amber/grey step list.
+export const getEnrollmentCertChecklist = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { enrollmentId } = req.query;
+    if (!enrollmentId) return res.status(400).json({ success: false, error: 'enrollmentId is required' });
+
+    const checklist = await getCertChecklist({ orgId, enrollmentId });
+    res.json({ success: true, data: checklist });
+  } catch (err) {
+    console.error('[scanData] getEnrollmentCertChecklist failed:', err);
+    res.status(err.message === 'Enrollment not found' ? 404 : 500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /scan-data/cert/playbook/:mfrCode (manager+ via scan_data.view) ───
+//
+// Returns the per-mfr cert guide content. Sub-feeds (altria_pmusa, rjr_edlp,
+// etc.) all return their parent's playbook since cert is conducted at the
+// parent-mfr level.
+export const getCertPlaybook = async (req, res) => {
+  try {
+    const { mfrCode } = req.params;
+    const playbook = getPlaybook(mfrCode);
+    if (!playbook) {
+      return res.status(404).json({
+        success: false,
+        error: `No playbook for manufacturer code: ${mfrCode}`,
+        available: listAvailablePlaybooks(),
+      });
+    }
+    res.json({ success: true, data: playbook });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── GET /scan-data/cert/scenarios (manager+ via scan_data.view) ───────────
+//
+// Returns the canonical list of cert scenarios the harness covers. The
+// CertModal uses this for the "scenarios covered" checklist.
+export const getCertScenarios = async (req, res) => {
+  res.json({ success: true, data: { scenarios: CERT_SCENARIOS } });
 };
 
 // ── POST /scan-data/enrollments/:id/test-connection (owner+ via scan_data.enroll) ──

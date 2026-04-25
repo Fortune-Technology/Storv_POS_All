@@ -339,6 +339,49 @@ export async function sendSettlementDisputed(to, { amount, method, reason }) {
   return sendMail(to, `[Exchange] Settlement disputed (${money(amount)})`, html);
 }
 
+// ─── Scan Data ack rejection (Session 48) ──────────────────────────────────
+export async function sendScanDataAckRejection(to, {
+  manufacturerName, fileName, periodStart, periodEnd,
+  acceptedCount, rejectedCount, sampleRejected = [],
+}) {
+  const url = `${PORTAL_URL()}/portal/scan-data?tab=submissions`;
+  const sampleHtml = sampleRejected.length === 0 ? '' : `
+    <p style="margin-top:16px"><strong>First rejected lines:</strong></p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px">
+      <thead>
+        <tr style="background:#f8fafc">
+          <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e8f0">Tx #</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e8f0">UPC</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid #e2e8f0">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${sampleRejected.map(l => `
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid #f1f5f9">${escapeHtml(l.txNumber)}</td>
+            <td style="padding:8px;border-bottom:1px solid #f1f5f9">${escapeHtml(l.upc)}</td>
+            <td style="padding:8px;border-bottom:1px solid #f1f5f9;color:#991b1b">
+              ${escapeHtml(l.code ? `[${l.code}] ` : '')}${escapeHtml(l.reason || 'No reason given')}
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+  const periodStr = `${new Date(periodStart).toLocaleDateString()} – ${new Date(periodEnd).toLocaleDateString()}`;
+  const html = wrap('Scan-data submission rejected lines', `
+    <h2>${escapeHtml(manufacturerName || 'Manufacturer')} flagged ${rejectedCount} rejected line${rejectedCount === 1 ? '' : 's'}</h2>
+    <p>Your scan-data submission for ${escapeHtml(periodStr)} came back from <strong>${escapeHtml(manufacturerName || 'the manufacturer')}</strong> with rejected lines.</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:6px 0;color:#64748b">File</td><td style="padding:6px 0;font-family:monospace">${escapeHtml(fileName || '—')}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Accepted</td><td style="padding:6px 0;color:#16a34a"><strong>${acceptedCount}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Rejected</td><td style="padding:6px 0;color:#dc2626"><strong>${rejectedCount}</strong></td></tr>
+    </table>
+    ${sampleHtml}
+    <p style="text-align:center;margin-top:24px"><a class="btn" href="${url}">Review submission</a></p>
+    <p class="muted">Rejected lines won't be reimbursed. Fix the underlying data and resubmit through the back-office.</p>
+  `);
+  return sendMail(to, `[Storeveu] ${rejectedCount} scan-data line${rejectedCount === 1 ? '' : 's'} rejected — ${manufacturerName || 'mfr'}`, html);
+}
+
 // Minimal HTML escape for template interpolation
 function escapeHtml(s) {
   if (s == null) return '';

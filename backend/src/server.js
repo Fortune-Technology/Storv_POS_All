@@ -63,6 +63,7 @@ import { startShiftScheduler }  from './services/shiftScheduler.js';
 import { startLoyaltyScheduler } from './services/loyaltyScheduler.js';
 import { startPendingMoveScheduler } from './services/lottery/index.js';
 import { startScanDataScheduler } from './services/scanData/scanDataScheduler.js';
+import { startAckPoller } from './services/scanData/ackPoller.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
 dotenv.config();
@@ -216,6 +217,7 @@ const startServer = async () => {
   startLoyaltyScheduler();
   startPendingMoveScheduler();
   startScanDataScheduler();
+  startAckPoller();
 
   // Recurring task spawner — checks every 15 minutes for tasks due
   setInterval(() => spawnRecurringTasks().catch(() => {}), 15 * 60 * 1000);

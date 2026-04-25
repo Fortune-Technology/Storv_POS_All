@@ -684,6 +684,15 @@ export const deleteProductMapping       = (id)             => api.delete(`/scan-
 export const listTobaccoProducts        = (params)         => api.get('/scan-data/tobacco-products', { params }).then(r => r.data);
 export const listScanDataSubmissions    = (params)         => api.get('/scan-data/submissions', { params }).then(r => r.data);
 export const getScanDataSubmissionStats = (params)         => api.get('/scan-data/submissions/stats', { params }).then(r => r.data);
+// Session 48 — ack reconciliation
+export const getSubmissionAckLines      = (id)             => api.get(`/scan-data/submissions/${id}/ack-lines`).then(r => r.data);
+export const processSubmissionAck       = (id, body)       => api.post(`/scan-data/submissions/${id}/process-ack`, body).then(r => r.data);
+export const regenerateScanDataSubmission = (body)         => api.post('/scan-data/submissions/regenerate', body).then(r => r.data);
+// Session 49 — cert harness
+export const generateCertSampleFile       = (body)         => api.post('/scan-data/cert/sample-file', body).then(r => r.data);
+export const getEnrollmentCertChecklist   = (enrollmentId) => api.get('/scan-data/cert/checklist', { params: { enrollmentId } }).then(r => r.data);
+export const getCertScenarios             = ()             => api.get('/scan-data/cert/scenarios').then(r => r.data);
+export const getCertPlaybookByMfr         = (mfrCode)      => api.get(`/scan-data/cert/playbook/${mfrCode}`).then(r => r.data);
 
 // ── Manufacturer Coupons (Session 45) ───────────────────────────────────────
 export const listManufacturerCoupons    = (params)         => api.get('/coupons', { params }).then(r => r.data);
