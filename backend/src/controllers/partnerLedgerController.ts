@@ -9,26 +9,39 @@
  *                      zero     = settled
  *
  * Settlements have a 7-day dispute window. After that they're locked in
- * ("accepted"). Either party can dispute within the window. Disputes must
- * be resolved manually by one party marking resolved.
+ * ("accepted"). Either party can dispute within the window.
  */
 
+import type { Request, Response } from 'express';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import {
   sendSettlementRecorded, sendSettlementDisputed, sendSettlementConfirmed,
 } from '../services/emailService.js';
 
-const getStoreId = (req) => req.headers['x-store-id'] || req.storeId || req.query.storeId;
+type TxClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
-function canonPair(a, b) {
+const getStoreId = (req: Request): string | undefined =>
+  (req.headers['x-store-id'] as string | undefined) || req.storeId || (req.query.storeId as string | undefined);
+
+interface CanonPair {
+  storeAId: string;
+  storeBId: string;
+  swapped: boolean;
+}
+
+function canonPair(a: string, b: string): CanonPair {
   return a < b ? { storeAId: a, storeBId: b, swapped: false } : { storeAId: b, storeBId: a, swapped: true };
 }
 
-/** Convert canonical `balance` (positive = B owes A) into a signed value from
- *  the caller's perspective. */
-function balanceFromPerspective(canonical, myStoreId) {
-  // if myStoreId === storeAId: positive balance = partner(B) owes me → return +balance
-  // if myStoreId === storeBId: positive balance = I owe partner(A) → return -balance
+interface CanonicalBalance {
+  storeAId: string;
+  storeBId: string;
+  balance: Prisma.Decimal | number;
+}
+
+/** Convert canonical `balance` into a signed value from caller's perspective. */
+function balanceFromPerspective(canonical: CanonicalBalance, myStoreId: string): number {
   return canonical.storeAId === myStoreId ? Number(canonical.balance) : -Number(canonical.balance);
 }
 
@@ -37,10 +50,10 @@ function balanceFromPerspective(canonical, myStoreId) {
 // ═══════════════════════════════════════════════════════════════
 
 /** GET /api/exchange/balances  → list of all my partner balances */
-export const listBalances = async (req, res) => {
+export const listBalances = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
 
     const rows = await prisma.partnerBalance.findMany({
       where: { OR: [{ storeAId: storeId }, { storeBId: storeId }] },
@@ -53,9 +66,11 @@ export const listBalances = async (req, res) => {
       orderBy: { lastActivityAt: 'desc' },
     });
 
-    const annotated = rows.map((r) => {
+    type RowWithStores = (typeof rows)[number];
+
+    const annotated = rows.map((r: RowWithStores) => {
       const partner = r.storeAId === storeId ? r.storeB : r.storeA;
-      const netBalance = balanceFromPerspective(r, storeId);
+      const netBalance = balanceFromPerspective(r as unknown as CanonicalBalance, storeId);
       return {
         id: r.id,
         partnerStoreId: partner.id,
@@ -70,9 +85,13 @@ export const listBalances = async (req, res) => {
       };
     });
 
+    type Annotated = (typeof annotated)[number];
+
     // Summary totals
-    const totalOwedToMe = annotated.filter(a => a.netBalance > 0).reduce((s, a) => s + a.netBalance, 0);
-    const totalIOwe = annotated.filter(a => a.netBalance < 0).reduce((s, a) => s + Math.abs(a.netBalance), 0);
+    const totalOwedToMe = annotated.filter((a: Annotated) => a.netBalance > 0)
+      .reduce((s: number, a: Annotated) => s + a.netBalance, 0);
+    const totalIOwe = annotated.filter((a: Annotated) => a.netBalance < 0)
+      .reduce((s: number, a: Annotated) => s + Math.abs(a.netBalance), 0);
 
     res.json({
       success: true,
@@ -85,17 +104,19 @@ export const listBalances = async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 /** GET /api/exchange/balances/:partnerStoreId/ledger  → full ledger for one pair */
-export const getLedger = async (req, res) => {
+export const getLedger = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
     const partnerStoreId = req.params.partnerStoreId;
     if (!storeId || !partnerStoreId) {
-      return res.status(400).json({ success: false, error: 'storeId and partnerStoreId required' });
+      res.status(400).json({ success: false, error: 'storeId and partnerStoreId required' });
+      return;
     }
 
     const { storeAId, storeBId } = canonPair(storeId, partnerStoreId);
@@ -118,12 +139,11 @@ export const getLedger = async (req, res) => {
       }),
     ]);
 
+    type LedgerEntryRow = (typeof entries)[number];
+
     // Translate each entry to caller's perspective
-    const myLedger = entries.map((e) => {
+    const myLedger = entries.map((e: LedgerEntryRow) => {
       const iAmA = storeAId === storeId;
-      // direction "B_OWES_A" → amount increased (someone owes A more)
-      // if I'm A, positive delta = partner owes me more
-      // if I'm B, positive delta = I owe partner more (reverse sign)
       const canonicalDelta = e.direction === 'B_OWES_A' ? Number(e.amount) : -Number(e.amount);
       const myDelta = iAmA ? canonicalDelta : -canonicalDelta;
       const balanceAfterForMe = iAmA ? Number(e.balanceAfter) : -Number(e.balanceAfter);
@@ -140,7 +160,7 @@ export const getLedger = async (req, res) => {
       };
     });
 
-    const netBalance = balanceRow ? balanceFromPerspective(balanceRow, storeId) : 0;
+    const netBalance = balanceRow ? balanceFromPerspective(balanceRow as unknown as CanonicalBalance, storeId) : 0;
 
     res.json({
       success: true,
@@ -154,7 +174,8 @@ export const getLedger = async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
@@ -164,43 +185,41 @@ export const getLedger = async (req, res) => {
 
 const METHODS = new Set(['cash', 'check', 'bank_transfer', 'zelle', 'venmo', 'other']);
 
+interface RecordSettlementBody {
+  partnerStoreId?: string;
+  amount?: number | string;
+  method?: string;
+  methodRef?: string | null;
+  note?: string | null;
+  paidByMe?: boolean;
+}
+
 /**
  * POST /api/exchange/settlements
- *   body { partnerStoreId, amount, method, methodRef?, note?, paidByMe?: boolean }
- *
- * Creates a Settlement with status='pending' and notifies the other party.
- *
- * NO ledger entry and NO balance change happen yet — those are written only
- * when the OTHER party calls POST /settlements/:id/confirm. This ensures
- * both sides explicitly agree a payment changed hands before the books
- * reflect it.
  */
-export const recordSettlement = async (req, res) => {
+export const recordSettlement = async (req: Request, res: Response): Promise<void> => {
   try {
     const myStoreId = getStoreId(req);
     const userId = req.user?.id;
-    const { partnerStoreId, amount, method, methodRef, note, paidByMe } = req.body || {};
-    if (!myStoreId) return res.status(400).json({ success: false, error: 'storeId required' });
-    if (!partnerStoreId) return res.status(400).json({ success: false, error: 'partnerStoreId required' });
+    const { partnerStoreId, amount, method, methodRef, note, paidByMe } = (req.body || {}) as RecordSettlementBody;
+    if (!myStoreId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
+    if (!partnerStoreId) { res.status(400).json({ success: false, error: 'partnerStoreId required' }); return; }
     const amt = Number(amount);
-    if (!amt || amt <= 0) return res.status(400).json({ success: false, error: 'amount must be > 0' });
-    if (!METHODS.has(method)) return res.status(400).json({ success: false, error: 'invalid method' });
+    if (!amt || amt <= 0) { res.status(400).json({ success: false, error: 'amount must be > 0' }); return; }
+    if (!method || !METHODS.has(method)) { res.status(400).json({ success: false, error: 'invalid method' }); return; }
 
     const partnerStore = await prisma.store.findUnique({
       where: { id: partnerStoreId },
       select: { id: true, name: true, isActive: true,
         organization: { select: { billingEmail: true } } },
     });
-    if (!partnerStore?.isActive) return res.status(404).json({ success: false, error: 'Partner store not found.' });
+    if (!partnerStore?.isActive) { res.status(404).json({ success: false, error: 'Partner store not found.' }); return; }
 
     const payerStoreId = paidByMe ? myStoreId : partnerStoreId;
     const payeeStoreId = paidByMe ? partnerStoreId : myStoreId;
 
     const { storeAId, storeBId } = canonPair(myStoreId, partnerStoreId);
 
-    // Use far-future date so the legacy disputeWindowEndsAt column (NOT NULL
-    // in schema) stays valid. It's no longer load-bearing — confirmation is
-    // explicit, not time-based.
     const sentinelWindow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
     const settlement = await prisma.settlement.create({
@@ -216,41 +235,41 @@ export const recordSettlement = async (req, res) => {
     // Notify the other party that action is required
     if (partnerStore.organization?.billingEmail) {
       sendSettlementRecorded(partnerStore.organization.billingEmail, {
-        method, amount: amt, methodRef, note,
+        method, amount: amt, methodRef: methodRef || undefined, note: note || undefined,
         paidByMe: !paidByMe,                    // from partner's POV
         needsConfirmation: true,
-      }).catch(() => {});
+      }).catch(() => { /* non-blocking */ });
     }
 
     res.json({ success: true, data: settlement });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 /**
  * POST /api/exchange/settlements/:id/confirm
- *
- * Called by the party who DIDN'T record the settlement to confirm they actually
- * received (or paid) the amount. This is where the ledger entry + balance
- * update happen. Only the counterparty can confirm.
  */
-export const confirmSettlement = async (req, res) => {
+export const confirmSettlement = async (req: Request, res: Response): Promise<void> => {
   try {
     const myStoreId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
 
     const s = await prisma.settlement.findUnique({ where: { id } });
-    if (!s) return res.status(404).json({ success: false, error: 'Settlement not found.' });
+    if (!s) { res.status(404).json({ success: false, error: 'Settlement not found.' }); return; }
     if (s.storeAId !== myStoreId && s.storeBId !== myStoreId) {
-      return res.status(403).json({ success: false, error: 'Not your settlement.' });
+      res.status(403).json({ success: false, error: 'Not your settlement.' });
+      return;
     }
     if (s.recordedById === userId) {
-      return res.status(400).json({ success: false, error: 'The other party must confirm — you recorded this.' });
+      res.status(400).json({ success: false, error: 'The other party must confirm — you recorded this.' });
+      return;
     }
     if (s.status !== 'pending') {
-      return res.status(400).json({ success: false, error: `Already ${s.status}.` });
+      res.status(400).json({ success: false, error: `Already ${s.status}.` });
+      return;
     }
 
     const amt = Number(s.amount);
@@ -258,7 +277,7 @@ export const confirmSettlement = async (req, res) => {
     const direction = payerIsA ? 'B_OWES_A' : 'A_OWES_B';
     const delta     = payerIsA ? amt : -amt;
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: TxClient) => {
       const u = await tx.settlement.update({
         where: { id },
         data:  { status: 'accepted', resolvedAt: new Date(), resolvedById: userId },
@@ -277,7 +296,7 @@ export const confirmSettlement = async (req, res) => {
           entryType: 'settlement',
           settlementId: s.id,
           description: `Settlement confirmed: ${s.method}${s.methodRef ? ' #' + s.methodRef : ''} — ${amt.toFixed(2)}`,
-          createdById: userId,
+          createdById: userId as string,
         },
       });
       return u;
@@ -291,27 +310,29 @@ export const confirmSettlement = async (req, res) => {
     });
     if (other?.organization?.billingEmail) {
       sendSettlementConfirmed(other.organization.billingEmail, {
-        amount: amt, method: s.method, methodRef: s.methodRef,
-      }).catch(() => {});
+        amount: amt, method: s.method, methodRef: s.methodRef || undefined,
+      }).catch(() => { /* non-blocking */ });
     }
 
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 /** GET /api/exchange/settlements?partnerStoreId=... */
-export const listSettlements = async (req, res) => {
+export const listSettlements = async (req: Request, res: Response): Promise<void> => {
   try {
     const myStoreId = getStoreId(req);
-    const partnerStoreId = req.query.partnerStoreId;
-    if (!myStoreId) return res.status(400).json({ success: false, error: 'storeId required' });
+    const partnerStoreId = req.query.partnerStoreId as string | undefined;
+    if (!myStoreId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
 
-    const where = {};
+    const where: Prisma.SettlementWhereInput = {};
     if (partnerStoreId) {
       const { storeAId, storeBId } = canonPair(myStoreId, partnerStoreId);
-      where.storeAId = storeAId; where.storeBId = storeBId;
+      where.storeAId = storeAId;
+      where.storeBId = storeBId;
     } else {
       where.OR = [{ storeAId: myStoreId }, { storeBId: myStoreId }];
     }
@@ -322,9 +343,11 @@ export const listSettlements = async (req, res) => {
       take: 200,
     });
 
+    type SettlementRow = (typeof rows)[number];
+
     // Annotate from my perspective + flag whose turn it is to act
     const userId = req.user?.id;
-    const annotated = rows.map((s) => ({
+    const annotated = rows.map((s: SettlementRow) => ({
       ...s,
       paidByMe: s.payerStoreId === myStoreId,
       recordedByMe: s.recordedById === userId,
@@ -333,32 +356,30 @@ export const listSettlements = async (req, res) => {
 
     res.json({ success: true, data: annotated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 /** POST /api/exchange/settlements/:id/dispute  body { reason } */
-export const disputeSettlement = async (req, res) => {
+export const disputeSettlement = async (req: Request, res: Response): Promise<void> => {
   try {
     const myStoreId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
-    const reason = req.body?.reason;
-    if (!reason) return res.status(400).json({ success: false, error: 'reason required' });
+    const reason = (req.body as { reason?: string })?.reason;
+    if (!reason) { res.status(400).json({ success: false, error: 'reason required' }); return; }
 
     const s = await prisma.settlement.findUnique({ where: { id } });
-    if (!s) return res.status(404).json({ success: false, error: 'Settlement not found.' });
+    if (!s) { res.status(404).json({ success: false, error: 'Settlement not found.' }); return; }
     if (s.storeAId !== myStoreId && s.storeBId !== myStoreId) {
-      return res.status(403).json({ success: false, error: 'Not your settlement.' });
+      res.status(403).json({ success: false, error: 'Not your settlement.' });
+      return;
     }
-    // Session 39 — allow disputes on pending OR already-disputed settlements
-    // (multi-round dispute loop per user's Q6). The 7-day window cap was
-    // removed so parties can keep pushing back-and-forth until both agree.
-    // 'accepted' is the only terminal state that can't be disputed further —
-    // if a party wants to re-open, the accept action can be reversed via
-    // the dispute endpoint (status goes back to 'disputed').
+    // Multi-round dispute loop: only 'accepted' is terminal.
     if (s.status === 'accepted') {
-      return res.status(400).json({ success: false, error: 'Settlement already accepted. Ask the other party to re-open if you want to dispute.' });
+      res.status(400).json({ success: false, error: 'Settlement already accepted. Ask the other party to re-open if you want to dispute.' });
+      return;
     }
 
     const updated = await prisma.settlement.update({
@@ -375,29 +396,32 @@ export const disputeSettlement = async (req, res) => {
     if (other?.organization?.billingEmail) {
       sendSettlementDisputed(other.organization.billingEmail, {
         amount: Number(s.amount), method: s.method, reason,
-      }).catch(() => {});
+      }).catch(() => { /* non-blocking */ });
     }
 
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 /** POST /api/exchange/settlements/:id/resolve  → mark a disputed settlement resolved */
-export const resolveSettlement = async (req, res) => {
+export const resolveSettlement = async (req: Request, res: Response): Promise<void> => {
   try {
     const myStoreId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
 
     const s = await prisma.settlement.findUnique({ where: { id } });
-    if (!s) return res.status(404).json({ success: false, error: 'Settlement not found.' });
+    if (!s) { res.status(404).json({ success: false, error: 'Settlement not found.' }); return; }
     if (s.storeAId !== myStoreId && s.storeBId !== myStoreId) {
-      return res.status(403).json({ success: false, error: 'Not your settlement.' });
+      res.status(403).json({ success: false, error: 'Not your settlement.' });
+      return;
     }
     if (s.status !== 'disputed') {
-      return res.status(400).json({ success: false, error: `Not disputed (status: ${s.status})` });
+      res.status(400).json({ success: false, error: `Not disputed (status: ${s.status})` });
+      return;
     }
     const updated = await prisma.settlement.update({
       where: { id },
@@ -405,27 +429,35 @@ export const resolveSettlement = async (req, res) => {
     });
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
 // ═══════════════════════════════════════════════════════════════
-// REPORT (one unified table of all orders + ledger + settlements)
+// REPORT
 // ═══════════════════════════════════════════════════════════════
 
 /** GET /api/exchange/report  ?dateFrom&dateTo&partnerStoreId&type=all|credits|debits */
-export const exchangeReport = async (req, res) => {
+export const exchangeReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
-    const { dateFrom, dateTo, partnerStoreId, type = 'all' } = req.query;
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
+    const { dateFrom, dateTo, partnerStoreId, type = 'all' } = req.query as {
+      dateFrom?: string;
+      dateTo?: string;
+      partnerStoreId?: string;
+      type?: string;
+    };
 
-    const where = {
+    const where: Prisma.WholesaleOrderWhereInput = {
       OR: [{ senderStoreId: storeId }, { receiverStoreId: storeId }],
       status: { in: ['confirmed', 'partially_confirmed'] },
     };
-    if (dateFrom) where.confirmedAt = { ...(where.confirmedAt || {}), gte: new Date(dateFrom + 'T00:00:00') };
-    if (dateTo)   where.confirmedAt = { ...(where.confirmedAt || {}), lte: new Date(dateTo + 'T23:59:59.999') };
+    const dateFilter: Prisma.DateTimeNullableFilter = {};
+    if (dateFrom) dateFilter.gte = new Date(dateFrom + 'T00:00:00');
+    if (dateTo)   dateFilter.lte = new Date(dateTo + 'T23:59:59.999');
+    if (Object.keys(dateFilter).length) where.confirmedAt = dateFilter;
     if (partnerStoreId) {
       where.AND = [{ OR: [{ senderStoreId: partnerStoreId }, { receiverStoreId: partnerStoreId }] }];
     }
@@ -439,8 +471,10 @@ export const exchangeReport = async (req, res) => {
       orderBy: { confirmedAt: 'desc' },
     });
 
+    type OrderRow = (typeof orders)[number];
+
     let totalOutgoing = 0, totalIncoming = 0;
-    const rows = orders.map((o) => {
+    const rows = orders.map((o: OrderRow) => {
       const direction = o.senderStoreId === storeId ? 'outgoing' : 'incoming';
       const amount = Number(o.confirmedGrandTotal || o.grandTotal);
       if (direction === 'outgoing') totalOutgoing += amount;
@@ -458,9 +492,11 @@ export const exchangeReport = async (req, res) => {
       };
     });
 
+    type ReportRow = (typeof rows)[number];
+
     let filtered = rows;
-    if (type === 'credits') filtered = rows.filter(r => r.direction === 'outgoing');
-    if (type === 'debits')  filtered = rows.filter(r => r.direction === 'incoming');
+    if (type === 'credits') filtered = rows.filter((r: ReportRow) => r.direction === 'outgoing');
+    if (type === 'debits')  filtered = rows.filter((r: ReportRow) => r.direction === 'incoming');
 
     res.json({
       success: true,
@@ -473,6 +509,7 @@ export const exchangeReport = async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };

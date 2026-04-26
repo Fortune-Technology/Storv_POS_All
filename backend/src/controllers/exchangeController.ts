@@ -1,36 +1,35 @@
 /**
  * StoreVeu Exchange — store code + trading partner handshake.
- *
- *   Store Code   claimable human-friendly identifier per store.
- *                Editable while no partnerships are accepted AND no wholesale
- *                order has been sent/received. Locks after first commitment.
- *   Discovery    GET /api/exchange/lookup/:code  → minimal profile (no PII).
- *   Partners     two-party handshake before POs can flow.
- *                Either side can initiate; the other must accept.
- *
- * Every endpoint is org/store-scoped via protect + scopeToTenant. Handshake
- * flip-sides on accept: the receiver of a request can see it in the
- * "incoming" list; the sender sees "outgoing".
  */
 
+import type { Request, Response } from 'express';
+import type { PrismaClient } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import {
   sendPartnerHandshakeRequest,
   sendPartnerHandshakeAccepted,
 } from '../services/emailService.js';
 
-const getOrgId = (req) => req.orgId || req.user?.orgId;
-const getStoreId = (req) => req.headers['x-store-id'] || req.storeId || req.query.storeId;
+type TxClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
+
+const getOrgId   = (req: Request): string | null | undefined => req.orgId || req.user?.orgId;
+const getStoreId = (req: Request): string | null | undefined =>
+  (req.headers['x-store-id'] as string | undefined) || req.storeId || (req.query.storeId as string | undefined);
 
 // ═══════════════════════════════════════════════════════════════
-// STORE CODE — claim, update, check availability, public lookup
+// STORE CODE
 // ═══════════════════════════════════════════════════════════════
 
-const CODE_RX = /^[A-Z0-9][A-Z0-9\-]{2,23}$/; // 3-24 chars, uppercase alphanumeric + dashes
+const CODE_RX = /^[A-Z0-9][A-Z0-9\-]{2,23}$/;
 const RESERVED = new Set(['ADMIN', 'STORV', 'STOREVEU', 'SYSTEM', 'SUPPORT', 'TEST', 'DEMO']);
 
-/** Normalize and validate a candidate code. Returns { ok, code?, error? } */
-function validateCode(raw) {
+interface ValidateCodeResult {
+  ok: boolean;
+  code?: string;
+  error?: string;
+}
+
+function validateCode(raw: unknown): ValidateCodeResult {
   if (!raw) return { ok: false, error: 'Code is required.' };
   const code = String(raw).trim().toUpperCase().replace(/\s+/g, '-');
   if (!CODE_RX.test(code)) {
@@ -40,11 +39,11 @@ function validateCode(raw) {
   return { ok: true, code };
 }
 
-/** GET /api/exchange/store-code  → current code + lock status for active store */
-export const getMyStoreCode = async (req, res) => {
+/** GET /api/exchange/store-code */
+export const getMyStoreCode = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
     const store = await prisma.store.findUnique({
       where: { id: storeId },
       select: {
@@ -54,25 +53,27 @@ export const getMyStoreCode = async (req, res) => {
       },
     });
     if (!store || store.orgId !== getOrgId(req)) {
-      return res.status(404).json({ success: false, error: 'Store not found' });
+      res.status(404).json({ success: false, error: 'Store not found' });
+      return;
     }
     res.json({ success: true, data: { ...store, locked: !!store.storeCodeLockedAt } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** GET /api/exchange/store-code/check?code=STORV-MAIN  → { available, suggestion? } */
-export const checkCodeAvailability = async (req, res) => {
+/** GET /api/exchange/store-code/check?code=STORV-MAIN */
+export const checkCodeAvailability = async (req: Request, res: Response): Promise<void> => {
   try {
     const v = validateCode(req.query.code);
-    if (!v.ok) return res.json({ success: true, data: { available: false, reason: v.error } });
+    if (!v.ok) { res.json({ success: true, data: { available: false, reason: v.error } }); return; }
 
     const storeId = getStoreId(req);
-    const existing = await prisma.store.findUnique({ where: { storeCode: v.code } });
+    const existing = await prisma.store.findUnique({ where: { storeCode: v.code as string } });
     const available = !existing || existing.id === storeId;
 
-    let suggestion = null;
+    let suggestion: string | null = null;
     if (!available) {
       // Suggest a nearby available variant
       for (let i = 2; i <= 20; i++) {
@@ -84,38 +85,42 @@ export const checkCodeAvailability = async (req, res) => {
     }
     res.json({ success: true, data: { available, code: v.code, suggestion } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** PUT /api/exchange/store-code  body { code }  → claim or change code (while unlocked) */
-export const setMyStoreCode = async (req, res) => {
+/** PUT /api/exchange/store-code  body { code } */
+export const setMyStoreCode = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
 
-    const v = validateCode(req.body?.code);
-    if (!v.ok) return res.status(400).json({ success: false, error: v.error });
+    const v = validateCode((req.body as { code?: string })?.code);
+    if (!v.ok) { res.status(400).json({ success: false, error: v.error }); return; }
 
     const store = await prisma.store.findUnique({
       where: { id: storeId },
       select: { id: true, orgId: true, storeCode: true, storeCodeLockedAt: true },
     });
     if (!store || store.orgId !== orgId) {
-      return res.status(404).json({ success: false, error: 'Store not found' });
+      res.status(404).json({ success: false, error: 'Store not found' });
+      return;
     }
     if (store.storeCodeLockedAt) {
-      return res.status(409).json({
+      res.status(409).json({
         success: false,
         error: 'Store code is locked — first trading partnership or PO has already been created. Contact support to change.',
       });
+      return;
     }
 
     // Uniqueness check
-    const taken = await prisma.store.findUnique({ where: { storeCode: v.code } });
+    const taken = await prisma.store.findUnique({ where: { storeCode: v.code as string } });
     if (taken && taken.id !== storeId) {
-      return res.status(409).json({ success: false, error: 'This code is already taken.' });
+      res.status(409).json({ success: false, error: 'This code is already taken.' });
+      return;
     }
 
     const updated = await prisma.store.update({
@@ -125,18 +130,19 @@ export const setMyStoreCode = async (req, res) => {
     });
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** GET /api/exchange/lookup/:code  → minimal public profile (no PII) */
-export const lookupByCode = async (req, res) => {
+/** GET /api/exchange/lookup/:code */
+export const lookupByCode = async (req: Request, res: Response): Promise<void> => {
   try {
     const v = validateCode(req.params.code);
-    if (!v.ok) return res.status(400).json({ success: false, error: v.error });
+    if (!v.ok) { res.status(400).json({ success: false, error: v.error }); return; }
 
     const store = await prisma.store.findUnique({
-      where: { storeCode: v.code },
+      where: { storeCode: v.code as string },
       select: {
         id: true, name: true, storeCode: true,
         address: true, timezone: true, isActive: true,
@@ -144,9 +150,9 @@ export const lookupByCode = async (req, res) => {
       },
     });
     if (!store || !store.isActive) {
-      return res.status(404).json({ success: false, error: 'No active store with that code.' });
+      res.status(404).json({ success: false, error: 'No active store with that code.' });
+      return;
     }
-    // Strip anything that could be PII beyond name/address/org
     const myStoreId = getStoreId(req);
     const isSelf = store.id === myStoreId;
 
@@ -174,11 +180,12 @@ export const lookupByCode = async (req, res) => {
         timezone: store.timezone,
         orgName: store.organization?.name || null,
         isSelf,
-        partnership, // null | { id, status, requesterStoreId }
+        partnership,
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
@@ -187,18 +194,18 @@ export const lookupByCode = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 /** Mark a store's code as locked — called after first partnership or first PO. */
-export async function lockStoreCode(storeId, tx = prisma) {
+export async function lockStoreCode(storeId: string, tx: TxClient | typeof prisma = prisma): Promise<void> {
   await tx.store.updateMany({
     where: { id: storeId, storeCodeLockedAt: null },
     data: { storeCodeLockedAt: new Date() },
   });
 }
 
-/** GET /api/exchange/partners  → all partnerships involving my store */
-export const listPartners = async (req, res) => {
+/** GET /api/exchange/partners */
+export const listPartners = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
 
     const partnerships = await prisma.tradingPartner.findMany({
       where: {
@@ -221,8 +228,10 @@ export const listPartners = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Annotate each partnership with the "other" store (from my perspective)
-    const annotated = partnerships.map((p) => {
+    type PartnershipRow = (typeof partnerships)[number];
+
+    // Annotate each partnership with the "other" store
+    const annotated = partnerships.map((p: PartnershipRow) => {
       const otherStore = p.requesterStoreId === storeId ? p.partnerStore : p.requesterStore;
       const direction = p.requesterStoreId === storeId ? 'outgoing' : 'incoming';
       return {
@@ -239,28 +248,30 @@ export const listPartners = async (req, res) => {
 
     res.json({ success: true, data: annotated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** POST /api/exchange/partners  body { partnerStoreId, requestNote? }  → send handshake request */
-export const sendPartnerRequest = async (req, res) => {
+/** POST /api/exchange/partners */
+export const sendPartnerRequest = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const storeId = getStoreId(req);
     const userId = req.user?.id;
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
 
-    const { partnerStoreId, requestNote } = req.body || {};
-    if (!partnerStoreId) return res.status(400).json({ success: false, error: 'partnerStoreId required' });
-    if (partnerStoreId === storeId) return res.status(400).json({ success: false, error: "You can't partner with yourself." });
+    const { partnerStoreId, requestNote } = (req.body || {}) as { partnerStoreId?: string; requestNote?: string };
+    if (!partnerStoreId) { res.status(400).json({ success: false, error: 'partnerStoreId required' }); return; }
+    if (partnerStoreId === storeId) { res.status(400).json({ success: false, error: "You can't partner with yourself." }); return; }
 
     const partnerStore = await prisma.store.findUnique({
       where: { id: partnerStoreId },
       select: { id: true, name: true, orgId: true, isActive: true, storeCode: true },
     });
     if (!partnerStore || !partnerStore.isActive) {
-      return res.status(404).json({ success: false, error: 'Partner store not found.' });
+      res.status(404).json({ success: false, error: 'Partner store not found.' });
+      return;
     }
 
     // Check existing partnership (either direction)
@@ -274,17 +285,19 @@ export const sendPartnerRequest = async (req, res) => {
     });
     if (existing) {
       if (existing.status === 'accepted') {
-        return res.status(409).json({ success: false, error: 'Already partnered.' });
+        res.status(409).json({ success: false, error: 'Already partnered.' });
+        return;
       }
       if (existing.status === 'pending') {
-        return res.status(409).json({ success: false, error: 'A pending request already exists.' });
+        res.status(409).json({ success: false, error: 'A pending request already exists.' });
+        return;
       }
       // Rejected/revoked → allow re-request by updating
       const reset = await prisma.tradingPartner.update({
         where: { id: existing.id },
         data: {
           requesterStoreId: storeId,
-          requesterOrgId: orgId,
+          requesterOrgId: orgId as string,
           partnerStoreId,
           partnerOrgId: partnerStore.orgId,
           status: 'pending',
@@ -297,14 +310,15 @@ export const sendPartnerRequest = async (req, res) => {
           revokeReason: null,
         },
       });
-      await notifyPartnerRequest(reset.id).catch(() => {});
-      return res.json({ success: true, data: reset });
+      await notifyPartnerRequest(reset.id).catch(() => { /* non-blocking */ });
+      res.json({ success: true, data: reset });
+      return;
     }
 
     const created = await prisma.tradingPartner.create({
       data: {
         requesterStoreId: storeId,
-        requesterOrgId: orgId,
+        requesterOrgId: orgId as string,
         partnerStoreId,
         partnerOrgId: partnerStore.orgId,
         status: 'pending',
@@ -312,14 +326,15 @@ export const sendPartnerRequest = async (req, res) => {
         requestedById: userId,
       },
     });
-    await notifyPartnerRequest(created.id).catch(() => {});
+    await notifyPartnerRequest(created.id).catch(() => { /* non-blocking */ });
     res.json({ success: true, data: created });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-async function notifyPartnerRequest(partnershipId) {
+async function notifyPartnerRequest(partnershipId: string): Promise<void> {
   const p = await prisma.tradingPartner.findUnique({
     where: { id: partnershipId },
     include: {
@@ -335,29 +350,31 @@ async function notifyPartnerRequest(partnershipId) {
   if (!p?.partnerStore?.organization?.billingEmail) return;
   await sendPartnerHandshakeRequest(p.partnerStore.organization.billingEmail, {
     requesterName: p.requesterStore.name,
-    requesterCode: p.requesterStore.storeCode,
+    requesterCode: p.requesterStore.storeCode || undefined,
     partnerName: p.partnerStore.name,
-    requestNote: p.requestNote,
+    requestNote: p.requestNote || undefined,
   });
 }
 
 /** POST /api/exchange/partners/:id/accept */
-export const acceptPartnerRequest = async (req, res) => {
+export const acceptPartnerRequest = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
 
     const p = await prisma.tradingPartner.findUnique({ where: { id } });
-    if (!p) return res.status(404).json({ success: false, error: 'Request not found.' });
+    if (!p) { res.status(404).json({ success: false, error: 'Request not found.' }); return; }
     if (p.partnerStoreId !== storeId) {
-      return res.status(403).json({ success: false, error: 'Only the recipient can accept.' });
+      res.status(403).json({ success: false, error: 'Only the recipient can accept.' });
+      return;
     }
     if (p.status !== 'pending') {
-      return res.status(400).json({ success: false, error: `Cannot accept — current status: ${p.status}.` });
+      res.status(400).json({ success: false, error: `Cannot accept — current status: ${p.status}.` });
+      return;
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: TxClient) => {
       const u = await tx.tradingPartner.update({
         where: { id },
         data: { status: 'accepted', respondedAt: new Date(), respondedById: userId },
@@ -366,14 +383,15 @@ export const acceptPartnerRequest = async (req, res) => {
       await lockStoreCode(p.partnerStoreId, tx);
       return u;
     });
-    notifyPartnerAccepted(id).catch(() => {});
+    notifyPartnerAccepted(id).catch(() => { /* non-blocking */ });
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-async function notifyPartnerAccepted(partnershipId) {
+async function notifyPartnerAccepted(partnershipId: string): Promise<void> {
   const p = await prisma.tradingPartner.findUnique({
     where: { id: partnershipId },
     include: {
@@ -387,25 +405,27 @@ async function notifyPartnerAccepted(partnershipId) {
   await sendPartnerHandshakeAccepted(p.requesterStore.organization.billingEmail, {
     requesterName: p.requesterStore.name,
     partnerName: p.partnerStore.name,
-    partnerCode: p.partnerStore.storeCode,
+    partnerCode: p.partnerStore.storeCode || undefined,
   });
 }
 
 /** POST /api/exchange/partners/:id/reject  body { reason? } */
-export const rejectPartnerRequest = async (req, res) => {
+export const rejectPartnerRequest = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
-    const reason = req.body?.reason || null;
+    const reason = (req.body as { reason?: string })?.reason || null;
 
     const p = await prisma.tradingPartner.findUnique({ where: { id } });
-    if (!p) return res.status(404).json({ success: false, error: 'Request not found.' });
+    if (!p) { res.status(404).json({ success: false, error: 'Request not found.' }); return; }
     if (p.partnerStoreId !== storeId) {
-      return res.status(403).json({ success: false, error: 'Only the recipient can reject.' });
+      res.status(403).json({ success: false, error: 'Only the recipient can reject.' });
+      return;
     }
     if (p.status !== 'pending') {
-      return res.status(400).json({ success: false, error: `Cannot reject — current status: ${p.status}.` });
+      res.status(400).json({ success: false, error: `Cannot reject — current status: ${p.status}.` });
+      return;
     }
 
     const updated = await prisma.tradingPartner.update({
@@ -419,25 +439,28 @@ export const rejectPartnerRequest = async (req, res) => {
     });
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** POST /api/exchange/partners/:id/revoke  body { reason? }  → either side can revoke */
-export const revokePartnership = async (req, res) => {
+/** POST /api/exchange/partners/:id/revoke  body { reason? } */
+export const revokePartnership = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
     const userId = req.user?.id;
     const id = req.params.id;
-    const reason = req.body?.reason || null;
+    const reason = (req.body as { reason?: string })?.reason || null;
 
     const p = await prisma.tradingPartner.findUnique({ where: { id } });
-    if (!p) return res.status(404).json({ success: false, error: 'Partnership not found.' });
+    if (!p) { res.status(404).json({ success: false, error: 'Partnership not found.' }); return; }
     if (p.requesterStoreId !== storeId && p.partnerStoreId !== storeId) {
-      return res.status(403).json({ success: false, error: 'Not your partnership.' });
+      res.status(403).json({ success: false, error: 'Not your partnership.' });
+      return;
     }
     if (p.status === 'revoked') {
-      return res.status(400).json({ success: false, error: 'Already revoked.' });
+      res.status(400).json({ success: false, error: 'Already revoked.' });
+      return;
     }
 
     const updated = await prisma.tradingPartner.update({
@@ -451,15 +474,16 @@ export const revokePartnership = async (req, res) => {
     });
     res.json({ success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-/** GET /api/exchange/partners/pending-incoming  → badge count + list */
-export const pendingIncoming = async (req, res) => {
+/** GET /api/exchange/partners/pending-incoming */
+export const pendingIncoming = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
     const items = await prisma.tradingPartner.findMany({
       where: { partnerStoreId: storeId, status: 'pending' },
       include: {
@@ -474,19 +498,16 @@ export const pendingIncoming = async (req, res) => {
     });
     res.json({ success: true, data: items, count: items.length });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// ACCEPTED PARTNERS QUICK-LIST (used by PO builder's recipient picker)
-// ═══════════════════════════════════════════════════════════════
-
-/** GET /api/exchange/partners/accepted  → stores I can currently trade with */
-export const listAcceptedPartners = async (req, res) => {
+/** GET /api/exchange/partners/accepted */
+export const listAcceptedPartners = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId required' });
+    if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
     const partnerships = await prisma.tradingPartner.findMany({
       where: {
         status: 'accepted',
@@ -504,7 +525,8 @@ export const listAcceptedPartners = async (req, res) => {
       },
       orderBy: { updatedAt: 'desc' },
     });
-    const partners = partnerships.map((p) => {
+    type PartnershipRow = (typeof partnerships)[number];
+    const partners = partnerships.map((p: PartnershipRow) => {
       const s = p.requesterStoreId === storeId ? p.partnerStore : p.requesterStore;
       return {
         partnershipId: p.id,
@@ -518,6 +540,7 @@ export const listAcceptedPartners = async (req, res) => {
     });
     res.json({ success: true, data: partners });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
   }
 };

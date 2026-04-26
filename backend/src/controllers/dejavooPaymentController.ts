@@ -1,15 +1,8 @@
 /**
- * dejavooPaymentController.js
+ * dejavooPaymentController.ts
  *
  * REST endpoints for Dejavoo SPIn payment operations.
  * Called by the cashier app's TenderModal when processing card payments.
- *
- * All endpoints:
- *   1. Resolve the store's PaymentMerchant (via stationId → storeId)
- *   2. Decrypt credentials
- *   3. Dispatch to the provider factory
- *   4. Record the PaymentTransaction
- *   5. Return normalized result to the cashier app
  *
  * Routes (mounted at /api/payment/dejavoo):
  *   POST /sale           — Card-present sale
@@ -22,6 +15,7 @@
  *   POST /settle         — Close batch
  */
 
+import type { Request, Response } from 'express';
 import prisma from '../config/postgres.js';
 import {
   loadMerchantByStation,
@@ -36,11 +30,44 @@ import {
   promptUserInput,
 } from '../services/paymentProviderFactory.js';
 
-const getOrgId  = (req) => req.orgId || req.user?.orgId;
-const getStoreId = (req) => req.headers['x-store-id'] || req.storeId || req.body?.storeId;
+const getOrgId  = (req: Request): string | null | undefined => req.orgId || req.user?.orgId;
+const getStoreId = (req: Request): string | null | undefined =>
+  (req.headers['x-store-id'] as string | undefined)
+  || req.storeId
+  || (req.body as { storeId?: string } | undefined)?.storeId;
+
+interface ProviderResult {
+  approved?: boolean;
+  referenceId?: string | null;
+  authCode?: string | null;
+  statusCode?: string | null;
+  message?: string | null;
+  last4?: string | null;
+  cardType?: string | null;
+  expiry?: string | null;
+  entryType?: string | null;
+  totalAmount?: number;
+  signatureData?: string | null;
+  connected?: boolean;
+  value?: string | null;
+}
+
+interface RecordTxOpts {
+  type?: string;
+  amount?: number;
+  invoiceNumber?: string | null;
+  posTransactionId?: string | null;
+  originalReferenceId?: string | null;
+}
 
 // ── Record a PaymentTransaction in the DB ───────────────────────────────────
-async function recordTransaction(orgId, storeId, merchantId, result, opts) {
+async function recordTransaction(
+  orgId: string,
+  storeId: string,
+  merchantId: string,
+  result: ProviderResult,
+  opts: RecordTxOpts,
+) {
   try {
     return await prisma.paymentTransaction.create({
       data: {
@@ -74,25 +101,35 @@ async function recordTransaction(orgId, storeId, merchantId, result, opts) {
       },
     });
   } catch (err) {
-    console.error('[dejavooPaymentController] Failed to record transaction:', err.message);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[dejavooPaymentController] Failed to record transaction:', message);
     return null;
   }
+}
+
+interface SaleBody {
+  stationId?: string;
+  amount?: number | string;
+  paymentType?: string;
+  invoiceNumber?: string | null;
+  posTransactionId?: string | null;
+  captureSignature?: boolean;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SALE
 // POST /api/payment/dejavoo/sale
-// Body: { stationId, amount, paymentType?, invoiceNumber?, posTransactionId? }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooSale = async (req, res) => {
+export const dejavooSale = async (req: Request, res: Response): Promise<void> => {
   try {
-    const orgId   = getOrgId(req);
+    const orgId   = getOrgId(req) as string;
     const storeId = getStoreId(req);
-    const { stationId, amount, paymentType, invoiceNumber, posTransactionId, captureSignature } = req.body;
+    const { stationId, amount, paymentType, invoiceNumber, posTransactionId, captureSignature } = req.body as SaleBody;
 
     if (!stationId || !amount) {
-      return res.status(400).json({ success: false, error: 'stationId and amount are required' });
+      res.status(400).json({ success: false, error: 'stationId and amount are required' });
+      return;
     }
 
     const { merchant, station } = await loadMerchantByStation(stationId);
@@ -103,7 +140,7 @@ export const dejavooSale = async (req, res) => {
       invoiceNumber:    invoiceNumber || '',
       registerId:       station.name || stationId,
       captureSignature: captureSignature || false,
-    });
+    } as Parameters<typeof processSale>[1]) as ProviderResult;
 
     // Record in DB regardless of approval/decline
     const txRecord = await recordTransaction(orgId, storeId || merchant.storeId, merchant.id, result, {
@@ -114,30 +151,38 @@ export const dejavooSale = async (req, res) => {
     });
 
     res.json({
-      success: result.approved,
+      success: !!result.approved,
       result,
       paymentTransactionId: txRecord?.id || null,
     });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooSale]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
+interface RefundBody {
+  stationId?: string;
+  amount?: number | string;
+  paymentType?: string;
+  originalReferenceId?: string | null;
+  invoiceNumber?: string | null;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // REFUND
-// POST /api/payment/dejavoo/refund
-// Body: { stationId, amount, paymentType?, originalReferenceId?, invoiceNumber? }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooRefund = async (req, res) => {
+export const dejavooRefund = async (req: Request, res: Response): Promise<void> => {
   try {
-    const orgId   = getOrgId(req);
+    const orgId   = getOrgId(req) as string;
     const storeId = getStoreId(req);
-    const { stationId, amount, paymentType, originalReferenceId, invoiceNumber } = req.body;
+    const { stationId, amount, paymentType, originalReferenceId, invoiceNumber } = req.body as RefundBody;
 
     if (!stationId || !amount) {
-      return res.status(400).json({ success: false, error: 'stationId and amount are required' });
+      res.status(400).json({ success: false, error: 'stationId and amount are required' });
+      return;
     }
 
     const { merchant, station } = await loadMerchantByStation(stationId);
@@ -148,7 +193,7 @@ export const dejavooRefund = async (req, res) => {
       originalReferenceId: originalReferenceId || null,
       invoiceNumber:       invoiceNumber || '',
       registerId:          station.name || stationId,
-    });
+    } as Parameters<typeof processRefund>[1]) as ProviderResult;
 
     const txRecord = await recordTransaction(orgId, storeId || merchant.storeId, merchant.id, result, {
       type: 'refund',
@@ -158,30 +203,35 @@ export const dejavooRefund = async (req, res) => {
     });
 
     res.json({
-      success: result.approved,
+      success: !!result.approved,
       result,
       paymentTransactionId: txRecord?.id || null,
     });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooRefund]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
+interface VoidBody {
+  stationId?: string;
+  originalReferenceId?: string;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // VOID
-// POST /api/payment/dejavoo/void
-// Body: { stationId, originalReferenceId }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooVoid = async (req, res) => {
+export const dejavooVoid = async (req: Request, res: Response): Promise<void> => {
   try {
-    const orgId   = getOrgId(req);
+    const orgId   = getOrgId(req) as string;
     const storeId = getStoreId(req);
-    const { stationId, originalReferenceId } = req.body;
+    const { stationId, originalReferenceId } = req.body as VoidBody;
 
     if (!stationId || !originalReferenceId) {
-      return res.status(400).json({ success: false, error: 'stationId and originalReferenceId are required' });
+      res.status(400).json({ success: false, error: 'stationId and originalReferenceId are required' });
+      return;
     }
 
     const { merchant, station } = await loadMerchantByStation(stationId);
@@ -189,7 +239,7 @@ export const dejavooVoid = async (req, res) => {
     const result = await processVoid(merchant, {
       originalReferenceId,
       registerId: station.name || stationId,
-    });
+    } as Parameters<typeof processVoid>[1]) as ProviderResult;
 
     const txRecord = await recordTransaction(orgId, storeId || merchant.storeId, merchant.id, result, {
       type: 'void',
@@ -198,28 +248,33 @@ export const dejavooVoid = async (req, res) => {
     });
 
     res.json({
-      success: result.approved,
+      success: !!result.approved,
       result,
       paymentTransactionId: txRecord?.id || null,
     });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooVoid]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
+interface EbtBalanceBody {
+  stationId?: string;
+  paymentType?: string;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // EBT BALANCE
-// POST /api/payment/dejavoo/ebt-balance
-// Body: { stationId, paymentType? ('ebt_food' | 'ebt_cash') }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooEbtBalance = async (req, res) => {
+export const dejavooEbtBalance = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stationId, paymentType } = req.body;
+    const { stationId, paymentType } = req.body as EbtBalanceBody;
 
     if (!stationId) {
-      return res.status(400).json({ success: false, error: 'stationId is required' });
+      res.status(400).json({ success: false, error: 'stationId is required' });
+      return;
     }
 
     const { merchant, station } = await loadMerchantByStation(stationId);
@@ -227,135 +282,142 @@ export const dejavooEbtBalance = async (req, res) => {
     const result = await checkEbtBalance(merchant, {
       paymentType: paymentType || 'ebt_food',
       registerId:  station.name || stationId,
-    });
+    } as Parameters<typeof checkEbtBalance>[1]) as ProviderResult;
 
-    res.json({ success: result.approved, result });
+    res.json({ success: !!result.approved, result });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooEbtBalance]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
+interface CancelBody {
+  stationId?: string;
+  referenceId?: string;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // CANCEL / ABORT
-// POST /api/payment/dejavoo/cancel
-// Body: { stationId, referenceId }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooCancel = async (req, res) => {
+export const dejavooCancel = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stationId, referenceId } = req.body;
+    const { stationId, referenceId } = req.body as CancelBody;
 
     if (!stationId) {
-      return res.status(400).json({ success: false, error: 'stationId is required' });
+      res.status(400).json({ success: false, error: 'stationId is required' });
+      return;
     }
 
     const { merchant } = await loadMerchantByStation(stationId);
 
-    const result = await cancelTransaction(merchant, { referenceId });
+    const result = await cancelTransaction(merchant, { referenceId } as Parameters<typeof cancelTransaction>[1]);
 
     res.json({ success: true, result });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooCancel]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TERMINAL STATUS (ping)
-// POST /api/payment/dejavoo/terminal-status
-// Body: { stationId }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooTerminalStatus = async (req, res) => {
+export const dejavooTerminalStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stationId } = req.body;
+    const { stationId } = req.body as { stationId?: string };
 
     if (!stationId) {
-      return res.status(400).json({ success: false, error: 'stationId is required' });
+      res.status(400).json({ success: false, error: 'stationId is required' });
+      return;
     }
 
     const { merchant } = await loadMerchantByStation(stationId);
 
-    const result = await checkTerminalStatus(merchant);
+    const result = await checkTerminalStatus(merchant) as ProviderResult;
 
-    res.json({ success: result.connected, result });
+    res.json({ success: !!result.connected, result });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooTerminalStatus]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TRANSACTION STATUS
-// POST /api/payment/dejavoo/status
-// Body: { stationId, referenceId }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooTransactionStatus = async (req, res) => {
+export const dejavooTransactionStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stationId, referenceId } = req.body;
+    const { stationId, referenceId } = req.body as { stationId?: string; referenceId?: string };
 
     if (!stationId || !referenceId) {
-      return res.status(400).json({ success: false, error: 'stationId and referenceId are required' });
+      res.status(400).json({ success: false, error: 'stationId and referenceId are required' });
+      return;
     }
 
     const { merchant } = await loadMerchantByStation(stationId);
 
-    const result = await checkTransactionStatus(merchant, { referenceId });
+    const result = await checkTransactionStatus(merchant, { referenceId } as Parameters<typeof checkTransactionStatus>[1]);
 
     res.json({ success: true, result });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooTransactionStatus]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SETTLE / CLOSE BATCH
-// POST /api/payment/dejavoo/settle
-// Body: { stationId }
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooSettle = async (req, res) => {
+export const dejavooSettle = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stationId } = req.body;
+    const { stationId } = req.body as { stationId?: string };
 
     if (!stationId) {
-      return res.status(400).json({ success: false, error: 'stationId is required' });
+      res.status(400).json({ success: false, error: 'stationId is required' });
+      return;
     }
 
     const { merchant } = await loadMerchantByStation(stationId);
 
-    const result = await settleBatch(merchant);
+    const result = await settleBatch(merchant) as ProviderResult;
 
-    res.json({ success: result.approved, result });
+    res.json({ success: !!result.approved, result });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooSettle]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
+interface LookupCustomerBody {
+  stationId?: string;
+  title?: string;
+  prompt?: string;
+  minLength?: number;
+  maxLength?: number;
+  timeoutSec?: number;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
-// LOOKUP CUSTOMER BY PHONE (SPIn UserInput → local Customer search)
-// POST /api/payment/dejavoo/lookup-customer
-// Body: { stationId, title?, prompt?, minLength?, maxLength?, timeoutSec? }
-//
-// Flow:
-//   1. Prompts customer on the terminal: "Enter phone number"
-//   2. Customer types their phone on the terminal keypad
-//   3. Strip non-digits, normalize to last-10-digit match
-//   4. Search Customer table for match
-//   5. Return customer if found, or { notFound: true, phone }
+// LOOKUP CUSTOMER BY PHONE
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooLookupCustomer = async (req, res) => {
+export const dejavooLookupCustomer = async (req: Request, res: Response): Promise<void> => {
   try {
-    const orgId = getOrgId(req);
-    const { stationId, title, prompt, minLength, maxLength, timeoutSec } = req.body;
+    const orgId = getOrgId(req) as string;
+    const { stationId, title, prompt, minLength, maxLength, timeoutSec } = req.body as LookupCustomerBody;
 
     if (!stationId) {
-      return res.status(400).json({ success: false, error: 'stationId is required' });
+      res.status(400).json({ success: false, error: 'stationId is required' });
+      return;
     }
 
     const { merchant } = await loadMerchantByStation(stationId);
@@ -368,31 +430,32 @@ export const dejavooLookupCustomer = async (req, res) => {
       minLength:  minLength ?? 7,
       maxLength:  maxLength ?? 15,
       timeoutSec: timeoutSec ?? 45,
-    });
+    } as Parameters<typeof promptUserInput>[1]) as ProviderResult;
 
     if (!result.approved || !result.value) {
-      return res.json({
+      res.json({
         success: false,
         reason:  result.statusCode === '1012' ? 'cancelled' : 'no_input',
         message: result.message || 'No phone number entered',
       });
+      return;
     }
 
     // Normalize — strip everything but digits; keep last 10 for US phone match
     const digits = String(result.value).replace(/\D/g, '');
     if (digits.length < 7) {
-      return res.json({
+      res.json({
         success: false,
         reason:  'invalid_format',
         message: 'Phone number too short',
         rawValue: result.value,
       });
+      return;
     }
 
     const last10 = digits.slice(-10);
 
     // Search Customer table — match by phone field containing those digits.
-    // This handles +1-555-555-0100, (555) 555-0100, 5555550100, etc.
     const candidates = await prisma.customer.findMany({
       where: {
         orgId,
@@ -402,21 +465,23 @@ export const dejavooLookupCustomer = async (req, res) => {
       take: 50,
     });
 
-    const match = candidates.find(c => {
+    type CandidateRow = (typeof candidates)[number];
+    const match = candidates.find((c: CandidateRow) => {
       const cDigits = String(c.phone || '').replace(/\D/g, '');
       return cDigits.endsWith(last10);
     });
 
     if (!match) {
-      return res.json({
+      res.json({
         success:   true,
         notFound:  true,
         phone:     digits,
         message:   'No customer found with this phone — cashier can create a new one',
       });
+      return;
     }
 
-    return res.json({
+    res.json({
       success: true,
       customer: {
         id:            match.id,
@@ -431,21 +496,23 @@ export const dejavooLookupCustomer = async (req, res) => {
       phoneEntered: digits,
     });
   } catch (err) {
+    const e = err as { status?: number; message?: string };
     console.error('[dejavooLookupCustomer]', err);
-    res.status(err.status || 500).json({ success: false, error: err.message });
+    res.status(e.status || 500).json({ success: false, error: e.message || String(err) });
   }
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// READ-ONLY MERCHANT STATUS (for portal PaymentSettings page)
-// GET /api/payment/dejavoo/merchant-status
-// Returns { configured, provider, environment } — NO secrets
+// READ-ONLY MERCHANT STATUS
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const dejavooMerchantStatus = async (req, res) => {
+export const dejavooMerchantStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = getStoreId(req);
-    if (!storeId) return res.status(400).json({ success: false, error: 'storeId is required (X-Store-Id header)' });
+    if (!storeId) {
+      res.status(400).json({ success: false, error: 'storeId is required (X-Store-Id header)' });
+      return;
+    }
 
     const merchant = await prisma.paymentMerchant.findUnique({
       where: { storeId },
@@ -463,7 +530,8 @@ export const dejavooMerchantStatus = async (req, res) => {
     });
 
     if (!merchant) {
-      return res.json({ success: true, configured: false });
+      res.json({ success: true, configured: false });
+      return;
     }
 
     res.json({
@@ -480,7 +548,8 @@ export const dejavooMerchantStatus = async (req, res) => {
       updatedAt:      merchant.updatedAt,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error('[dejavooMerchantStatus]', err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: message });
   }
 };

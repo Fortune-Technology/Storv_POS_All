@@ -1,5 +1,5 @@
 /**
- * importController.js
+ * importController.ts
  * ─────────────────────────────────────────────────────────────
  * HTTP handlers for the bulk import pipeline.
  *
@@ -10,6 +10,8 @@
  *   GET    /api/catalog/import/history        → list past jobs for org
  */
 
+import type { Request, Response } from 'express';
+import type { Prisma } from '@prisma/client';
 import multer        from 'multer';
 import prisma        from '../config/postgres.js';
 import {
@@ -35,7 +37,7 @@ const ALLOWED_EXTS = new Set(['csv','xlsx','xls','txt','tsv']);
 export const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const ext = (file.originalname.split('.').pop() || '').toLowerCase();
     if (ALLOWED_MIMES.has(file.mimetype) || ALLOWED_EXTS.has(ext)) {
       cb(null, true);
@@ -46,47 +48,49 @@ export const uploadMiddleware = multer({
 }).single('file');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const getOrgId  = (req) => req.tenantId || req.user?.tenantId || req.user?.orgId;
-const getUserId = (req) => req.user?.id || req.user?._id;
+const getOrgId  = (req: Request): string | undefined =>
+  req.tenantId || (req.user as { tenantId?: string } | undefined)?.tenantId || req.user?.orgId || undefined;
+const getUserId = (req: Request): string | undefined => req.user?.id;
 
 const VALID_TYPES = ['products','departments','vendors','promotions','deposits','invoice_costs'];
 
+type MappingValue = string | string[];
+type MappingRecord = Record<string, MappingValue>;
+
 /**
  * Merge the auto-detected column mapping with any manual mapping sent by the
- * client. Manual wins absolutely: if the client sent `{ pack: '' }` it means
- * "explicitly skip this field — do NOT fall back to auto-detect". A single raw
- * header can only be claimed by ONE schema field.
+ * client. Manual wins absolutely.
  */
-function mergeMapping(detectedMapping, manualMappingRaw) {
-  // Helper — a mapping value is "skipped" if it's null/empty/[].
-  const isSkipped = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+function mergeMapping(
+  detectedMapping: MappingRecord,
+  manualMappingRaw: Record<string, unknown>,
+): MappingRecord {
+  const isSkipped = (v: unknown): boolean =>
+    v == null || v === '' || (Array.isArray(v) && v.length === 0);
 
-  const manualMapping = {};
-  const skippedFields = new Set();
+  const manualMapping: MappingRecord = {};
+  const skippedFields = new Set<string>();
   for (const [field, header] of Object.entries(manualMappingRaw || {})) {
     if (isSkipped(header)) {
       skippedFields.add(field);
     } else {
-      manualMapping[field] = header;
+      manualMapping[field] = header as MappingValue;
     }
   }
-  const mapping = { ...detectedMapping, ...manualMapping };
+  const mapping: MappingRecord = { ...detectedMapping, ...manualMapping };
   for (const f of skippedFields) delete mapping[f];
   // Prevent a raw header from being claimed twice (manual-first priority).
-  // For array-valued mappings (multi-source like additionalUpcs), claim EACH
-  // header in the array; if one is already claimed by a different field, drop
-  // it from the array but keep the rest.
-  const seenHeaders = new Set();
+  const seenHeaders = new Set<string>();
   const manualFields = new Set(Object.keys(manualMapping));
-  const ordered = [...manualFields, ...Object.keys(mapping).filter(k => !manualFields.has(k))];
-  const final = {};
+  const ordered = [...manualFields, ...Object.keys(mapping).filter((k) => !manualFields.has(k))];
+  const final: MappingRecord = {};
   for (const field of ordered) {
     const h = mapping[field];
     if (isSkipped(h)) continue;
     if (Array.isArray(h)) {
-      const kept = h.filter(col => col && !seenHeaders.has(col));
+      const kept = h.filter((col: string) => col && !seenHeaders.has(col));
       if (kept.length === 0) continue;
-      kept.forEach(col => seenHeaders.add(col));
+      kept.forEach((col: string) => seenHeaders.add(col));
       final[field] = kept;
     } else {
       if (seenHeaders.has(h)) continue;
@@ -97,57 +101,86 @@ function mergeMapping(detectedMapping, manualMappingRaw) {
   return final;
 }
 
+interface PreviewBody {
+  type?: string;
+  storeId?: string | null;
+  duplicateStrategy?: string;
+  unknownDeptStrategy?: string;
+  unknownVendorStrategy?: string;
+  mapping?: string;
+}
+
+interface ValidationRow {
+  rowNum: number;
+  errors?: unknown[];
+  warnings?: unknown[];
+  cleaned?: Record<string, unknown>;
+}
+
 // ─── POST /api/catalog/import/preview ────────────────────────────────────────
-/**
- * Parse + detect + validate, NO database writes.
- * Returns: detectedMapping, row counts, first 100 errors, first 100 warnings, 5-row sample.
- */
 export const previewImport = [
   uploadMiddleware,
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      const file = (req as Request & { file?: Express.Multer.File }).file;
+      if (!file) { res.status(400).json({ error: 'No file uploaded' }); return; }
 
-      const type     = req.body.type;
-      const storeId  = req.body.storeId || null;
+      const body = req.body as PreviewBody;
+      const type     = body.type;
       const opts = {
-        duplicateStrategy:   req.body.duplicateStrategy   || 'overwrite',
-        unknownDeptStrategy:   req.body.unknownDeptStrategy   || 'skip',
-        unknownVendorStrategy: req.body.unknownVendorStrategy || 'skip',
+        duplicateStrategy:     (body.duplicateStrategy   || 'overwrite') as 'error' | 'skip' | 'update' | undefined,
+        unknownDeptStrategy:   body.unknownDeptStrategy   || 'skip',
+        unknownVendorStrategy: body.unknownVendorStrategy || 'skip',
       };
 
-      if (!VALID_TYPES.includes(type)) {
-        return res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+      if (!type || !VALID_TYPES.includes(type)) {
+        res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+        return;
       }
 
       const orgId = getOrgId(req);
-      if (!orgId) return res.status(401).json({ error: 'Cannot determine org' });
+      if (!orgId) { res.status(401).json({ error: 'Cannot determine org' }); return; }
 
       // 1 — Parse
-      const { headers, rows } = parseFile(req.file.buffer, req.file.mimetype, req.file.originalname);
+      const { headers, rows } = parseFile(file.buffer, file.mimetype, file.originalname);
       if (rows.length === 0) {
-        return res.status(400).json({ error: 'File is empty or contains only headers' });
+        res.status(400).json({ error: 'File is empty or contains only headers' });
+        return;
       }
 
       // 2 — Detect columns + merge manual overrides (manual wins absolutely)
-      const detectedMapping = detectColumns(headers);
-      const manualMappingRaw = req.body.mapping ? JSON.parse(req.body.mapping) : {};
+      const detectedMapping = detectColumns(headers) as MappingRecord;
+      const manualMappingRaw = body.mapping ? JSON.parse(body.mapping) : {};
       const mapping = mergeMapping(detectedMapping, manualMappingRaw);
 
       // 3 — Build context (dept/vendor lookups)
       const ctx = await buildContext(orgId);
 
       // 4 — Validate
-      const { valid, invalid, warnings } = await validateRows(rows, type, mapping, ctx, opts);
+      const { valid, invalid, warnings } = await validateRows(
+        rows,
+        type as Parameters<typeof validateRows>[1],
+        mapping as unknown as Parameters<typeof validateRows>[2],
+        ctx,
+        opts,
+      );
 
       // 5 — Sample rows for UI preview
-      const sample = valid.slice(0, 5).map(r => r.cleaned);
+      const sample = (valid as unknown as ValidationRow[]).slice(0, 5).map((r: ValidationRow) => r.cleaned);
 
-      return res.json({
+      // Build the union of all headers claimed in the mapping (which may be
+      // strings OR arrays of strings for multi-source fields).
+      const claimedHeaders = new Set<string>();
+      for (const v of Object.values(mapping)) {
+        if (Array.isArray(v)) v.forEach((h: string) => claimedHeaders.add(h));
+        else if (typeof v === 'string') claimedHeaders.add(v);
+      }
+
+      res.json({
         ok: true,
         importerVersion: IMPORT_SERVICE_VERSION,
-        fileName:        req.file.originalname,
-        fileSize:        req.file.size,
+        fileName:        file.originalname,
+        fileSize:        file.size,
         type,
         totalRows:       rows.length,
         validCount:      valid.length,
@@ -155,65 +188,66 @@ export const previewImport = [
         warningCount:    warnings.length,
         detectedMapping,
         appliedMapping:  mapping,
-        unmappedHeaders: headers.filter(h => !Object.values(mapping).includes(h)),
-        errors:          invalid.slice(0, 100).map(r => ({
+        unmappedHeaders: headers.filter((h: string) => !claimedHeaders.has(h)),
+        errors:          (invalid as unknown as ValidationRow[]).slice(0, 100).map((r: ValidationRow) => ({
           row:    r.rowNum,
           errors: r.errors,
           warnings: r.warnings,
         })),
-        warnings: warnings.slice(0, 100).map(r => ({
+        warnings: (warnings as unknown as ValidationRow[]).slice(0, 100).map((r: ValidationRow) => ({
           row:      r.rowNum,
           warnings: r.warnings,
         })),
         sample,
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Preview failed';
       console.error('[importController.previewImport]', err);
-      return res.status(500).json({ error: err.message || 'Preview failed' });
+      res.status(500).json({ error: message });
     }
   },
 ];
 
+interface CommitBody extends PreviewBody {
+  templateId?: string | number;
+  unknownUpcStrategy?: string;
+}
+
 // ─── POST /api/catalog/import/commit ─────────────────────────────────────────
-/**
- * Full import: parse → validate → write to DB → record ImportJob.
- */
 export const commitImport = [
   uploadMiddleware,
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     try {
-      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      const file = (req as Request & { file?: Express.Multer.File }).file;
+      if (!file) { res.status(400).json({ error: 'No file uploaded' }); return; }
 
-      const type    = req.body.type;
+      const body = req.body as CommitBody;
+      const type    = body.type;
       // Resolve target store for StoreProduct stock writes.
-      // Priority: explicit body `storeId` → `X-Store-Id` header (active store) → first active store of the org.
-      // Without this fallback, `In Stock` values in the CSV are silently dropped
-      // because the frontend doesn't send a storeId when scope='active'.
-      let storeId = req.body.storeId || req.headers['x-store-id'] || null;
-      const templateId = req.body.templateId ? parseInt(req.body.templateId) : null;
-      // Session 5 — retailer picks how to handle rows whose UPC doesn't match
-      // any existing product: 'create' (default when no template), 'fail', 'skip'.
-      // Default 'fail' when a template is in use (matches the conservative UX
-      // we committed to for vendor-file imports).
-      const unknownUpcStrategy = req.body.unknownUpcStrategy || (templateId ? 'fail' : 'create');
+      let storeId: string | null = body.storeId
+        || (req.headers['x-store-id'] as string | undefined)
+        || null;
+      const templateId = body.templateId ? parseInt(String(body.templateId)) : null;
+      // Default 'fail' when a template is in use.
+      const unknownUpcStrategy = body.unknownUpcStrategy || (templateId ? 'fail' : 'create');
       const opts = {
-        duplicateStrategy:     req.body.duplicateStrategy     || 'overwrite',
-        unknownDeptStrategy:   req.body.unknownDeptStrategy   || 'skip',
-        unknownVendorStrategy: req.body.unknownVendorStrategy || 'skip',
+        duplicateStrategy:     (body.duplicateStrategy     || 'overwrite') as 'error' | 'skip' | 'update' | undefined,
+        unknownDeptStrategy:   body.unknownDeptStrategy   || 'skip',
+        unknownVendorStrategy: body.unknownVendorStrategy || 'skip',
         unknownUpcStrategy,
       };
 
-      if (!VALID_TYPES.includes(type)) {
-        return res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+      if (!type || !VALID_TYPES.includes(type)) {
+        res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+        return;
       }
 
       const orgId  = getOrgId(req);
       const userId = getUserId(req);
-      if (!orgId) return res.status(401).json({ error: 'Cannot determine org' });
+      if (!orgId) { res.status(401).json({ error: 'Cannot determine org' }); return; }
 
       // If still no storeId and this is a product import, fall back to the first
       // active store in the org so quantityOnHand is written somewhere meaningful.
-      // NOTE: Store model uses `isActive`, not `active`.
       if (!storeId && type === 'products') {
         const firstStore = await prisma.store.findFirst({
           where: { orgId, isActive: true },
@@ -227,54 +261,54 @@ export const commitImport = [
       }
 
       // 1 — Parse
-      const { headers, rows } = parseFile(req.file.buffer, req.file.mimetype, req.file.originalname);
-      if (rows.length === 0) return res.status(400).json({ error: 'File is empty' });
+      const { headers, rows } = parseFile(file.buffer, file.mimetype, file.originalname);
+      if (rows.length === 0) { res.status(400).json({ error: 'File is empty' }); return; }
 
       // 1b — Session 5: if a vendor template was selected, apply it BEFORE
-      // column detection. Rows come out in canonical shape, so we build an
-      // identity mapping and skip the fuzzy alias matcher entirely.
+      // column detection.
       let workingRows = rows;
       let workingHeaders = headers;
-      let templateWarnings = [];
-      let templateApplied = null;
+      let templateWarnings: unknown[] = [];
+      let templateApplied: { id: number; name: string; slug: string } | null = null;
 
       if (templateId) {
         const tmpl = await prisma.vendorImportTemplate.findUnique({
           where: { id: templateId },
           include: { mappings: { orderBy: { sortOrder: 'asc' } } },
         });
-        if (!tmpl) return res.status(400).json({ error: `Vendor template ${templateId} not found` });
+        if (!tmpl) { res.status(400).json({ error: `Vendor template ${templateId} not found` }); return; }
         if (tmpl.target !== type) {
-          return res.status(400).json({ error: `Template "${tmpl.name}" targets "${tmpl.target}" but upload type is "${type}"` });
+          res.status(400).json({ error: `Template "${tmpl.name}" targets "${tmpl.target}" but upload type is "${type}"` });
+          return;
         }
-        const applied = applyTemplate(rows, tmpl);
-        workingRows = applied.transformedRows;
+        const applied = applyTemplate(rows as Record<string, unknown>[], tmpl);
+        workingRows = applied.transformedRows as typeof rows;
         templateWarnings = applied.warnings;
         templateApplied = { id: tmpl.id, name: tmpl.name, slug: tmpl.slug };
         // Canonical headers = union of keys present in the transformed rows
-        const keySet = new Set();
-        for (const r of workingRows) Object.keys(r).forEach(k => keySet.add(k));
+        const keySet = new Set<string>();
+        for (const r of workingRows as Record<string, unknown>[]) Object.keys(r).forEach((k) => keySet.add(k));
         workingHeaders = [...keySet];
       }
 
       // 2 — Build column mapping.
-      // Templates emit rows keyed by CANONICAL field names, so we bypass the
-      // alias-fuzzy-match detector and build an identity mapping: `upc → upc`,
-      // `defaultRetailPrice → defaultRetailPrice`, etc. Without this, fields
-      // like defaultRetailPrice wouldn't be claimed (the aliases are external
-      // header labels like "retail" / "price", not canonical names).
-      // Non-templated uploads keep the existing alias-detection behavior.
-      const manualMappingRaw = req.body.mapping ? JSON.parse(req.body.mapping) : {};
+      const manualMappingRaw = body.mapping ? JSON.parse(body.mapping) : {};
       const detectedMapping = templateId
-        ? Object.fromEntries(workingHeaders.map(h => [h, h]))
-        : detectColumns(workingHeaders);
+        ? Object.fromEntries(workingHeaders.map((h: string) => [h, h])) as MappingRecord
+        : (detectColumns(workingHeaders) as MappingRecord);
       const mapping = mergeMapping(detectedMapping, manualMappingRaw);
 
       // 3 — Build context
       const ctx = await buildContext(orgId);
 
       // 4 — Validate
-      const { valid, invalid, warnings } = await validateRows(workingRows, type, mapping, ctx, opts);
+      const { valid, invalid, warnings } = await validateRows(
+        workingRows,
+        type as Parameters<typeof validateRows>[1],
+        mapping as unknown as Parameters<typeof validateRows>[2],
+        ctx,
+        opts,
+      );
 
       // 5 — Create import job record (status = importing)
       const job = await prisma.importJob.create({
@@ -282,28 +316,34 @@ export const commitImport = [
           orgId,
           storeId,
           type,
-          fileName: req.file.originalname,
-          fileSize: req.file.size,
+          fileName: file.originalname,
+          fileSize: file.size,
           totalRows: rows.length,
           status:   'importing',
-          options:  opts,
+          options:  opts as unknown as Prisma.InputJsonValue,
           createdBy: String(userId || 'system'),
         },
       });
 
       // 6 — Import valid rows
-      const result = await importRows(valid, type, orgId, storeId, opts);
+      const result = await importRows(
+        valid,
+        type as Parameters<typeof importRows>[1],
+        orgId,
+        storeId,
+        opts,
+      );
 
       // 7 — Compile all errors (validation + runtime)
       const allErrors = [
-        ...invalid.map(r => ({
+        ...(invalid as unknown as ValidationRow[]).map((r: ValidationRow) => ({
           row:     r.rowNum,
           type:    'error',
           errors:  r.errors,
           warnings:r.warnings,
         })),
-        ...result.errors.map(e => ({ type: 'error', ...e })),
-        ...warnings.map(r => ({
+        ...(result.errors as Record<string, unknown>[]).map((e: Record<string, unknown>) => ({ type: 'error', ...e })),
+        ...(warnings as unknown as ValidationRow[]).map((r: ValidationRow) => ({
           row:      r.rowNum,
           type:     'warning',
           warnings: r.warnings,
@@ -318,16 +358,16 @@ export const commitImport = [
           successRows: result.created + result.updated,
           failedRows:  invalid.length + result.errors.length,
           skippedRows: result.skipped,
-          errors:      allErrors.slice(0, 500), // cap stored errors at 500 rows
+          errors:      allErrors.slice(0, 500) as unknown as Prisma.InputJsonValue,
           completedAt: new Date(),
         },
       });
 
-      return res.json({
+      res.json({
         ok: true,
         jobId:       completedJob.id,
         type,
-        fileName:    req.file.originalname,
+        fileName:    file.originalname,
         totalRows:   rows.length,
         created:     result.created,
         updated:     result.updated,
@@ -340,40 +380,45 @@ export const commitImport = [
         message:     `Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${invalid.length + result.errors.length} failed${templateApplied ? ` (using "${templateApplied.name}")` : ''}`,
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Import failed';
       console.error('[importController.commitImport]', err);
-      return res.status(500).json({ error: err.message || 'Import failed' });
+      res.status(500).json({ error: message });
     }
   },
 ];
 
 // ─── GET /api/catalog/import/template/:type ───────────────────────────────────
-export const getImportTemplate = (req, res) => {
+export const getImportTemplate = (req: Request, res: Response): void => {
   const { type } = req.params;
   if (!VALID_TYPES.includes(type)) {
-    return res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+    res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` });
+    return;
   }
 
-  const buffer = generateTemplate(type);
-  if (!buffer) return res.status(404).json({ error: 'Template not found' });
+  const buffer = generateTemplate(type as Parameters<typeof generateTemplate>[0]);
+  if (!buffer) { res.status(404).json({ error: 'Template not found' }); return; }
 
   const filename = `storeveu_import_template_${type}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', buffer.length);
-  return res.send(buffer);
+  res.send(buffer);
 };
 
 // ─── GET /api/catalog/import/history ─────────────────────────────────────────
-export const getImportHistory = async (req, res) => {
+export const getImportHistory = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
-    if (!orgId) return res.status(401).json({ error: 'Cannot determine org' });
+    if (!orgId) { res.status(401).json({ error: 'Cannot determine org' }); return; }
 
-    const page  = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 20);
-    const type  = req.query.type; // optional filter
+    const page  = Math.max(1, parseInt(String(req.query.page)) || 1);
+    const limit = Math.min(100, parseInt(String(req.query.limit)) || 20);
+    const type  = req.query.type as string | undefined; // optional filter
 
-    const where = { orgId, ...(type && VALID_TYPES.includes(type) ? { type } : {}) };
+    const where: Prisma.ImportJobWhereInput = {
+      orgId,
+      ...(type && VALID_TYPES.includes(type) ? { type } : {}),
+    };
 
     const [jobs, total] = await Promise.all([
       prisma.importJob.findMany({
@@ -385,33 +430,32 @@ export const getImportHistory = async (req, res) => {
           id: true, type: true, fileName: true, fileSize: true,
           totalRows: true, successRows: true, failedRows: true, skippedRows: true,
           status: true, options: true, createdBy: true, createdAt: true, completedAt: true,
-          // Omit full errors array from list view — fetch single job for details
         },
       }),
       prisma.importJob.count({ where }),
     ]);
 
-    return res.json({
+    res.json({
       ok: true,
       jobs,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (err) {
     console.error('[importController.getImportHistory]', err);
-    return res.status(500).json({ error: 'Failed to fetch import history' });
+    res.status(500).json({ error: 'Failed to fetch import history' });
   }
 };
 
 // ─── GET /api/catalog/import/history/:id ─────────────────────────────────────
-export const getImportJob = async (req, res) => {
+export const getImportJob = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const job   = await prisma.importJob.findUnique({ where: { id: parseInt(req.params.id) } });
 
-    if (!job || job.orgId !== orgId) return res.status(404).json({ error: 'Job not found' });
+    if (!job || job.orgId !== orgId) { res.status(404).json({ error: 'Job not found' }); return; }
 
-    return res.json({ ok: true, job });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch job' });
+    res.json({ ok: true, job });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch job' });
   }
 };
