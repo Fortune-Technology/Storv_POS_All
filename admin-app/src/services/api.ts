@@ -143,7 +143,20 @@ export const createPaymentTerminal   = (data: unknown):                         
 export const updatePaymentTerminal   = (id: string | number, data: unknown):               Promise<{ terminal: PaymentTerminal }> => api.put(`/admin/payment-terminals/${id}`, data).then(r => r.data);
 export const deletePaymentTerminal   = (id: string | number):                             Promise<SuccessResponse> => api.delete(`/admin/payment-terminals/${id}`).then(r => r.data);
 export const pingPaymentTerminal     = (id: string | number):                             Promise<{ success: boolean; message?: string }> => api.post(`/admin/payment-terminals/${id}/ping`).then(r => r.data);
-export const listStationsForStore    = (storeId: string):                                  Promise<{ success: boolean; stations: Array<{ id: string; name: string; lastSeenAt?: string | null; paired: boolean; pairedTerminalId: string | null; pairedTerminalNickname: string | null; pairedTerminalModel: string | null }> }> => api.get('/admin/payment-terminals/stations', { params: { storeId } }).then(r => r.data);
+export const listStationsForStore    = (storeId: string):                                  Promise<{
+  success: boolean;
+  scope?: { storeId: string; storeName: string; orgId: string };
+  stations: Array<{
+    id: string;
+    name: string;
+    orgId?: string;
+    lastSeenAt?: string | null;
+    paired: boolean;
+    pairedTerminalId: string | null;
+    pairedTerminalNickname: string | null;
+    pairedTerminalModel: string | null;
+  }>;
+}> => api.get('/admin/payment-terminals/stations', { params: { storeId } }).then(r => r.data);
 
 // ── Admin CMS Pages ──────────────────────────────────────────────────────────
 export const getAdminCmsPages    = ():                                Promise<{ data: CmsPage[] }> => api.get('/admin/cms').then(r => r.data);

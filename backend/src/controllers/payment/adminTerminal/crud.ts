@@ -211,6 +211,24 @@ export const listStationsForStore = async (req: Request, res: Response): Promise
       return;
     }
 
+    // Resolve the store first so we can:
+    //   1. Return 404 cleanly if the storeId is bogus (vs returning empty list)
+    //   2. Double-scope the station query by `orgId` AS WELL — explicit org
+    //      filter is defense in depth. Station.storeId already implies orgId
+    //      under normal data, but explicit `orgId + storeId` filtering means
+    //      any cross-org data mishap (e.g. a station accidentally relocated)
+    //      can't surface to the wrong org's terminal modal.
+    //   3. Echo the store name + orgId in the response so the admin UI can
+    //      verify it scoped correctly.
+    const store = await prisma.store.findUnique({
+      where:  { id: storeId },
+      select: { id: true, orgId: true, name: true },
+    });
+    if (!store) {
+      res.status(404).json({ success: false, error: 'Store not found' });
+      return;
+    }
+
     type StationRow = {
       id: string; name: string; lastSeenAt: Date | null; orgId: string;
     };
@@ -220,12 +238,15 @@ export const listStationsForStore = async (req: Request, res: Response): Promise
 
     const [stations, paired]: [StationRow[], PairedRow[]] = await Promise.all([
       prisma.station.findMany({
-        where: { storeId },
-        select: { id: true, name: true, lastSeenAt: true, orgId: true },
+        // Explicit org + store filter. orgId is enforced server-side here
+        // even though it's redundant under correct data — frontend should
+        // never get to see stations from a different org.
+        where:   { orgId: store.orgId, storeId: store.id },
+        select:  { id: true, name: true, lastSeenAt: true, orgId: true },
         orderBy: { name: 'asc' },
       }) as unknown as Promise<StationRow[]>,
       prisma.paymentTerminal.findMany({
-        where: { storeId, stationId: { not: null } },
+        where:  { orgId: store.orgId, storeId: store.id, stationId: { not: null } },
         select: { id: true, stationId: true, nickname: true, deviceModel: true },
       }) as unknown as Promise<PairedRow[]>,
     ]);
@@ -237,11 +258,20 @@ export const listStationsForStore = async (req: Request, res: Response): Promise
 
     res.json({
       success: true,
+      // Echo back the resolved scope so the admin UI can render a header
+      // like "Stations for store ‘Main Street’" — and so the implementation
+      // engineer can sanity-check what scope the dropdown is showing.
+      scope: {
+        storeId:   store.id,
+        storeName: store.name,
+        orgId:     store.orgId,
+      },
       stations: stations.map((s: StationRow) => {
         const t = pairedByStation.get(s.id);
         return {
           id:          s.id,
           name:        s.name,
+          orgId:       s.orgId,                      // included for verification
           lastSeenAt:  s.lastSeenAt,
           paired:      !!t,
           pairedTerminalId:       t?.id          ?? null,

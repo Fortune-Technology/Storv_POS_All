@@ -1155,17 +1155,41 @@ export default function AdminMerchants() {
                         const editingThisStation = !!termEditing
                           && terminals.find(t => t.id === termEditing)?.stationId === s.id;
                         const disabled = s.paired && !editingThisStation;
+                        // Include full station ID in the option text so an
+                        // implementation engineer can verify the right station
+                        // is being bound (matches DB / cashier-app station ID).
                         return (
                           <option key={s.id} value={s.id} disabled={disabled}>
-                            {s.name}{disabled ? ` — paired with ${s.pairedTerminalNickname || s.pairedTerminalModel || 'terminal'}` : ''}
+                            {s.name} · {s.id}{disabled ? ` — paired with ${s.pairedTerminalNickname || s.pairedTerminalModel || 'terminal'}` : ''}
                           </option>
                         );
                       })}
                     </select>
+                    {/*
+                      Show the FULL station ID of the currently-selected option
+                      below the dropdown — copy-friendly, monospace-styled, and
+                      always visible (the option text in a closed select is
+                      truncated by the browser, so this is the reliable place
+                      to verify which station ID is going to be saved).
+                    */}
+                    {termForm.stationId && (
+                      <span
+                        className="am-field-hint"
+                        style={{
+                          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+                          color: '#475569',
+                          marginTop: 4,
+                          display: 'block',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        Selected station ID: <strong>{termForm.stationId}</strong>
+                      </span>
+                    )}
                     <span className="am-field-hint">
                       {stationOptions.length === 0
                         ? 'No stations registered for this store yet — pair one in the cashier app first.'
-                        : 'Bind this device to a specific cashier station. Greyed-out stations already have a terminal.'}
+                        : `${stationOptions.length} station${stationOptions.length === 1 ? '' : 's'} for this store. Greyed-out entries already have a terminal paired.`}
                     </span>
                   </div>
                   <div className="am-field">
