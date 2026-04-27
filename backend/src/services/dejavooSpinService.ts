@@ -481,6 +481,12 @@ export async function terminalStatus(
   const probeRef = generateReferenceId();
   const body: Record<string, unknown> = {
     ...buildBasePayload(merchant),
+    // PaymentType is REQUIRED by /v2/Payment/Status (Dejavoo returns 400
+    // with "Invalid request data : For PaymentType field required values
+    // are [...]" if missing). 'Card' is a no-op probe value — we're not
+    // actually charging anything; the call just round-trips to validate
+    // credentials.
+    PaymentType: 'Card',
     ReferenceId: probeRef,
   };
 
