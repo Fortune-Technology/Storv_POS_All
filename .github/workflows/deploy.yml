@@ -96,8 +96,11 @@ jobs:
           # Idempotent — creates missing roles, adds missing permission rows,
           # and syncs legacy `User.role` → UserRole assignments for every user.
           # Must run AFTER migrations so the roles / permissions tables exist.
+          # Run with tsx — seedRbac imports from src/rbac/permissionCatalog.ts
+          # (was .js before the Round 5 TS migration). Plain `node` can't
+          # resolve the .js → .ts mapping that NodeNext + tsx handle.
           echo "→ Running RBAC seed (creates missing system roles + perms)"
-          node prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
+          npx tsx prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
 
           # Session 1 — Sync primary UPC → ProductUpc table for any legacy
           # products created before the merged Barcodes section shipped.
