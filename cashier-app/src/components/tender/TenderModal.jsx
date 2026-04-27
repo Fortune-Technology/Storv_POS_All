@@ -164,10 +164,15 @@ export default function TenderModal({
   useEffect(() => {
     if (djLoadedRef.current) return;
     djLoadedRef.current = true;
-    posApi.dejavooMerchantStatus()
+    // Pass storeId via header so the backend can resolve the right merchant.
+    // Without it, /merchant-status returns { configured: false } and the
+    // cashier-app silently treats every card swipe as "approved" without
+    // actually charging — see chargeTerminal() fallback below.
+    const storeIdHere = cashier?.storeId || cashier?.stores?.[0]?.storeId;
+    posApi.dejavooMerchantStatus(storeIdHere)
       .then(s => setDejavooStatus(s))
       .catch(() => setDejavooStatus({ configured: false }));
-  }, []); // eslint-disable-line
+  }, [cashier]); // eslint-disable-line
 
   const hasDejavoo    = !!(dejavooStatus?.configured && dejavooStatus?.provider === 'dejavoo' && dejavooStatus?.hasTpn);
   const ebtEnabled    = hasDejavoo ? !!dejavooStatus?.ebtEnabled : true;
@@ -288,8 +293,35 @@ export default function TenderModal({
         offlineAccepted: false,
       };
     }
-    // No terminal configured — treat as manually approved (cashier confirms)
-    return { approved: true, result: { message: 'No integrated terminal' }, paymentTransactionId: null, referenceId: null, offlineAccepted: false };
+
+    // ── No terminal configured ─────────────────────────────────────────────
+    // Used to silently return `approved: true` here, which made the cart
+    // close + receipt screen show without ever charging the card. That's
+    // a footgun: cashier thinks the sale went through, customer leaves,
+    // no money was charged.
+    //
+    // Now: hard-fail for card / ebt. Only the `manual_card` / `manual_ebt`
+    // tender modes (where the cashier explicitly entered the card data
+    // themselves on a separate device) should bypass terminal integration.
+    if (chargeMethod === 'manual_card' || chargeMethod === 'manual_ebt') {
+      return {
+        approved: true,
+        result: { message: 'Manual entry — cashier confirms charge' },
+        paymentTransactionId: null,
+        referenceId: null,
+        offlineAccepted: false,
+      };
+    }
+    return {
+      approved: false,
+      result: {
+        approved: false,
+        message: 'No payment terminal configured for this store. Set up Dejavoo or PAX in admin → Payments → Merchants, then activate.',
+      },
+      paymentTransactionId: null,
+      referenceId: null,
+      offlineAccepted: false,
+    };
   };
 
   const [splitCharging, setSplitCharging] = useState(false);
