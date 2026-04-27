@@ -1100,6 +1100,16 @@ export default function POSScreen() {
   const isPureLotteryCart = lotteryCashOnlyActive && nonLotteryLineTotal < 0.005 && lotteryLineTotal > 0;
   // Legacy alias — only TRULY block card when the cart is 100% lottery.
   const cashOnlyEnforced = isPureLotteryCart;
+  // Integrated card / EBT need a live backend round-trip (Dejavoo cloud
+  // round-trip via /payment/dejavoo/sale). When offline these can't possibly
+  // succeed, so disable the quick-tender buttons instead of letting the
+  // cashier discover it after a request times out.
+  const cardDisabled = cashOnlyEnforced || !isOnline;
+  const cardDisabledReason = cashOnlyEnforced
+    ? 'Lottery items — cash only'
+    : !isOnline
+      ? 'Offline — Card / EBT need a live connection'
+      : null;
 
   // ── Layout preset config ──────────────────────────────────────────────────
   // Resolve the active layout for THIS register: station-level override wins
@@ -1530,19 +1540,28 @@ export default function POSScreen() {
                       gap: 8,
                     }}>
                       <button
-                        onClick={() => !cashOnlyEnforced && openTender('card')}
-                        disabled={cashOnlyEnforced}
-                        title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
-                        style={{ height: 56, borderRadius: 12, background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)', border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`, color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cashOnlyEnforced ? 0.45 : 1 }}
+                        onClick={() => !cardDisabled && openTender('card')}
+                        disabled={cardDisabled}
+                        title={cardDisabledReason || undefined}
+                        style={{ height: 56, borderRadius: 12, background: cardDisabled ? 'var(--bg-input)' : 'rgba(99,179,237,.12)', border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(99,179,237,.3)'}`, color: cardDisabled ? 'var(--text-muted)' : 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: cardDisabled ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cardDisabled ? 0.45 : 1 }}
                       >
                         <CreditCard size={16} /><span>CARD</span>
+                        {!isOnline && !cashOnlyEnforced && <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>}
                       </button>
                       <button onClick={() => openTender('cash')} style={{ height: 56, borderRadius: 12, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.3)', color: 'var(--green)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; }}>
                         <Banknote size={16} /><span>CASH</span>
                       </button>
                       {showEbtButton && (
-                        <button onClick={() => openTender('ebt')} style={{ height: 56, borderRadius: 12, background: 'rgba(52,211,153,.1)', border: '1px solid rgba(52,211,153,.3)', color: '#34d399', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(52,211,153,.18)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(52,211,153,.1)'; }}>
+                        <button
+                          onClick={() => !cardDisabled && openTender('ebt')}
+                          disabled={cardDisabled}
+                          title={cardDisabledReason || undefined}
+                          style={{ height: 56, borderRadius: 12, background: cardDisabled ? 'var(--bg-input)' : 'rgba(52,211,153,.1)', border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(52,211,153,.3)'}`, color: cardDisabled ? 'var(--text-muted)' : '#34d399', fontWeight: 800, fontSize: '0.8rem', cursor: cardDisabled ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cardDisabled ? 0.45 : 1 }}
+                          onMouseEnter={e => { if (!cardDisabled) e.currentTarget.style.background = 'rgba(52,211,153,.18)'; }}
+                          onMouseLeave={e => { if (!cardDisabled) e.currentTarget.style.background = 'rgba(52,211,153,.1)'; }}
+                        >
                           <Leaf size={16} /><span>EBT</span>
+                          {!isOnline && !cashOnlyEnforced && <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>}
                         </button>
                       )}
                     </div>
@@ -1901,31 +1920,31 @@ export default function POSScreen() {
                     gridTemplateColumns: showEbtButton ? '1fr 1fr 1fr' : '1fr 1fr',
                     gap: 8,
                   }}>
-                    {/* CARD — disabled when lottery cash-only is enforced */}
+                    {/* CARD — disabled when lottery cash-only is enforced or offline */}
                     <button
-                      onClick={() => !cashOnlyEnforced && openTender('card')}
-                      disabled={cashOnlyEnforced}
-                      title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
+                      onClick={() => !cardDisabled && openTender('card')}
+                      disabled={cardDisabled}
+                      title={cardDisabledReason || undefined}
                       style={{
                         height: 56, borderRadius: 12,
-                        background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)',
-                        border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`,
-                        color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)',
+                        background: cardDisabled ? 'var(--bg-input)' : 'rgba(99,179,237,.12)',
+                        border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(99,179,237,.3)'}`,
+                        color: cardDisabled ? 'var(--text-muted)' : 'var(--blue)',
                         fontWeight: 800, fontSize: '0.8rem',
-                        cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer',
+                        cursor: cardDisabled ? 'not-allowed' : 'pointer',
                         display: 'flex', flexDirection: 'column',
                         alignItems: 'center', justifyContent: 'center', gap: 2,
-                        opacity: cashOnlyEnforced ? 0.45 : 1,
+                        opacity: cardDisabled ? 0.45 : 1,
                         transition: 'background .1s, border-color .1s',
                       }}
                       onMouseEnter={e => {
-                        if (!cashOnlyEnforced) {
+                        if (!cardDisabled) {
                           e.currentTarget.style.background = 'rgba(99,179,237,.2)';
                           e.currentTarget.style.borderColor = 'rgba(99,179,237,.5)';
                         }
                       }}
                       onMouseLeave={e => {
-                        if (!cashOnlyEnforced) {
+                        if (!cardDisabled) {
                           e.currentTarget.style.background = 'rgba(99,179,237,.12)';
                           e.currentTarget.style.borderColor = 'rgba(99,179,237,.3)';
                         }
@@ -1933,6 +1952,9 @@ export default function POSScreen() {
                     >
                       <CreditCard size={16} />
                       <span>CARD</span>
+                      {!isOnline && !cashOnlyEnforced && (
+                        <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>
+                      )}
                     </button>
 
                     {/* CASH — opens TenderModal for manual amount entry + split payments */}
@@ -1962,32 +1984,43 @@ export default function POSScreen() {
                       <span>CASH</span>
                     </button>
 
-                    {/* EBT — only shown when cart has EBT-eligible items */}
+                    {/* EBT — only shown when cart has EBT-eligible items;
+                        disabled when cash-only enforced or offline */}
                     {showEbtButton && (
                       <button
-                        onClick={() => openTender('ebt')}
+                        onClick={() => !cardDisabled && openTender('ebt')}
+                        disabled={cardDisabled}
+                        title={cardDisabledReason || undefined}
                         style={{
                           height: 56, borderRadius: 12,
-                          background: 'rgba(52,211,153,.1)',
-                          border: '1px solid rgba(52,211,153,.3)',
-                          color: '#34d399',
+                          background: cardDisabled ? 'var(--bg-input)' : 'rgba(52,211,153,.1)',
+                          border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(52,211,153,.3)'}`,
+                          color: cardDisabled ? 'var(--text-muted)' : '#34d399',
                           fontWeight: 800, fontSize: '0.8rem',
-                          cursor: 'pointer',
+                          cursor: cardDisabled ? 'not-allowed' : 'pointer',
                           display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center', gap: 2,
+                          opacity: cardDisabled ? 0.45 : 1,
                           transition: 'background .1s, border-color .1s',
                         }}
                         onMouseEnter={e => {
-                          e.currentTarget.style.background = 'rgba(52,211,153,.18)';
-                          e.currentTarget.style.borderColor = 'rgba(52,211,153,.5)';
+                          if (!cardDisabled) {
+                            e.currentTarget.style.background = 'rgba(52,211,153,.18)';
+                            e.currentTarget.style.borderColor = 'rgba(52,211,153,.5)';
+                          }
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.background = 'rgba(52,211,153,.1)';
-                          e.currentTarget.style.borderColor = 'rgba(52,211,153,.3)';
+                          if (!cardDisabled) {
+                            e.currentTarget.style.background = 'rgba(52,211,153,.1)';
+                            e.currentTarget.style.borderColor = 'rgba(52,211,153,.3)';
+                          }
                         }}
                       >
                         <Leaf size={16} />
                         <span>EBT</span>
+                        {!isOnline && !cashOnlyEnforced && (
+                          <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>
+                        )}
                       </button>
                     )}
                   </div>

@@ -132,11 +132,21 @@ export default function TenderModal({
   // semantics: 0/blank limit field means no cap).
   const chargeAllowed = customerChargeOpen && (customerBalanceLimit <= 0 || customerChargeRoom > 0.005);
 
-  const allowedMethods = isPureCashOnlyCart
-    ? METHODS.filter(m => m.id === 'cash')
-    : METHODS.filter(m => m.id !== 'charge' || chargeAllowed);
   const cashier  = useAuthStore(s => s.cashier);
   const { isOnline, enqueue } = useSyncStore();
+
+  // Integrated card / EBT need a live backend round-trip (Dejavoo cloud or
+  // a PAX-via-backend call). When the cashier-app is offline, these can't
+  // possibly succeed — disable them upfront instead of silently failing
+  // mid-charge. Manual card / Manual EBT (cashier confirmed-by-eye on a
+  // separate device) and Cash still work.
+  const allowedMethods = isPureCashOnlyCart
+    ? METHODS.filter(m => m.id === 'cash')
+    : METHODS.filter(m => {
+        if (m.id === 'charge' && !chargeAllowed) return false;
+        if (!isOnline && (m.id === 'card' || m.id === 'ebt')) return false;
+        return true;
+      });
   const station  = useStationStore(s => s.station);
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -145,7 +155,13 @@ export default function TenderModal({
   const [method,  setMethod]  = useState(
     isPureCashOnlyCart
       ? 'cash'
-      : (initMethod || (totals.ebtTotal > 0 ? 'ebt' : 'cash'))
+      // When the cashier-app is offline, integrated card/EBT are gated out.
+      // Drop into Cash so the modal opens on a usable screen; the cashier
+      // can switch to Manual Card if they want to confirm a charge made on
+      // a separate device.
+      : (!isOnline && (initMethod === 'card' || initMethod === 'ebt')
+          ? 'cash'
+          : (initMethod || (totals.ebtTotal > 0 && isOnline ? 'ebt' : 'cash')))
   );
   const [payStatus,   setPayStatus]   = useState(null); // null | 'waiting' | 'approved' | 'declined' | 'error'
   const [payResult,   setPayResult]   = useState(null);
@@ -173,6 +189,18 @@ export default function TenderModal({
       .then(s => setDejavooStatus(s))
       .catch(() => setDejavooStatus({ configured: false }));
   }, [cashier]); // eslint-disable-line
+
+  // If connection drops while the cashier is on the card / EBT screen, slide
+  // them back to Cash so they don't tap "Charge" against a dead network.
+  // Doesn't touch any in-flight payment — payStatus === 'waiting' already
+  // blocks UI changes via the existing complete() flow.
+  useEffect(() => {
+    if (!isOnline && (method === 'card' || method === 'ebt') && payStatus !== 'waiting') {
+      setMethod('cash');
+      setAmount('');
+      setNote('');
+    }
+  }, [isOnline, method, payStatus]);
 
   const hasDejavoo    = !!(dejavooStatus?.configured && dejavooStatus?.provider === 'dejavoo' && dejavooStatus?.hasTpn);
   const ebtEnabled    = hasDejavoo ? !!dejavooStatus?.ebtEnabled : true;
@@ -256,6 +284,24 @@ export default function TenderModal({
    * Throws:  on network/config error. On decline, returns { approved: false, result }.
    */
   const chargeTerminal = async (chargeAmount, chargeMethod) => {
+    // Hard-stop integrated card / EBT when offline. The backend round-trip to
+    // /payment/dejavoo/sale (or /payment/pax/sale) cannot succeed without
+    // network — better to surface a clear error than to let axios time out
+    // and have the cashier wonder if the card was charged. Manual card /
+    // Manual EBT explicitly do NOT route through the terminal.
+    if (!isOnline && (chargeMethod === 'card' || chargeMethod === 'ebt')) {
+      return {
+        approved: false,
+        result: {
+          approved: false,
+          message:
+            'Cashier-app is offline. Card / EBT requires a live connection to the payment terminal. Switch to Cash or Manual Card.',
+        },
+        paymentTransactionId: null,
+        referenceId: null,
+        offlineAccepted: false,
+      };
+    }
     if (hasDejavoo) {
       const resp = await posApi.dejavooSale({
         stationId:     station?.id,
@@ -992,6 +1038,31 @@ export default function TenderModal({
 
           {/* ── Left column ── */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '0.875rem 1rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+            {/* Offline banner — integrated card / EBT can't reach Dejavoo cloud
+                without network, so we tell the cashier upfront which paths still
+                work. Kept at the top of the scroll column so it's never below
+                the fold even on small POS displays. */}
+            {!isOnline && (
+              <div style={{
+                background: 'rgba(220,38,38,0.08)',
+                border: '1px solid rgba(220,38,38,0.3)',
+                borderRadius: 10,
+                padding: '0.6rem 0.875rem',
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+              }}>
+                <WifiOff size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: '0.78rem', lineHeight: 1.35 }}>
+                  <div style={{ fontWeight: 800, color: '#dc2626', marginBottom: 2 }}>
+                    No network — Card & EBT unavailable
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)' }}>
+                    Cash, Manual Card, Manual EBT, Charge, and Other still work.
+                    Card / EBT need a live connection to the payment terminal.
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Committed splits */}
             {splits.length > 0 && (
