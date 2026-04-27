@@ -24,7 +24,15 @@ export const dejavooMerchantStatus = async (req: Request, res: Response): Promis
   try {
     const storeId = getStoreId(req);
     if (!storeId) {
-      res.status(400).json({ success: false, error: 'storeId is required (X-Store-Id header)' });
+      // No active store on the calling page — return a friendly empty state
+      // instead of 400. The portal's PaymentSettings page polls this on
+      // every render; bouncing 400 spams the console + DevTools network
+      // tab without telling the user anything actionable.
+      res.json({
+        success:    true,
+        configured: false,
+        reason:     'no_active_store',
+      });
       return;
     }
 

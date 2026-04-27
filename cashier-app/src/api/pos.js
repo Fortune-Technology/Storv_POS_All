@@ -55,11 +55,21 @@ export const getPosBranding = (storeId) =>
 
 // ── Station management ────────────────────────────────────────────────────
 
-// Register this physical terminal (manager's token sent as Bearer)
-export const registerStation = (body, managerToken) =>
-  api.post('/pos-terminal/station-register', body, {
-    headers: { Authorization: `Bearer ${managerToken}` },
-  }).then(r => r.data);
+// Register this physical terminal.
+//
+// `managerToken` is OPTIONAL: if provided, sent as a Bearer token (preserves
+// the legacy authenticated-pair flow). If omitted, the request goes through
+// without an Authorization header — the backend route is unguarded for the
+// "Reset this register → re-pair without login" flow. The backend still
+// scopes by storeId (looks up the Store row to derive orgId).
+export const registerStation = (body, managerToken) => {
+  const headers = managerToken
+    ? { Authorization: `Bearer ${managerToken}` }
+    : undefined;
+  return api
+    .post('/pos-terminal/station-register', body, headers ? { headers } : undefined)
+    .then(r => r.data);
+};
 
 // Verify station token is still valid (used on boot)
 export const verifyStation = (stationToken) =>

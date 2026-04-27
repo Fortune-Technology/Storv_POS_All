@@ -90,7 +90,18 @@ router.post('/print-network', ...guard, printNetworkReceipt);
 router.post('/print-label', ...guard, printNetworkLabel);
 
 // Station management
-router.post('/station-register', ...guard, registerStation);
+//
+// `station-register` is intentionally UNGUARDED for now: the cashier-app's
+// "Reset this register" flow needs to re-pair without forcing a manager
+// login each time. The endpoint enforces its own scoping (storeId must
+// resolve to a real Store; orgId is derived from the Store row, not from
+// any user JWT). If you can supply a valid storeId you can pair against
+// it — appropriate for UAT testing on shared dev hardware.
+//
+// To tighten for production: re-add `...guard` and require manager-or-
+// higher role. Audit-log every pair (Station has lastSeenAt; consider an
+// explicit StationPairingLog model).
+router.post('/station-register', registerStation);
 router.get('/station-verify',    verifyStation);
 router.post('/pin-login',        pinLimiter, pinLogin);
 

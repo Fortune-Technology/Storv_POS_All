@@ -32,6 +32,23 @@ export const listStationsForStore = async (req: Request, res: Response): Promise
 };
 
 // ── POST /api/pos-terminal/station-register ───────────────────────────────
+//
+// Re-pair behaviour: if a station with the SAME `name` already exists for
+// the same store, we REUSE the existing row instead of creating a new one.
+// We rotate the token (so old auth on this machine stops working) and
+// refresh `lastSeenAt`.
+//
+// Why: re-running the cashier-app pairing flow on the same physical machine
+// (e.g. after factory reset, OS reinstall, station-setup wizard re-run)
+// used to spawn a brand-new Station row each time. That accumulated dozens
+// of orphan rows in production with the same name, broke per-station
+// reporting, and eventually could exhaust the (storeId, name) display in
+// the admin terminal picker.
+//
+// Naming is the de-facto identifier — physical hardware doesn't have a
+// stable signature exposed to the browser. If an admin truly wants TWO
+// distinct stations with the same name, they should give them different
+// names (e.g. "Register 1" vs "Register 1 — Spare").
 export const registerStation = async (req: Request, res: Response): Promise<void> => {
   try {
     const { storeId, name } = req.body as { storeId?: string; name?: string };
@@ -40,26 +57,58 @@ export const registerStation = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const orgId = (req.orgId || req.user?.orgId) as string;
-
-    // Verify store belongs to this org
-    const store = await prisma.store.findFirst({ where: { id: storeId, orgId } });
+    // Resolve org from the Store row directly. The route is unguarded
+    // (no JWT required) for the cashier-app reset flow — see the comment
+    // in posTerminalRoutes.ts for the rationale + tightening path. If the
+    // request DID come with a JWT (req.user/req.orgId set by upstream
+    // middleware), we still respect that as a sanity cross-check.
+    const store = await prisma.store.findUnique({ where: { id: storeId } });
     if (!store) { res.status(404).json({ error: 'Store not found' }); return; }
 
-    // Generate a unique, opaque station token
+    const callerOrgId = req.orgId || req.user?.orgId;
+    if (callerOrgId && callerOrgId !== store.orgId) {
+      // JWT-supplied orgId disagrees with the store's actual org — refuse
+      // (prevents a manager in Org A from pairing into Org B's store).
+      res.status(403).json({ error: 'Store belongs to a different organization' });
+      return;
+    }
+    const orgId = store.orgId;
+
+    const trimmedName = name.trim();
+    // Generate a fresh opaque token. Used whether we reuse OR create —
+    // re-pairing always rotates the token (old auth becomes invalid).
     const token = `stn_${nanoid(40)}`;
 
-    const station = await prisma.station.create({
-      data: { orgId, storeId, name: name.trim(), token, lastSeenAt: new Date() },
+    // Look for an existing station with the same name in this store + org.
+    // If found → reuse (rotate token + refresh lastSeenAt).
+    const existing = await prisma.station.findFirst({
+      where: { orgId, storeId, name: trimmedName },
     });
 
-    res.status(201).json({
+    let station;
+    let reused = false;
+    if (existing) {
+      station = await prisma.station.update({
+        where: { id: existing.id },
+        data:  { token, lastSeenAt: new Date() },
+      });
+      reused = true;
+      console.log(`[stationController] Re-paired station ${existing.id} ("${trimmedName}") for store ${storeId}`);
+    } else {
+      station = await prisma.station.create({
+        data: { orgId, storeId, name: trimmedName, token, lastSeenAt: new Date() },
+      });
+      console.log(`[stationController] Created new station ${station.id} ("${trimmedName}") for store ${storeId}`);
+    }
+
+    res.status(reused ? 200 : 201).json({
       stationId:    station.id,
       stationToken: station.token,
       stationName:  station.name,
       storeId:      store.id,
       storeName:    store.name,
       orgId,
+      reused,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
