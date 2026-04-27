@@ -20,18 +20,21 @@ import prisma from '../config/postgres.js';
 import { parsePrice } from '../utils/validators.js';
 import * as XLSX from 'xlsx';
 import { logAudit } from '../services/auditService.js';
+import {
+  errMsg,
+  errCode,
+  errStatus,
+  type StatusError,
+} from '../utils/typeHelpers.js';
 
-// ── Augmented Error (status / code / conflict surface) ────────────────────
-type StatusError = Error & {
-  status?: number;
-  code?: string;
+// ── Augmented Error (catalog-specific: adds `conflict` surface) ────────────
+// Extends the shared StatusError so generic helpers (errCode, errStatus)
+// keep working; UPC-conflict throw paths use this richer shape so the
+// downstream handler can read `err.conflict` and produce a 409 with the
+// conflicting product details.
+type CatalogStatusError = StatusError & {
   conflict?: UpcConflict | null;
 };
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-const errCode = (err: unknown): string | undefined =>
-  err instanceof Error ? (err as StatusError).code : undefined;
-const errStatus = (err: unknown): number | undefined =>
-  err instanceof Error ? (err as StatusError).status : undefined;
 
 // ── Safe price coercer ─────────────────────────────────────────────────────
 // Wrap parsePrice so controllers can one-line the transform.
@@ -40,7 +43,7 @@ const errStatus = (err: unknown): number | undefined =>
 function toPrice(value: unknown, field: string): number | null {
   const r = parsePrice(value, { min: 0, max: 9999999, allowNull: true });
   if (!r.ok) {
-    const e = new Error(`${field}: ${r.error}`) as StatusError;
+    const e = new Error(`${field}: ${r.error}`) as CatalogStatusError;
     e.status = 400;
     throw e;
   }
@@ -290,7 +293,7 @@ async function assertUpcUnique(
   if (conflict) {
     const e = new Error(
       `UPC "${conflict.upc}" is already used by product "${conflict.conflictingProductName}" (id ${conflict.conflictingProductId}). Each UPC must be unique within the organisation.`,
-    ) as StatusError;
+    ) as CatalogStatusError;
     e.status = 409;
     e.code = 'UPC_CONFLICT';
     e.conflict = conflict;
@@ -1462,7 +1465,7 @@ export const updateProductVendor = async (req: Request, res: Response): Promise<
         select: { id: true, isPrimary: true },
       });
       if (!found) {
-        const e = new Error('Mapping not found') as StatusError;
+        const e = new Error('Mapping not found') as CatalogStatusError;
         e.status = 404;
         throw e;
       }
@@ -1506,7 +1509,7 @@ export const deleteProductVendor = async (req: Request, res: Response): Promise<
         select: { id: true },
       });
       if (!found) {
-        const e = new Error('Mapping not found') as StatusError;
+        const e = new Error('Mapping not found') as CatalogStatusError;
         e.status = 404;
         throw e;
       }
@@ -1538,7 +1541,7 @@ export const makeProductVendorPrimary = async (req: Request, res: Response): Pro
         select: { id: true },
       });
       if (!target) {
-        const e = new Error('Mapping not found') as StatusError;
+        const e = new Error('Mapping not found') as CatalogStatusError;
         e.status = 404;
         throw e;
       }
@@ -2451,7 +2454,7 @@ async function syncPrimaryUpc(
   if (existing && existing.masterProductId !== productId) {
     const err = new Error(
       `UPC ${normalized} is already used by another product (id ${existing.masterProductId})`,
-    ) as StatusError;
+    ) as CatalogStatusError;
     err.code = 'P2002';
     throw err;
   }
@@ -2549,7 +2552,7 @@ export const createMasterProduct = async (req: Request, res: Response): Promise<
         await assertUpcUnique(prisma, orgId, normalizedUpcForCheck);
       } catch (err) {
         if (errStatus(err) === 409) {
-          const conflict = (err as StatusError).conflict;
+          const conflict = (err as CatalogStatusError).conflict;
           res.status(409).json({ success: false, error: errMsg(err), conflict });
           return;
         }
@@ -2809,7 +2812,7 @@ export const updateMasterProduct = async (req: Request, res: Response): Promise<
           await assertUpcUnique(prisma, orgId, normalizedUpc, id);
         } catch (err) {
           if (errStatus(err) === 409) {
-            const conflict = (err as StatusError).conflict;
+            const conflict = (err as CatalogStatusError).conflict;
             res.status(409).json({ success: false, error: errMsg(err), conflict });
             return;
           }
@@ -4089,7 +4092,7 @@ export const addProductUpc = async (req: Request, res: Response): Promise<void> 
       await assertUpcUnique(prisma, orgId, normalizedUpc, masterProductId);
     } catch (err) {
       if (errStatus(err) === 409) {
-        const conflict = (err as StatusError).conflict;
+        const conflict = (err as CatalogStatusError).conflict;
         res.status(409).json({ success: false, error: errMsg(err), conflict });
         return;
       }

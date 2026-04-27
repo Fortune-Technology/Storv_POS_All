@@ -10,8 +10,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../config/postgres.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { validatePassword, validatePhone } from '../utils/validators.js';
-
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+import { errMsg } from '../utils/typeHelpers.js';
 
 // Role keys that cannot be assigned via Invite / Role-change UI.
 // Owner is set only on org creation; superadmin is platform-level.

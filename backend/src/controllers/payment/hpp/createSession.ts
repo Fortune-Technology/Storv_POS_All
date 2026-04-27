@@ -20,7 +20,7 @@ import {
   createCheckoutSession,
   generateReferenceId,
   buildNotifyUrl,
-} from '../../../services/dejavooHppService.js';
+} from '../../../services/dejavoo/hpp/index.js';
 import {
   decryptForHpp,
   getBackendUrl,

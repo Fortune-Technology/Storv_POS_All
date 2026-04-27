@@ -25,7 +25,7 @@ import {
   parseHppResponse,
   verifyWebhookAuthHeader,
   mapStatus,
-} from '../../../services/dejavooHppService.js';
+} from '../../../services/dejavoo/hpp/index.js';
 import { notifyEcomBackend, type MerchantRow } from './helpers.js';
 
 interface ParsedHppResponse {

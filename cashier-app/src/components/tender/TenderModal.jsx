@@ -30,6 +30,7 @@ import { submitTransaction } from '../../api/pos.js';
 import * as posApi from '../../api/pos.js';
 import { fmt$, fmtDate, fmtTime, fmtTxNumber } from '../../utils/formatters.js';
 import { getSmartCashPresets, applyRounding } from '../../utils/cashPresets.js';
+import { describeDejavooError } from '../../utils/dejavooErrorCodes.js';
 import { nanoid } from 'nanoid';
 import { useHardware, loadHardwareConfig } from '../../hooks/useHardware.js';
 import { useStationStore } from '../../stores/useStationStore.js';
@@ -266,6 +267,56 @@ export default function TenderModal({
     return false;
   }, [isRefundTx, cashFloorShortfall, method, activeAmt, remaining, totalSplit, totals.grandTotal, chargeAllowed, chargeMaxFromLimit]);
 
+  // Auto-fire the pinpad when the cashier picks Card or EBT.
+  //
+  // Why: prior UX required two taps — pick Card → tap "Complete & Charge".
+  // The cashier-app's purpose is the second tap; the terminal already shows
+  // the customer the amount on its own screen, so the cashier shouldn't have
+  // to confirm it on our side first. Auto-fire on method change cuts the
+  // round-trip in half.
+  //
+  // Guards to NOT auto-fire (when manual flow is what the cashier wants):
+  //   - terminal not configured  → let the user hit Complete and see the
+  //     proper "no terminal configured" decline message
+  //   - amount typed on numpad   → cashier wants a partial charge, not full
+  //   - any prior split lines     → mid-split flow, charge happens via
+  //     addSplitLine when the cashier hits "Add & Continue"
+  //   - payStatus already set    → a charge is already in flight / declined /
+  //     approved, never double-fire
+  //   - remaining ≈ 0            → nothing to charge
+  //   - already auto-fired this method  → ref guard prevents loops if the
+  //     effect re-runs (e.g. dejavooStatus async load)
+  //
+  // NOTE: must live AFTER `hasDejavoo`, `ebtEnabled`, `amount`, `saving`,
+  // and `remaining` are declared — the dep array is evaluated synchronously
+  // during render, and any const referenced before its declaration triggers
+  // a TDZ ReferenceError. Earlier placement broke first mount.
+  const cardAutoFireRef = useRef(null);
+  useEffect(() => {
+    // Reset the guard whenever the cashier switches AWAY from card/ebt so a
+    // later switch back can auto-fire fresh.
+    if (method !== 'card' && method !== 'ebt') {
+      cardAutoFireRef.current = null;
+      return;
+    }
+    if (cardAutoFireRef.current === method) return;          // already fired for this method
+    if (!hasDejavoo && !hasPAX) return;                       // no integration → manual flow + hard-fail
+    if (method === 'ebt' && !ebtEnabled) return;              // EBT disabled at merchant
+    if (amount) return;                                       // cashier typed an amount → wants partial
+    if (splits.length > 0) return;                            // mid-split → use addSplitLine flow
+    if (payStatus != null) return;                            // already charging / done
+    if (remaining < 0.005) return;                            // nothing to charge
+    if (saving) return;                                       // post-charge save in progress
+    cardAutoFireRef.current = method;
+    // Use a microtask delay so the UI shows the "method = card" highlight
+    // before the terminal call begins. Pure UX polish.
+    Promise.resolve().then(() => complete());
+    // Note: complete is referenced via closure — we don't list it as a dep
+    // because that would re-run this effect every render. The ref guard
+    // ensures we only call it once per method-selection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, hasDejavoo, hasPAX, ebtEnabled, amount, splits.length, payStatus, remaining, saving]);
+
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
   // Numpad shows for every method now (card/ebt can accept partial amounts)
@@ -303,11 +354,19 @@ export default function TenderModal({
       };
     }
     if (hasDejavoo) {
+      // PaymentType — Dejavoo SPIn enum is case-sensitive per Theneo docs.
+      // 'Credit' is the canonical value for a generic card sale (matches the
+      // sample request in the spec); 'Card' is a generic chooser that requires
+      // multiple payment apps installed on the terminal and triggers
+      // StatusCode 1003 "Not Supported" on UAT merchants where only Credit is
+      // provisioned. Backend also normalizes — sending the canonical value
+      // here keeps the payload self-documenting.
+      const paymentType = chargeMethod === 'ebt' ? 'EBT_Food' : 'Credit';
       const resp = await posApi.dejavooSale({
         stationId:     station?.id,
         amount:        Math.abs(chargeAmount),
         invoiceNumber: txNumber,
-        paymentType:   chargeMethod === 'ebt' ? 'ebt_food' : 'card',
+        paymentType,
         captureSignature: Number(chargeAmount) >= Number(signatureThreshold),
       });
       const result = resp?.result || resp || {};
@@ -457,6 +516,26 @@ export default function TenderModal({
     // NOT the full grand total. Prior splits already charged their portions
     // via addSplitLine → chargeTerminal, so we only need to charge what's
     // still remaining when the cashier hits Complete with method=card/ebt.
+    //
+    // CRITICAL: when integration is NOT configured (hasDejavoo=false AND
+    // hasPAX=false) and the cashier is using card/ebt, we MUST hard-fail
+    // here. Previously we only entered this block when an integration was
+    // configured, which meant a no-integration card sale fell straight
+    // through to the "save POS transaction" step → silent success →
+    // receipt screen, with NO money charged. That bug let cashiers
+    // accidentally close out card sales without actually charging.
+    if (USES_TERMINAL.includes(method) && !hasDejavoo && !hasPAX) {
+      setPayStatus('declined');
+      setPayResult({
+        approved: false,
+        message: 'No payment terminal configured',
+        detailedMessage: 'Set up Dejavoo or PAX in admin → Payments → Merchants and activate the merchant before accepting card or EBT.',
+        statusCode: '',
+        resultCode: '',
+      });
+      return;
+    }
+
     let finalTerminalResult = null;
     let finalTerminalTxId = null;
     if (USES_TERMINAL.includes(method) && (hasDejavoo || hasPAX) && payStatus !== 'approved') {
@@ -782,59 +861,61 @@ export default function TenderModal({
               </div>
             )}
 
-            {/* Declined */}
+            {/* Declined / error — translated through dejavooErrorCodes.js so
+                the cashier sees a human-readable headline + actionable hint
+                instead of raw "Code: 1 / Canceled" text. The full Dejavoo
+                response is still surfaced below for support diagnostics. */}
             {isDeclined && (() => {
-              // Distinguish terminal-offline failures from card declines.
-              // Dejavoo cloud returns ResultCode='TerminalError' and/or
-              // Message='Connection failed' when the cloud cannot reach the
-              // physical P17 — that's a setup problem, not a card problem,
-              // and it deserves a different remediation hint than "card declined".
-              const msg  = payResult?.resptext || payResult?.message || '';
-              const detail = payResult?.detailedMessage || '';
-              const code = payResult?.resultCode || payResult?.statusCode || '';
-              // Treat anything that smells like "cloud couldn't reach the
-              // device" or "TPN/RegisterID mismatch" as a setup problem,
-              // not a card problem. Common Dejavoo phrasings collected
-              // here so the cashier sees the actionable checklist instead
-              // of a generic "declined". Includes the device-stays-on-
-              // Listening case (cloud accepts the request but has no
-              // device routing match).
-              const haystack = `${msg} ${detail} ${code}`.toLowerCase();
-              const isTerminalOffline =
-                /terminal\s*error|connection\s*failed|terminal\s*not\s*(found|reachable|paired)|device\s*offline|no\s*response\s*from\s*terminal|tpn\s*not\s*found|invalid\s*tpn|register\s*id|unable\s*to\s*reach/i.test(haystack) ||
-                /TerminalError|NetworkError|RoutingError/i.test(String(code));
+              const desc = describeDejavooError(payResult);
+              const rawMsg    = desc.raw.message;
+              const rawDetail = desc.raw.detailedMessage;
+              const showCode  = desc.statusCode || desc.resultCode;
               return (
                 <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(224,63,63,.08)', border: '1px solid rgba(224,63,63,.25)' }}>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--red)' }}>
-                    {msg || 'Card was not approved'}
+                  {/* Cashier-friendly headline + hint */}
+                  <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--red)' }}>
+                    {desc.headline}
                   </div>
-                  {(detail && detail !== msg) && (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {detail}
-                    </div>
-                  )}
-                  {code && (
-                    <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
-                      Code: {String(code)}
-                    </div>
-                  )}
-                  {isTerminalOffline ? (
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.45 }}>
-                      <div style={{ fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
-                        Payment terminal isn't reachable
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.45 }}>
+                    {desc.hint}
+                  </div>
+                  {/* Setup-class errors get the additional checklist for fixing the integration. */}
+                  {desc.setup && (
+                    <div style={{ marginTop: 8, padding: '0.6rem 0.8rem', borderRadius: 8, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)' }}>
+                      <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
+                        Configuration issue — check this:
                       </div>
-                      <div>The Dejavoo cloud couldn't push the sale to your P17. This usually means the terminal can't be routed to from the cloud — not a card problem. Check:</div>
-                      <ul style={{ margin: '6px 0 0 18px', padding: 0, color: 'var(--text-muted)' }}>
-                        <li>P17 is powered on with the DVSPIn app on "Listening for transaction…"</li>
-                        <li>P17 has internet — WiFi/Ethernet connected directly to the device</li>
-                        <li>P17 home screen is showing (not stuck mid-transaction)</li>
-                        <li><strong>TPN and Register ID in admin → Payments match what's burned into the device</strong> (Settings → SPIn → check on the P17)</li>
-                        <li>The device serial is registered to this merchant TPN in the iPOSpays portal</li>
+                      <ul style={{ margin: '0 0 0 18px', padding: 0, fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <li>P17 is powered on, on its WiFi/Ethernet, showing "Listening for transaction…"</li>
+                        <li>TPN, Register ID and Auth Key in admin → Payments match the device</li>
+                        <li>The device serial is paired to this TPN in the iPOSpays portal</li>
+                        <li>Sale capability is enabled for this merchant (UAT accounts often need this flipped on)</li>
                       </ul>
                     </div>
-                  ) : (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                      Please try again or use a different payment method.
+                  )}
+                  {/* Raw Dejavoo response — small, separate, for support. */}
+                  {(rawMsg || rawDetail) && (
+                    <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 6, background: 'rgba(255,255,255,.03)', borderLeft: '2px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
+                        From terminal
+                      </div>
+                      {rawMsg && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                          {rawMsg}
+                        </div>
+                      )}
+                      {rawDetail && rawDetail !== rawMsg && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                          {rawDetail}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {showCode && (
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: 4, fontFamily: 'monospace', opacity: 0.7 }}>
+                      {desc.statusCode && (<>StatusCode: {desc.statusCode}</>)}
+                      {desc.statusCode && desc.resultCode && (<>{' · '}</>)}
+                      {desc.resultCode && (<>ResultCode: {desc.resultCode}</>)}
                     </div>
                   )}
                 </div>

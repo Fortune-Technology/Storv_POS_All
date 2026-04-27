@@ -14,10 +14,9 @@ import {
   dismissItems,
   clearOldItems,
 } from '../services/labelQueueService.js';
+import { errMsg } from '../utils/typeHelpers.js';
 
 const router = express.Router();
-
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 router.use(protect);
 router.use(scopeToTenant);

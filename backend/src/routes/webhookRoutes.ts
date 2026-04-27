@@ -10,13 +10,13 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import prisma from '../config/postgres.js';
 import { getPlatformAdapter } from '../services/platforms/index.js';
+import { errMsg } from '../utils/typeHelpers.js';
 
 const router = Router();
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const dec = (v: unknown): number => Number(v) || 0;
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
  * Simple rate-limit guard — tracks recent webhook calls per IP.

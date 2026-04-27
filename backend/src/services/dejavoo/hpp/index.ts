@@ -1,13 +1,11 @@
 /**
  * Dejavoo HPP — public API barrel.
  *
- * Re-exports every public symbol from the sub-modules so callers can do:
- *   import { createCheckoutSession } from 'services/dejavoo/hpp/index.js'
- *   import { createCheckoutSession } from 'services/dejavooHppService.js'  ← legacy shim
- *
- * Both paths work. New code should prefer importing directly from the
- * sub-module that has what it needs (`./hpp/checkout.js`, `./hpp/webhook.js`)
- * for clearer dependency hints.
+ * Re-exports every public symbol from the sub-modules. Callers that want the
+ * full surface should import this barrel; callers that only need one slice
+ * (e.g. just `parseHppResponse` + `verifyWebhookAuthHeader`) should prefer
+ * the direct sub-module path (`./hpp/webhook.js`) for clearer dependency
+ * hints.
  */
 
 // Types

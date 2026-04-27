@@ -6,8 +6,7 @@
 
 import type { Request, Response } from 'express';
 import prisma from '../config/postgres.js';
-
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+import { errMsg } from '../utils/typeHelpers.js';
 
 const getOrgId = (req: Request): string | undefined => req.orgId || req.user?.orgId || undefined;
 const dec = (v: unknown): number | undefined =>

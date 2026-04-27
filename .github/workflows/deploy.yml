@@ -96,32 +96,31 @@ jobs:
           # Idempotent — creates missing roles, adds missing permission rows,
           # and syncs legacy `User.role` → UserRole assignments for every user.
           # Must run AFTER migrations so the roles / permissions tables exist.
-          # Run with tsx — seedRbac imports from src/rbac/permissionCatalog.ts
-          # (was .js before the Round 5 TS migration). Plain `node` can't
-          # resolve the .js → .ts mapping that NodeNext + tsx handle.
+          # All seed/backfill scripts are now .ts (Phase 4, April 2026) — must
+          # run via `npx tsx`; plain `node` cannot execute TypeScript.
           echo "→ Running RBAC seed (creates missing system roles + perms)"
-          npx tsx prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
+          npx tsx prisma/seedRbac.ts || echo "  ⚠ seedRbac.ts had warnings (non-fatal)"
 
           # Session 1 — Sync primary UPC → ProductUpc table for any legacy
           # products created before the merged Barcodes section shipped.
           # Safe: only creates missing default ProductUpc rows; skips products
           # already in sync and logs mismatches for manual review.
           echo "→ Running backfill: primary UPCs → ProductUpc"
-          node prisma/backfillPrimaryUpcs.js || echo "  ⚠ backfillPrimaryUpcs.js had warnings (non-fatal)"
+          npx tsx prisma/backfillPrimaryUpcs.ts || echo "  ⚠ backfillPrimaryUpcs.ts had warnings (non-fatal)"
 
           # Session 4 — Seed alcohol / tobacco / beer / liquor dept attribute
           # presets + backfill Department.category for any fuzzy-matching dept.
           # Idempotent: upserts via (orgId, departmentId, key) unique and never
           # overwrites operator edits to existing attribute rows.
           echo "→ Running dept attributes seed (Wine/Liquor/Beer/Tobacco presets)"
-          node prisma/seedDeptAttributes.js || echo "  ⚠ seedDeptAttributes.js had warnings (non-fatal)"
+          npx tsx prisma/seedDeptAttributes.ts || echo "  ⚠ seedDeptAttributes.ts had warnings (non-fatal)"
 
           # Session 5 — Seed the 3 built-in vendor import templates
           # (AGNE / Sante POS / Pine State). Idempotent via `slug` unique — will
           # skip any template slug that already exists, so operator edits via
           # /admin/vendor-templates are never clobbered by the deploy.
           echo "→ Running vendor templates seed (AGNE / Sante / Pine State)"
-          node prisma/seedVendorTemplates.js || echo "  ⚠ seedVendorTemplates.js had warnings (non-fatal)"
+          npx tsx prisma/seedVendorTemplates.ts || echo "  ⚠ seedVendorTemplates.ts had warnings (non-fatal)"
 
           # PM2 restart — then VERIFY the process actually recycled. The old
           # `|| echo` fallback silently swallowed failures; PM2 would print

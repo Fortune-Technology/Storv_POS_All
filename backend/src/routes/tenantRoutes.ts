@@ -7,6 +7,7 @@ import { protect, authorize } from '../middleware/auth.js';
 import { requireTenant, requireActiveTenant } from '../middleware/scopeToTenant.js';
 import prisma from '../config/postgres.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
+import { errMsg, errCode } from '../utils/typeHelpers.js';
 
 const router = Router();
 
@@ -17,10 +18,6 @@ const PLAN_LIMITS: Record<string, PlanLimit> = {
   pro:        { maxStores: 25,   maxUsers: 100 },
   enterprise: { maxStores: 9999, maxUsers: 9999 },
 };
-
-const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-const errCode = (err: unknown): string | undefined =>
-  err instanceof Error ? (err as Error & { code?: string }).code : undefined;
 
 /* ── POST /api/tenants  — create org + bind to calling user ─────────────── */
 router.post('/', protect, async (req, res, next) => {

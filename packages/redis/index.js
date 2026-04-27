@@ -1,3 +1,9 @@
+// @ts-nocheck — Local workspace package consumed by backend as @storeveu/queue
+//   or @storeveu/redis. With backend tsconfig flipped to checkJs:true in
+//   Phase 4 (April 2026), tsc would transitively check this .js source. The
+//   package has its own lifecycle and will be migrated to .ts in a separate
+//   slice; suppress checks here until then.
+
 /**
  * Shared Redis client singleton for the Storeveu POS platform.
  *

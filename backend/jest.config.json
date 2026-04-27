@@ -1,12 +1,13 @@
 {
+    "_phase4Note": "Updated April 2026 — testMatch now matches .test.ts files (was .test.js). Jest currently has NO TS transform configured; the 2 tests still using @jest/globals (tests/end_of_day_report.test.ts, tests/invoice_matching_live.test.ts) require ts-jest or @swc/jest installation before they can be run. Until then, these tests are quarantined and `npm run test:jest` will not pick up TypeScript source. The remaining ~30 tests already use node:test and run via `npm test` (node native test runner via tsx). Migrating the 2 jest tests off jest.unstable_mockModule is queued in Phase 5.",
     "testEnvironment": "node",
     "transform": {},
     "testMatch": [
-        "**/tests/**/*.test.js"
+        "**/tests/**/*.test.ts"
     ],
     "collectCoverageFrom": [
-        "src/**/*.js",
-        "!src/server.js"
+        "src/**/*.ts",
+        "!src/server.ts"
     ],
     "coverageThreshold": {
         "global": {

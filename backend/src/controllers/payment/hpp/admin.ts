@@ -17,7 +17,7 @@
 import type { Request, Response } from 'express';
 import prisma from '../../../config/postgres.js';
 import { encrypt, decrypt, randomToken, mask } from '../../../utils/cryptoVault.js';
-import { buildNotifyUrl } from '../../../services/dejavooHppService.js';
+import { buildNotifyUrl } from '../../../services/dejavoo/hpp/index.js';
 import { getBackendUrl } from './helpers.js';
 
 /**

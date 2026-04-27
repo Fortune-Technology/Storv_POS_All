@@ -18,12 +18,16 @@
  *   6. Returns a normalized response shape
  */
 
-// dejavooSpinService.js is intentionally still JS (modified by other work in
-// slice 4d). With `checkJs: false`, the namespace import surface is `any`,
-// which is fine — controllers consume only the wrappers exported below.
-import * as dejavooSpin from './dejavooSpinService.js';
+// SPIn API surface is split across `./dejavoo/spin/{transactions,terminal,…}`;
+// `./dejavoo/spin/index.ts` is the barrel that re-exports every public symbol.
+// We use a namespace import here because this factory consumes the full
+// surface (sale / refund / void / tipAdjust / balance / getCard / abort /
+// settle / status / userInput / terminalStatus / generateReferenceId) and
+// proxies them through provider-agnostic wrappers.
+import * as dejavooSpin from './dejavoo/spin/index.js';
 import { decrypt } from '../utils/cryptoVault.js';
 import prisma from '../config/postgres.js';
+import { statusError } from '../utils/typeHelpers.js';
 
 /** A PaymentMerchant row with its encrypted secrets decrypted in-place. */
 export type DecryptedPaymentMerchant = Awaited<
@@ -35,11 +39,8 @@ export type DecryptedPaymentMerchant = Awaited<
   spinTpn?: string | null;
 };
 
-/** Errors thrown from the factory carry an HTTP status hint for the controller. */
-type StatusError = Error & { status?: number };
-function statusError(message: string, status: number): StatusError {
-  return Object.assign(new Error(message), { status });
-}
+// Errors thrown from the factory carry an HTTP status hint for the controller.
+// `StatusError` + `statusError` are shared utilities — see utils/typeHelpers.
 
 // ── Merchant loader ─────────────────────────────────────────────────────────
 // Fetches + decrypts the PaymentMerchant for a given store.

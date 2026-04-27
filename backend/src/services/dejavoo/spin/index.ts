@@ -1,14 +1,10 @@
 /**
  * Dejavoo SPIn — public API barrel.
  *
- * This file re-exports every public symbol from the sub-modules so callers
- * can do either:
- *   import { sale, refund } from 'services/dejavoo/spin/index.js'
- *   import { sale, refund } from 'services/dejavooSpinService.js'   ← legacy shim
- *
- * Both paths work — pick whichever feels right. New code should prefer the
- * direct sub-module path (`./spin/transactions.js` etc.) when it only needs
- * one slice of functionality, since that gives clearer dependency hints.
+ * Re-exports every public symbol from the sub-modules. Callers that want the
+ * full surface should import this barrel; callers that only need one slice
+ * of functionality (e.g. just `sale` + `refund`) should prefer the direct
+ * sub-module path (`./spin/transactions.js`) for clearer dependency hints.
  */
 
 // Types
