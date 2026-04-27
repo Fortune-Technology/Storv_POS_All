@@ -76,7 +76,7 @@ function buildWriteData(body: Record<string, unknown>): Record<string, unknown> 
   // TPN, merchant ID, base URLs — where stray whitespace causes auth failures).
   const passthrough = [
     'orgId', 'storeId', 'provider', 'environment',
-    'spinTpn', 'spinBaseUrl',
+    'spinTpn', 'spinBaseUrl', 'spinRegisterId',
     'hppMerchantId', 'hppBaseUrl', 'hppEnabled',
     'transactBaseUrl',
     'ebtEnabled', 'debitEnabled', 'tokenizeEnabled',

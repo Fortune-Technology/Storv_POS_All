@@ -106,6 +106,7 @@ export interface PaymentMerchant {
   environment: MerchantEnvironment;
   spinTpn?: string;
   spinBaseUrl?: string;
+  spinRegisterId?: string;     // iPOSpays "Register Id" — required by /v2/Payment/* endpoints
   // ── HPP (online checkout) ──
   hppMerchantId?: string;
   hppBaseUrl?: string;

@@ -48,6 +48,7 @@ interface MerchantForm {
   spinTpn: string;
   spinAuthKey: string;
   spinBaseUrl: string;
+  spinRegisterId: string;
   hppMerchantId: string;
   hppAuthKey: string;
   hppBaseUrl: string;
@@ -79,6 +80,7 @@ interface Merchant {
   environment: Environment;
   spinTpn?: string;
   spinBaseUrl?: string;
+  spinRegisterId?: string;
   hppMerchantId?: string;
   hppBaseUrl?: string;
   hppEnabled?: boolean;
@@ -152,6 +154,7 @@ const BLANK_FORM: MerchantForm = {
   spinTpn: '',
   spinAuthKey: '',
   spinBaseUrl: '',
+  spinRegisterId: '',
   hppMerchantId: '',
   hppAuthKey: '',
   hppBaseUrl: '',
@@ -294,6 +297,7 @@ export default function AdminMerchants() {
       spinTpn:         merchant.spinTpn       || '',
       spinAuthKey:     '',  // empty on edit = "leave unchanged"
       spinBaseUrl:     merchant.spinBaseUrl   || '',
+      spinRegisterId:  merchant.spinRegisterId || '',
       hppMerchantId:   merchant.hppMerchantId || '',
       hppAuthKey:      '',
       hppBaseUrl:      merchant.hppBaseUrl    || '',
@@ -769,6 +773,18 @@ export default function AdminMerchants() {
                     {form.spinAuthKeySet && (
                       <span className="am-field-hint">Already saved. Leave blank to keep current value.</span>
                     )}
+                  </div>
+                  <div className="am-field">
+                    <label>Register Id *</label>
+                    <input
+                      value={form.spinRegisterId}
+                      onChange={e => setForm({ ...form, spinRegisterId: e.target.value })}
+                      placeholder="e.g. 837602"
+                    />
+                    <span className="am-field-hint">
+                      iPOSpays portal: TPN → Edit Parameter → Integration → Register Id.
+                      Required by SPIn v2 — Dejavoo returns 400 without it.
+                    </span>
                   </div>
                   <div className="am-field am-grid-full">
                     <label>SPIn Base URL (optional override)</label>
