@@ -47,7 +47,19 @@
       "Bash(python -c \"import sys,json;print\\(json.dumps\\(json.load\\(sys.stdin\\),indent=2,default=str\\)[:1500]\\)\")",
       "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'  status: {d.get\\(\\\\\"status\\\\\"\\)}'\\);print\\(f'  expected: \\\\${d.get\\(\\\\\"expectedAmount\\\\\"\\)}'\\);print\\(f'  closing: \\\\${d.get\\(\\\\\"closingAmount\\\\\"\\)}'\\);print\\(f'  variance: \\\\${d.get\\(\\\\\"variance\\\\\"\\)}'\\);print\\(f'  cashSales: \\\\${d.get\\(\\\\\"cashSales\\\\\"\\)}'\\);print\\(f'  cashRefunds: \\\\${d.get\\(\\\\\"cashRefunds\\\\\"\\)}'\\);print\\(f'  drops: \\\\${d.get\\(\\\\\"cashDropsTotal\\\\\"\\)}'\\);print\\(f'  payouts: \\\\${d.get\\(\\\\\"payoutsTotal\\\\\"\\)}'\\);print\\(f'  txCount: {d.get\\(\\\\\"transactionCount\\\\\"\\)}'\\)\")",
       "Bash(git rebase *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(grep -v \":0$\")",
+      "Bash(sort -t: -k2 -n -r)",
+      "Bash(grep -n -E \"\\(const \\\\[splits|const \\\\[payStatus|const \\\\[payResult|const \\\\[method,|const \\\\{ dejavoo|const \\\\[dejavooStatus|const \\\\[remaining\\)\" cashier-app/src/components/tender/TenderModal.jsx)",
+      "Bash(npx eslint *)",
+      "Bash(sed -n '28,35p' src/controllers/catalogController.ts)",
+      "Bash(sed -n '16,22p' src/controllers/vendorCreditController.ts)",
+      "Bash(sed -n '19,25p' src/routes/tenantRoutes.ts)",
+      "Bash(sed -n '17,23p' src/controllers/stateController.ts)",
+      "Bash(sed -n '8,12p' src/controllers/loyaltyController.ts)",
+      "Bash(grep -nE \"^}$|^export const getDailyLotteryInventory\" src/controllers/lotteryController.ts)",
+      "Bash(mv tests/reconciliation_shift_compute.test.mjs tests/reconciliation_shift_compute.test.ts)",
+      "Bash(mv tests/_smoke_reconcile_live.mjs tests/_smoke_reconcile_live.ts)"
     ]
   }
 }

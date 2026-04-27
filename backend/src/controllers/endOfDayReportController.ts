@@ -26,6 +26,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Prisma, Shift, CashPayout, CashDrop } from '@prisma/client';
 import prisma from '../config/postgres.js';
+import { reconcileShift } from '../services/reconciliation/shift/index.js';
+import type { ShiftReconciliation } from '../services/reconciliation/shift/index.js';
 
 const r2 = (n: unknown): number => Math.round((Number(n) || 0) * 100) / 100;
 const r3 = (n: unknown): number => Math.round((Number(n) || 0) * 1000) / 1000;
@@ -605,38 +607,42 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
       { key: 'depositsRefunded', label: 'Bottle Deposits Refunded',        count: txAgg.refundCount,    amount: r2(txAgg.depositsRefunded),   passThrough: true },
     ];
 
-    // ── Totals for reconciliation (only if shift-scope) ──────────────────────
-    // Cash flow into the drawer:  opening + cashCollected + paid_in + received_on_acct
-    // Cash flow out of the drawer: pickups (drops) + paid_out + loans
-    // (refunds + cashback are already netted out of cashCollected via tx tender lines)
-    let reconciliation: {
+    // ── Reconciliation (only if shift-scope) ────────────────────────────────
+    //
+    // Single source of truth: services/reconciliation/shift/. The same
+    // function `reconcileShift` is called by `closeShift` (which persists
+    // the result) and here (which displays it). Lottery cash flow — un-rung
+    // instant tickets, machine draw sales, machine + instant cashings — is
+    // baked into `expectedDrawer` so variance is correct for stores that
+    // sell lottery.
+    //
+    // Back-compat: the response shape preserves every field the existing
+    // back-office EoD UI reads (`openingAmount`, `cashCollected`, `cashIn`,
+    // `cashOut`, `cashDropsTotal`, `cashPayoutsTotal`, `expectedInDrawer`,
+    // `closingAmount`, `variance`) so callers don't break. New fields are
+    // additive: `lottery` (cash-flow detail) + `lineItems` (pre-rendered
+    // breakdown).
+    let reconciliation: (ShiftReconciliation & {
+      // Legacy aliases retained for the existing back-office UI to read
+      // without code changes. Same numbers, just additional names.
       openingAmount: number;
       cashCollected: number;
-      cashIn: number;
-      cashOut: number;
-      cashDropsTotal: number;
       cashPayoutsTotal: number;
       expectedInDrawer: number;
-      closingAmount: number | null;
-      variance: number | null;
-    } | null = null;
+    }) | null = null;
     if (scope.shift) {
-      const opening           = Number(scope.shift.openingAmount) || 0;
-      const cashDropsTotal    = payoutMap.pickups.amount;
-      const cashIn            = payoutMap.paid_in.amount + payoutMap.received_on_acct.amount;
-      const cashOut           = payoutMap.paid_out.amount + payoutMap.loans.amount;
-      const expectedInDrawer  = opening + txAgg.cashCollected + cashIn - cashDropsTotal - cashOut;
+      const recon = await reconcileShift({
+        shiftId: scope.shift.id,
+        closingAmount: scope.shift.closingAmount != null ? Number(scope.shift.closingAmount) : null,
+        windowEnd: scope.shift.closedAt ?? new Date(),
+      });
       reconciliation = {
-        openingAmount:    r2(opening),
-        cashCollected:    r2(txAgg.cashCollected),
-        cashIn:           r2(cashIn),                    // Paid-in + Received on Account
-        cashOut:          r2(cashOut),                   // Paid-out + Loans
-        cashDropsTotal:   r2(cashDropsTotal),            // Pickups
-        // Legacy field kept for back-compat with existing UI/print templates
-        cashPayoutsTotal: r2(cashOut),
-        expectedInDrawer: r2(expectedInDrawer),
-        closingAmount:    scope.shift.closingAmount != null ? Number(scope.shift.closingAmount) : null,
-        variance:         scope.shift.variance      != null ? Number(scope.shift.variance)      : null,
+        ...recon,
+        // Legacy field aliases — same numbers, names the old UI consumes:
+        openingAmount:    recon.openingFloat,
+        cashCollected:    r2(recon.cashSales - recon.cashRefunds),
+        cashPayoutsTotal: recon.cashOut,
+        expectedInDrawer: recon.expectedDrawer,
       };
     }
 

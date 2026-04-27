@@ -13,8 +13,17 @@ import type { DejavooSpinMerchant } from './types.js';
 
 // Defaults pulled from env at module load. Per-merchant override
 // (`merchant.spinBaseUrl`) wins over these.
+//
+// Source: https://app.theneo.io/dejavoo/spin/spin-rest-api-methods
+//   Production: https://spinpos.net
+//   Sandbox:    https://test.spinpos.net
+//
+// The historical `https://api.spinpos.net` value worked for some legacy
+// integrations but the canonical PROD host per Theneo docs is the bare
+// domain. Env var still wins so we can override per-deployment if Dejavoo
+// hands us a regional / legacy host.
 const UAT_BASE  = process.env.DEJAVOO_SPIN_BASE_UAT  || 'https://test.spinpos.net/spin';
-const PROD_BASE = process.env.DEJAVOO_SPIN_BASE_PROD || 'https://api.spinpos.net';
+const PROD_BASE = process.env.DEJAVOO_SPIN_BASE_PROD || 'https://spinpos.net';
 
 /** Trim trailing slash + pick UAT/Prod default. Per-merchant override wins. */
 export function getBaseUrl(merchant: DejavooSpinMerchant): string {

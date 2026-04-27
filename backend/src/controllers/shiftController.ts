@@ -17,6 +17,7 @@ import type { Request, Response } from 'express';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import { nanoid } from 'nanoid';
+import { reconcileShift } from '../services/reconciliation/shift/index.js';
 
 const getOrgId = (req: Request): string | null | undefined =>
   req.orgId || req.user?.orgId;
@@ -139,58 +140,43 @@ export const closeShift = async (req: Request, res: Response): Promise<void> => 
     if (!shift)              { res.status(404).json({ error: 'Shift not found' }); return; }
     if (shift.status !== 'open') { res.status(400).json({ error: 'Shift is already closed' }); return; }
 
-    // ── Calculate totals from transactions in this shift window ───────────
-    const txs = await prisma.transaction.findMany({
-      where: {
-        orgId: orgId ?? undefined,
-        storeId:   shift.storeId,
-        createdAt: { gte: shift.openedAt },
-        status:    { in: ['complete', 'refund'] },
-      },
-      select: { grandTotal: true, tenderLines: true, status: true, changeGiven: true },
+    // ── Single source of truth: reconcileShift() ──
+    // Replaces the prior inline math (cashSales / cashRefunds / drops /
+    // payouts / expectedAmount). The service ALSO includes lottery cash
+    // flow (un-rung instant tickets, machine draw sales, machine + instant
+    // cashings) that the inline version was missing.
+    //
+    // `windowEnd: new Date()` because we're reconciling AT the moment of
+    // close, before we've persisted closedAt — the service would otherwise
+    // see closedAt=null and re-derive `now` itself, which is the same
+    // value, but being explicit makes intent obvious in the diff.
+    const closedAtMoment = new Date();
+    const recon = await reconcileShift({
+      shiftId: id,
+      closingAmount: parseFloat(String(closingAmount)),
+      windowEnd: closedAtMoment,
     });
-
-    let cashSales   = 0;
-    let cashRefunds = 0;
-
-    type TxRow = (typeof txs)[number];
-    txs.forEach((tx: TxRow) => {
-      const tenders: TenderLine[] = Array.isArray(tx.tenderLines) ? (tx.tenderLines as unknown as TenderLine[]) : [];
-      const cashLines = tenders.filter((l) => l.method === 'cash');
-      const cashIn    = cashLines.reduce((s, l) => s + Number(l.amount), 0);
-      // For cash sales the cashier received cash. Change given reduces what's in drawer.
-      if (tx.status === 'complete') {
-        cashSales += cashIn - Number(tx.changeGiven || 0);
-      }
-      if (tx.status === 'refund') {
-        const refundCash = cashLines.reduce((s, l) => s + Number(l.amount), 0);
-        cashRefunds += refundCash;
-      }
-    });
-
-    type DropRow = (typeof shift.drops)[number];
-    type PayoutRow = (typeof shift.payouts)[number];
-    const cashDropsTotal = shift.drops.reduce((s: number, d: DropRow) => s + Number(d.amount), 0);
-    const payoutsTotal   = shift.payouts.reduce((s: number, p: PayoutRow) => s + Number(p.amount), 0);
-
-    const expectedAmount = Number(shift.openingAmount) + cashSales - cashRefunds - cashDropsTotal - payoutsTotal;
-    const variance       = parseFloat(String(closingAmount)) - expectedAmount;
 
     const closed = await prisma.shift.update({
       where: { id },
       data: {
         status:               'closed',
-        closedAt:             new Date(),
+        closedAt:             closedAtMoment,
         closedById:           req.user!.id,
         closingAmount:        parseFloat(String(closingAmount)),
         closingDenominations: (closingDenominations || null) as Prisma.InputJsonValue | null,
         closingNote:          closingNote || null,
-        expectedAmount:       Math.round(expectedAmount * 10000) / 10000,
-        variance:             Math.round(variance * 10000) / 10000,
-        cashSales:            Math.round(cashSales * 10000) / 10000,
-        cashRefunds:          Math.round(cashRefunds * 10000) / 10000,
-        cashDropsTotal:       Math.round(cashDropsTotal * 10000) / 10000,
-        payoutsTotal:         Math.round(payoutsTotal * 10000) / 10000,
+        expectedAmount:       recon.expectedDrawer,
+        variance:             recon.variance ?? 0,
+        cashSales:            recon.cashSales,
+        cashRefunds:          recon.cashRefunds,
+        cashDropsTotal:       recon.cashDropsTotal,
+        // payoutsTotal kept for back-compat with existing UIs that read it;
+        // we store cashOut (drawer-out total) since that's the meaningful
+        // number for variance calc. cashIn is captured in lotteryReconciliation
+        // alongside the rest of the breakdown.
+        payoutsTotal:         recon.cashOut,
+        lotteryReconciliation: (recon.lottery as unknown) as Prisma.InputJsonValue,
       },
     });
 
@@ -256,17 +242,34 @@ export const closeShift = async (req: Request, res: Response): Promise<void> => 
       console.warn('[closeShift] snapshot guarantee failed:', (snapErr as Error).message);
     }
 
+    // Count transactions in the shift window for the response (used by the
+    // "X transactions" hint shown in the shift report). Same query as the
+    // reconciliation service uses internally — duplicated here only for
+    // count, not for any math.
+    const completeTxCount = await prisma.transaction.count({
+      where: {
+        orgId: orgId ?? undefined,
+        storeId: shift.storeId,
+        createdAt: { gte: shift.openedAt, lte: closedAtMoment },
+        status: 'complete',
+      },
+    });
+
     res.json({
       ...closed,
       openingAmount:  Number(closed.openingAmount),
       closingAmount:  Number(closed.closingAmount),
       expectedAmount: Number(closed.expectedAmount),
       variance:       Number(closed.variance),
-      cashSales,
-      cashRefunds,
-      cashDropsTotal,
-      payoutsTotal,
-      transactionCount: txs.filter((t: TxRow) => t.status === 'complete').length,
+      // Surface the same fields the old response had for back-compat
+      cashSales:      recon.cashSales,
+      cashRefunds:    recon.cashRefunds,
+      cashDropsTotal: recon.cashDropsTotal,
+      payoutsTotal:   recon.cashPayoutsTotal,
+      transactionCount: completeTxCount,
+      // NEW — full reconciliation, including the lottery breakdown and
+      // pre-rendered line-items the UI can render directly.
+      reconciliation: recon,
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -372,6 +375,29 @@ export const getShiftReport = async (req: Request, res: Response): Promise<void>
     type ShiftReportDrop = (typeof shift.drops)[number];
     type ShiftReportPayout = (typeof shift.payouts)[number];
 
+    // Surface the unified reconciliation (line-items + lottery breakdown)
+    // alongside the legacy summary fields. The cashier-app re-views past
+    // shifts via this endpoint after close — without `reconciliation`, the
+    // lottery cash-flow rows wouldn't appear when viewing yesterday's shift.
+    //
+    // For closed shifts: reconcileShift is called with the persisted
+    //   closingAmount → variance recomputes against current data. If
+    //   nothing has drifted (the typical case) the variance will match
+    //   what's persisted on the row.
+    // For open shifts: closingAmount is null → variance comes back null
+    //   (preview mode), expectedDrawer is live.
+    let reconciliation = null;
+    try {
+      reconciliation = await reconcileShift({
+        shiftId: shift.id,
+        closingAmount: shift.closingAmount != null ? Number(shift.closingAmount) : null,
+        windowEnd: shift.closedAt ?? new Date(),
+      });
+    } catch (e) {
+      // Non-fatal — the legacy summary fields are still returned.
+      console.warn('[getShiftReport] reconcileShift failed:', (e as Error).message);
+    }
+
     res.json({
       ...shift,
       cashierName:    cashier?.name  || 'Unknown',
@@ -386,6 +412,7 @@ export const getShiftReport = async (req: Request, res: Response): Promise<void>
       payoutsTotal:   shift.payoutsTotal   ? Number(shift.payoutsTotal)   : null,
       drops:   shift.drops.map((d: ShiftReportDrop) => ({ ...d, amount: Number(d.amount), createdByName: userMap[d.createdById] || '' })),
       payouts: shift.payouts.map((p: ShiftReportPayout) => ({ ...p, amount: Number(p.amount), createdByName: userMap[p.createdById] || '' })),
+      reconciliation,
     });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

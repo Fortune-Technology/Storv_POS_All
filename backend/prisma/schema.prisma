@@ -1564,6 +1564,13 @@ model Shift {
   cashDropsTotal Decimal? @db.Decimal(10, 4)
   payoutsTotal   Decimal? @db.Decimal(10, 4)
 
+  // Persisted lottery cash-flow breakdown captured at close-time. Surfaces
+  // the un-rung instant cash, machine draw sales, machine cashings, and
+  // instant cashings the drawer accounted for. Frozen at close-time so
+  // future audits show the variance the cashier saw, not what the data
+  // looks like today. Schema = LotteryCashFlow (services/reconciliation/shift/types.ts).
+  lotteryReconciliation Json?
+
   drops   CashDrop[]
   payouts CashPayout[]
 

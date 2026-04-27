@@ -34,10 +34,43 @@ export async function sale(
   opts: SpinOpts,
 ): Promise<Record<string, unknown>> {
   const client = createClient(merchant);
+  // PaymentType enum (per Theneo SPIn REST API spec, case-sensitive):
+  //   Credit | Debit | EBT_Food | EBT_Cash | Card | Cash | Check | Gift
+  //
+  // We default to 'Credit' rather than 'Card' because:
+  //   1. The official sample payload in the docs uses Credit for a card sale
+  //   2. 'Card' is the generic "let the terminal prompt for type" option which
+  //      requires the terminal to have MULTIPLE payment applications installed
+  //      (Credit + Debit + …) so it can offer a chooser. UAT merchant profiles
+  //      typically only have ONE app installed.
+  //   3. When 'Card' is requested but no generic Card app exists, DVSPIn
+  //      returns StatusCode 1003 "Not Supported — could not find a proper
+  //      payment application" with Message "This feature is not available
+  //      now." — exactly the error we were getting in UAT.
+  // Caller can still override via opts.paymentType (e.g. 'EBT_Food', 'Debit').
+  // We normalize case so callers passing 'credit' or 'ebt_food' don't break:
+  //   credit/card     → Credit
+  //   debit           → Debit
+  //   ebt_food/ebt    → EBT_Food
+  //   ebt_cash        → EBT_Cash
+  //   gift/check/cash → preserve casing
+  const normalizePaymentType = (raw?: string | null): string => {
+    if (!raw) return 'Credit';
+    const v = String(raw).trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (v === 'credit' || v === 'card')         return 'Credit';
+    if (v === 'debit')                          return 'Debit';
+    if (v === 'ebt_food' || v === 'ebt' ||
+        v === 'snap'     || v === 'food_stamp') return 'EBT_Food';
+    if (v === 'ebt_cash')                       return 'EBT_Cash';
+    if (v === 'cash')                           return 'Cash';
+    if (v === 'check')                          return 'Check';
+    if (v === 'gift')                           return 'Gift';
+    return raw; // unknown — pass through and let Dejavoo reject with a clear error
+  };
   const body: Record<string, unknown> = {
     ...buildBasePayload(merchant, opts),
     Amount:           opts.amount,
-    PaymentType:      opts.paymentType || 'Card',
+    PaymentType:      normalizePaymentType(opts.paymentType),
     ReferenceId:      opts.referenceId,
     InvoiceNumber:    opts.invoiceNumber || '',
     CaptureSignature: opts.captureSignature || false,
