@@ -404,9 +404,20 @@ export const dejavooTransactionStatus = (body) =>
 export const dejavooSettle = (body) =>
   api.post('/payment/dejavoo/settle', body).then(r => r.data);
 
-/** Get read-only merchant status for the store (no secrets exposed). */
-export const dejavooMerchantStatus = () =>
-  api.get('/payment/dejavoo/merchant-status').then(r => r.data);
+/**
+ * Get read-only merchant status for THIS cashier's store.
+ *
+ * The backend reads `storeId` from the `X-Store-Id` header. Without it, it
+ * returns `{ configured: false, reason: 'no_active_store' }` — which makes
+ * the cashier-app think no terminal is configured and silently fall through
+ * to the manual-approval path. ALWAYS pass storeId.
+ *
+ * @param {string} storeId  The active cashier's storeId.
+ */
+export const dejavooMerchantStatus = (storeId) =>
+  api.get('/payment/dejavoo/merchant-status', {
+    headers: storeId ? { 'X-Store-Id': storeId } : undefined,
+  }).then(r => r.data);
 
 /**
  * Prompt the customer on the Dejavoo terminal to enter their phone number,
