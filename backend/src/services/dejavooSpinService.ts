@@ -25,6 +25,10 @@ export interface DejavooSpinMerchant {
   spinTpn: string;
   spinAuthKey: string;
   spinBaseUrl?: string | null;
+  // RegisterId from iPOSpays portal: TPN → Edit Parameter → Integration.
+  // Required by /v2/Payment/Status, /v2/Payment/Sale, etc. — Dejavoo returns
+  // 400 without it. One TPN can have multiple lanes; each lane has its own RegisterId.
+  spinRegisterId?: string | null;
   spinTimeout?: number;
   environment?: 'uat' | 'prod' | string;
 }
@@ -88,8 +92,12 @@ function buildBasePayload(merchant: DejavooSpinMerchant, opts: SpinOpts = {}): R
     Authkey:   merchant.spinAuthKey, // decrypted by caller
   };
 
-  // Optional: RegisterId (station identifier — helps Dejavoo route to correct terminal)
-  if (opts.registerId) payload.RegisterId = opts.registerId;
+  // RegisterId — per-call override wins, then per-merchant default, then env fallback.
+  // Required by most v2 endpoints; Dejavoo returns 400 without it.
+  const registerId = opts.registerId
+    || merchant.spinRegisterId
+    || process.env.DEJAVOO_TEST_REGISTER_ID;
+  if (registerId) payload.RegisterId = registerId;
 
   // Receipt handling — let POS handle receipts, don't print on terminal
   payload.PrintReceipt = opts.printReceipt || 'No';
@@ -505,14 +513,30 @@ export async function terminalStatus(
       _raw: data,
     };
   } catch (err) {
-    // Map common HTTP errors to plain-language causes
+    // Map common HTTP errors to plain-language causes. For 4xx responses we
+    // surface Dejavoo's body verbatim because their error messages are
+    // actually informative ("Invalid TPN", "Authentication failed",
+    // "Terminal not paired"). The default axios message just says
+    // "Request failed with status code 400" which is useless for diagnosis.
     const ax = err as AxiosError;
     const httpStatus = ax?.response?.status;
+    const respBody  = ax?.response?.data as Record<string, unknown> | undefined;
+    const respGen   = (respBody?.GeneralResponse as Record<string, unknown>) || {};
+    const respText  = (respGen.Message as string)
+                  || (respGen.DetailedMessage as string)
+                  || (respBody?.message as string)
+                  || (respBody?.error as string)
+                  || (typeof respBody === 'string' ? respBody : '');
+
     let message: string;
     if (httpStatus === 404) {
       message = 'Endpoint not found — check your provider base URL (DEJAVOO_SPIN_BASE_UAT / _PROD env).';
     } else if (httpStatus === 401 || httpStatus === 403) {
-      message = 'Auth rejected — check your TPN and Auth Key.';
+      message = `Auth rejected — check your TPN and Auth Key.${respText ? ` Dejavoo: ${respText}` : ''}`;
+    } else if (httpStatus === 400) {
+      message = respText
+        ? `Dejavoo rejected the request (HTTP 400): ${respText}`
+        : 'Dejavoo rejected the request (HTTP 400). Most common cause: TPN/Auth Key mismatch, or the TPN belongs to a different device profile than the one you intended.';
     } else if (ax?.code === 'ECONNREFUSED' || ax?.code === 'ENOTFOUND') {
       message = 'Cannot reach Dejavoo — DNS or network unreachable.';
     } else if (ax?.code === 'ECONNABORTED') {
@@ -521,7 +545,14 @@ export async function terminalStatus(
       message = errMsg(err) || 'Terminal unreachable';
     }
 
-    return { connected: false, message, _raw: null };
+    // Always log the FULL response on the server so we have a forensic trail
+    // even if the admin-facing message is short. Helps support diagnose
+    // without asking the user to grep logs.
+    if (respBody) {
+      console.warn('[dejavooSpin.terminalStatus] HTTP %s body:', httpStatus, JSON.stringify(respBody).slice(0, 500));
+    }
+
+    return { connected: false, message, _raw: respBody ?? null };
   }
 }
 

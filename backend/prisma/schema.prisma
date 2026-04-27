@@ -2357,9 +2357,13 @@ model PaymentMerchant {
   environment String @default("uat")
 
   // ── Dejavoo SPIn (in-person) ──
-  spinTpn     String?
-  spinAuthKey String? // encrypted
-  spinBaseUrl String?
+  spinTpn        String?
+  spinAuthKey    String? // encrypted
+  spinBaseUrl    String?
+  // RegisterId is the iPOSpays "Register Id" shown under TPN → Edit Parameter →
+  // Integration. Required by most /v2/Payment/* endpoints; without it Dejavoo
+  // returns 400. One TPN can have multiple lanes — each gets its own RegisterId.
+  spinRegisterId String?
 
   // ── Dejavoo HPP (online checkout) ──
   // hppEnabled gates the storefront ecom flow. Even with credentials filled in,
