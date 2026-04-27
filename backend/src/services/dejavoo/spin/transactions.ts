@@ -14,7 +14,7 @@
  */
 
 import type { DejavooSpinMerchant, SpinOpts } from './types.js';
-import { createClient } from './client.js';
+import { createClient, getBaseUrl } from './client.js';
 import { buildBasePayload, normalizeResponse, handleError } from './payload.js';
 
 /**
@@ -34,7 +34,7 @@ export async function sale(
   opts: SpinOpts,
 ): Promise<Record<string, unknown>> {
   const client = createClient(merchant);
-  const body = {
+  const body: Record<string, unknown> = {
     ...buildBasePayload(merchant, opts),
     Amount:           opts.amount,
     PaymentType:      opts.paymentType || 'Card',
@@ -43,8 +43,31 @@ export async function sale(
     CaptureSignature: opts.captureSignature || false,
     GetExtendedData:  true,
   };
+
+  // Verbose log — same pattern as terminalStatus. Lets us see in PM2 logs
+  // exactly what TPN / RegisterId / Amount / PaymentType went out, so when
+  // the device "stays on Listening" we can confirm whether the cloud
+  // rejected our routing fields or whether the push made it to the device.
+  // Authkey redacted; everything else is non-sensitive.
+  const redacted = { ...body, Authkey: body.Authkey ? '••••' : '(missing)' };
+  console.warn(
+    '[dejavooSpin.sale] →',
+    getBaseUrl(merchant), '/v2/Payment/Sale body:',
+    JSON.stringify(redacted),
+  );
+
   try {
-    const { data } = await client.post('/v2/Payment/Sale', body);
+    const { data, status: httpStatus } = await client.post('/v2/Payment/Sale', body);
+    // Log response shape so we can correlate "device didn't react" with the
+    // ResultCode / Message coming back from the cloud.
+    const respGen = ((data as Record<string, unknown>)?.GeneralResponse as Record<string, unknown>) || {};
+    console.warn(
+      '[dejavooSpin.sale] ← HTTP', httpStatus,
+      'ResultCode:', respGen.ResultCode,
+      'StatusCode:', respGen.StatusCode,
+      'Message:',    respGen.Message,
+      'DetailedMessage:', respGen.DetailedMessage,
+    );
     return normalizeResponse(data, 'sale');
   } catch (err) {
     return handleError(err, 'sale');

@@ -790,26 +790,46 @@ export default function TenderModal({
               // physical P17 — that's a setup problem, not a card problem,
               // and it deserves a different remediation hint than "card declined".
               const msg  = payResult?.resptext || payResult?.message || '';
+              const detail = payResult?.detailedMessage || '';
               const code = payResult?.resultCode || payResult?.statusCode || '';
+              // Treat anything that smells like "cloud couldn't reach the
+              // device" or "TPN/RegisterID mismatch" as a setup problem,
+              // not a card problem. Common Dejavoo phrasings collected
+              // here so the cashier sees the actionable checklist instead
+              // of a generic "declined". Includes the device-stays-on-
+              // Listening case (cloud accepts the request but has no
+              // device routing match).
+              const haystack = `${msg} ${detail} ${code}`.toLowerCase();
               const isTerminalOffline =
-                /terminal\s*error|connection\s*failed|terminal\s*not\s*(found|reachable|paired)|device\s*offline|no\s*response\s*from\s*terminal/i.test(msg) ||
-                /TerminalError|NetworkError/i.test(String(code));
+                /terminal\s*error|connection\s*failed|terminal\s*not\s*(found|reachable|paired)|device\s*offline|no\s*response\s*from\s*terminal|tpn\s*not\s*found|invalid\s*tpn|register\s*id|unable\s*to\s*reach/i.test(haystack) ||
+                /TerminalError|NetworkError|RoutingError/i.test(String(code));
               return (
                 <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(224,63,63,.08)', border: '1px solid rgba(224,63,63,.25)' }}>
                   <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--red)' }}>
                     {msg || 'Card was not approved'}
                   </div>
+                  {(detail && detail !== msg) && (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {detail}
+                    </div>
+                  )}
+                  {code && (
+                    <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+                      Code: {String(code)}
+                    </div>
+                  )}
                   {isTerminalOffline ? (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.45 }}>
                       <div style={{ fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
                         Payment terminal isn't reachable
                       </div>
-                      <div>The Dejavoo cloud couldn't push the sale to your P17. This usually means the terminal itself is offline — not a card problem. Check:</div>
+                      <div>The Dejavoo cloud couldn't push the sale to your P17. This usually means the terminal can't be routed to from the cloud — not a card problem. Check:</div>
                       <ul style={{ margin: '6px 0 0 18px', padding: 0, color: 'var(--text-muted)' }}>
-                        <li>P17 is powered on (LCD lit)</li>
-                        <li>P17 has internet — its WiFi/Ethernet is connected directly to the device</li>
+                        <li>P17 is powered on with the DVSPIn app on "Listening for transaction…"</li>
+                        <li>P17 has internet — WiFi/Ethernet connected directly to the device</li>
                         <li>P17 home screen is showing (not stuck mid-transaction)</li>
-                        <li>TPN, AuthKey and Register ID in admin → Payments match the device</li>
+                        <li><strong>TPN and Register ID in admin → Payments match what's burned into the device</strong> (Settings → SPIn → check on the P17)</li>
+                        <li>The device serial is registered to this merchant TPN in the iPOSpays portal</li>
                       </ul>
                     </div>
                   ) : (
