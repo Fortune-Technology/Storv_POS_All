@@ -783,16 +783,43 @@ export default function TenderModal({
             )}
 
             {/* Declined */}
-            {isDeclined && (
-              <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(224,63,63,.08)', border: '1px solid rgba(224,63,63,.25)' }}>
-                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--red)' }}>
-                  {payResult?.resptext || payResult?.message || 'Card was not approved'}
+            {isDeclined && (() => {
+              // Distinguish terminal-offline failures from card declines.
+              // Dejavoo cloud returns ResultCode='TerminalError' and/or
+              // Message='Connection failed' when the cloud cannot reach the
+              // physical P17 — that's a setup problem, not a card problem,
+              // and it deserves a different remediation hint than "card declined".
+              const msg  = payResult?.resptext || payResult?.message || '';
+              const code = payResult?.resultCode || payResult?.statusCode || '';
+              const isTerminalOffline =
+                /terminal\s*error|connection\s*failed|terminal\s*not\s*(found|reachable|paired)|device\s*offline|no\s*response\s*from\s*terminal/i.test(msg) ||
+                /TerminalError|NetworkError/i.test(String(code));
+              return (
+                <div style={{ marginTop: 16, padding: '0.875rem 1rem', borderRadius: 10, background: 'rgba(224,63,63,.08)', border: '1px solid rgba(224,63,63,.25)' }}>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--red)' }}>
+                    {msg || 'Card was not approved'}
+                  </div>
+                  {isTerminalOffline ? (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.45 }}>
+                      <div style={{ fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
+                        Payment terminal isn't reachable
+                      </div>
+                      <div>The Dejavoo cloud couldn't push the sale to your P17. This usually means the terminal itself is offline — not a card problem. Check:</div>
+                      <ul style={{ margin: '6px 0 0 18px', padding: 0, color: 'var(--text-muted)' }}>
+                        <li>P17 is powered on (LCD lit)</li>
+                        <li>P17 has internet — its WiFi/Ethernet is connected directly to the device</li>
+                        <li>P17 home screen is showing (not stuck mid-transaction)</li>
+                        <li>TPN, AuthKey and Register ID in admin → Payments match the device</li>
+                      </ul>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                      Please try again or use a different payment method.
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Please try again or use a different payment method.
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           <div style={{ padding: '0 1.25rem 1.25rem', display: 'flex', flexDirection: 'column', gap: 8 }}>

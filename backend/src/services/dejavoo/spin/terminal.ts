@@ -188,8 +188,14 @@ export async function terminalStatus(
 
       return {
         connected: looksAuthOk || code !== 'AuthError',
+        // IMPORTANT: this probe only validates credentials (TPN + Auth + RegisterId)
+        // and the cloud connection. It does NOT verify the physical P17 is online —
+        // /v2/Payment/Status is a cloud-only DB lookup, it never pushes to the
+        // device. The first real /v2/Payment/Sale will tell us if the terminal is
+        // actually reachable. The wording reflects this so admins don't think a
+        // green "Test Connection" means the device itself is ready.
         message: looksAuthOk
-          ? 'Terminal reachable — credentials valid'
+          ? 'Credentials valid — Dejavoo cloud reachable. (Run a test card sale to verify the P17 device itself is online.)'
           : (msg || `Dejavoo response: ${code || 'unknown'}`),
         _raw: data,
       };

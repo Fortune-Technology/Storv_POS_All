@@ -421,7 +421,11 @@ export default function AdminMerchants() {
   const handleTest = async (merchant: Merchant) => {
     try {
       const res = await testPaymentMerchant(merchant.id);
-      if (res.success) toast.success('Credentials OK — terminal reachable. You can now Activate.');
+      // The backend probe only validates credentials + cloud reachability — it
+      // does NOT push to the physical terminal. So "test passed" means you can
+      // safely Activate, but the first real card sale is what proves the P17
+      // itself is plugged in + online.
+      if (res.success) toast.success('Credentials valid — cloud reachable. Run a test card sale to verify the P17 device is online.');
       else toast.warn(res.result || 'Test failed');
       load();
     } catch (err: any) {
