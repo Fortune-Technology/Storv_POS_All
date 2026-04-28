@@ -164,6 +164,14 @@ const ImpersonateLanding = () => {
       try {
         const user = JSON.parse(decodeURIComponent(userData));
         user.token = token;
+        // Wipe any leftover InactivityLock state from a previous browser
+        // session BEFORE writing the new user. SSO is establishing a fresh
+        // impersonated session; it must never inherit the previous user's
+        // lock — that would demand the impersonated user's password despite
+        // them having just landed via authenticated SSO.
+        localStorage.removeItem('storv:il:locked');
+        localStorage.removeItem('storv:il:lastActive');
+        localStorage.removeItem('storv:il:lockedFor');
         localStorage.setItem('user', JSON.stringify(user));
         navigate('/portal/realtime', { replace: true });
       } catch { navigate('/login', { replace: true }); }

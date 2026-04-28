@@ -64,6 +64,10 @@ export default function AcceptInvitation() {
         orgId:    result.orgId,
         tenantId: result.orgId,
       };
+      // Wipe any leftover InactivityLock state from a previous session.
+      localStorage.removeItem('storv:il:locked');
+      localStorage.removeItem('storv:il:lastActive');
+      localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(user));
 
       // Set the newly-granted org as the active one. If an explicit store was
