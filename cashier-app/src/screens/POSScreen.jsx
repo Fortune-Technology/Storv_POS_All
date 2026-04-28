@@ -215,6 +215,31 @@ export default function POSScreen() {
       authCode:       tx.authCode,
       cardType:       tx.cardType,
       lastFour:       tx.lastFour,
+      // Session 51 — Dual Pricing receipt fields. The surcharge line is
+      // printed only when surchargeAmount > 0 (i.e. a card tender on a
+      // dual_pricing store). The disclosure block prints whenever the
+      // store is on dual_pricing — required by most state laws on every
+      // tender (cash receipts must also disclose the cash discount).
+      surchargeAmount:        tx.surchargeAmount || 0,
+      surchargeTaxAmount:     tx.surchargeTaxAmount || 0,
+      surchargeRate:          tx.surchargeRate || 0,
+      surchargeFixedFee:      tx.surchargeFixedFee || 0,
+      // For cash tenders on dual_pricing stores, compute "you saved $X" by
+      // diffing baseSubtotal × rate (what the customer would have paid card).
+      potentialSavings: (() => {
+        if (tx.pricingModel !== 'dual_pricing') return 0;
+        if (Number(tx.surchargeAmount || 0) > 0.005) return 0;
+        const base = Number(tx.baseSubtotal || tx.subtotal || 0);
+        const rate = Number(tx.surchargeRate || 0);
+        const fee  = Number(tx.surchargeFixedFee || 0);
+        if (base <= 0 || (rate <= 0 && fee <= 0)) return 0;
+        return Math.round((base * rate / 100 + fee) * 100) / 100;
+      })(),
+      dualPricingDisclosure:  tx.pricingModel === 'dual_pricing'
+        ? (posConfig.dualPricing?.dualPricingDisclosure
+            || posConfig.dualPricing?.state?.surchargeDisclosureText
+            || null)
+        : null,
     }).catch((err) => {
       // Receipt printer failure — surface to cashier via scan-error toast
       // so they know the receipt didn't print (common issue: offline USB / wrong IP).
@@ -223,7 +248,7 @@ export default function POSScreen() {
       if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
       scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
     });
-  }, [hasReceiptPrinter, printReceipt, storeBranding, cashier]);
+  }, [hasReceiptPrinter, printReceipt, storeBranding, cashier, posConfig.dualPricing]);
 
   // ── No Sale — open drawer + log event ─────────────────────────────────────
   const handleNoSale = useCallback(() => {
@@ -596,7 +621,9 @@ export default function POSScreen() {
     ebtEligible:  posConfig.bagFee?.ebtEligible  || false,
     discountable: posConfig.bagFee?.discountable || false,
   } : null;
-  const totals       = selectTotals(items, taxRules, effectiveDiscount, bagFeeInfo);
+  // Session 51 — pass dualPricing so totals.cardGrandTotal / cardSurcharge /
+  // potentialSavings are populated. Cart panel + customer display read these.
+  const totals       = selectTotals(items, taxRules, effectiveDiscount, bagFeeInfo, posConfig.dualPricing);
   const selectedItem = items.find(i => i.lineId === selectedLineId);
 
   // ── Live cart push to customer-facing terminal screen ───────────────────
@@ -1131,6 +1158,17 @@ export default function POSScreen() {
       ...(customer?.id ? { customerId: customer.id } : {}),
       ...(loyaltyRedemption ? { loyaltyPointsRedeemed: loyaltyRedemption.pointsCost } : {}),
       ...totals,
+      // Session 51 — Dual Pricing snapshot. quickCashSubmit is always cash,
+      // so surchargeAmount is always 0 even when the store is on dual_pricing.
+      // Snapshot the pricingModel + rate fields so the Transaction row records
+      // the policy at sale time (matters for receipt reprints + EoD reports).
+      pricingModel:       posConfig.dualPricing?.pricingModel || 'interchange',
+      baseSubtotal:       totals.baseSubtotal,
+      surchargeAmount:    0,
+      surchargeTaxAmount: 0,
+      surchargeRate:      totals.surchargeRate || 0,
+      surchargeFixedFee:  totals.surchargeFixedFee || 0,
+      surchargeTaxable:   !!totals.surchargeTaxable,
     };
 
     let savedTx = payload;
@@ -1149,7 +1187,7 @@ export default function POSScreen() {
 
     clearCart();
     handleSaleCompleted(savedTx, change);
-  }, [items, totals, storeId, bagCount, bagPrice, posConfig.bagFee, customer, loyaltyRedemption, couponRedemptions, isOnline, enqueueTx, clearCart, handleSaleCompleted]);
+  }, [items, totals, storeId, bagCount, bagPrice, posConfig.bagFee, posConfig.dualPricing, customer, loyaltyRedemption, couponRedemptions, isOnline, enqueueTx, clearCart, handleSaleCompleted]);
 
   // Flash animation — driven by the className on `.pos-left-pane`
   // (see POSScreen.css keyframes). The previous inline-style copy was
@@ -2278,6 +2316,7 @@ export default function POSScreen() {
           bagFeeInfo={bagFeeInfo}
           bagCount={bagCount}
           bagPrice={bagPrice}
+          dualPricing={posConfig.dualPricing}
           onClose={closeTender}
           onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
           onComplete={(tx, change) => handleSaleCompleted(tx, change)}
@@ -2400,7 +2439,7 @@ export default function POSScreen() {
       )}
 
       {showRefund && (
-        <RefundModal storeId={storeId} onClose={() => setShowRefund(false)} />
+        <RefundModal storeId={storeId} dualPricing={posConfig.dualPricing} onClose={() => setShowRefund(false)} />
       )}
 
       {showEndOfDay && (
@@ -2413,7 +2452,28 @@ export default function POSScreen() {
         <OpenShiftModal
           storeId={storeId}
           onClose={shift ? () => setShowOpenShift(false) : null}
-          onOpened={() => setShowOpenShift(false)}
+          onOpened={() => {
+            setShowOpenShift(false);
+            // ── Customer-facing terminal: welcome banner at shift open ──
+            // First action of the shift — push a branded "Welcome to <Store>!"
+            // slip to the P17 printer + clear any stale cart display from the
+            // prior cashier's last sale. Both fire-and-forget; failures
+            // surface in console only and never block the shift-open flow.
+            // Same gates as the post-sale thank-you push.
+            if (hasDejavooConfigured && station?.id && isOnline) {
+              // Clear first so the new shift's screen doesn't briefly show
+              // residue from the previous shift.
+              posApi.dejavooClearDisplay({ stationId: station.id }).catch(err => {
+                console.warn('[POSScreen] open-shift clear failed', err?.message);
+              });
+              // Then push the branded welcome slip. Backend resolves store
+              // name + address + phone from the station's Store row, so the
+              // cashier-app doesn't need to know its own store metadata.
+              posApi.dejavooPushWelcome({ stationId: station.id }).catch(err => {
+                console.warn('[POSScreen] welcome push failed', err?.message);
+              });
+            }
+          }}
         />
       )}
 

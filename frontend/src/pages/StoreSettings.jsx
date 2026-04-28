@@ -64,6 +64,13 @@ export default function StoreSettings({ embedded }) {
     markDirty();
   };
 
+  // Session 52 — Dual Pricing read-only mirror + refund-surcharge policy
+  // toggle. The pricing model itself is superadmin-only (changes the merchant
+  // processor setup). Managers can flip the refund-surcharge policy here
+  // since it's operational, not pricing-model authority.
+  const [dualPricingMirror, setDualPricingMirror] = useState(null);
+  const [refundSurcharge,   setRefundSurcharge]   = useState(false);
+
   // ── State (US state catalog for auto-populate defaults) ──
   const [states,       setStates]       = useState([]);
   const [stateCode,    setStateCode]    = useState('');
@@ -179,6 +186,9 @@ export default function StoreSettings({ embedded }) {
       setFuelEnabled(fuelCfg?.enabled ?? false);
       if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
       if (cfg.ageLimits) setAgeLimits(prev => ({ ...prev, ...cfg.ageLimits }));
+      // Session 52 — Dual Pricing config (read-only mirror + refund toggle)
+      setDualPricingMirror(cfg.dualPricing || null);
+      setRefundSurcharge(!!cfg.dualPricing?.refundSurcharge);
       setDirty(false);
     } catch {
       setTenderMethods(DEFAULT_TENDER_METHODS);
@@ -226,6 +236,9 @@ export default function StoreSettings({ embedded }) {
           ageLimits,
           lottery: { ...(rawConfig.lottery || {}), enabled: lotteryEnabled },
         },
+        // Session 52 — refundSurcharge toggle (manager-editable, savePOSConfig
+        // accepts it as a top-level body field and writes Store.refundSurcharge)
+        refundSurcharge,
       });
       // Fuel-settings write: dedicated FuelSettings table row.
       const fuelSave = updateFuelSettings({ storeId, enabled: fuelEnabled }).catch(err => {
@@ -431,6 +444,105 @@ export default function StoreSettings({ embedded }) {
             <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
               This setting pre-fills the Starting Ticket # when you activate a book and drives the EoD reconciliation math. Applies to every game uniformly — change it once here, not per book.
             </div>
+          </div>
+
+          {/* ── Session 52 — Payment Pricing Model (read-only mirror) ── */}
+          {/* Always rendered so the manager can see the active config; the
+              actual model toggle is superadmin-only via the admin-app. The
+              ONE editable field here is refund-surcharge policy — that's
+              operational, not pricing-model authority. */}
+          <div className="ss-section">
+            <div className="ss-section-title">Payment Pricing Model</div>
+            <div className="ss-section-desc">
+              {dualPricingMirror?.pricingModel === 'dual_pricing' ? (
+                <>
+                  This store runs the <strong>{dualPricingMirror?.state?.pricingFraming === 'cash_discount' ? 'Cash Discount' : 'Dual Pricing'}</strong>{' '}
+                  model. Card and debit transactions add a surcharge; cash and EBT pay base price.
+                </>
+              ) : (
+                <>This store runs the <strong>Interchange</strong> (standard) model. Contact your account manager to enable dual pricing.</>
+              )}
+            </div>
+
+            <div className="ss-dp-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+              <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>MODEL</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {dualPricingMirror?.pricingModel === 'dual_pricing' ? 'Dual Pricing' : 'Interchange'}
+                </div>
+              </div>
+              {dualPricingMirror?.pricingModel === 'dual_pricing' && (
+                <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>SURCHARGE RATE</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {(() => {
+                      const tier = dualPricingMirror.pricingTier;
+                      const customPct = dualPricingMirror.customSurchargePercent;
+                      const customFee = dualPricingMirror.customSurchargeFixedFee;
+                      if (customPct != null && customFee != null) {
+                        return `${Number(customPct).toFixed(2)}% + $${Number(customFee).toFixed(2)} (custom)`;
+                      }
+                      if (tier) {
+                        return `${Number(tier.surchargePercent).toFixed(2)}% + $${Number(tier.surchargeFixedFee).toFixed(2)} (${tier.name})`;
+                      }
+                      return '— (no rate configured)';
+                    })()}
+                  </div>
+                </div>
+              )}
+              {dualPricingMirror?.state && (
+                <>
+                  <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                    <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>STATE POLICY</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {dualPricingMirror.state.code}
+                      {dualPricingMirror.state.surchargeTaxable && ' · taxable'}
+                      {!dualPricingMirror.state.dualPricingAllowed && ' · cash-discount only'}
+                    </div>
+                  </div>
+                  {dualPricingMirror.state.maxSurchargePercent != null && (
+                    <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>STATE CAP</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {Number(dualPricingMirror.state.maxSurchargePercent).toFixed(2)}% maximum
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {dualPricingMirror?.pricingModel === 'dual_pricing' && (
+              <>
+                <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>RECEIPT DISCLOSURE</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                    {dualPricingMirror.dualPricingDisclosure
+                      || dualPricingMirror.state?.surchargeDisclosureText
+                      || 'A cash discount is available on this transaction. Credit and debit transactions include a processing fee.'}
+                  </div>
+                </div>
+
+                {/* The ONE editable toggle on this card — refund-surcharge policy */}
+                <div className="ss-tender-item" style={{ marginTop: 14 }}>
+                  <div className="ss-tender-info">
+                    <span className="ss-tender-label">Refund includes surcharge</span>
+                    <span className="ss-tender-sub">
+                      When ON, a refund of a card transaction returns the original surcharge proportionally.
+                      When OFF (default), only the principal is refunded — surcharge stays with the merchant.
+                    </span>
+                  </div>
+                  <label className="ss-toggle">
+                    <input
+                      type="checkbox"
+                      checked={refundSurcharge}
+                      onChange={(e) => { setRefundSurcharge(e.target.checked); markDirty(); }}
+                    />
+                    <span className="ss-toggle-slider" />
+                  </label>
+                </div>
+              </>
+            )}
           </div>
 
           {/* ── Section: Vendor Payment Tender Methods ── */}

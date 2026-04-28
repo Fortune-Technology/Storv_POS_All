@@ -60,6 +60,10 @@ const HAS_AMOUNT  = ['cash', 'card', 'ebt', 'manual_card', 'manual_ebt', 'charge
 // Methods that route through the integrated payment terminal
 const USES_TERMINAL = ['card', 'ebt'];
 const GIVES_CHANGE = ['cash'];
+// Session 51 — Tender methods that trigger the dual-pricing surcharge.
+// Mirrors backend/src/services/dualPricing.ts CARD_TENDERS. Used to decide
+// when grandTotal should swap to the card-inclusive total.
+const CARD_SURCHARGE_TENDERS = new Set(['card', 'credit', 'debit', 'manual_card']);
 
 // Style helpers kept as shortcuts referencing CSS classes
 const s = {
@@ -87,6 +91,7 @@ export default function TenderModal({
   bagCount       = 0,
   bagPrice       = 0,
   shiftId        = null,   // active Shift.id — attached to the saved transaction
+  dualPricing    = null,   // Session 51 — { pricingModel, pricingTier, customSurcharge*, state, ... } from usePOSConfig
 }) {
   const confirm = useConfirm();
   const { items, clearCart, customer, loyaltyRedemption, orderDiscount, couponRedemptions } = useCartStore();
@@ -99,7 +104,18 @@ export default function TenderModal({
     [items, customer, orderDiscount, loyaltyRedemption]
   );
 
-  const totals = selectTotals(items, taxRules, effectiveCombinedDiscount, bagFeeInfo);
+  // Session 51 — passing `dualPricing` enables cashGrandTotal / cardGrandTotal /
+  // cardSurcharge / potentialSavings on `totals`. When the store runs the
+  // 'interchange' model (default), these all collapse to the existing
+  // grandTotal so legacy code paths see no change.
+  //
+  // The `grandTotal` returned here is always the CASH total. Below (after
+  // `splits` + `method` states are declared) we override it with the
+  // card-inclusive total when the active/committed tender uses a card. All
+  // downstream math (remaining, change, terminal charge amount, canComplete)
+  // automatically picks up the correct value.
+  const totals = selectTotals(items, taxRules, effectiveCombinedDiscount, bagFeeInfo, dualPricing);
+  const isDualPricing = dualPricing?.pricingModel === 'dual_pricing';
   const hasLotteryItems  = items.some(i => i.isLottery);
   const hasFuelItems     = items.some(i => i.isFuel);
 
@@ -211,6 +227,24 @@ export default function TenderModal({
   // Signature threshold is now per-merchant (PaymentMerchant may add it later).
   // Default $25 matches typical processor requirement.
   const signatureThreshold = 25;
+
+  // ── Session 51 — Dual Pricing tender-aware total override ─────────────
+  // When the active method (or any committed split) is a card tender, swap
+  // grandTotal to the card-inclusive figure so all downstream math reflects
+  // what's actually charged. When mixed (e.g. $50 cash + $50 card split),
+  // we still use the card-inclusive total since ANY card portion triggers
+  // the surcharge per industry practice.
+  //
+  // We mutate the `totals` object in place (it was created locally by
+  // selectTotals — not React state, so safe) so existing references keep
+  // working. The override applies only when isDualPricing is true.
+  const _splitsHasCard = splits.some(s => CARD_SURCHARGE_TENDERS.has(s.method));
+  const _activeIsCard  = CARD_SURCHARGE_TENDERS.has(method);
+  const _usesCardTender = isDualPricing && (_splitsHasCard || _activeIsCard);
+  if (_usesCardTender && totals.cardGrandTotal != null) {
+    totals.grandTotal = totals.cardGrandTotal;
+  }
+
   // amount = raw digit string. "2694" → $26.94  (phone-terminal style)
   const [amount,  setAmount]  = useState(initCashAmount ? numberToDigits(initCashAmount) : '');
   const [note,    setNote]    = useState('');
@@ -282,15 +316,23 @@ export default function TenderModal({
   //   - terminal not configured  → let the user hit Complete and see the
   //     proper "no terminal configured" decline message
   //   - amount typed on numpad   → cashier wants a partial charge, not full
-  //   - any prior split lines     → mid-split flow, charge happens via
-  //     addSplitLine when the cashier hits "Add & Continue"
   //   - payStatus already set    → a charge is already in flight / declined /
   //     approved, never double-fire
   //   - remaining ≈ 0            → nothing to charge
   //   - already auto-fired this method  → ref guard prevents loops if the
   //     effect re-runs (e.g. dejavooStatus async load)
   //
-  // NOTE: must live AFTER `hasDejavoo`, `ebtEnabled`, `amount`, `saving`,
+  // NOTE: prior versions ALSO blocked when `splits.length > 0` to keep
+  // mid-split flows manual. We removed that guard because of the smart
+  // next-method advance in `addSplitLine`: after a partial cash split
+  // commits, we auto-suggest 'card' for the remaining balance. Blocking
+  // auto-fire there forced the cashier back to clicking Complete or the
+  // big split-add CTA, defeating the convenience. Distinguishing partial
+  // vs full charge is now done by the `amount` guard alone — if the
+  // cashier typed something, they want partial; if not, they want the
+  // full remaining (auto-fire). Splits don't change that signal.
+  //
+  // ALSO NOTE: must live AFTER `hasDejavoo`, `ebtEnabled`, `amount`, `saving`,
   // and `remaining` are declared — the dep array is evaluated synchronously
   // during render, and any const referenced before its declaration triggers
   // a TDZ ReferenceError. Earlier placement broke first mount.
@@ -306,7 +348,6 @@ export default function TenderModal({
     if (!hasDejavoo && !hasPAX) return;                       // no integration → manual flow + hard-fail
     if (method === 'ebt' && !ebtEnabled) return;              // EBT disabled at merchant
     if (amount) return;                                       // cashier typed an amount → wants partial
-    if (splits.length > 0) return;                            // mid-split → use addSplitLine flow
     if (payStatus != null) return;                            // already charging / done
     if (remaining < 0.005) return;                            // nothing to charge
     if (saving) return;                                       // post-charge save in progress
@@ -318,7 +359,7 @@ export default function TenderModal({
     // because that would re-run this effect every render. The ref guard
     // ensures we only call it once per method-selection.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [method, hasDejavoo, hasPAX, ebtEnabled, amount, splits.length, payStatus, remaining, saving]);
+  }, [method, hasDejavoo, hasPAX, ebtEnabled, amount, payStatus, remaining, saving]);
 
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
@@ -577,7 +618,43 @@ export default function TenderModal({
         amount: commitAmount,
       }]);
     }
-    setAmount(''); setNote(''); setMethod('cash');
+    setAmount(''); setNote('');
+
+    // Smart next-method advance after a split commits.
+    //
+    // Old behaviour reset to 'cash' unconditionally, forcing the cashier
+    // to manually pick the next tender every single time. New behaviour
+    // picks the most likely next tender based on what was just committed,
+    // so the typical "$X cash + $Y card" flow becomes one tap less:
+    //
+    //   cash committed         → suggest card (most common follow-on)
+    //   manual_card committed  → suggest card (finish on integrated terminal)
+    //   ebt / manual_ebt cmt'd → suggest cash (EBT covers food; cash for non-food)
+    //   card committed         → suggest cash (already paid most; small balance)
+    //   charge committed       → suggest cash (e.g. charge + cash tip)
+    //   other committed        → suggest cash
+    //
+    // If the suggestion isn't in `allowedMethods` (e.g. card suggested but
+    // offline, or card suggested but cash-only enforced), fall back to cash.
+    // Cash is always allowed.
+    const newRemaining = remaining - commitAmount;
+    if (newRemaining > 0.005) {
+      const suggestion =
+        method === 'cash'         ? 'card' :
+        method === 'manual_card'  ? 'card' :
+        method === 'manual_ebt'   ? 'cash' :
+        method === 'ebt'          ? 'cash' :
+        method === 'card'         ? 'cash' :
+        method === 'charge'       ? 'cash' :
+        'cash';
+      const allowed = allowedMethods.some(m2 => m2.id === suggestion);
+      setMethod(allowed ? suggestion : 'cash');
+    } else {
+      // Fully covered — leave the cashier on cash so the Complete button
+      // is the obvious next action; the auto-fire effect won't re-trigger
+      // because remaining ≈ 0.
+      setMethod('cash');
+    }
   };
 
   const removeSplit = async (id) => {
@@ -736,6 +813,25 @@ export default function TenderModal({
       });
     }
 
+    // Session 51 — Dual Pricing snapshot. Surcharge fires when ANY finalLine
+    // is a card tender. We persist the snapshot fields under their backend
+    // column names (pricingModel / baseSubtotal / surcharge* / surchargeTax*)
+    // so the Transaction row reflects the policy at sale time. This trail
+    // keeps refunds + receipt reprints + EoD reports honest even after the
+    // store later flips back to interchange.
+    const finalLinesUseCard = finalLines.some(l => CARD_SURCHARGE_TENDERS.has(l.method));
+    const dualPricingSnapshot = isDualPricing
+      ? {
+          pricingModel:       'dual_pricing',
+          baseSubtotal:       totals.baseSubtotal,
+          surchargeAmount:    finalLinesUseCard ? totals.cardSurcharge    : 0,
+          surchargeTaxAmount: finalLinesUseCard ? totals.cardSurchargeTax : 0,
+          surchargeRate:      totals.surchargeRate,
+          surchargeFixedFee:  totals.surchargeFixedFee,
+          surchargeTaxable:   !!totals.surchargeTaxable,
+        }
+      : { pricingModel: 'interchange' };
+
     const payload = {
       localId: nanoid(), storeId, txNumber,
       stationId: station?.id || null,
@@ -776,6 +872,7 @@ export default function TenderModal({
       ...(customer?.id ? { customerId: customer.id } : {}),
       ...(loyaltyRedemption ? { loyaltyPointsRedeemed: loyaltyRedemption.pointsCost } : {}),
       ...totals,
+      ...dualPricingSnapshot,
     };
 
     // (Terminal metadata is now applied inline per-split when each charge
@@ -1257,11 +1354,37 @@ export default function TenderModal({
     <div className="tm-backdrop">
       <div className="tm-modal tm-modal--wide">
 
-        {/* Header */}
+        {/* Header — title and right-side amount summary adapt to split state.
+            When the cashier has started a split (any committed lines), the
+            title shifts from "Tender" → "Split Payment · N collected" and
+            the amount column shows the OUTSTANDING balance (remaining)
+            highlighted in amber, with the cart total below in muted text.
+            That way the cashier always sees what's left to charge without
+            scrolling back to the splits panel. */}
         <div className="tm-header">
-          <span style={{ fontWeight: 800, fontSize: '1rem' }}>Tender</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0, lineHeight: 1.15 }}>
+            <span style={{ fontWeight: 800, fontSize: '1rem' }}>
+              {splits.length > 0
+                ? `Split Payment · ${splits.length} collected`
+                : 'Tender'}
+            </span>
+            {splits.length > 0 && (
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                {remaining > 0.005 ? `Pay ${fmt$(remaining)} more to complete` : 'Fully paid · ready to confirm'}
+              </span>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--green)' }}>{fmt$(totals.grandTotal)}</span>
+            {splits.length > 0 && remaining > 0.005 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.05 }}>
+                <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--amber)' }}>{fmt$(remaining)}</span>
+                <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  of {fmt$(totals.grandTotal)} total
+                </span>
+              </div>
+            ) : (
+              <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--green)' }}>{fmt$(totals.grandTotal)}</span>
+            )}
             <button onClick={onClose} className="tm-close-btn"><X size={16} /></button>
           </div>
         </div>
@@ -1297,37 +1420,169 @@ export default function TenderModal({
               </div>
             )}
 
-            {/* Committed splits */}
-            {splits.length > 0 && (
-              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.5rem 0.875rem' }}>
-                {splits.map(line => {
-                  const m = BY_ID[line.method]; const Icon = m?.Icon || DollarSign;
-                  const terminalCharged = !!line.paymentTransactionId;
-                  return (
-                    <div key={line.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.3rem 0', borderBottom: '1px solid var(--border)' }}>
-                      <Icon size={13} color={m?.color} />
-                      <span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {line.label}
-                        {line.lastFour && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>••{line.lastFour}</span>}
-                        {terminalCharged && <Wifi size={10} color="var(--green)" title="Charged on terminal" />}
-                      </span>
-                      <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{fmt$(line.amount)}</span>
-                      <button
-                        onClick={() => removeSplit(line.id)}
-                        title={terminalCharged ? `Void ${fmt$(line.amount)} on terminal` : 'Remove split line'}
-                        style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 4px' }}
-                      ><Trash2 size={12} /></button>
-                    </div>
-                  );
-                })}
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.4rem' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Remaining</span>
-                  <span style={{ fontWeight: 800, color: remaining > 0 ? 'var(--amber)' : 'var(--green)' }}>
-                    {remaining > 0 ? fmt$(remaining) : '✓ Paid'}
+            {/* Session 51 — Dual Pricing summary banner.
+                Shows when the store runs the dual_pricing model AND the cart
+                has a positive total (skip refunds). Surfaces both totals so
+                the cashier sees what the customer pays for each tender path
+                BEFORE picking a method. The active method's total is
+                highlighted; the other is muted. */}
+            {isDualPricing && totals.cashGrandTotal > 0.005 && !isRefundTx && (
+              <div className="tm-dual-pricing-banner" style={{
+                background: _usesCardTender
+                  ? 'linear-gradient(180deg, rgba(245,158,11,0.06) 0%, rgba(245,158,11,0.02) 100%)'
+                  : 'linear-gradient(180deg, rgba(34,197,94,0.06) 0%, rgba(34,197,94,0.02) 100%)',
+                border: `1.5px solid ${_usesCardTender ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)'}`,
+                borderRadius: 12,
+                padding: '0.625rem 0.875rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                    {dualPricing?.state?.pricingFraming === 'cash_discount' ? 'CASH DISCOUNT' : 'DUAL PRICING'}
                   </span>
+                  {totals.surchargeRate > 0 && (
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                      +{Number(totals.surchargeRate).toFixed(2)}% + ${Number(totals.surchargeFixedFee || 0).toFixed(2)} on card
+                    </span>
+                  )}
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{
+                    background: !_usesCardTender ? 'rgba(34,197,94,0.12)' : 'transparent',
+                    border: `1px solid ${!_usesCardTender ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.06)'}`,
+                    borderRadius: 8,
+                    padding: '0.45rem 0.625rem',
+                  }}>
+                    <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 2 }}>
+                      CASH / EBT
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 900, color: !_usesCardTender ? 'var(--green)' : 'var(--text-secondary)' }}>
+                      {fmt$(totals.cashGrandTotal)}
+                    </div>
+                  </div>
+                  <div style={{
+                    background: _usesCardTender ? 'rgba(245,158,11,0.12)' : 'transparent',
+                    border: `1px solid ${_usesCardTender ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.06)'}`,
+                    borderRadius: 8,
+                    padding: '0.45rem 0.625rem',
+                  }}>
+                    <div style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 2 }}>
+                      CARD / DEBIT
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 900, color: _usesCardTender ? '#f59e0b' : 'var(--text-secondary)' }}>
+                      {fmt$(totals.cardGrandTotal)}
+                    </div>
+                    {totals.cardSurcharge > 0 && (
+                      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        incl. +{fmt$(totals.cardSurcharge + (totals.cardSurchargeTax || 0))} surcharge
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {totals.potentialSavings > 0.005 && !_usesCardTender && (
+                  <div style={{ fontSize: '0.7rem', color: 'var(--green)', fontWeight: 700, textAlign: 'center', marginTop: 2 }}>
+                    Customer saves {fmt$(totals.potentialSavings)} by paying cash
+                  </div>
+                )}
               </div>
             )}
+
+            {/* Committed splits — sticky progress card.
+                When ANY split is committed, this is the most important UI on
+                the screen, so we make it visually loud:
+                  - Top-of-column "Split in progress" banner with the
+                    progress bar so cashier sees how much is collected at a glance
+                  - Each line item shows method icon, label, last-4 (for cards),
+                    "✓ Charged on terminal" badge for paid card splits
+                  - Per-line remove (X) button — clears the split (auto-voids
+                    on terminal for card splits via existing removeSplit logic)
+                  - Bottom row reiterates "Remaining $X to pay" so the cashier
+                    knows exactly what's left when picking the next method */}
+            {splits.length > 0 && (() => {
+              const collected = totalSplit;
+              const target    = totals.grandTotal;
+              const pctPaid   = target > 0 ? Math.min(100, Math.round((collected / target) * 100)) : 100;
+              return (
+                <div className="tm-split-progress" style={{
+                  background:    'linear-gradient(180deg, rgba(122,193,67,.08) 0%, rgba(122,193,67,.02) 100%)',
+                  border:        '1.5px solid rgba(122,193,67,.3)',
+                  borderRadius:  12,
+                  padding:       '0.625rem 0.875rem',
+                  position:      'sticky',
+                  top:           0,
+                  zIndex:        2,
+                  // Soft shadow so the card lifts off the body content when
+                  // the cashier scrolls down through the method picker
+                  boxShadow:     '0 2px 8px rgba(0,0,0,0.18)',
+                }}>
+                  {/* Header row: count + collected amount */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Check size={13} color="var(--green)" />
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--green)' }}>
+                        {splits.length} payment{splits.length === 1 ? '' : 's'} collected
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      {fmt$(collected)} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>of {fmt$(target)}</span>
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ height: 4, background: 'rgba(255,255,255,.08)', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{
+                      width:      `${pctPaid}%`,
+                      height:     '100%',
+                      background: pctPaid >= 100 ? 'var(--green)' : 'linear-gradient(90deg, var(--green) 0%, #4ade80 100%)',
+                      transition: 'width .25s ease',
+                    }} />
+                  </div>
+                  {/* Per-line breakdown */}
+                  {splits.map(line => {
+                    const m = BY_ID[line.method]; const Icon = m?.Icon || DollarSign;
+                    const terminalCharged = !!line.paymentTransactionId;
+                    return (
+                      <div key={line.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '0.32rem 0',
+                        borderTop: '1px dashed rgba(255,255,255,.06)',
+                      }}>
+                        <Icon size={13} color={m?.color || 'var(--text-secondary)'} style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.78rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{line.label}</span>
+                          {line.lastFour && <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace', flexShrink: 0 }}>••{line.lastFour}</span>}
+                          {terminalCharged && <Wifi size={10} color="var(--green)" title="Charged on terminal" style={{ flexShrink: 0 }} />}
+                        </span>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem', flexShrink: 0 }}>{fmt$(line.amount)}</span>
+                        <button
+                          onClick={() => removeSplit(line.id)}
+                          title={terminalCharged ? `Void ${fmt$(line.amount)} on terminal` : 'Remove split line'}
+                          style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', padding: '2px 4px', flexShrink: 0 }}
+                        ><Trash2 size={12} /></button>
+                      </div>
+                    );
+                  })}
+                  {/* Remaining-to-pay callout */}
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    paddingTop: '0.5rem', marginTop: '0.4rem',
+                    borderTop: '1px solid rgba(255,255,255,.08)',
+                  }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      {remaining > 0.005 ? 'Still owed' : 'Status'}
+                    </span>
+                    <span style={{
+                      fontWeight: 900,
+                      fontSize: remaining > 0.005 ? '1rem' : '0.92rem',
+                      color: remaining > 0.005 ? 'var(--amber)' : 'var(--green)',
+                    }}>
+                      {remaining > 0.005 ? fmt$(remaining) : '✓ Fully Paid'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Method selector */}
             <div>
@@ -1384,6 +1639,56 @@ export default function TenderModal({
             {/* ── CASH: quick presets + change preview ── */}
             {method === 'cash' && (
               <>
+                {/* Split shortcuts — pre-fill the numpad with a fraction of
+                    remaining so the cashier doesn't have to mentally compute
+                    halves / thirds before committing a partial cash split.
+                    Only shown when:
+                      - No splits committed yet (otherwise we have a
+                        differently-shaped remaining; presets are less useful)
+                      - Cart is large enough that splitting actually makes
+                        sense ($5+ remaining; below that just pay cash)
+                      - Cashier hasn't typed anything yet (preset wouldn't
+                        replace partial input cleanly) */}
+                {splits.length === 0 && remaining >= 5 && !amount && (
+                  <div>
+                    <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
+                      SPLIT THIS PAYMENT
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {[
+                        { label: 'Half',   factor: 0.5,    sub: '50/50 split' },
+                        { label: 'Third',  factor: 1 / 3,  sub: '33% cash' },
+                        { label: 'Two-Thirds', factor: 2 / 3, sub: '67% cash' },
+                      ].map(p => {
+                        // Round to nearest dollar for cleaner cash splits.
+                        // Cashiers handle rounding mentally; under-shoot is
+                        // safer than over-shoot (split-add caps at remaining).
+                        const splitAmt = Math.max(1, Math.floor(remaining * p.factor));
+                        const restAmt  = Math.max(0, Math.round((remaining - splitAmt) * 100) / 100);
+                        return (
+                          <button
+                            key={p.label}
+                            onClick={() => setAmount(numberToDigits(splitAmt))}
+                            style={{
+                              padding: '0.5rem 0.75rem', borderRadius: 8,
+                              background: 'rgba(168,85,247,.08)',
+                              border: '1px solid rgba(168,85,247,.3)',
+                              color: '#a855f7',
+                              fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer',
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25,
+                            }}
+                            title={`Pay ${fmt$(splitAmt)} cash, then ${fmt$(restAmt)} on another method`}
+                          >
+                            <span>{p.label}</span>
+                            <span style={{ fontSize: '0.6rem', opacity: 0.85, fontWeight: 600 }}>
+                              {fmt$(splitAmt)} + {fmt$(restAmt)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>QUICK CASH</div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -1488,27 +1793,58 @@ export default function TenderModal({
 
         </div>{/* end side-by-side body */}
 
-        {/* Footer */}
+        {/* Footer — split-add and complete buttons.
+            When the typed amount is less than remaining (canAddSplit=true),
+            the split CTA is now the PRIMARY footer button (full-width, big,
+            same prominence as the Complete button), because in that flow
+            the cashier's intent is to split, not to fail the complete-button
+            "amount must equal remaining" gate. The Complete button drops
+            to secondary when a partial amount is typed, so cashier doesn't
+            accidentally tap Complete when the cart isn't fully covered. */}
         <div style={{ padding: '0.875rem 1rem', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {canAddSplit && (
-            <button onClick={addSplitLine} disabled={splitCharging} className="tm-split-add-btn">
+            <button
+              onClick={addSplitLine}
+              disabled={splitCharging}
+              className="tm-big-btn tm-split-add-cta"
+              style={{
+                background: splitCharging ? undefined : (USES_TERMINAL.includes(method) ? 'var(--blue, #3b82f6)' : padColor),
+                opacity: splitCharging ? 0.6 : 1,
+              }}
+            >
               {splitCharging
-                ? <><RotateCcw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Charging terminal for {fmt$(activeAmt)}…</>
+                ? <><RotateCcw size={16} style={{ animation: 'spin 1s linear infinite' }} /> Charging terminal for {fmt$(activeAmt)}…</>
                 : USES_TERMINAL.includes(method)
-                  ? <><CreditCard size={14} /> Charge {fmt$(activeAmt)} on terminal — pay {fmt$(remaining - activeAmt)} separately</>
-                  : <><PlusCircle size={14} /> Add {fmt$(activeAmt)} {activeM?.label} — pay {fmt$(remaining - activeAmt)} separately</>}
+                  ? <><CreditCard size={16} /> Charge {fmt$(activeAmt)} on Card · then pay {fmt$(remaining - activeAmt)} more</>
+                  : <><PlusCircle size={16} /> Add {fmt$(activeAmt)} {activeM?.label} · then pay {fmt$(remaining - activeAmt)} more</>}
             </button>
           )}
-          <button onClick={complete} disabled={!canComplete || saving || splitCharging}
-            className="tm-big-btn" style={{ background: (!canComplete || saving || splitCharging) ? undefined : (method === 'card' ? 'var(--blue, #3b82f6)' : padColor) }}
+          {/* When a split CTA is showing, the primary Complete is demoted to
+              a thin secondary button — cashier shouldn't be one tap away from
+              completing on a partial amount. */}
+          <button
+            onClick={complete}
+            disabled={!canComplete || saving || splitCharging}
+            className={canAddSplit ? 'tm-secondary-btn' : 'tm-big-btn'}
+            style={{
+              background: canAddSplit
+                ? 'transparent'
+                : ((!canComplete || saving || splitCharging) ? undefined : (method === 'card' ? 'var(--blue, #3b82f6)' : padColor)),
+              border: canAddSplit ? '1px solid var(--border)' : undefined,
+              color:  canAddSplit ? 'var(--text-secondary)' : undefined,
+              fontSize: canAddSplit ? '0.85rem' : undefined,
+              padding:  canAddSplit ? '0.55rem 1rem' : undefined,
+            }}
           >
             {saving
               ? <><RotateCcw size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
-              : method === 'card'
-                ? <><CreditCard size={16} /> Complete Card — {fmt$(remaining)}</>
-                : change > 0
-                  ? <>Complete Sale · Change: {fmt$(change)}</>
-                  : 'Complete Sale'
+              : canAddSplit
+                ? `Complete with full ${fmt$(remaining)} on this method instead`
+                : method === 'card'
+                  ? <><CreditCard size={16} /> Complete Card — {fmt$(remaining)}</>
+                  : change > 0
+                    ? <>Complete Sale · Change: {fmt$(change)}</>
+                    : 'Complete Sale'
             }
           </button>
         </div>

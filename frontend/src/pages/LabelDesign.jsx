@@ -54,6 +54,17 @@ const FIELD_DEFS = [
   { id: 'plu',          label: 'PLU Code',         icon: Hash,      var: '{{plu}}',        example: '4011' },
   { id: 'department',   label: 'Department',       icon: Layers,    var: '{{department}}', example: 'Dairy' },
   { id: 'aisle',        label: 'Aisle / Location', icon: MapPin,    var: '{{aisle}}',      example: 'Aisle 3, Shelf B' },
+  // ── Session 52 — Dual Pricing label fields ──
+  // Available for stores running the dual_pricing model. The label
+  // generator on the print path resolves {{cash_price}}, {{card_price}},
+  // {{savings_amount}}, and {{disclosure}} from the resolved Store config
+  // + State.surchargeDisclosureText (or Store.dualPricingDisclosure
+  // override). On interchange stores these resolve to empty / cash price /
+  // 0 / empty so existing templates degrade gracefully.
+  { id: 'cashPrice',    label: 'Cash Price',        icon: DollarSign, var: '{{cash_price}}',    example: '$4.99' },
+  { id: 'cardPrice',    label: 'Card Price',        icon: DollarSign, var: '{{card_price}}',    example: '$5.14' },
+  { id: 'savingsAmount',label: 'Savings (Cash)',    icon: DollarSign, var: '{{savings_amount}}',example: '$0.15' },
+  { id: 'disclosure',   label: 'Surcharge Disclosure', icon: Type,    var: '{{disclosure}}',    example: 'A 3% surcharge applies to card transactions.' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -232,6 +243,65 @@ function resolveVariable(fieldDef, data) {
     case 'plu':         return data.plu || '';
     case 'department':  return data.departmentName || data.department || '';
     case 'aisle':       return data.aisle || data.shelfLocation || '';
+
+    // ── Session 52 — Dual Pricing label fields ──
+    // The price fields resolve from data.dualPricing (carries pricingModel +
+    // surchargePercent), data.retailPrice (the cash/base price), and an
+    // optional data.cardPrice override. On interchange stores or when no
+    // surcharge rate is configured, cash_price = card_price = retailPrice
+    // (interchange degrades gracefully — no card price label needed).
+    case 'cashPrice':
+      return `$${Number(data.retailPrice || 0).toFixed(2)}`;
+    case 'cardPrice': {
+      const base = Number(data.retailPrice || 0);
+      const dp = data.dualPricing;
+      // Resolve surcharge rate via the same priority as the cashier-app:
+      // custom override > pricingTier > zero. data.cardPriceOverride takes
+      // precedence for callers that pre-compute (e.g. label queue worker
+      // joining store + tier rows server-side).
+      if (data.cardPriceOverride != null) {
+        return `$${Number(data.cardPriceOverride).toFixed(2)}`;
+      }
+      if (dp?.pricingModel === 'dual_pricing') {
+        const customPct = dp.customSurchargePercent;
+        const tierPct   = dp.pricingTier?.surchargePercent;
+        const pct = (customPct != null && dp.customSurchargeFixedFee != null)
+          ? Number(customPct)
+          : (tierPct != null ? Number(tierPct) : 0);
+        if (pct > 0) {
+          return `$${(base * (1 + pct / 100)).toFixed(2)}`;
+        }
+      }
+      return `$${base.toFixed(2)}`;
+    }
+    case 'savingsAmount': {
+      const base = Number(data.retailPrice || 0);
+      const dp = data.dualPricing;
+      if (dp?.pricingModel === 'dual_pricing') {
+        const customPct = dp.customSurchargePercent;
+        const tierPct   = dp.pricingTier?.surchargePercent;
+        const pct = (customPct != null && dp.customSurchargeFixedFee != null)
+          ? Number(customPct)
+          : (tierPct != null ? Number(tierPct) : 0);
+        if (pct > 0) {
+          return `Save $${(base * pct / 100).toFixed(2)}`;
+        }
+      }
+      return '';
+    }
+    case 'disclosure': {
+      const dp = data.dualPricing;
+      if (dp?.pricingModel !== 'dual_pricing') return '';
+      // Trim aggressively for label layout — most ZPL labels can't fit a
+      // multi-paragraph disclosure. Stores wanting full legal text should
+      // use a separate signage label.
+      const txt = (dp.dualPricingDisclosure || dp.state?.surchargeDisclosureText || '').trim();
+      if (!txt) return '';
+      // First sentence only, capped at 80 chars for label readability
+      const firstSentence = (txt.split(/[.!?]/)[0] || txt).trim();
+      return firstSentence.substring(0, 80);
+    }
+
     default:            return '';
   }
 }
@@ -336,6 +406,20 @@ export default function LabelDesign({ embedded }) {
   const [printQty, setPrintQty] = useState(1);
   const [showZPL, setShowZPL] = useState(false);
   const [generatedZPL, setGeneratedZPL] = useState('');
+
+  // Session 52 — Store's dual-pricing config. Fetched once on mount; merged
+  // into every product passed to generateZPL so {{cash_price}}, {{card_price}},
+  // {{savings_amount}}, {{disclosure}} resolve correctly during preview/print.
+  // null = interchange (or no active store), in which case the merge fields
+  // collapse to base price / empty / empty.
+  const [dualPricing, setDualPricing] = useState(null);
+  useEffect(() => {
+    const storeId = localStorage.getItem('activeStoreId');
+    if (!storeId) return;
+    api.get('/pos-terminal/config', { params: { storeId } })
+      .then(r => setDualPricing(r.data?.dualPricing || null))
+      .catch(() => {});
+  }, []);
 
   // ── Zebra Browser Print state ─────────────────────────────────────
   const [zebraConnected, setZebraConnected] = useState(false);
@@ -496,8 +580,14 @@ export default function LabelDesign({ embedded }) {
     const products = selectedProducts.length > 0 ? selectedProducts : [sampleProduct];
     let allZPL = '';
     for (const p of products) {
+      // Session 52 — Inject dualPricing so {{cash_price}}, {{card_price}},
+      // {{savings_amount}}, {{disclosure}} resolve correctly during test
+      // print. Spread `p` first so products that already carry their own
+      // dualPricing (e.g. from a future server-rendered preview) override
+      // the page-level config.
+      const productData = { dualPricing, ...p };
       for (let i = 0; i < printQty; i++) {
-        allZPL += generateZPL(activeTemplate, p, activeTemplate.labelSize);
+        allZPL += generateZPL(activeTemplate, productData, activeTemplate.labelSize);
       }
     }
     setGeneratedZPL(allZPL);
@@ -823,7 +913,7 @@ export default function LabelDesign({ embedded }) {
               <span className="p-badge p-badge-brand">{activeTemplate.fields?.length || 0} fields</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
-              <LabelPreview template={activeTemplate} sampleData={sampleProduct} labelSize={activeTemplate.labelSize} />
+              <LabelPreview template={activeTemplate} sampleData={{ dualPricing, ...sampleProduct }} labelSize={activeTemplate.labelSize} />
             </div>
           </div>
 

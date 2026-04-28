@@ -222,6 +222,16 @@ interface TxAgg {
   depositsRefunded: number;
   bagFeeTotal: number;
   bagFeeQty: number;
+  // Session 52 — Dual Pricing aggregation
+  // Drives the EoD "DUAL PRICING SUMMARY" section. Helps managers reconcile
+  // what was collected on cards (incl. surcharge) vs cash (incl. potential
+  // savings) when the store runs the dual_pricing model.
+  dualPricingActive: boolean;
+  surchargeCollected: number;       // Σ surchargeAmount (positive on completes, negative on refunds)
+  surchargeTaxCollected: number;    // Σ surchargeTaxAmount
+  surchargedTxCount: number;        // # of completes with surchargeAmount > 0 (card txs)
+  cashTxOnDualCount: number;        // # of completes on dual_pricing with surchargeAmount = 0 (cash + EBT)
+  cashSavingsTotal: number;         // Σ "what cash customers saved" — sum of surcharge that WOULD have applied
 }
 
 interface TenderLineEntry {
@@ -254,6 +264,9 @@ async function aggregateTransactions(scope: Scope): Promise<TxAgg> {
     select: {
       id: true, status: true, subtotal: true, taxTotal: true, depositTotal: true, grandTotal: true,
       changeGiven: true, tenderLines: true, lineItems: true, createdAt: true,
+      // Session 52 — Dual Pricing snapshot fields persisted on every tx since Session 51
+      pricingModel: true, baseSubtotal: true, surchargeAmount: true, surchargeTaxAmount: true,
+      surchargeRate: true, surchargeFixedFee: true, surchargeTaxable: true,
     },
   });
 
@@ -281,6 +294,14 @@ async function aggregateTransactions(scope: Scope): Promise<TxAgg> {
   let bagFeeTotal       = 0;   // Σ lineItems where isBagFee
   let bagFeeQty         = 0;   // Σ bag counts
 
+  // Session 52 — Dual Pricing aggregation
+  let dualPricingActive   = false;
+  let surchargeCollected    = 0;
+  let surchargeTaxCollected = 0;
+  let surchargedTxCount     = 0;
+  let cashTxOnDualCount     = 0;
+  let cashSavingsTotal      = 0;
+
   for (const tx of txns) {
     const gt = Number(tx.grandTotal) || 0;
     const st = Number(tx.subtotal)   || 0;
@@ -307,6 +328,37 @@ async function aggregateTransactions(scope: Scope): Promise<TxAgg> {
       netSales     += st;
       taxCollected += tt;
       depositsCollected += dt;
+    }
+
+    // Session 52 — Dual Pricing per-tx aggregation
+    // Surcharge fields are stored signed (positive on completes, negative on
+    // refunds), so summing across statuses naturally nets out.
+    if (tx.pricingModel === 'dual_pricing') {
+      dualPricingActive = true;
+      const sa  = Number(tx.surchargeAmount    || 0);
+      const sat = Number(tx.surchargeTaxAmount || 0);
+      surchargeCollected    += sa;
+      surchargeTaxCollected += sat;
+      if (tx.status === 'complete') {
+        if (Math.abs(sa) > 0.005) {
+          surchargedTxCount += 1;
+        } else {
+          // Cash/EBT tender on a dual_pricing store. The surcharge that WOULD
+          // have applied to a card payment is what the customer "saved".
+          cashTxOnDualCount += 1;
+          const baseSub = Number(tx.baseSubtotal || tx.subtotal || 0);
+          const rate    = Number(tx.surchargeRate || 0);
+          const fee     = Number(tx.surchargeFixedFee || 0);
+          if (baseSub > 0 && (rate > 0 || fee > 0)) {
+            // What card-tender would have charged: base × pct + fixed (+ tax if taxable)
+            const wouldBe = (baseSub * rate / 100) + fee;
+            const wouldBeTax = tx.surchargeTaxable && tt > 0 && st > 0
+              ? wouldBe * (tt / st)   // mirror tax rate from this tx
+              : 0;
+            cashSavingsTotal += Math.round((wouldBe + wouldBeTax) * 100) / 100;
+          }
+        }
+      }
     }
 
     // Bag fees — stored as synthetic line items with isBagFee:true
@@ -367,6 +419,10 @@ async function aggregateTransactions(scope: Scope): Promise<TxAgg> {
     grossSales, netSales, taxCollected, cashCollected,
     cashBackCount, cashBackTotal, tipsCount, tipsTotal,
     depositsCollected, depositsRefunded, bagFeeTotal, bagFeeQty,
+    // Session 52 — Dual Pricing
+    dualPricingActive,
+    surchargeCollected, surchargeTaxCollected,
+    surchargedTxCount, cashTxOnDualCount, cashSavingsTotal,
   };
 }
 
@@ -672,6 +728,20 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
       transactions: transactionSection,
       fees:         feesSection,
       fuel:         fuelAgg,
+      // Session 52 — Dual Pricing summary. Null when no transaction in the
+      // window came from a dual_pricing store, so the UI can hide the
+      // section entirely without an empty card eating screen real estate.
+      dualPricing:  txAgg.dualPricingActive ? {
+        surchargeCollected:    r2(txAgg.surchargeCollected),
+        surchargeTaxCollected: r2(txAgg.surchargeTaxCollected),
+        surchargeTotal:        r2(txAgg.surchargeCollected + txAgg.surchargeTaxCollected),
+        surchargedTxCount:     txAgg.surchargedTxCount,
+        cashTxOnDualCount:     txAgg.cashTxOnDualCount,
+        cashSavingsTotal:      r2(txAgg.cashSavingsTotal),
+        avgSurchargePerCardTx: txAgg.surchargedTxCount > 0
+          ? r2(txAgg.surchargeCollected / txAgg.surchargedTxCount)
+          : 0,
+      } : null,
       reconciliation,
       totals: {
         grossSales:       r2(txAgg.grossSales),

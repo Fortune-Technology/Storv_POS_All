@@ -617,7 +617,21 @@ export function computeEffectiveDiscount({ items, customer, orderDiscount, loyal
 
 // ── Derived totals ─────────────────────────────────────────────────────────
 // bagFeeInfo: { bagTotal, ebtEligible, discountable } | null
-export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeInfo = null) {
+//
+// Session 51 — added optional 5th param `dualPricing` (the config block from
+// usePOSConfig). When supplied AND pricingModel === 'dual_pricing', the
+// returned object includes the surcharge math used by TenderModal:
+//   baseSubtotal   — post-discount subtotal (= what tax + surcharge are computed against)
+//   cardSurcharge  — surcharge that WOULD apply if the cashier picks card/debit
+//   cardSurchargeTax — sales tax on the surcharge (when state.surchargeTaxable)
+//   cashGrandTotal — what customer pays with cash/EBT/check
+//   cardGrandTotal — what customer pays with credit/debit
+//   potentialSavings — cardGrandTotal − cashGrandTotal (always >= 0)
+//
+// When dualPricing is null OR pricingModel === 'interchange', these fields
+// equal grandTotal / 0 / 0 / grandTotal / grandTotal / 0 — i.e. no behavioural
+// change for stores that haven't enabled dual pricing.
+export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeInfo = null, dualPricing = null) {
   const subtotal     = round2(items.reduce((s, i) => s + i.lineTotal, 0));
   const depositTotal = round2(items.reduce((s, i) => s + (i.depositTotal || 0), 0));
 
@@ -675,7 +689,80 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
     return s;
   }, 0));
 
-  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving, bagTotal: effectiveBagTotal };
+  // Session 51 — Dual Pricing math.
+  //
+  // baseSubtotal  = subtotal − discount + bag (what tax + surcharge
+  //                 are computed against). Lottery + fuel + bottle-return
+  //                 lines are NOT excluded here because they're already
+  //                 represented in `subtotal` via lineTotal — the controller-
+  //                 side surcharge tools strip those line types from the
+  //                 baseSubtotal it persists. For UI purposes the TenderModal
+  //                 typically displays the same combined figure.
+  //
+  // The cashGrandTotal == grandTotal when there's no dual pricing — kept as
+  // separate field so consumers can switch by tender without re-doing math.
+  const baseSubtotal = round2(subtotal - discountAmount + effectiveBagTotal);
+
+  let cardSurcharge = 0;
+  let cardSurchargeTax = 0;
+  let surchargeRate = 0;
+  let surchargeFixedFee = 0;
+  let surchargeTaxable = false;
+  let rateSource = 'none';
+
+  if (dualPricing && dualPricing.pricingModel === 'dual_pricing' && baseSubtotal > 0) {
+    // Resolve effective rate (custom > tier > zero) — same priority as backend.
+    const tier        = dualPricing.pricingTier;
+    const customPct   = dualPricing.customSurchargePercent;
+    const customFee   = dualPricing.customSurchargeFixedFee;
+    const usingCustom = customPct != null && customFee != null;
+
+    if (usingCustom) {
+      surchargeRate     = Number(customPct) || 0;
+      surchargeFixedFee = Number(customFee) || 0;
+      rateSource        = 'custom';
+    } else if (tier) {
+      surchargeRate     = Number(tier.surchargePercent)  || 0;
+      surchargeFixedFee = Number(tier.surchargeFixedFee) || 0;
+      rateSource        = 'tier';
+    }
+
+    if (surchargeRate > 0 || surchargeFixedFee > 0) {
+      cardSurcharge = round2((baseSubtotal * surchargeRate) / 100 + surchargeFixedFee);
+      surchargeTaxable = !!dualPricing.state?.surchargeTaxable;
+
+      // Effective tax rate for surcharge — use the cart's blended tax rate so
+      // the surcharge tax matches the rate actually applied to taxable items.
+      // Falls back to 0 when nothing is taxable (no tax to mirror onto surcharge).
+      const taxableSubtotal = items
+        .filter(i => i.taxable && !i.ebtEligible)
+        .reduce((s, i) => s + i.lineTotal, 0);
+      const blendedTaxRate = taxableSubtotal > 0 ? taxTotal / taxableSubtotal : 0;
+      if (surchargeTaxable && blendedTaxRate > 0) {
+        cardSurchargeTax = round2(cardSurcharge * blendedTaxRate);
+      }
+    }
+  }
+
+  const cashGrandTotal = grandTotal;
+  const cardGrandTotal = round2(grandTotal + cardSurcharge + cardSurchargeTax);
+  const potentialSavings = round2(cardGrandTotal - cashGrandTotal);
+
+  return {
+    subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal,
+    promoSaving, bagTotal: effectiveBagTotal,
+    // Session 51 — dual pricing
+    baseSubtotal,
+    cardSurcharge,
+    cardSurchargeTax,
+    surchargeRate,
+    surchargeFixedFee,
+    surchargeTaxable,
+    rateSource,
+    cashGrandTotal,
+    cardGrandTotal,
+    potentialSavings,
+  };
 }
 
 // Wildcard rule `appliesTo` values that apply to ANY taxable item. `none` is

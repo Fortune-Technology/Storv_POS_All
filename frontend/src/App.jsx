@@ -124,6 +124,7 @@ import AccountHub        from './pages/AccountHub';
 import MyProfile         from './pages/MyProfile';
 import CustomersHub      from './pages/CustomersHub';
 import EndOfDayReport    from './pages/EndOfDayReport';
+import DualPricingReport from './pages/DualPricingReport';
 import DailySale         from './pages/DailySale';
 import Roles             from './pages/Roles';
 
@@ -264,6 +265,7 @@ function App() {
           {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
           <Route path="/portal/pos-reports"     element={gated(<POSReports />)} />
           <Route path="/portal/end-of-day"      element={gated(<EndOfDayReport />)} />
+          <Route path="/portal/dual-pricing-report" element={gated(<DualPricingReport />)} />
           <Route path="/portal/daily-sale"      element={gated(<DailySale />)} />
 
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}

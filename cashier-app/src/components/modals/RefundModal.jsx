@@ -2,7 +2,7 @@
  * RefundModal — Industry-standard c-store refund flow.
  * Two modes: WITH RECEIPT and NO RECEIPT.
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   X, RotateCcw, Search, Check, Plus, Minus,
   Scan, ChevronRight, AlertTriangle, DollarSign,
@@ -52,7 +52,7 @@ function Steps({ labels, current }) {
 }
 
 // ══ WITH-RECEIPT FLOW ══
-function WithReceipt({ onClose, onRefunded, storeId }) {
+function WithReceipt({ onClose, onRefunded, storeId, dualPricing }) {
   const scanRef = useRef(null);
   const [step, setStep] = useState('lookup');
   const [txQuery, setTxQuery] = useState('');
@@ -101,6 +101,39 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
     setRefundTotal(Math.round(total * 100) / 100);
   }, [checks, qtys, selected]);
 
+  // ── Session 52 — Dual Pricing refund-surcharge projection ─────────────
+  // Computes the surcharge that will be added to the refund (or NOT, depending
+  // on store policy) so the cashier can explain to the customer exactly what
+  // they're getting back. The math mirrors the backend's createRefund logic
+  // EXACTLY so the UI projection matches what the customer ends up receiving.
+  const refundSurchargeProjection = useMemo(() => {
+    if (!selected) return null;
+    const origSurcharge    = Number(selected.surchargeAmount    || 0);
+    const origSurchargeTax = Number(selected.surchargeTaxAmount || 0);
+    const origBase         = Number(selected.baseSubtotal       || selected.subtotal || 0);
+    if (origSurcharge <= 0.005 || origBase <= 0.005) return null;
+
+    const policy = !!dualPricing?.refundSurcharge;
+    const ratio = Math.min(1, refundTotal / origBase);
+    const projectedSurcharge    = policy ? Math.round(origSurcharge * ratio * 100) / 100 : 0;
+    const projectedSurchargeTax = policy ? Math.round(origSurchargeTax * ratio * 100) / 100 : 0;
+
+    return {
+      origSurcharge,
+      origSurchargeTax,
+      origCombined:        Math.round((origSurcharge + origSurchargeTax) * 100) / 100,
+      projectedSurcharge,
+      projectedSurchargeTax,
+      projectedCombined:   Math.round((projectedSurcharge + projectedSurchargeTax) * 100) / 100,
+      policy,
+      ratio,
+    };
+  }, [selected, refundTotal, dualPricing]);
+
+  // The total amount the customer will actually receive (principal +
+  // projected surcharge if any). Used for the "Process Refund $X" button.
+  const customerReceivesTotal = refundTotal + (refundSurchargeProjection?.projectedCombined || 0);
+
   const toggleItem = (lineId) => setChecks(c => ({ ...c, [lineId]: !c[lineId] }));
   const toggleAll = () => {
     const allOn = (selected.lineItems || []).every(i => checks[i.lineId]);
@@ -119,9 +152,15 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
     setSaving(true);
     try {
       const lineItems = refundItems.map(item => ({ ...item, qty: qtys[item.lineId], lineTotal: item.lineTotal * (qtys[item.lineId] / item.qty) }));
+      // Session 52 — Tender lines reflect what the customer actually receives.
+      // When dual_pricing AND store policy refunds the surcharge, that's
+      // customerReceivesTotal (principal + projected surcharge). Backend's
+      // createRefund handler persists matching surchargeAmount/surchargeTaxAmount
+      // snapshot fields based on the same policy lookup.
+      const refundReceived = customerReceivesTotal;
       const tenderLines = method === 'cash'
-        ? [{ method: 'cash', amount: refundTotal }]
-        : (selected.tenderLines || []).map(l => ({ ...l, amount: refundTotal * (l.amount / selected.grandTotal) }));
+        ? [{ method: 'cash', amount: refundReceived }]
+        : (selected.tenderLines || []).map(l => ({ ...l, amount: refundReceived * (l.amount / selected.grandTotal) }));
 
       // ── Dejavoo card refund — push the money back to the customer's card ──
       // When refunding to the original method AND the original was a Dejavoo
@@ -136,7 +175,11 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
           if (!stationId) throw new Error('No station — cannot process card refund');
           const r = await dejavooRefund({
             stationId,
-            amount:              refundTotal,
+            // Session 52 — push the FULL amount the customer receives to
+            // the terminal (principal + projected surcharge if policy
+            // refunds it). Otherwise the card customer gets less back than
+            // the receipt total claims.
+            amount:              refundReceived,
             paymentType:         djLine.method === 'ebt' ? 'ebt_food' : 'card',
             originalReferenceId: djLine.referenceId || null,
             invoiceNumber:       selected.txNumber,
@@ -231,14 +274,28 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
           );
         })}
       </div>
+      {/* Session 52 — Surcharge notice on the items step */}
+      {refundSurchargeProjection && refundItems.length > 0 && (
+        <div className={`rfm-surcharge-notice${refundSurchargeProjection.policy ? ' rfm-surcharge-notice--include' : ' rfm-surcharge-notice--exclude'}`}>
+          <AlertTriangle size={14} className="rfm-surcharge-notice-icon" />
+          <div className="rfm-surcharge-notice-body">
+            <strong>Original surcharge: {fmt$(refundSurchargeProjection.origCombined)}</strong>
+            <span className="rfm-surcharge-notice-detail">
+              {refundSurchargeProjection.policy
+                ? <>Will be refunded proportionally — customer gets back {fmt$(refundSurchargeProjection.projectedCombined)} extra (total {fmt$(customerReceivesTotal)}).</>
+                : <>Per store policy, surcharge stays with the merchant. Customer receives only the principal {fmt$(refundTotal)}.</>}
+            </span>
+          </div>
+        </div>
+      )}
       <div className="rfm-footer-bar">
         <div className="rfm-footer-summary">
           <span className="rfm-footer-count">{refundItems.length} item{refundItems.length!==1?'s':''} selected</span>
-          <span className="rfm-footer-total">-{fmt$(refundTotal)}</span>
+          <span className="rfm-footer-total">-{fmt$(customerReceivesTotal)}</span>
         </div>
         <div className="rfm-footer-actions">
           <button className="rfm-btn-back" onClick={() => setStep('lookup')}>Back</button>
-          <button className={`rfm-btn-continue${refundItems.length ? ' rfm-btn-continue--active' : ' rfm-btn-continue--disabled'}`} onClick={() => setStep('method')} disabled={!refundItems.length}>Continue — Refund {fmt$(refundTotal)}</button>
+          <button className={`rfm-btn-continue${refundItems.length ? ' rfm-btn-continue--active' : ' rfm-btn-continue--disabled'}`} onClick={() => setStep('method')} disabled={!refundItems.length}>Continue — Refund {fmt$(customerReceivesTotal)}</button>
         </div>
       </div>
     </div>
@@ -254,9 +311,24 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
             <span className="rfm-summary-item-amount">-{fmt$(item.lineTotal * qtys[item.lineId] / item.qty)}</span>
           </div>
         ))}
+        {/* Session 52 — Surcharge line on the method-step summary */}
+        {refundSurchargeProjection && refundSurchargeProjection.projectedCombined > 0.005 && (
+          <div className="rfm-summary-row">
+            <span className="rfm-summary-item-name">+ Surcharge refund (per store policy)</span>
+            <span className="rfm-summary-item-amount">-{fmt$(refundSurchargeProjection.projectedCombined)}</span>
+          </div>
+        )}
+        {refundSurchargeProjection && !refundSurchargeProjection.policy && refundSurchargeProjection.origCombined > 0.005 && (
+          <div className="rfm-summary-row">
+            <span className="rfm-summary-item-name" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              Original surcharge ({fmt$(refundSurchargeProjection.origCombined)}) not refunded — store policy
+            </span>
+            <span className="rfm-summary-item-amount" style={{ color: 'var(--text-muted)' }}>—</span>
+          </div>
+        )}
         <div className="rfm-summary-total-row">
           <span className="rfm-summary-total-label">Refund Total</span>
-          <span className="rfm-summary-total-amount">-{fmt$(refundTotal)}</span>
+          <span className="rfm-summary-total-amount">-{fmt$(customerReceivesTotal)}</span>
         </div>
       </div>
       <div>
@@ -279,14 +351,14 @@ function WithReceipt({ onClose, onRefunded, storeId }) {
       {method === 'cash' && (
         <div className="rfm-warning">
           <AlertTriangle size={14} color="var(--amber)" className="rfm-warning-icon" />
-          <span className="rfm-warning-text">Give the customer {fmt$(refundTotal)} cash from the drawer.</span>
+          <span className="rfm-warning-text">Give the customer {fmt$(customerReceivesTotal)} cash from the drawer.</span>
         </div>
       )}
       <input className="rfm-note-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Reason for refund (optional)..." autoFocus />
       <div className="rfm-method-actions">
         <button className="rfm-btn-back" onClick={() => setStep('items')}>Back</button>
         <button className={`rfm-btn-continue${saving ? ' rfm-btn-continue--disabled' : ' rfm-btn-continue--active'}`} onClick={doRefund} disabled={saving}>
-          <RotateCcw size={16} /> {saving ? 'Processing...' : `Process Refund ${fmt$(refundTotal)}`}
+          <RotateCcw size={16} /> {saving ? 'Processing...' : `Process Refund ${fmt$(customerReceivesTotal)}`}
         </button>
       </div>
     </div>
@@ -443,10 +515,13 @@ function NoReceipt({ onClose, onRefunded, storeId }) {
 }
 
 // ══ ROOT MODAL ══
-export default function RefundModal({ onClose, onRefunded }) {
+// Session 52 — `dualPricing` is the resolved store config from usePOSConfig.
+// Used by WithReceipt to surface the refund-surcharge policy to the cashier
+// so they explain the right amount to the customer.
+export default function RefundModal({ onClose, onRefunded, storeId: storeIdProp, dualPricing }) {
   const cashier = useAuthStore(s => s.cashier);
   const station = useStationStore(s => s.station);
-  const storeId = cashier?.storeId || station?.storeId;
+  const storeId = storeIdProp || cashier?.storeId || station?.storeId;
   const [mode, setMode] = useState('receipt');
 
   return (
@@ -472,7 +547,7 @@ export default function RefundModal({ onClose, onRefunded }) {
           </div>
         </div>
         {mode === 'receipt'
-          ? <WithReceipt key="receipt" onClose={onClose} onRefunded={onRefunded} storeId={storeId} />
+          ? <WithReceipt key="receipt" onClose={onClose} onRefunded={onRefunded} storeId={storeId} dualPricing={dualPricing} />
           : <NoReceipt key="noreceipt" onClose={onClose} onRefunded={onRefunded} storeId={storeId} />
         }
       </div>

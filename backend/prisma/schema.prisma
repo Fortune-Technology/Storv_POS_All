@@ -1119,6 +1119,13 @@ model Store {
   dualPricingActivatedAt  DateTime?
   dualPricingActivatedBy  String? // User.id of the superadmin who flipped the toggle
   dualPricingDisclosure   String?      @db.Text // store-level override (else uses State.surchargeDisclosureText)
+  // Session 52 — Refund-surcharge policy. When true, card-transaction
+  // refunds INCLUDE the original surcharge proportionally (pro-rata for
+  // partial refunds). When false (default), refunds return ONLY the
+  // principal — surcharge stays with the merchant per industry standard.
+  // Per-store policy editable from Store Settings (manager+) since this
+  // is operational, not pricing-model authority.
+  refundSurcharge         Boolean      @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

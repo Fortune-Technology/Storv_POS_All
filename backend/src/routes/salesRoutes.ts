@@ -32,6 +32,7 @@ import {
   yearlyWithWeather,
   realtimeSales,
 } from '../controllers/salesController.js';
+import { getDualPricingReport, getSurchargeReconciliation } from '../controllers/dualPricingReportController.js';
 
 const router = Router();
 
@@ -44,6 +45,10 @@ router.use(attachPOSUser);   // gets store.pos JSON → req.posUser.marktPOSConf
 // which feeds the Live Dashboard and needs dashboard.view.
 router.get('/realtime', requirePermission('dashboard.view', 'analytics.view'), realtimeSales);
 router.use(requirePermission('analytics.view', 'predictions.view'));
+
+// Session 52 — Dual Pricing report + on-demand reconciliation
+router.get('/dual-pricing-report',  getDualPricingReport);
+router.get('/dual-pricing-reconcile', getSurchargeReconciliation);
 
 // Sales summaries
 router.get('/daily', daily);

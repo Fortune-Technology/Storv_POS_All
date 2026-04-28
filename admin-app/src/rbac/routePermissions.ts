@@ -31,6 +31,7 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/payment-models':               'admin_pricing_model.view',
   '/payment-models/:storeId':      'admin_pricing_model.view',
   '/pricing-tiers':                'admin_pricing_tiers.view',
+  '/saas-margin':                  'admin_pricing_model.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {

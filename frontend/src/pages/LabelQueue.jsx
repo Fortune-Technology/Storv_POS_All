@@ -164,6 +164,12 @@ export default function LabelQueue({ embedded }) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
   const [collapsed, setCollapsed] = useState({});
+  // Session 52 — Store's dual-pricing config. Used to resolve {{cash_price}},
+  // {{card_price}}, {{savings_amount}}, {{disclosure}} merge fields when the
+  // store runs the dual_pricing model. On interchange stores the labels
+  // produce the same output as before (the merge fields collapse to
+  // base price / 0 savings / empty disclosure).
+  const [dualPricing, setDualPricing] = useState(null);
 
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -194,6 +200,18 @@ export default function LabelQueue({ embedded }) {
   }, []);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
+
+  // Session 52 — Load store's dual-pricing config once. The active store
+  // is taken from localStorage (set by StoreSwitcher). When no store is
+  // active or the store is on 'interchange', dualPricing stays null and
+  // the label generator's merge fields gracefully degrade to base price.
+  useEffect(() => {
+    const storeId = localStorage.getItem('activeStoreId');
+    if (!storeId) return;
+    api.get('/pos-terminal/config', { params: { storeId } })
+      .then(r => setDualPricing(r.data?.dualPricing || null))
+      .catch(() => {});  // silent — merge fields degrade gracefully
+  }, []);
 
   // ── Search with debounce ─────────────────────────────────────────────────
   useEffect(() => {
@@ -336,6 +354,11 @@ export default function LabelQueue({ embedded }) {
         retailPrice: Number(item.newPrice || item.product?.defaultRetailPrice) || 0,
         salePrice: item.reason === 'sale_started' ? Number(item.newPrice) || null : null,
         departmentName: item.product?.department?.name || '',
+        // Session 52 — Pass dual-pricing config so the {{cash_price}},
+        // {{card_price}}, {{savings_amount}}, {{disclosure}} fields resolve
+        // correctly when the template uses them. On interchange stores
+        // (dualPricing=null), these fields produce empty/base-price values.
+        dualPricing,
       };
       allZPL += generateZPL(template, productData, template.labelSize);
     }

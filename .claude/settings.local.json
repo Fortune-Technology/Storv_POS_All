@@ -62,7 +62,11 @@
       "Bash(mv tests/_smoke_reconcile_live.mjs tests/_smoke_reconcile_live.ts)",
       "mcp__code-review-graph__semantic_search_nodes_tool",
       "Bash(sort -t: -k2 -rn)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(grep -n \"USES_TERMINAL\\\\|chargeTerminal\\\\|terminalCharge\\\\|fmt\\\\$\\(remaining\\)\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/cashier-app/src/components/tender/TenderModal.jsx\")",
+      "Bash(grep -n \"tm-header\\\\|tm-backdrop\\\\|fmt\\\\$\\(totals.grandTotal\\)\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/cashier-app/src/components/tender/TenderModal.jsx\")",
+      "Bash(grep -n \"screen === 'entry'\\\\|tm-modal\\\\|return \\\\\\(\\\\s*$\\\\|return \\(\\\\s*$\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/cashier-app/src/components/tender/TenderModal.jsx\")",
+      "Bash(grep -n \"^    </>$\\\\|^  \\);$\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/frontend/src/pages/DualPricingReport.jsx\")"
     ]
   }
 }

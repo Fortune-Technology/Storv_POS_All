@@ -180,10 +180,35 @@ export default function CustomerDisplayScreen() {
           {totals.taxTotal > 0 && <SummaryRow label="Tax" value={fmt$(totals.taxTotal)} />}
           {totals.ebtTotal > 0 && <SummaryRow label="EBT Eligible" value={fmt$(totals.ebtTotal)} color="var(--green)" />}
 
-          <div className="cds-grand">
-            <span className="cds-grand-label">TOTAL</span>
-            <span className="cds-grand-value">{fmt$(totals.grandTotal)}</span>
-          </div>
+          {/* Session 51 — Dual Pricing dual-total display.
+              When both totals are equal (interchange OR no surcharge configured)
+              we render the single existing TOTAL block. When dual_pricing is
+              active and totals diverge, we show both prominently so the
+              customer can choose the cheaper path. */}
+          {totals.cardGrandTotal != null
+            && totals.cashGrandTotal != null
+            && Math.abs(totals.cardGrandTotal - totals.cashGrandTotal) > 0.005 ? (
+              <>
+                <div className="cds-grand cds-grand--dual">
+                  <span className="cds-grand-label cds-grand-label--cash">CASH / EBT</span>
+                  <span className="cds-grand-value cds-grand-value--cash">{fmt$(totals.cashGrandTotal)}</span>
+                </div>
+                <div className="cds-grand cds-grand--card">
+                  <span className="cds-grand-label cds-grand-label--card">CARD / DEBIT</span>
+                  <span className="cds-grand-value cds-grand-value--card">{fmt$(totals.cardGrandTotal)}</span>
+                </div>
+                {totals.potentialSavings > 0.005 && (
+                  <div className="cds-savings-banner">
+                    Save {fmt$(totals.potentialSavings)} by paying cash
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="cds-grand">
+                <span className="cds-grand-label">TOTAL</span>
+                <span className="cds-grand-value">{fmt$(totals.grandTotal)}</span>
+              </div>
+            )}
         </div>
       </div>
     </div>

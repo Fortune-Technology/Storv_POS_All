@@ -90,6 +90,7 @@ import {
 
 import { downloadBackup } from '../controllers/backupController.js';
 import { rehostBatch, getRehostStatus } from '../services/imageRehostService.js';
+import { getSaasMarginReport } from '../controllers/saasMarginController.js';
 
 const router = Router();
 
@@ -99,6 +100,9 @@ router.use(authorize('superadmin'));
 
 // Dashboard
 router.get('/dashboard', getDashboardStats);
+
+// Session 52 — SaaS margin report (per-org dual-pricing rev share)
+router.get('/saas-margin', getSaasMarginReport);
 
 // Analytics
 router.get('/analytics/dashboard',     getAnalyticsDashboard);

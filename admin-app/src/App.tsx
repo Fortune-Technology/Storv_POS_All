@@ -35,6 +35,7 @@ import AdminAiTours         from './pages/AdminAiTours';
 import AdminLottery         from './pages/AdminLottery';
 import AdminPaymentModels   from './pages/AdminPaymentModels';
 import AdminPricingTiers    from './pages/AdminPricingTiers';
+import AdminSaasMargin      from './pages/AdminSaasMargin';
 
 import PermissionRoute from './components/PermissionRoute';
 
@@ -83,6 +84,7 @@ function App() {
         <Route path="/lottery"    element={<ProtectedRoute><AdminLayout><AdminLottery /></AdminLayout></ProtectedRoute>} />
         <Route path="/payment-models" element={<ProtectedRoute><AdminLayout><AdminPaymentModels /></AdminLayout></ProtectedRoute>} />
         <Route path="/pricing-tiers"  element={<ProtectedRoute><AdminLayout><AdminPricingTiers /></AdminLayout></ProtectedRoute>} />
+        <Route path="/saas-margin"    element={<ProtectedRoute><AdminLayout><AdminSaasMargin /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

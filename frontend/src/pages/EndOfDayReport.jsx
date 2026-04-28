@@ -117,6 +117,19 @@ export default function EndOfDayReport() {
         Amount:  Number(r.netAmount).toFixed(2),
       }));
     }
+    if (report.dualPricing) {
+      rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+      header('DUAL PRICING');
+      rows.push({ Section: '', Type: 'Card Transactions (Surcharge Applied)', Count: report.dualPricing.surchargedTxCount, Amount: report.dualPricing.surchargeCollected.toFixed(2) });
+      rows.push({ Section: '', Type: 'Cash / EBT Transactions (No Surcharge)', Count: report.dualPricing.cashTxOnDualCount, Amount: '0.00' });
+      if (report.dualPricing.surchargeTaxCollected > 0.005) {
+        rows.push({ Section: '', Type: 'Tax on Surcharge', Count: '', Amount: report.dualPricing.surchargeTaxCollected.toFixed(2) });
+      }
+      rows.push({ Section: '', Type: 'Total Surcharge Revenue', Count: '', Amount: report.dualPricing.surchargeTotal.toFixed(2) });
+      if (report.dualPricing.cashSavingsTotal > 0.005) {
+        rows.push({ Section: '', Type: 'Customer Savings (Cash)', Count: '', Amount: report.dualPricing.cashSavingsTotal.toFixed(2) });
+      }
+    }
     downloadCSV(rows, [
       { key: 'Section', label: 'Section' },
       { key: 'Type',    label: 'Type'    },
@@ -140,6 +153,11 @@ export default function EndOfDayReport() {
         Count:   r.salesCount + r.refundCount,
         Amount:  `$${Number(r.netAmount).toFixed(2)}`,
       }));
+    }
+    if (report.dualPricing) {
+      rows.push({ Section: 'Dual Pricing', Type: 'Card Tx Surcharged',  Count: report.dualPricing.surchargedTxCount, Amount: `$${report.dualPricing.surchargeCollected.toFixed(2)}` });
+      rows.push({ Section: 'Dual Pricing', Type: 'Cash/EBT (no surcharge)', Count: report.dualPricing.cashTxOnDualCount, Amount: '$0.00' });
+      rows.push({ Section: 'Dual Pricing', Type: 'Total Surcharge Revenue', Count: '',                                  Amount: `$${report.dualPricing.surchargeTotal.toFixed(2)}` });
     }
     downloadPDF({
       title:    'End of Day Report',
@@ -342,6 +360,53 @@ export default function EndOfDayReport() {
                     <td className="eod-num">{Number(report.fuel.totals.gallons).toFixed(3)}</td>
                     <td className="eod-num">{fmt$(report.fuel.totals.amount)}</td>
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Section 5: Dual Pricing (only when store ran dual_pricing during the window) */}
+          {report.dualPricing && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">DUAL PRICING SUMMARY</h3>
+              <table className="eod-table">
+                <tbody>
+                  <tr>
+                    <td>Card Transactions (Surcharge Applied)</td>
+                    <td className="eod-num">{report.dualPricing.surchargedTxCount}</td>
+                  </tr>
+                  <tr>
+                    <td>Cash / EBT Transactions (No Surcharge)</td>
+                    <td className="eod-num">{report.dualPricing.cashTxOnDualCount}</td>
+                  </tr>
+                  <tr>
+                    <td>Surcharge Collected</td>
+                    <td className="eod-num">{fmt$(report.dualPricing.surchargeCollected)}</td>
+                  </tr>
+                  {report.dualPricing.surchargeTaxCollected > 0.005 && (
+                    <tr>
+                      <td>Tax on Surcharge</td>
+                      <td className="eod-num">{fmt$(report.dualPricing.surchargeTaxCollected)}</td>
+                    </tr>
+                  )}
+                  <tr className="eod-row-strong">
+                    <td>Total Surcharge Revenue</td>
+                    <td className="eod-num">{fmt$(report.dualPricing.surchargeTotal)}</td>
+                  </tr>
+                  {report.dualPricing.surchargedTxCount > 0 && (
+                    <tr>
+                      <td>Avg Surcharge / Card Tx</td>
+                      <td className="eod-num">{fmt$(report.dualPricing.avgSurchargePerCardTx)}</td>
+                    </tr>
+                  )}
+                  {report.dualPricing.cashSavingsTotal > 0.005 && (
+                    <tr>
+                      <td>Customer Savings (Cash Tenders)</td>
+                      <td className="eod-num" style={{ color: 'var(--success, #16a34a)' }}>
+                        {fmt$(report.dualPricing.cashSavingsTotal)}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

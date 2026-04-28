@@ -333,6 +333,14 @@ interface CreateTxBody {
   shiftId?: string | null;
   customerId?: string | null;
   loyaltyPointsRedeemed?: number | string | null;
+  // Session 50 — Dual Pricing snapshot (client-computed, server-persisted)
+  pricingModel?:        string | null;
+  baseSubtotal?:        number | string | null;
+  surchargeAmount?:     number | string | null;
+  surchargeRate?:       number | string | null;
+  surchargeFixedFee?:   number | string | null;
+  surchargeTaxable?:    boolean | null;
+  surchargeTaxAmount?:  number | string | null;
 }
 
 export const createTransaction = async (req: Request, res: Response): Promise<void> => {
@@ -347,6 +355,9 @@ export const createTransaction = async (req: Request, res: Response): Promise<vo
       offlineCreatedAt,
       shiftId,
       customerId, loyaltyPointsRedeemed,
+      // Session 50 — Dual Pricing
+      pricingModel, baseSubtotal, surchargeAmount, surchargeRate,
+      surchargeFixedFee, surchargeTaxable, surchargeTaxAmount,
     } = body;
 
     if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
@@ -394,6 +405,14 @@ export const createTransaction = async (req: Request, res: Response): Promise<vo
         notes:           notes || null,
         offlineCreatedAt: offlineCreatedAt ? new Date(offlineCreatedAt) : null,
         syncedAt:        new Date(),
+        // Session 50 — Dual Pricing snapshot (skip when interchange/missing)
+        pricingModel:       pricingModel || 'interchange',
+        baseSubtotal:       baseSubtotal != null && baseSubtotal !== '' ? parseFloat(String(baseSubtotal)) : null,
+        surchargeAmount:    surchargeAmount != null && surchargeAmount !== '' ? parseFloat(String(surchargeAmount)) : null,
+        surchargeRate:      surchargeRate != null && surchargeRate !== '' ? parseFloat(String(surchargeRate)) : null,
+        surchargeFixedFee:  surchargeFixedFee != null && surchargeFixedFee !== '' ? parseFloat(String(surchargeFixedFee)) : null,
+        surchargeTaxable:   !!surchargeTaxable,
+        surchargeTaxAmount: surchargeTaxAmount != null && surchargeTaxAmount !== '' ? parseFloat(String(surchargeTaxAmount)) : null,
       },
     });
 
@@ -616,6 +635,14 @@ export const batchCreateTransactions = async (req: Request, res: Response): Prom
             notes:            tx.notes || null,
             offlineCreatedAt: tx.offlineCreatedAt ? new Date(tx.offlineCreatedAt) : null,
             syncedAt:         new Date(),
+            // Session 50 — Dual Pricing snapshot
+            pricingModel:      tx.pricingModel || 'interchange',
+            baseSubtotal:      tx.baseSubtotal != null && tx.baseSubtotal !== '' ? parseFloat(String(tx.baseSubtotal)) : null,
+            surchargeAmount:   tx.surchargeAmount != null && tx.surchargeAmount !== '' ? parseFloat(String(tx.surchargeAmount)) : null,
+            surchargeRate:     tx.surchargeRate != null && tx.surchargeRate !== '' ? parseFloat(String(tx.surchargeRate)) : null,
+            surchargeFixedFee: tx.surchargeFixedFee != null && tx.surchargeFixedFee !== '' ? parseFloat(String(tx.surchargeFixedFee)) : null,
+            surchargeTaxable:  !!tx.surchargeTaxable,
+            surchargeTaxAmount: tx.surchargeTaxAmount != null && tx.surchargeTaxAmount !== '' ? parseFloat(String(tx.surchargeTaxAmount)) : null,
           },
         });
         results.push({ localId: tx.localId, id: saved.id, txNumber: saved.txNumber });
@@ -881,18 +908,79 @@ export const getPosBranding = async (req: Request, res: Response): Promise<void>
 // ── GET /api/pos-terminal/config ──────────────────────────────────────────
 // Returns store's POS layout config (store.pos) + branding (store.branding).
 // Requires X-Station-Token OR valid cashier JWT.
+//
+// Session 50 — also returns the resolved dual pricing config under
+// `dualPricing` so the cashier app can compute surcharge client-side
+// without a separate API call. Cashier-side `dualPricing.js` mirrors the
+// backend `computeSurcharge()` logic against this payload.
 export const getPOSConfig = async (req: Request, res: Response): Promise<void> => {
   try {
     const storeId = (req.query as { storeId?: string }).storeId;
     if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
     const store = await prisma.store.findFirst({
       where: { id: storeId },
-      select: { pos: true, branding: true },
+      select: {
+        pos: true,
+        branding: true,
+        // Session 50 — dual pricing fields (Store + relations)
+        pricingModel:            true,
+        pricingTierId:           true,
+        customSurchargePercent:  true,
+        customSurchargeFixedFee: true,
+        dualPricingDisclosure:   true,
+        refundSurcharge:         true, // Session 52
+        pricingTier: {
+          select: {
+            key: true, name: true,
+            surchargePercent: true, surchargeFixedFee: true,
+          },
+        },
+        state: {
+          select: {
+            code: true,
+            surchargeTaxable: true,
+            maxSurchargePercent: true,
+            dualPricingAllowed: true,
+            pricingFraming: true,
+            surchargeDisclosureText: true,
+          },
+        },
+      },
     });
-    // Return pos config merged with branding so front-end gets everything in one call
     const posConfig: Record<string, unknown> = (store?.pos      && typeof store.pos      === 'object') ? (store.pos      as Record<string, unknown>) : {};
     const branding: Record<string, unknown>  = (store?.branding && typeof store.branding === 'object') ? (store.branding as Record<string, unknown>) : {};
-    res.json({ ...posConfig, branding });
+
+    // Bundle dual-pricing context into a single object for the cashier app.
+    // Numbers are converted from Prisma Decimal to plain JS number so the
+    // client doesn't have to handle the wrapper class.
+    const toNum = (v: unknown): number | null => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const dualPricing = {
+      pricingModel:            store?.pricingModel || 'interchange',
+      customSurchargePercent:  toNum(store?.customSurchargePercent),
+      customSurchargeFixedFee: toNum(store?.customSurchargeFixedFee),
+      dualPricingDisclosure:   store?.dualPricingDisclosure || null,
+      refundSurcharge:         !!store?.refundSurcharge, // Session 52 — drives refund policy
+      pricingTier: store?.pricingTier ? {
+        key:               store.pricingTier.key,
+        name:              store.pricingTier.name,
+        surchargePercent:  toNum(store.pricingTier.surchargePercent),
+        surchargeFixedFee: toNum(store.pricingTier.surchargeFixedFee),
+      } : null,
+      state: store?.state ? {
+        code:                    store.state.code,
+        surchargeTaxable:        !!store.state.surchargeTaxable,
+        maxSurchargePercent:     toNum(store.state.maxSurchargePercent),
+        dualPricingAllowed:      store.state.dualPricingAllowed !== false,
+        pricingFraming:          store.state.pricingFraming || 'surcharge',
+        surchargeDisclosureText: store.state.surchargeDisclosureText || null,
+      } : null,
+    };
+
+    res.json({ ...posConfig, branding, dualPricing });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -901,10 +989,20 @@ export const getPOSConfig = async (req: Request, res: Response): Promise<void> =
 // ── PUT /api/pos-terminal/config ──────────────────────────────────────────
 // Saves POS config → store.pos  and optionally branding → store.branding.
 // Manager/owner/admin only.
+//
+// Session 52 — also accepts `refundSurcharge` (boolean) as a top-level field
+// on the body to update Store.refundSurcharge. This is the operational
+// "do refunds include surcharge?" toggle — manager-editable (unlike the
+// pricing-model toggle which stays superadmin-only via /api/pricing/*).
 export const savePOSConfig = async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = (req.body || {}) as { storeId?: string; config?: unknown; branding?: unknown };
-    const { storeId, config, branding } = body;
+    const body = (req.body || {}) as {
+      storeId?:         string;
+      config?:          unknown;
+      branding?:        unknown;
+      refundSurcharge?: boolean;
+    };
+    const { storeId, config, branding, refundSurcharge } = body;
     if (!storeId || !config) { res.status(400).json({ error: 'storeId and config required' }); return; }
 
     const orgId = req.tenantId || req.user?.orgId;
@@ -915,6 +1013,13 @@ export const savePOSConfig = async (req: Request, res: Response): Promise<void> 
     const updateData: Prisma.StoreUpdateInput = { pos: config as Prisma.InputJsonValue };
     if (branding && typeof branding === 'object') {
       updateData.branding = branding as Prisma.InputJsonValue;
+    }
+    // Session 52 — refundSurcharge toggle (manager-editable). Cast through
+    // Record because the Prisma client types haven't caught up to the
+    // Session 52 schema push yet — restart backend + npx prisma generate
+    // resolves it. Field IS in the DB.
+    if (typeof refundSurcharge === 'boolean') {
+      (updateData as Record<string, unknown>).refundSurcharge = refundSurcharge;
     }
 
     await prisma.store.update({
@@ -1244,6 +1349,40 @@ export const createRefund = async (req: Request, res: Response): Promise<void> =
     const count   = await prisma.transaction.count({ where: { orgId: orgId ?? undefined, storeId: orig.storeId } });
     const txNumber = `REF-${dateStr}-${String(count + 1).padStart(6, '0')}`;
 
+    // ── Session 52 — Dual Pricing refund-surcharge policy ────────────────
+    // When the original tx had a surcharge AND the store policy is to refund
+    // it, compute the proportional surcharge for this refund. Pro-rata math:
+    //   refundSurcharge = (refundedSubtotal / origBaseSubtotal) × origSurcharge
+    // Skipped entirely when:
+    //   - orig had no surcharge (cash/EBT/interchange)
+    //   - store.refundSurcharge = false (refund only principal)
+    //   - origBaseSubtotal is 0 (defensive — shouldn't happen)
+    const origSurcharge    = Number(orig.surchargeAmount   || 0);
+    const origSurchargeTax = Number(orig.surchargeTaxAmount || 0);
+    const origBaseSubtotal = Number(orig.baseSubtotal      || orig.subtotal || 0);
+    const refundedSubtotal = Math.abs(parseFloat(String(subtotal)) || Number(orig.subtotal));
+    let refundSurchargeAmt = 0;
+    let refundSurchargeTax = 0;
+    if (origSurcharge > 0.005 && origBaseSubtotal > 0.005) {
+      const store = await prisma.store.findUnique({
+        where: { id: orig.storeId },
+        select: { refundSurcharge: true },
+      });
+      if (store?.refundSurcharge) {
+        const ratio = Math.min(1, refundedSubtotal / origBaseSubtotal);
+        refundSurchargeAmt = Math.round(origSurcharge    * ratio * 100) / 100;
+        refundSurchargeTax = Math.round(origSurchargeTax * ratio * 100) / 100;
+      }
+    }
+
+    // The grandTotal from the body already represents what the cashier-app
+    // computed for the refund. When the policy refunds surcharge, we ADD
+    // the prorated surcharge to the refund amount; when not, we leave it.
+    // (The cashier-app should also know the policy and present accordingly,
+    // but the backend is authoritative — this protects against client bugs.)
+    const cashierGrandTotal = parseFloat(String(grandTotal)) || Number(orig.grandTotal);
+    const finalGrandTotal   = cashierGrandTotal + refundSurchargeAmt + refundSurchargeTax;
+
     const refund = await prisma.transaction.create({
       data: {
         orgId: orgId as string,
@@ -1258,11 +1397,22 @@ export const createRefund = async (req: Request, res: Response): Promise<void> =
         taxTotal:     -(parseFloat(String(taxTotal))      || Number(orig.taxTotal)),
         depositTotal: -(parseFloat(String(depositTotal))   || 0),
         ebtTotal:     0,
-        grandTotal:   -(parseFloat(String(grandTotal))    || Number(orig.grandTotal)),
+        grandTotal:   -finalGrandTotal,
         tenderLines:  (tenderLines || []) as unknown as Prisma.InputJsonValue,
         changeGiven:  0,
         notes:        note || `Refund for ${orig.txNumber}`,
         syncedAt:     new Date(),
+        // Session 52 — Dual Pricing snapshot. Negative values match the
+        // refund convention (subtotal, taxTotal, grandTotal are all stored
+        // negative on refunds). pricingModel + rate + fixedFee + taxable
+        // are positive snapshots — they describe the policy at refund time.
+        pricingModel:        orig.pricingModel || 'interchange',
+        baseSubtotal:        -refundedSubtotal,
+        surchargeAmount:     -refundSurchargeAmt,
+        surchargeTaxAmount:  -refundSurchargeTax,
+        surchargeRate:       Number(orig.surchargeRate || 0),
+        surchargeFixedFee:   Number(orig.surchargeFixedFee || 0),
+        surchargeTaxable:    !!orig.surchargeTaxable,
       },
     });
 

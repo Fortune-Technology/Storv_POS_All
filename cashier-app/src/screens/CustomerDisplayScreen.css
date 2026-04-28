@@ -300,6 +300,42 @@
   letter-spacing: -0.01em;
 }
 
+/* ── Session 51 — Dual Pricing dual-total display ───────────────────── */
+/* Shown when the cart has divergent cash vs card totals (dual_pricing
+   model is active AND a non-zero surcharge applies). Both totals appear
+   stacked so the customer can pick the cheaper path. */
+.cds-grand--dual {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border-light);
+}
+.cds-grand--card {
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+  border-top: none;
+}
+.cds-grand-label--cash { color: var(--green); }
+.cds-grand-label--card { color: #f59e0b; }
+.cds-grand-value--cash {
+  font-size: 2.2rem;
+  color: var(--green);
+}
+.cds-grand-value--card {
+  font-size: 2.2rem;
+  color: #f59e0b;
+}
+.cds-savings-banner {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 8px;
+  text-align: center;
+  color: var(--green);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
 /* ── Responsive — preserves big-screen type scale, shrinks
    only for <768px auxiliary displays (rare). ── */
 @media (max-width: 768px) {
