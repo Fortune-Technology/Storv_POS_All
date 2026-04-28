@@ -362,26 +362,111 @@ export default function TenderModal({
       // provisioned. Backend also normalizes — sending the canonical value
       // here keeps the payload self-documenting.
       const paymentType = chargeMethod === 'ebt' ? 'EBT_Food' : 'Credit';
-      const resp = await posApi.dejavooSale({
-        stationId:     station?.id,
-        amount:        Math.abs(chargeAmount),
-        invoiceNumber: txNumber,
-        paymentType,
-        captureSignature: Number(chargeAmount) >= Number(signatureThreshold),
-      });
-      const result = resp?.result || resp || {};
-      const raw    = result._raw || {};
-      const offlineAccepted = result.approved && (
-        raw.OfflineMode === true || raw.StoredOffline === true ||
-        result.message?.toLowerCase().includes('offline')
-      );
-      return {
-        approved: !!result.approved,
-        result,
-        paymentTransactionId: resp?.paymentTransactionId || null,
-        referenceId: result.referenceId || null,
-        offlineAccepted,
-      };
+      // CLIENT-GENERATED REFERENCE ID — critical for timeout recovery.
+      // We pre-mint a UUID v4, send it in the body, AND remember it locally so
+      // that if the HTTP round-trip times out (network blip, slow card-read,
+      // etc.) we can still query Dejavoo's /v2/Payment/Status with this same
+      // id and reconcile the actual outcome. Without this, the cashier-app
+      // had no way to recover from timeouts → orphaned approved sales.
+      // The crypto-quality randomness is fine because Dejavoo treats this as
+      // an opaque batch-unique key (their docs say "alphanumeric, 1-50 chars").
+      const refId =
+        (typeof crypto !== 'undefined' && crypto.randomUUID && crypto.randomUUID()) ||
+        // Fallback for older browsers — UUID v4 via Math.random
+        ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = (Math.random() * 16) | 0;
+          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        }));
+      try {
+        const resp = await posApi.dejavooSale({
+          stationId:     station?.id,
+          amount:        Math.abs(chargeAmount),
+          invoiceNumber: txNumber,
+          paymentType,
+          referenceId:   refId,
+          captureSignature: Number(chargeAmount) >= Number(signatureThreshold),
+        });
+        const result = resp?.result || resp || {};
+        const raw    = result._raw || {};
+        const offlineAccepted = result.approved && (
+          raw.OfflineMode === true || raw.StoredOffline === true ||
+          result.message?.toLowerCase().includes('offline')
+        );
+        return {
+          approved: !!result.approved,
+          result,
+          paymentTransactionId: resp?.paymentTransactionId || null,
+          referenceId: result.referenceId || refId,
+          offlineAccepted,
+        };
+      } catch (err) {
+        // Timeout / network error during the sale POST. The terminal MAY have
+        // approved before our HTTP socket gave up — recover by querying status.
+        // axios sets err.code='ECONNABORTED' for timeouts, no response body.
+        const isTimeoutOrNetwork = !err?.response;
+        if (!isTimeoutOrNetwork) throw err;  // real HTTP error → bubble up
+
+        // Reconciliation pass — give Dejavoo cloud + the device a moment to
+        // converge, then query Status with our pre-minted referenceId.
+        // We try up to 3 times with backoff; the device may need a few
+        // seconds after the customer dips/taps the card.
+        await new Promise(r => setTimeout(r, 1500));
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const statusResp = await posApi.dejavooTransactionStatus({
+              stationId: station?.id,
+              referenceId: refId,
+            });
+            const sresult = statusResp?.result || statusResp || {};
+            // Dejavoo returns approved=true with full card data once the
+            // transaction has settled in the cloud. If still not found,
+            // attempt again. If permanently not found (3 fails), surface
+            // a "verify on terminal" prompt.
+            if (sresult.approved) {
+              return {
+                approved: true,
+                result: { ...sresult, _recoveredFromTimeout: true },
+                paymentTransactionId: statusResp?.paymentTransactionId || null,
+                referenceId: refId,
+                offlineAccepted: false,
+              };
+            }
+            // Cloud says explicit decline (not "not found") — treat as decline
+            const code = String(sresult.statusCode || '');
+            if (code && !/not\s*found/i.test(`${sresult.message || ''} ${sresult.detailedMessage || ''}`)) {
+              return {
+                approved: false,
+                result: sresult,
+                paymentTransactionId: null,
+                referenceId: refId,
+                offlineAccepted: false,
+              };
+            }
+            // Otherwise (status not found yet): wait + retry
+            await new Promise(r => setTimeout(r, 2000));
+          } catch (statusErr) {
+            // Status call itself failed — fall through to next attempt
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+        // Couldn't reconcile — return a "needs manual verification" result.
+        // Cashier-app's decline UI will show the headline + checklist.
+        return {
+          approved: false,
+          result: {
+            approved: false,
+            message: 'Verification needed',
+            detailedMessage:
+              `Network timed out before we could confirm the sale. Check the terminal — if it shows APPROVED, do NOT retry; manager should manually record the sale. ReferenceId: ${refId}`,
+            statusCode: '2007',
+            resultCode: '2',
+            referenceId: refId,
+          },
+          paymentTransactionId: null,
+          referenceId: refId,
+          offlineAccepted: false,
+        };
+      }
     }
     if (hasPAX && chargeMethod === 'card') {
       const resp = await posApi.paxSale({

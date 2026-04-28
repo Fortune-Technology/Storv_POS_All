@@ -33,6 +33,13 @@ interface SaleBody {
   invoiceNumber?: string | null;
   posTransactionId?: string | null;
   captureSignature?: boolean;
+  // Client-provided referenceId. The cashier-app generates a UUID v4 BEFORE
+  // dispatching the sale and passes it here so it can later query Dejavoo's
+  // /v2/Payment/Status endpoint by the same id when the HTTP round-trip
+  // times out. Without this, a client-side timeout creates an orphaned
+  // approved transaction (terminal approved, POS doesn't know). When
+  // omitted, backend generates its own (legacy behaviour preserved).
+  referenceId?: string;
 }
 
 /** POST /api/payment/dejavoo/sale */
@@ -40,7 +47,7 @@ export const dejavooSale = async (req: Request, res: Response): Promise<void> =>
   try {
     const orgId   = getOrgId(req) as string;
     const storeId = getStoreId(req);
-    const { stationId, amount, paymentType, invoiceNumber, posTransactionId, captureSignature } = req.body as SaleBody;
+    const { stationId, amount, paymentType, invoiceNumber, posTransactionId, captureSignature, referenceId } = req.body as SaleBody;
 
     if (!stationId || !amount) {
       res.status(400).json({ success: false, error: 'stationId and amount are required' });
@@ -55,6 +62,7 @@ export const dejavooSale = async (req: Request, res: Response): Promise<void> =>
       invoiceNumber:    invoiceNumber || '',
       registerId:       station.name || stationId,
       captureSignature: captureSignature || false,
+      ...(referenceId ? { referenceId } : {}),
     } as Parameters<typeof processSale>[1]) as ProviderResult;
 
     // Always record — approved or declined. Audit trail.

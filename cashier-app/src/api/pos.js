@@ -371,38 +371,59 @@ export const getPaymentSettings = () => Promise.resolve(null);
 // ── Dejavoo SPIn — In-Store Terminal Payments ────────────────────────────────
 // All Dejavoo card-on-terminal operations. The backend proxies to SPIn REST API.
 // Multi-tenant: backend resolves credentials from stationId → store → PaymentMerchant.
+//
+// IMPORTANT — terminal-call timeouts:
+//   The default axios client has an 8-second timeout (api/client.js) which is
+//   correct for normal CRUD calls but CATASTROPHIC for terminal calls.
+//   A real card sale legitimately takes 30-120 seconds end-to-end:
+//     * Dejavoo cloud routes the request to the physical terminal (~1-3s)
+//     * Customer reads prompt, presents card (~5-30s, can be longer)
+//     * Card chip/contactless processing + EMV exchange (~3-10s)
+//     * Processor authorization (~2-15s)
+//     * Receipt generation + response back through cloud (~1-3s)
+//   The Theneo SPIn spec defaults to 120s for SPInProxyTimeout.
+//   We use 150s here so the client window is slightly wider than the backend's
+//   so the backend response always arrives before the client gives up.
+//
+// What the 8s bug used to cause: terminal approved real card (APPROVAL TASxxx
+// shown to customer), backend got the response, but cashier-app's axios threw
+// `timeout of 8000ms exceeded` at the 8-second mark — POS marked the sale as
+// declined while the customer's card was actually charged. Money taken, no
+// transaction record. Fixed by setting a per-call timeout for every terminal
+// endpoint below.
+const TERMINAL_TIMEOUT_MS = 150_000; // 150 seconds — wider than backend's 120s
 
 /** Process a card-present sale on the Dejavoo terminal. */
 export const dejavooSale = (body) =>
-  api.post('/payment/dejavoo/sale', body).then(r => r.data);
+  api.post('/payment/dejavoo/sale', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Process a return/refund on the Dejavoo terminal. */
 export const dejavooRefund = (body) =>
-  api.post('/payment/dejavoo/refund', body).then(r => r.data);
+  api.post('/payment/dejavoo/refund', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Void a previous Dejavoo transaction. */
 export const dejavooVoid = (body) =>
-  api.post('/payment/dejavoo/void', body).then(r => r.data);
+  api.post('/payment/dejavoo/void', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check EBT balance (SNAP or Cash Benefit). */
 export const dejavooEbtBalance = (body) =>
-  api.post('/payment/dejavoo/ebt-balance', body).then(r => r.data);
+  api.post('/payment/dejavoo/ebt-balance', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Abort an in-flight transaction on the terminal (cashier cancels). */
 export const dejavooCancel = (body) =>
-  api.post('/payment/dejavoo/cancel', body).then(r => r.data);
+  api.post('/payment/dejavoo/cancel', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check if the Dejavoo terminal is connected and reachable. */
 export const dejavooTerminalStatus = (body) =>
-  api.post('/payment/dejavoo/terminal-status', body).then(r => r.data);
+  api.post('/payment/dejavoo/terminal-status', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check status of a specific transaction by referenceId. */
 export const dejavooTransactionStatus = (body) =>
-  api.post('/payment/dejavoo/status', body).then(r => r.data);
+  api.post('/payment/dejavoo/status', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Settle / close the current batch on the terminal. */
 export const dejavooSettle = (body) =>
-  api.post('/payment/dejavoo/settle', body).then(r => r.data);
+  api.post('/payment/dejavoo/settle', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /**
  * Get read-only merchant status for THIS cashier's store.
@@ -430,10 +451,12 @@ export const dejavooLookupCustomer = (body) =>
   api.post('/payment/dejavoo/lookup-customer', body).then(r => r.data);
 
 // ── Legacy PAX POSLINK (backward compat for un-migrated stations) ──────────
-export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);
-export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
-export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
-export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);
+// Same 150s timeout for the same reason — PAX terminals also need ~30-90s
+// for a real card-present sale end-to-end.
+export const paxSale   = (body) => api.post('/payment/pax/sale',   body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxVoid   = (body) => api.post('/payment/pax/void',   body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxRefund = (body) => api.post('/payment/pax/refund', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 // ── AI Support Assistant ───────────────────────────────────────────────────
 export const listAiConversations   = ()            => api.get('/ai-assistant/conversations').then(r => r.data);

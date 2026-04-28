@@ -160,7 +160,15 @@ export interface UserInputOpts {
  */
 export async function processSale(merchant: DecryptedPaymentMerchant, opts: SaleOpts) {
   const provider = getProvider(merchant);
-  const referenceId = provider.generateReferenceId();
+  // Honor a caller-provided referenceId when present — the cashier-app
+  // pre-mints one so it can query Dejavoo Status with the SAME id if the
+  // HTTP round-trip times out. This is what enables timeout reconciliation
+  // for orphan-approved sales (terminal approved, client gave up).
+  // Without a caller value, we still mint our own (legacy behaviour).
+  const referenceId =
+    (typeof opts.referenceId === 'string' && opts.referenceId.length >= 1 && opts.referenceId.length <= 50)
+      ? opts.referenceId
+      : provider.generateReferenceId();
   const paymentType = (dejavooSpin.PAYMENT_TYPE_MAP as Record<string, string>)[opts.paymentType?.toLowerCase() ?? ''] || 'Card';
 
   return provider.sale(merchant, {
