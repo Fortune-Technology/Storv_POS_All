@@ -81,12 +81,31 @@ export default function InactivityLock() {
   //   2. last-active timestamp is older than IDLE_MS (we'd be locked
   //      anyway by now if the page had stayed open)
   //
-  // Identity guard: the persisted lock belongs to whichever session was
-  // active when it was set. If a different user is now signed in (regular
-  // login, admin SSO impersonation, signup, invitation accept), the
-  // persisted state is stale — clear it and start unlocked. Otherwise the
-  // new session would immediately demand the previous user's password.
+  // CRITICAL: this component is mounted at the App level so it lives
+  // through every route, including /impersonate (the SSO landing) and
+  // /login. On those paths a brand-new session is being established and
+  // localStorage.user is still pointing at the previous browser session
+  // when the initializer runs. Skip persistence detection entirely for
+  // public/auth paths — start unlocked, never inherit the previous user's
+  // lock. Once routing settles into /portal/*, the listener-effect plants a
+  // fresh idle baseline for the new session.
+  //
+  // Identity guard: even on a /portal/* deep link, if a different user is
+  // now signed in (e.g. user manually pasted /portal/realtime after a
+  // session swap), the persisted lock from the previous user is stale —
+  // clear it and start unlocked.
   const [locked, setLocked] = useState(() => {
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const onProtected = path.startsWith(PROTECTED_PATH_PREFIX)
+      && !SKIP_PATH_PREFIXES.some(p => path.startsWith(p));
+    if (!onProtected) {
+      // Fresh-page load on /impersonate, /login, /signup etc. — clear any
+      // stale lock state so the next /portal mount starts clean.
+      writePersistedLock(false);
+      writePersistedLastActive(0);
+      writePersistedLockedFor('');
+      return false;
+    }
     const currentId = readCurrentUserId();
     const lockedFor = readPersistedLockedFor();
     if (currentId && lockedFor && lockedFor !== currentId) {

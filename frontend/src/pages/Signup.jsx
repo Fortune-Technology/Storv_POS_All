@@ -46,6 +46,10 @@ const Signup = () => {
     try {
       const name = `${formData.firstName.trim()} ${formData.lastName.trim()}`.trim();
       const { data } = await signup({ ...formData, name });
+      // Wipe any leftover InactivityLock state from a previous session.
+      localStorage.removeItem('storv:il:locked');
+      localStorage.removeItem('storv:il:lastActive');
+      localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(data));
       toast.success("Account created! Let's set up your organisation.");
       navigate('/onboarding');

@@ -17,6 +17,12 @@ const Login = () => {
     setLoading(true);
     try {
       const { data } = await login(formData);
+      // Wipe any leftover InactivityLock state from a previous session in this
+      // browser. Otherwise the new login could land into an immediate lock
+      // demanding the previous user's password.
+      localStorage.removeItem('storv:il:locked');
+      localStorage.removeItem('storv:il:lastActive');
+      localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(data));
       toast.success('Welcome back!');
       navigate('/portal/realtime');
