@@ -264,6 +264,100 @@ export const createAdminState    = (data: unknown):                 Promise<{ st
 export const updateAdminState    = (code: string, data: unknown):    Promise<{ state: UsStateRecord }> => api.put(`/states/${code}`, data).then(r => r.data);
 export const deleteAdminState    = (code: string):                  Promise<SuccessResponse> => api.delete(`/states/${code}`).then(r => r.data);
 
+// ── Pricing Model / Dual Pricing (Session 50) ───────────────────────────
+// PricingTier catalog — surcharge rate presets keyed to SaaS billing tiers.
+export const listPricingTiers     = (): Promise<{ tiers: PricingTier[] }> => api.get('/pricing/tiers').then(r => r.data);
+export const createPricingTier    = (data: unknown): Promise<PricingTier> => api.post('/pricing/tiers', data).then(r => r.data);
+export const updatePricingTier    = (id: string, data: unknown): Promise<PricingTier> => api.put(`/pricing/tiers/${id}`, data).then(r => r.data);
+export const deletePricingTier    = (id: string): Promise<SuccessResponse> => api.delete(`/pricing/tiers/${id}`).then(r => r.data);
+
+// Per-store config — superadmin only on PUT.
+export const listStorePricingConfigs = (): Promise<{ stores: StorePricingSummary[] }> =>
+  api.get('/pricing/stores').then(r => r.data);
+export const getStorePricingConfig   = (storeId: string): Promise<StorePricingDetail> =>
+  api.get(`/pricing/stores/${storeId}`).then(r => r.data);
+export const updateStorePricingConfig = (storeId: string, data: unknown): Promise<{
+  success: boolean;
+  store: StorePricingDetail['storeName'] extends string ? StorePricingDetail : StorePricingDetail;
+  effectiveRate: { percent: number; fixedFee: number; source: string; tierKey: string | null };
+  auditWritten: boolean;
+}> => api.put(`/pricing/stores/${storeId}`, data).then(r => r.data);
+export const listStorePricingChanges = (storeId: string, limit?: number): Promise<{ changes: PricingModelChange[] }> =>
+  api.get(`/pricing/stores/${storeId}/changes`, { params: { limit } }).then(r => r.data);
+
+// Local types until @storeveu/types is regenerated for Session 50 schema.
+// The shared package will pick these up on next prisma client regen.
+export interface PricingTier {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  surchargePercent: number | string;
+  surchargeFixedFee: number | string;
+  active: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorePricingSummary {
+  storeId: string;
+  storeName: string;
+  orgId: string;
+  orgName: string | null;
+  stateCode: string | null;
+  stateName: string | null;
+  pricingModel: string;
+  pricingTierKey: string | null;
+  pricingTierName: string | null;
+  effectivePercent: number;
+  effectiveFixedFee: number;
+  effectiveSource: 'custom' | 'tier' | 'none';
+  dualPricingActivatedAt: string | null;
+}
+
+export interface PricingModelChange {
+  id: string;
+  storeId: string;
+  changedById: string;
+  changedByName: string | null;
+  fromModel: string;
+  toModel: string;
+  fromTierId: string | null;
+  toTierId: string | null;
+  fromPercent: number | string | null;
+  toPercent: number | string | null;
+  fromFixedFee: number | string | null;
+  toFixedFee: number | string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface StorePricingDetail {
+  storeId: string;
+  storeName: string;
+  orgId: string;
+  stateCode: string | null;
+  pricingModel: string;
+  pricingTierId: string | null;
+  pricingTier: PricingTier | null;
+  customSurchargePercent: number | string | null;
+  customSurchargeFixedFee: number | string | null;
+  dualPricingDisclosure: string | null;
+  dualPricingActivatedAt: string | null;
+  dualPricingActivatedBy: string | null;
+  effectiveRate: { percent: number; fixedFee: number; source: 'custom' | 'tier' | 'none'; tierKey: string | null };
+  effectiveDisclosure: string;
+  stateConstraints: {
+    surchargeTaxable: boolean;
+    maxSurchargePercent: number | null;
+    dualPricingAllowed: boolean;
+    pricingFraming: string;
+  } | null;
+  recentChanges: PricingModelChange[];
+}
+
 // ── Vendor Import Templates (Session 5) ──────────────────────────────────────
 export const getVendorTemplates      = (params: Params = {}):                         Promise<{ data?: VendorImportTemplate[] }> => api.get('/vendor-templates', { params }).then(r => r.data);
 export const getVendorTemplate       = (id: string | number):                          Promise<{ data: VendorImportTemplate }> => api.get(`/vendor-templates/${id}`).then(r => r.data);

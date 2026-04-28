@@ -1,0 +1,512 @@
+/* Session 50 — AdminPaymentModels.tsx + AdminPricingTiers.tsx
+ * Prefix: apm-  /  apt-
+ * Light theme aligned with the rest of the admin-app.
+ */
+
+.apm-page {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Stat strip (filter bar) ─────────────────────────────────────── */
+.apm-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+.apm-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 140ms ease;
+}
+.apm-stat:hover {
+  border-color: var(--accent-primary, #6366f1);
+  background: var(--bg-tertiary, #f1f5f9);
+}
+.apm-stat--active {
+  border-color: var(--accent-primary, #6366f1);
+  background: var(--accent-primary-08, rgba(99, 102, 241, 0.08));
+}
+.apm-stat--accent {
+  border-left: 3px solid var(--success, #10b981);
+}
+.apm-stat-num {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  line-height: 1;
+}
+.apm-stat-lbl {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #475569);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+/* ── Search bar ──────────────────────────────────────────────────── */
+.apm-search-wrap {
+  position: relative;
+  margin-bottom: 14px;
+  max-width: 480px;
+}
+.apm-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  color: var(--text-muted, #94a3b8);
+  pointer-events: none;
+}
+.apm-search {
+  width: 100%;
+  padding: 8px 10px 8px 30px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary, #0f172a);
+}
+.apm-search:focus {
+  outline: none;
+  border-color: var(--accent-primary, #6366f1);
+}
+
+/* ── Table rows ─────────────────────────────────────────────────── */
+.apm-row {
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.apm-row:hover {
+  background: var(--bg-tertiary, #f8fafc);
+}
+.apm-org-cell {
+  color: var(--text-secondary, #475569);
+  font-size: 0.85rem;
+}
+.apm-store-cell {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+/* ── Status badge ────────────────────────────────────────────────── */
+.apm-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.apm-badge--interchange {
+  background: var(--bg-tertiary, #f1f5f9);
+  color: var(--text-secondary, #475569);
+}
+.apm-badge--dual_pricing {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.apm-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.apm-tag--custom {
+  background: #fef3c7;
+  color: #92400e;
+}
+.apm-em {
+  color: var(--text-secondary, #475569);
+  font-style: italic;
+}
+.apm-muted {
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.85rem;
+}
+.apm-actions {
+  text-align: right;
+}
+
+/* ── Loading + empty state ──────────────────────────────────────── */
+.apm-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-muted, #94a3b8);
+}
+.apm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: var(--text-muted, #94a3b8);
+  text-align: center;
+}
+.apm-empty-icon { opacity: 0.4; }
+.apm-spin { animation: apm-spin 1s linear infinite; }
+@keyframes apm-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Modal ───────────────────────────────────────────────────────── */
+.apm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay, rgba(15, 23, 42, 0.55));
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.apm-modal {
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: var(--modal-shadow, 0 24px 64px rgba(0, 0, 0, 0.25));
+  width: 100%;
+  max-width: 720px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.apm-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.apm-modal-head h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  color: var(--text-primary, #0f172a);
+}
+.apm-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.apm-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-tertiary, #f8fafc);
+}
+
+/* ── Info / warning strips ──────────────────────────────────────── */
+.apm-info-strip,
+.apm-warn-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+.apm-info-strip {
+  background: var(--accent-primary-08, rgba(99, 102, 241, 0.08));
+  color: var(--text-primary, #0f172a);
+}
+.apm-info-strip svg { color: var(--accent-primary, #6366f1); flex-shrink: 0; margin-top: 2px; }
+.apm-warn-strip {
+  background: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fbbf24;
+}
+.apm-warn-strip svg { color: #b45309; flex-shrink: 0; margin-top: 2px; }
+
+/* ── Section blocks ─────────────────────────────────────────────── */
+.apm-section {
+  margin-bottom: 20px;
+}
+.apm-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.apm-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+/* ── Radio group (model picker) ─────────────────────────────────── */
+.apm-radio-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.apm-radio {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 140ms ease;
+  background: var(--bg-secondary, #ffffff);
+}
+.apm-radio:hover {
+  border-color: var(--accent-primary, #6366f1);
+}
+.apm-radio--active {
+  border-color: var(--accent-primary, #6366f1);
+  background: var(--accent-primary-08, rgba(99, 102, 241, 0.08));
+}
+.apm-radio input { margin-top: 4px; }
+.apm-radio strong {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 2px;
+}
+.apm-radio p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  line-height: 1.4;
+}
+
+/* ── Form inputs ────────────────────────────────────────────────── */
+.apm-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--bg-secondary, #ffffff);
+  color: var(--text-primary, #0f172a);
+  box-sizing: border-box;
+}
+.apm-input:focus {
+  outline: none;
+  border-color: var(--accent-primary, #6366f1);
+  box-shadow: 0 0 0 3px var(--accent-primary-08, rgba(99, 102, 241, 0.12));
+}
+.apm-textarea {
+  font-family: inherit;
+  resize: vertical;
+}
+.apm-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.apm-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.apm-input-suffix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.apm-input-suffix .apm-input { padding-right: 28px; }
+.apm-suffix {
+  position: absolute;
+  right: 10px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+/* Dollar sign on the LEFT of the input — uses the same container with the
+   sign FIRST in the markup */
+.apm-input-suffix .apm-suffix:first-child {
+  left: 10px;
+  right: auto;
+}
+.apm-input-suffix:has(> .apm-suffix:first-child) .apm-input {
+  padding-left: 22px;
+  padding-right: 10px;
+}
+.apm-help {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+}
+.apm-help-inline {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ── Toggle (override switch) ──────────────────────────────────── */
+.apm-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  cursor: pointer;
+}
+
+/* ── Effective rate preview ────────────────────────────────────── */
+.apm-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--success-bg, #d1fae5);
+  border-radius: 6px;
+  font-size: 0.83rem;
+  color: var(--success, #065f46);
+}
+.apm-preview svg { flex-shrink: 0; }
+.apm-preview-disclosure {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary, #f1f5f9);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ── Audit trail collapsible ───────────────────────────────────── */
+.apm-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #475569);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+}
+.apm-collapsible:hover { color: var(--accent-primary, #6366f1); }
+.apm-audit-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.apm-audit-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary, #f8fafc);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  align-items: flex-start;
+}
+.apm-audit-row strong {
+  color: var(--text-primary, #0f172a);
+  font-size: 0.83rem;
+}
+.apm-tiny {
+  font-size: 0.72rem;
+  margin-top: 2px;
+}
+
+/* ── Responsive ────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .apm-stats { grid-template-columns: 1fr; }
+  .apm-radio-group { grid-template-columns: 1fr; }
+  .apm-grid-2 { grid-template-columns: 1fr; }
+  .apm-modal { max-height: 100vh; border-radius: 0; }
+}
+
+/* ─── Pricing Tier catalog page (apt- prefix; same admin styles) ───── */
+.apt-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.apt-tier-card {
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.apt-tier-card--default {
+  border-color: var(--accent-primary, #6366f1);
+}
+.apt-tier-card--inactive {
+  opacity: 0.55;
+}
+.apt-tier-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.apt-tier-key {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.apt-tier-name {
+  font-size: 1.0rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  margin: 4px 0;
+}
+.apt-tier-rate {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--text-primary, #0f172a);
+}
+.apt-tier-rate-fee {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #475569);
+  margin-left: 4px;
+  font-weight: 500;
+}
+.apt-tier-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #475569);
+  line-height: 1.45;
+}
+.apt-tier-actions {
+  display: flex;
+  gap: 6px;
+}
+.apt-default-pill {
+  background: var(--accent-primary, #6366f1);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

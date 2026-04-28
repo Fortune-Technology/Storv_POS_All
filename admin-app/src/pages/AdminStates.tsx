@@ -46,6 +46,12 @@ interface StateForm {
   bottleDepositRules: DepositRule[];
   lotteryGameStubs: LotteryGameStub[];
   lotteryPackSizeRules: PackSizeRule[];
+  // Session 50 — dual pricing per-state policy
+  surchargeTaxable: boolean;
+  maxSurchargePercent: string;
+  dualPricingAllowed: boolean;
+  pricingFraming: 'surcharge' | 'cash_discount';
+  surchargeDisclosureText: string;
   notes: string;
   active: boolean;
 }
@@ -65,6 +71,12 @@ interface UsState {
   bottleDepositRules?: DepositRule[];
   lotteryGameStubs?: LotteryGameStub[];
   lotteryPackSizeRules?: PackSizeRule[];
+  // Session 50 — dual pricing per-state policy
+  surchargeTaxable?: boolean;
+  maxSurchargePercent?: number | string | null;
+  dualPricingAllowed?: boolean;
+  pricingFraming?: 'surcharge' | 'cash_discount' | string;
+  surchargeDisclosureText?: string | null;
   notes?: string;
   active?: boolean;
 }
@@ -81,6 +93,12 @@ const BLANK: StateForm = {
   bottleDepositRules: [],
   lotteryGameStubs: [],
   lotteryPackSizeRules: [],
+  // Session 50 — dual pricing per-state policy defaults
+  surchargeTaxable: false,
+  maxSurchargePercent: '4.000',
+  dualPricingAllowed: true,
+  pricingFraming: 'surcharge',
+  surchargeDisclosureText: '',
   notes: '', active: true,
 };
 
@@ -150,6 +168,12 @@ export default function AdminStates() {
       bottleDepositRules:       Array.isArray(s.bottleDepositRules) ? s.bottleDepositRules : [],
       lotteryGameStubs:         Array.isArray(s.lotteryGameStubs) ? s.lotteryGameStubs : [],
       lotteryPackSizeRules:     Array.isArray(s.lotteryPackSizeRules) ? s.lotteryPackSizeRules : [],
+      // Session 50 — dual pricing per-state policy
+      surchargeTaxable:         !!s.surchargeTaxable,
+      maxSurchargePercent:      s.maxSurchargePercent != null ? String(s.maxSurchargePercent) : '',
+      dualPricingAllowed:       s.dualPricingAllowed !== false,
+      pricingFraming:           s.pricingFraming === 'cash_discount' ? 'cash_discount' : 'surcharge',
+      surchargeDisclosureText:  s.surchargeDisclosureText || '',
       notes:                    s.notes || '',
       active:                   s.active !== false,
     });
@@ -216,6 +240,12 @@ export default function AdminStates() {
           .filter(r => r.maxPrice !== '' && r.packSize !== '')
           .map(r => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
           .sort((a, b) => a.maxPrice - b.maxPrice),
+        // Session 50 — dual pricing per-state policy
+        surchargeTaxable:         !!form.surchargeTaxable,
+        maxSurchargePercent:      form.maxSurchargePercent === '' ? null : Number(form.maxSurchargePercent),
+        dualPricingAllowed:       !!form.dualPricingAllowed,
+        pricingFraming:           form.pricingFraming === 'cash_discount' ? 'cash_discount' : 'surcharge',
+        surchargeDisclosureText:  form.surchargeDisclosureText.trim() || null,
         notes:                    form.notes || null,
         active:                   !!form.active,
       };
@@ -427,6 +457,67 @@ export default function AdminStates() {
                   <label>Tobacco Age Limit</label>
                   <input type="number" value={form.tobaccoAgeLimit} onChange={e => setField({ tobaccoAgeLimit: e.target.value })} />
                 </div>
+
+                {/* Session 50 — Dual Pricing / Cash Discount per-state policy */}
+                <div className="as-field as-field--full">
+                  <div style={{
+                    padding: '8px 10px',
+                    background: 'rgba(16, 185, 129, 0.06)',
+                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                    borderRadius: 6,
+                    fontSize: '0.78rem',
+                    color: 'var(--text-primary)',
+                    marginBottom: 8,
+                  }}>
+                    <strong>Dual Pricing / Cash Discount policy.</strong> Drives per-state defaults for stores that
+                    enable dual pricing — stores can override the disclosure text but inherit taxability + cap +
+                    framing from this state record. Verify against the state's DOR + payment-card statute before
+                    enabling stores.
+                  </div>
+                </div>
+                <div className="as-field">
+                  <label>Max Surcharge %</label>
+                  <input
+                    type="number" step="0.001" min="0" max="10"
+                    placeholder="4.000"
+                    value={form.maxSurchargePercent}
+                    onChange={e => setField({ maxSurchargePercent: e.target.value })}
+                  />
+                  <span className="as-hint">Federal Visa/MC cap = 4%. Leave blank for no cap.</span>
+                </div>
+                <div className="as-field">
+                  <label>Pricing Framing</label>
+                  <select value={form.pricingFraming} onChange={e => setField({ pricingFraming: e.target.value as 'surcharge' | 'cash_discount' })}>
+                    <option value="surcharge">Surcharge (+ added at checkout)</option>
+                    <option value="cash_discount">Cash Discount (− subtracted at checkout)</option>
+                  </select>
+                  <span className="as-hint">Use cash_discount for states where surcharge is illegal (MA, CT, OK, CO).</span>
+                </div>
+                <div className="as-field">
+                  <label>
+                    <input type="checkbox" checked={form.surchargeTaxable} onChange={e => setField({ surchargeTaxable: e.target.checked })} />
+                    {' '}Surcharge is taxable in this state
+                  </label>
+                  <span className="as-hint">NY/FL/TX/PA/NJ/MD/VA/NC/SC/GA require sales tax on the surcharge.</span>
+                </div>
+                <div className="as-field">
+                  <label>
+                    <input type="checkbox" checked={form.dualPricingAllowed} onChange={e => setField({ dualPricingAllowed: e.target.checked })} />
+                    {' '}Dual pricing (surcharge model) allowed
+                  </label>
+                  <span className="as-hint">Uncheck for states where surcharge is statutorily prohibited — UI forces cash-discount framing.</span>
+                </div>
+                <div className="as-field as-field--full">
+                  <label>Default Disclosure Text</label>
+                  <textarea
+                    rows={2}
+                    value={form.surchargeDisclosureText}
+                    onChange={e => setField({ surchargeDisclosureText: e.target.value })}
+                    placeholder="A 3% + $0.30 fee is added to credit and debit transactions. A discount equivalent to this amount is available for cash payment."
+                  />
+                  <span className="as-hint">Verbatim text printed on receipts + posted at register. Stores can override per-store.</span>
+                </div>
+
                 <div className="as-field as-field--full">
                   <label>Notes</label>
                   <textarea rows={2} value={form.notes} onChange={e => setField({ notes: e.target.value })} placeholder="Internal notes (bottle bill info, exemptions, etc.)" />

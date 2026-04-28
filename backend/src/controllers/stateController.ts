@@ -56,6 +56,8 @@ export const createState = async (req: Request, res: Response): Promise<void> =>
       instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
       lotteryPackSizeRules,
+      // Session 50 — dual pricing per-state policy fields
+      surchargeTaxable, maxSurchargePercent, dualPricingAllowed, pricingFraming, surchargeDisclosureText,
       notes, active,
     } = req.body;
 
@@ -90,6 +92,12 @@ export const createState = async (req: Request, res: Response): Promise<void> =>
               .filter((r) => Number.isFinite(Number(r?.maxPrice)) && Number.isFinite(Number(r?.packSize)))
               .map((r) => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
           : [],
+        // Session 50 — dual pricing per-state policy
+        surchargeTaxable:         !!surchargeTaxable,
+        maxSurchargePercent:      maxSurchargePercent != null && maxSurchargePercent !== '' ? Number(maxSurchargePercent) : null,
+        dualPricingAllowed:       dualPricingAllowed !== false,
+        pricingFraming:           pricingFraming === 'cash_discount' ? 'cash_discount' : 'surcharge',
+        surchargeDisclosureText:  surchargeDisclosureText ? String(surchargeDisclosureText) : null,
         notes:                    notes ? String(notes) : null,
         active:                   active !== false,
       },
@@ -119,6 +127,8 @@ export const updateState = async (req: Request, res: Response): Promise<void> =>
       instantSalesCommRate, instantCashingCommRate, machineSalesCommRate, machineCashingCommRate,
       alcoholAgeLimit, tobaccoAgeLimit, bottleDepositRules, lotteryGameStubs,
       lotteryPackSizeRules,
+      // Session 50 — dual pricing per-state policy fields
+      surchargeTaxable, maxSurchargePercent, dualPricingAllowed, pricingFraming, surchargeDisclosureText,
       notes, active,
     } = req.body;
 
@@ -144,6 +154,12 @@ export const updateState = async (req: Request, res: Response): Promise<void> =>
                 .map((r) => ({ maxPrice: Number(r.maxPrice), packSize: Number(r.packSize) }))
             : [],
         }),
+        // Session 50 — dual pricing per-state policy
+        ...(surchargeTaxable        !== undefined && { surchargeTaxable: !!surchargeTaxable }),
+        ...(maxSurchargePercent     !== undefined && { maxSurchargePercent: maxSurchargePercent === null || maxSurchargePercent === '' ? null : Number(maxSurchargePercent) }),
+        ...(dualPricingAllowed      !== undefined && { dualPricingAllowed: dualPricingAllowed !== false }),
+        ...(pricingFraming          !== undefined && { pricingFraming: pricingFraming === 'cash_discount' ? 'cash_discount' : 'surcharge' }),
+        ...(surchargeDisclosureText !== undefined && { surchargeDisclosureText: surchargeDisclosureText ? String(surchargeDisclosureText) : null }),
         ...(notes !== undefined && { notes: notes ? String(notes) : null }),
         ...(active !== undefined && { active: Boolean(active) }),
       },

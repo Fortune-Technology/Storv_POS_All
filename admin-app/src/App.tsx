@@ -32,6 +32,8 @@ import AdminAiReviews       from './pages/AdminAiReviews';
 import AdminAiKb            from './pages/AdminAiKb';
 import AdminAiTours         from './pages/AdminAiTours';
 import AdminLottery         from './pages/AdminLottery';
+import AdminPaymentModels   from './pages/AdminPaymentModels';
+import AdminPricingTiers    from './pages/AdminPricingTiers';
 
 import PermissionRoute from './components/PermissionRoute';
 
@@ -78,6 +80,8 @@ function App() {
         <Route path="/ai-kb"      element={<ProtectedRoute><AdminLayout><AdminAiKb /></AdminLayout></ProtectedRoute>} />
         <Route path="/ai-tours"   element={<ProtectedRoute><AdminLayout><AdminAiTours /></AdminLayout></ProtectedRoute>} />
         <Route path="/lottery"    element={<ProtectedRoute><AdminLayout><AdminLottery /></AdminLayout></ProtectedRoute>} />
+        <Route path="/payment-models" element={<ProtectedRoute><AdminLayout><AdminPaymentModels /></AdminLayout></ProtectedRoute>} />
+        <Route path="/pricing-tiers"  element={<ProtectedRoute><AdminLayout><AdminPricingTiers /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

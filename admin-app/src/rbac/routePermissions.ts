@@ -27,6 +27,10 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/ai-kb':                        'ai_assistant.manage',
   '/ai-tours':                     'ai_assistant.manage',
   '/lottery':                      'lottery.manage',
+  // Session 50 — Dual Pricing / Cash Discount per-store config
+  '/payment-models':               'admin_pricing_model.view',
+  '/payment-models/:storeId':      'admin_pricing_model.view',
+  '/pricing-tiers':                'admin_pricing_tiers.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {

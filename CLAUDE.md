@@ -8556,6 +8556,128 @@ The feature is production-ready as of this session.
 
 *Last updated: April 2026 — Session 49: Cert Harness + ITG Cert Kickoff (Scan Data feature complete) — `certHarness.js` 9-scenario synthetic sample-file generator (no DB writes), `certChecklist.js` 10-step DB-derived per-enrollment progress report, `certPlaybook.js` per-mfr guides for ITG (2-4w) / Altria (4-8w/sub-feed) / RJR (3-6w/program) with documented common rejection codes, 4 new backend endpoints (sample-file / checklist / scenarios / playbook), `CertModal` in portal with 3 sub-tabs (Checklist / Sample File / Playbook) replacing prior inline status buttons, "Mark Active (Cert Pass)" footer button gated on `readyToActivate=true`. End-to-end verified: ITG sample produces 9-scenario file covering all cert paths with correct discount split (multipack/buydown/mfrCoupon buckets), checklist correctly reports 60% progress on the dev ITG enrollment with detail per step, sub-feed codes (altria_pmusa, rjr_edlp) resolve to parent playbooks. Closes the 5-session scan-data arc — full retailer cert pipeline from enrollment → POS coupon redemption → nightly mfr submission → ack reconciliation → cert pass → production active.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 50)
+
+### Dual Pricing / Cash Discount — Foundation (Phase 1 of 3)
+
+First slice of dual pricing. Backend math + schema + RBAC + superadmin UI ship here. Cashier flow + customer display + receipts come in Session 51; reporting + label templates + reconciliation in Session 52.
+
+#### Architecture decisions (locked in planning round)
+
+- **Per-store toggle** — `Store.pricingModel: "interchange" | "dual_pricing"`. Interchange remains default; existing stores see zero behavioral change.
+- **Marked price = base / cash price.** At checkout, when cashier picks credit/debit/card tender, the surcharge (% × subtotal + fixed fee) is added on top. Cash + EBT + check + gift card always pay base. EBT exemption is federal.
+- **Computed in our software**, full card-inclusive amount sent to Dejavoo. Cleaner reconciliation than processor-level surcharge (we already capture `PaymentTransaction.batchNumber` via the HPP webhook).
+- **Tier + flexible** — superadmin assigns one of 3 tiers (Standard 3%+$0.30 / Volume 2.75%+$0.25 / Enterprise 2.5%+$0.20) OR per-store custom override. Custom wins over tier when both fields set.
+- **Discount-first ordering**: `cartSubtotal − loyaltyDiscount − manualDiscount = baseSubtotal`, then `tax + surcharge + surchargeTax`. Surcharge calculated on post-discount base — customer always pays surcharge on what they actually pay.
+- **Toggle authority = superadmin only**, audited via `PricingModelChange` row. Mid-shift switches blocked — must close all open shifts first.
+- **State-level policy** drives taxability + cap + framing. Surcharge-illegal states (MA, CT) flip to `cash_discount` framing — same math, different consumer-facing copy.
+
+#### Schema (5 changes — additive `npx prisma db push`)
+
+| Model | Change |
+|---|---|
+| `Store` | +`pricingModel`, `pricingTierId`, `customSurchargePercent`, `customSurchargeFixedFee`, `dualPricingActivatedAt`, `dualPricingActivatedBy`, `dualPricingDisclosure`, +relations to PricingTier + PricingModelChange[] |
+| `State` | +`surchargeTaxable`, `maxSurchargePercent`, `dualPricingAllowed`, `pricingFraming` ('surcharge' \| 'cash_discount'), `surchargeDisclosureText` |
+| `Transaction` | +`pricingModel`, `baseSubtotal`, `surchargeAmount`, `surchargeRate`, `surchargeFixedFee`, `surchargeTaxable`, `surchargeTaxAmount` (snapshots — keeps historical receipts/refunds correct after future toggles) |
+| `PaymentSettings` | Comment-only — existing `surchargeEnabled` + `surchargePercent` flagged as legacy mirror; new code reads from Store |
+| `PricingTier` (NEW) | Platform catalog — key, name, surchargePercent, surchargeFixedFee, description, isDefault, sortOrder, active |
+| `PricingModelChange` (NEW) | Audit log — every superadmin toggle writes one row with from/to model + tier + rate + fee + reason + changedById |
+
+#### Service layer
+
+[`backend/src/services/dualPricing.ts`](backend/src/services/dualPricing.ts) — pure functions, no DB:
+- `getEffectiveSurchargeRate(store)` — resolves custom-override > tier > zero. Partial custom (one field set) falls through to tier wholesale.
+- `computeSurcharge({ baseSubtotal, tenderMethod, store, state, taxRate })` — returns `{ surcharge, surchargeTax, surchargeRate, surchargeFixedFee, surchargeTaxable, rateSource, applied }`. Returns zero in 5 cases: interchange model / non-card tender / zero rate / zero subtotal / negative subtotal (refund).
+- `computeCardPriceForLabel(unitPrice, store)` — for shelf labels; per-item base × (1 + pct), excludes per-tx fixed fee.
+- `resolveDisclosureText(store, state)` — fallback: store override → state default → universal.
+- `CARD_TENDERS` whitelist: `credit`, `debit`, `card`, `credit_card`, `debit_card`. EBT/cash/check/gift card excluded.
+
+#### Tests — 33/33 pass
+
+[`backend/tests/dual_pricing.test.ts`](backend/tests/dual_pricing.test.ts) — 8 suites covering rate resolution, interchange-model zero-out, dual-pricing card/cash/EBT/check/gift, surcharge tax interaction (NY taxable / MA non-taxable / no-state legacy), end-to-end NY 10%-loyalty checkout example, card-price label preview, disclosure fallback, CARD_TENDERS catalog. Pure `node --test`.
+
+#### RBAC — 3 new permissions
+
+| Key | Scope | Granted to |
+|---|---|---|
+| `pricing_model.view` | org | manager, owner, admin (read-only visibility) |
+| `admin_pricing_model.view/manage` | admin | superadmin only |
+| `admin_pricing_tiers.view/create/edit/delete` | admin | superadmin only |
+
+Re-run `node prisma/seedRbac.ts` after deploy to pick up the new keys + manager grant.
+
+#### Backend API — `/api/pricing/*`
+
+| Method | Route | Permission |
+|---|---|---|
+| GET | `/pricing/tiers` | `pricing_model.view` |
+| POST/PUT/DELETE | `/pricing/tiers[/:id]` | superadmin |
+| GET | `/pricing/stores` | superadmin |
+| GET | `/pricing/stores/:storeId` | `pricing_model.view` |
+| PUT | `/pricing/stores/:storeId` | superadmin |
+| GET | `/pricing/stores/:storeId/changes` | `pricing_model.view` |
+
+`PUT /pricing/stores/:storeId` runs 5 validations: model enum / mid-shift block / tier exists+active+not-sentinel / state cap on percent / writes `PricingModelChange` audit row + back-compat upserts `PaymentSettings.surchargeEnabled`+`surchargePercent`.
+
+#### Seeds
+
+- [`seedPricingTiers.ts`](backend/prisma/seedPricingTiers.ts) — 3 active tiers + 1 sentinel `custom`
+- [`seedStateSurchargeRules.ts`](backend/prisma/seedStateSurchargeRules.ts) — 16 NE/East Coast states (ME, NH, VT, MA, RI, CT, NY, NJ, PA, DE, MD, VA, NC, SC, GA, FL) with per-state taxability, cap, framing, and disclosure text. **MA + CT** flip to `dualPricingAllowed=false, pricingFraming='cash_discount'` (surcharge illegal but cash-discount mechanic legal). **NY + 8 East Coast states** flagged `surchargeTaxable=true`. NY gets specific NY GBL § 518 disclosure text.
+
+#### Admin-app
+
+- [`AdminPaymentModels.tsx`](admin-app/src/pages/AdminPaymentModels.tsx) at `/payment-models` — per-store grid + edit modal with state-constraint warnings, tier picker, custom override, disclosure preview, audit history collapsible. Prefix `apm-`.
+- [`AdminPricingTiers.tsx`](admin-app/src/pages/AdminPricingTiers.tsx) at `/pricing-tiers` — tier catalog CRUD with default toggle + sentinel-protected delete. Shares CSS with AdminPaymentModels.
+- [`AdminStates.tsx`](admin-app/src/pages/AdminStates.tsx) extended — 5 new fields in the state edit modal: Max Surcharge %, Pricing Framing dropdown, Surcharge Taxable toggle, Dual Pricing Allowed toggle, Default Disclosure textarea.
+- Sidebar — "Payment Models" + "Pricing Tiers" entries under existing **Payments** group (Percent icon).
+
+#### Files changed (Session 50)
+
+**Backend:** schema.prisma, dualPricing.ts (NEW), tests/dual_pricing.test.ts (NEW), pricingModelController.ts (NEW), pricingModelRoutes.ts (NEW), server.ts, permissionCatalog.ts, stateController.ts, seedPricingTiers.ts (NEW), seedStateSurchargeRules.ts (NEW).
+
+**Admin-app:** services/api.ts, AdminPaymentModels.tsx + .css (NEW), AdminPricingTiers.tsx (NEW), AdminStates.tsx, App.tsx, rbac/routePermissions.ts, components/AdminSidebar.tsx.
+
+#### Verification
+
+- ✅ `npx prisma validate` clean, `db push` non-destructive
+- ✅ `npx tsc --noEmit` backend EXIT=0
+- ✅ `npx tsc --noEmit` admin-app EXIT=0
+- ✅ Admin-app `npm run build` clean (12.41s)
+- ✅ All 33 dual-pricing unit tests pass
+
+#### Deployment steps
+
+```bash
+cd backend
+git pull
+# Restart backend FIRST so prisma client can regen (DLL locked while running)
+pm2 stop api-pos
+npx prisma generate --schema prisma/schema.prisma
+pm2 start api-pos
+# Idempotent seeds
+npx tsx prisma/seedPricingTiers.ts
+npx tsx prisma/seedStateSurchargeRules.ts
+node prisma/seedRbac.ts
+
+cd ../admin-app
+npm run build
+```
+
+Existing stores see zero functional change — `pricingModel` defaults to `'interchange'`. Superadmin must explicitly toggle a store via the new `/payment-models` page.
+
+#### Deferred to Sessions 51 + 52
+
+| # | Scope |
+|---|---|
+| **51** | **Cashier flow + customer display + receipts.** Cart-store calc with discount-first ordering, TenderModal cash/card split display, customer display BroadcastChannel sync (per-line both prices + bottom totals), receipt printing with disclosure block, cashier-app `usePOSConfig` extensions, cashier-side `dualPricing.js` mirror of the backend service. |
+| **52** | **Reporting + reconciliation + label templates.** Label template merge fields (`{{cashPrice}}`, `{{cardPrice}}`, `{{savingsAmount}}`, `{{disclosureText}}`). EoD report new "DUAL PRICING SUMMARY" section. Portal Transactions surcharge column. New `/portal/dual-pricing-report` page. Settlement reconciliation cron (cross-checks our `surchargeAmount` vs Dejavoo `customFee` for double-charge detection). Refund flow with optional surcharge inclusion (default off — refund principal only, store-discretion override). Admin SaaS margin report (tier vs Dejavoo cost). Portal read-only mirror in Store Settings. |
+
+---
+
+*Last updated: April 2026 — Session 50: Dual Pricing / Cash Discount Foundation — schema (5 changes incl. 2 new tables), `dualPricing.ts` pure-function calculator with 33 unit tests (all green), RBAC (3 new permission modules), backend `/api/pricing/*` API (tier CRUD + per-store config + audit trail with mid-shift-block validation), seeds for 3 platform tiers + 16 NE/East Coast states with per-state taxability/cap/framing/disclosure rules, admin-app `/payment-models` + `/pricing-tiers` pages + State edit modal extension. Cashier flow + customer display + receipts queued for Session 51; reporting + label templates + reconciliation queued for Session 52.*
+
 
 
 

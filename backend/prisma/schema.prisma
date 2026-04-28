@@ -97,11 +97,11 @@ model Department {
 // ─────────────────────────────────────────────────
 model VendorImportTemplate {
   id          Int      @id @default(autoincrement())
-  name        String   // "AGNE — Wholesale", "Sante POS — Export", etc.
+  name        String // "AGNE — Wholesale", "Sante POS — Export", etc.
   slug        String   @unique // "agne", "sante-pos", "pine-state-specials"
   description String?
-  target      String   // "products" | "promotions" | "deposits" | "invoice_costs"
-  vendorHint  String?  // free-text hint for matching, e.g. "AGNE, Associated Grocers"
+  target      String // "products" | "promotions" | "deposits" | "invoice_costs"
+  vendorHint  String? // free-text hint for matching, e.g. "AGNE, Associated Grocers"
   active      Boolean  @default(true)
   createdById String?
   createdAt   DateTime @default(now())
@@ -114,17 +114,17 @@ model VendorImportTemplate {
 }
 
 model VendorImportTemplateMapping {
-  id           Int    @id @default(autoincrement())
-  templateId   Int
-  template     VendorImportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id         Int                  @id @default(autoincrement())
+  templateId Int
+  template   VendorImportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
-  vendorColumn String   // exact header text in the vendor file, e.g. "REG_RETAIL", "Unit Cost"
-  targetField  String?  // canonical field key, e.g. "upc", "defaultRetailPrice", or "" for drop/skip
-  transform    String?  // transform fn name: "trim_leading_zero" | "strip_prefix" | "multiply_by_col" | etc. null = no transform
-  transformArgs Json?   // arg payload, e.g. { by: "pack" } for multiply_by_col, { prefix: "_" } for strip_prefix
+  vendorColumn  String // exact header text in the vendor file, e.g. "REG_RETAIL", "Unit Cost"
+  targetField   String? // canonical field key, e.g. "upc", "defaultRetailPrice", or "" for drop/skip
+  transform     String? // transform fn name: "trim_leading_zero" | "strip_prefix" | "multiply_by_col" | etc. null = no transform
+  transformArgs Json? // arg payload, e.g. { by: "pack" } for multiply_by_col, { prefix: "_" } for strip_prefix
   constantValue String? // if set, use this literal value instead of the vendor column (for filling a column the file doesn't provide)
-  skip         Boolean  @default(false) // when true, column is explicitly ignored
-  sortOrder    Int      @default(0)
+  skip          Boolean @default(false) // when true, column is explicitly ignored
+  sortOrder     Int     @default(0)
 
   @@index([templateId])
   @@map("vendor_import_template_mappings")
@@ -138,20 +138,20 @@ model VendorImportTemplateMapping {
 // sensible defaults for alcohol/tobacco so retailers get value on day 1.
 // ─────────────────────────────────────────────────
 model DepartmentAttribute {
-  id            Int       @id @default(autoincrement())
-  orgId         String
-  departmentId  Int?      // null = applies to all products org-wide
-  department    Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  id           Int         @id @default(autoincrement())
+  orgId        String
+  departmentId Int? // null = applies to all products org-wide
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
-  key           String    // internal key: "vintage", "abv", "country"
-  label         String    // user-facing label: "Vintage Year"
-  dataType      String    @default("text") // text | decimal | integer | boolean | date | dropdown
-  required      Boolean   @default(false)
-  options       String[]  @default([])     // for dropdown: ["Red","White","Rosé"]
-  unit          String?                    // display suffix e.g. "%" for ABV, "°" for Proof
-  placeholder   String?
-  sortOrder     Int       @default(0)
-  active        Boolean   @default(true)
+  key         String // internal key: "vintage", "abv", "country"
+  label       String // user-facing label: "Vintage Year"
+  dataType    String   @default("text") // text | decimal | integer | boolean | date | dropdown
+  required    Boolean  @default(false)
+  options     String[] @default([]) // for dropdown: ["Red","White","Rosé"]
+  unit        String? // display suffix e.g. "%" for ABV, "°" for Proof
+  placeholder String?
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -752,6 +752,19 @@ model Transaction {
   ebtTotal     Decimal @default(0) @db.Decimal(10, 4)
   grandTotal   Decimal @db.Decimal(10, 4)
 
+  // ── Session 50 — Dual Pricing snapshot ──
+  // pricingModel snapshotted at tx time so historical receipts/refunds keep
+  // working even if the store later flips back to interchange.
+  // baseSubtotal = subtotal AFTER promo + loyalty + manual order discounts but
+  // BEFORE tax + surcharge. surchargeAmount is 0 for cash/EBT, > 0 for card/debit.
+  pricingModel       String?  @default("interchange") // snapshot
+  baseSubtotal       Decimal? @db.Decimal(10, 4)
+  surchargeAmount    Decimal? @db.Decimal(10, 4) // computed: baseSubtotal × pct + fixed (only for card/debit)
+  surchargeRate      Decimal? @db.Decimal(5, 3) // snapshot of effective % at tx time
+  surchargeFixedFee  Decimal? @db.Decimal(10, 2) // snapshot
+  surchargeTaxable   Boolean  @default(false) // snapshot of state policy
+  surchargeTaxAmount Decimal? @db.Decimal(10, 4) // surcharge × tax rate (only when state taxable)
+
   tenderLines Json // [{ method, amount }]
   changeGiven Decimal @default(0) @db.Decimal(10, 4)
 
@@ -872,12 +885,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  stores    UserStore[]
-  invoices  Invoice[]
-  documents Document[]
-  posToken  PosToken?
-  userRoles UserRole[]
-  orgs      UserOrg[]
+  stores         UserStore[]
+  invoices       Invoice[]
+  documents      Document[]
+  posToken       PosToken?
+  userRoles      UserRole[]
+  orgs           UserOrg[]
   priceScenarios PriceScenario[] @relation("PriceScenarioCreator")
 
   @@index([orgId, role])
@@ -1035,8 +1048,8 @@ model UserStore {
   // entry here to log in at that station. Owners fall back to User.posPin
   // as a global org-wide override (highest hierarchy, works everywhere).
   posPin  String?
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@id([userId, storeId])
   @@map("user_stores")
@@ -1071,8 +1084,8 @@ model Store {
   //          merchantId, restaurantGuid, apiKey }
   pos Json?
 
-  isActive  Boolean  @default(true)
-  branding  Json?    @default("{}")
+  isActive Boolean @default(true)
+  branding Json?   @default("{}")
 
   // ── Storeveu Exchange (B2B wholesale between stores) ──
   // Globally unique human-friendly code used by trading partners to find
@@ -1081,6 +1094,31 @@ model Store {
   // locked thereafter (see storeCodeLockedAt).
   storeCode         String?   @unique
   storeCodeLockedAt DateTime?
+
+  // ── Session 50 — Dual Pricing / Cash Discount model ──
+  //
+  // pricingModel: "interchange" (default — single price, no surcharge)
+  //               "dual_pricing" (card/debit pay surcharge; cash + EBT pay base)
+  //
+  // The marked/displayed item price is always the BASE price (cash equivalent).
+  // At checkout, when the cashier picks a card/debit tender, the surcharge
+  // (% of subtotal + fixed per-tx fee) is added on top. Cash and EBT tenders
+  // never carry the surcharge.
+  //
+  // Tier-vs-flexible resolution (see dualPricing.js getEffectiveSurchargeRate):
+  //   1. customSurchargePercent / customSurchargeFixedFee (when both set)
+  //   2. pricingTier rates (when pricingTierId set)
+  //   3. null (returns 0 — surcharge effectively disabled even if model='dual_pricing')
+  //
+  // Toggle is superadmin-only (see PricingModelChange audit trail).
+  pricingModel            String       @default("interchange")
+  pricingTierId           String?
+  pricingTier             PricingTier? @relation(fields: [pricingTierId], references: [id], onDelete: SetNull)
+  customSurchargePercent  Decimal?     @db.Decimal(5, 3) // e.g. 3.000 = 3.0%
+  customSurchargeFixedFee Decimal?     @db.Decimal(10, 2) // e.g. 0.30
+  dualPricingActivatedAt  DateTime?
+  dualPricingActivatedBy  String? // User.id of the superadmin who flipped the toggle
+  dualPricingDisclosure   String?      @db.Text // store-level override (else uses State.surchargeDisclosureText)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1102,8 +1140,12 @@ model Store {
   partnerBalancesA     PartnerBalance[] @relation("PartnerBalanceA")
   partnerBalancesB     PartnerBalance[] @relation("PartnerBalanceB")
 
+  // Session 50 — pricing model audit trail
+  pricingModelChanges PricingModelChange[]
+
   @@index([orgId, isActive])
   @@index([storeCode])
+  @@index([pricingModel])
   @@map("stores")
 }
 
@@ -1422,29 +1464,29 @@ model VendorProductMap {
 // one is the clean normalized relationship users maintain explicitly (or
 // that gets populated from invoice imports with a known `vendorId`).
 model ProductVendor {
-  id              Int      @id @default(autoincrement())
+  id              Int    @id @default(autoincrement())
   orgId           String
   masterProductId Int
   vendorId        Int
 
-  vendorItemCode  String?           // vendor's SKU/item number for this product
-  description     String?           // vendor's description (may differ from our name)
-  priceCost       Decimal? @db.Decimal(10, 4) // cost per sell unit
-  caseCost        Decimal? @db.Decimal(10, 4) // cost per full case (if known)
-  packInCase      Int?              // vendor's case-pack count (may differ from master)
+  vendorItemCode String? // vendor's SKU/item number for this product
+  description    String? // vendor's description (may differ from our name)
+  priceCost      Decimal? @db.Decimal(10, 4) // cost per sell unit
+  caseCost       Decimal? @db.Decimal(10, 4) // cost per full case (if known)
+  packInCase     Int? // vendor's case-pack count (may differ from master)
 
-  isPrimary       Boolean  @default(false)
+  isPrimary      Boolean   @default(false)
   // Most recent invoice date that referenced this (product, vendor) pair —
   // used by the auto-primary-on-first-import rule.
-  lastReceivedAt  DateTime?
+  lastReceivedAt DateTime?
 
-  notes           String?           // free-form (reorder preferences etc.)
+  notes String? // free-form (reorder preferences etc.)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   product MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
-  vendor  Vendor        @relation(fields: [vendorId],        references: [id], onDelete: Cascade)
+  vendor  Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, masterProductId, vendorId])
   @@index([orgId, vendorId])
@@ -1656,22 +1698,22 @@ model VendorPayment {
 // Monthly totals surface on the vendor-detail page. No automatic
 // invoice linkage — admins enter credits manually after receiving goods.
 model VendorCredit {
-  id             String   @id @default(cuid())
-  orgId          String
-  storeId        String?
-  vendorId       Int?
-  vendorName     String?  // denormalised fallback when vendorId is null
-  amount         Decimal  @db.Decimal(10, 4)   // credit value in $
-  creditType     String   @default("free_case")
+  id            String   @id @default(cuid())
+  orgId         String
+  storeId       String?
+  vendorId      Int?
+  vendorName    String? // denormalised fallback when vendorId is null
+  amount        Decimal  @db.Decimal(10, 4) // credit value in $
+  creditType    String   @default("free_case")
   // "free_case" | "mix_match" | "damaged_return" | "adjustment" | "other"
-  reason         String?  // short user-entered description
-  casesReceived  Int?     // optional — how many free cases came with this credit
-  productRef     String?  // optional — product name / UPC / SKU reference
-  notes          String?
-  creditDate     DateTime @default(now())
-  createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  reason        String? // short user-entered description
+  casesReceived Int? // optional — how many free cases came with this credit
+  productRef    String? // optional — product name / UPC / SKU reference
+  notes         String?
+  creditDate    DateTime @default(now())
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@index([orgId, creditDate])
@@ -1927,9 +1969,9 @@ model LotterySettings {
   allowMultipleActivePerGame Boolean @default(false)
 
   // State adapter overrides (null = use state default)
-  weekStartDay             Int? // 0-6, Sunday=0
-  settlementPctThreshold   Int? // e.g. 80 = 80% sold qualifies
-  settlementMaxDaysActive  Int? // e.g. 180 = settle after 180 days regardless of % sold
+  weekStartDay            Int? // 0-6, Sunday=0
+  settlementPctThreshold  Int? // e.g. 80 = 80% sold qualifies
+  settlementMaxDaysActive Int? // e.g. 180 = settle after 180 days regardless of % sold
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2003,9 +2045,9 @@ model LotteryScanEvent {
 // is locked (except for paid-at / notes).
 // ─────────────────────────────────────────────────
 model LotteryWeeklySettlement {
-  id        String @id @default(cuid())
-  orgId     String
-  storeId   String
+  id      String @id @default(cuid())
+  orgId   String
+  storeId String
 
   // Week identification — weekStart is the store's configured start-of-week
   // (Sunday for MA/ME by default; configurable per state adapter). weekEnd
@@ -2016,20 +2058,20 @@ model LotteryWeeklySettlement {
   dueDate   DateTime @db.Date
 
   // ─ Online (draw-game terminal) ───────────────────────
-  onlineGross    Decimal @default(0) @db.Decimal(12, 2) // sum of machineSales across the 7 days
-  onlineCashings Decimal @default(0) @db.Decimal(12, 2) // sum of machineCashing + instantCashing
+  onlineGross      Decimal @default(0) @db.Decimal(12, 2) // sum of machineSales across the 7 days
+  onlineCashings   Decimal @default(0) @db.Decimal(12, 2) // sum of machineCashing + instantCashing
   onlineCommission Decimal @default(0) @db.Decimal(12, 2) // store commission on online sales
 
   // ─ Instant (scratchoff) ──────────────────────────────
-  instantSales        Decimal @default(0) @db.Decimal(12, 2) // value of tickets sold from settled + partial-return books
-  instantSalesComm    Decimal @default(0) @db.Decimal(12, 2) // sales commission on instant sales
-  instantCashingComm  Decimal @default(0) @db.Decimal(12, 2) // cashing commission on scratch payouts
+  instantSales       Decimal @default(0) @db.Decimal(12, 2) // value of tickets sold from settled + partial-return books
+  instantSalesComm   Decimal @default(0) @db.Decimal(12, 2) // sales commission on instant sales
+  instantCashingComm Decimal @default(0) @db.Decimal(12, 2) // cashing commission on scratch payouts
 
   // ─ Eligible books this week ──────────────────────────
   // IDs of LotteryBox rows that became eligible for settlement this week
   // based on the state adapter rules (80% sold OR maxDaysActive reached).
-  settledBookIds  Json @default("[]")
-  returnedBookIds Json @default("[]")
+  settledBookIds   Json @default("[]")
+  returnedBookIds  Json @default("[]")
   // Books activated but NOT yet eligible — tracked for transparency
   unsettledBookIds Json @default("[]")
 
@@ -2375,13 +2417,13 @@ model PaymentMerchant {
   // ── Dejavoo HPP (online checkout) ──
   // hppEnabled gates the storefront ecom flow. Even with credentials filled in,
   // HPP won't process until both hppEnabled=true AND hppLastTestResult='ok'.
-  hppMerchantId      String?
-  hppAuthKey         String?   // encrypted (the iPOSpays HPP JWT / API token)
-  hppBaseUrl         String?
-  hppEnabled         Boolean   @default(false)
-  hppWebhookSecret   String?   // encrypted; opaque per-store token embedded in webhook URL
-  hppLastTestedAt    DateTime?
-  hppLastTestResult  String?
+  hppMerchantId     String?
+  hppAuthKey        String? // encrypted (the iPOSpays HPP JWT / API token)
+  hppBaseUrl        String?
+  hppEnabled        Boolean   @default(false)
+  hppWebhookSecret  String? // encrypted; opaque per-store token embedded in webhook URL
+  hppLastTestedAt   DateTime?
+  hppLastTestResult String?
 
   // ── Dejavoo iPOS Transact (card-on-file) ──
   transactApiKey  String? // encrypted
@@ -2484,7 +2526,15 @@ model PaymentSettings {
   tipEnabled Boolean @default(false)
   tipPresets Json? // [15, 18, 20, 25] as percent integers
 
-  // Surcharge / convenience fee
+  // ── Surcharge / convenience fee ──
+  //
+  // Session 50 NOTE: the canonical fields for dual pricing now live on the
+  // Store model (pricingModel, pricingTierId, customSurchargePercent,
+  // customSurchargeFixedFee). These two fields are kept for back-compat with
+  // any legacy code that still reads them — they MUST remain in sync via the
+  // setStorePricingModel controller. Do NOT add new code that reads from here.
+  // surchargePercent is also stored as a fraction here (0.0300 = 3%) whereas
+  // the new fields use whole-percent (3.000 = 3%) — different scale.
   surchargeEnabled Boolean  @default(false)
   surchargePercent Decimal? @db.Decimal(5, 4) // e.g. 0.0300 = 3%
 
@@ -2499,6 +2549,78 @@ model PaymentSettings {
 
   @@index([orgId])
   @@map("payment_settings")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION 50 — DUAL PRICING / CASH DISCOUNT MODEL
+// ═══════════════════════════════════════════════════════════════
+//
+// Two related concepts:
+//   1. Pricing model — toggle on Store ("interchange" | "dual_pricing")
+//   2. Pricing tier  — preset surcharge rates that map to billing tiers
+//                      (Standard / Volume / Enterprise) for SaaS revenue
+//                      management. A store also has the option to override
+//                      a tier's rates per-store via the customSurcharge*
+//                      fields on Store.
+//
+// Toggle authority is superadmin-only — every flip writes a PricingModelChange
+// row for audit. Mid-shift switches are blocked by the controller (the new
+// model takes effect at the next OpenShift).
+
+// ─────────────────────────────────────────────────
+// PRICING TIER — platform catalog of surcharge presets
+// Managed by superadmin. Stores reference one tier via Store.pricingTierId,
+// or override with custom rates on the Store record itself.
+// ─────────────────────────────────────────────────
+model PricingTier {
+  id                String   @id @default(cuid())
+  // Stable key for code/billing references. e.g. "tier_1", "tier_2", "tier_3", "custom".
+  // The "custom" key is reserved as a sentinel for the per-store override
+  // path — no Store should reference it directly.
+  key               String   @unique
+  name              String // "Standard 3% + $0.30"
+  description       String?  @db.Text
+  surchargePercent  Decimal  @db.Decimal(5, 3) // e.g. 3.000 = 3%
+  surchargeFixedFee Decimal  @db.Decimal(10, 2) // e.g. 0.30
+  active            Boolean  @default(true)
+  isDefault         Boolean  @default(false) // shown as default in tier picker
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stores Store[]
+
+  @@index([active, sortOrder])
+  @@map("pricing_tiers")
+}
+
+// ─────────────────────────────────────────────────
+// PRICING MODEL CHANGE — audit log of per-store pricing model toggles
+// Every superadmin flip lands here. Used to:
+//   - show "Recent changes" history on the per-store admin config page
+//   - reconcile when a store's pricingModel changed mid-period
+//   - prove regulatory compliance (some states require auditable history
+//     of when surcharge was activated/deactivated)
+// ─────────────────────────────────────────────────
+model PricingModelChange {
+  id            String   @id @default(cuid())
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  changedById   String // User.id of the superadmin who made the change
+  changedByName String? // denormalized for display (user may be deleted later)
+  fromModel     String // "interchange" | "dual_pricing"
+  toModel       String
+  fromTierId    String?
+  toTierId      String?
+  fromPercent   Decimal? @db.Decimal(5, 3)
+  toPercent     Decimal? @db.Decimal(5, 3)
+  fromFixedFee  Decimal? @db.Decimal(10, 2)
+  toFixedFee    Decimal? @db.Decimal(10, 2)
+  reason        String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@map("pricing_model_changes")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3142,10 +3264,10 @@ model FuelType {
   transactions FuelTransaction[]
 
   // Back-relations for tanks + blend configs
-  tanks         FuelTank[]
-  blendMiddle   FuelBlendConfig[] @relation("FuelBlendMiddle")
-  blendBase     FuelBlendConfig[] @relation("FuelBlendBase")
-  blendPremium  FuelBlendConfig[] @relation("FuelBlendPremium")
+  tanks        FuelTank[]
+  blendMiddle  FuelBlendConfig[] @relation("FuelBlendMiddle")
+  blendBase    FuelBlendConfig[] @relation("FuelBlendBase")
+  blendPremium FuelBlendConfig[] @relation("FuelBlendPremium")
 
   @@index([orgId, storeId])
   @@map("fuel_types")
@@ -3170,15 +3292,15 @@ model FuelSettings {
 
   // Inventory reconciliation — when stick readings are expected
   // "shift" | "daily" | "weekly" | "on_demand"
-  reconciliationCadence  String  @default("shift")
+  reconciliationCadence         String  @default("shift")
   // % variance that triggers an alert on the Reconciliation tab
-  varianceAlertThreshold Decimal @default(2.0) @db.Decimal(5, 2)
+  varianceAlertThreshold        Decimal @default(2.0) @db.Decimal(5, 2)
   // Opt-in: dispenser-blended middle grades (e.g. Plus/89 from 87 + 93)
-  blendingEnabled        Boolean @default(false)
+  blendingEnabled               Boolean @default(false)
   // V1.5: track sales by pump #. When true, cashier picks a pump in the
   // FuelModal and the sale records `pumpId`. When false, all sales aggregate
   // to the grade's primary/manifold tank without pump attribution.
-  pumpTrackingEnabled    Boolean @default(false)
+  pumpTrackingEnabled           Boolean @default(false)
   // V1.5: delivery cost variance threshold. A new FuelDelivery whose
   // $/gal exceeds the last-3-delivery rolling avg by more than this %
   // triggers a warning on the delivery-create form. Default 5% matches
@@ -3210,7 +3332,7 @@ model FuelTank {
   fuelType   FuelType @relation(fields: [fuelTypeId], references: [id])
 
   // Capacity in US gallons
-  capacityGal Decimal @db.Decimal(10, 2)
+  capacityGal    Decimal  @db.Decimal(10, 2)
   // Physical dimensions (for accurate horizontal-cylinder visualization)
   diameterInches Decimal? @db.Decimal(8, 2)
   lengthInches   Decimal? @db.Decimal(8, 2)
@@ -3288,7 +3410,7 @@ model FuelDelivery {
   deliveryDate DateTime @default(now())
   supplier     String? // "Shell Distributor", etc.
   bolNumber    String? // free-form BOL reference
-  notes        String? @db.Text
+  notes        String?  @db.Text
 
   // Aggregate fields cached for list view (sum of items)
   totalGallons Decimal @default(0) @db.Decimal(10, 2)
@@ -3346,14 +3468,14 @@ model FuelStickReading {
   tankId String
   tank   FuelTank @relation(fields: [tankId], references: [id])
 
-  readingDate    DateTime @default(now())
-  actualGallons  Decimal  @db.Decimal(10, 2) // measured by cashier / manager
-  expectedGallons Decimal @db.Decimal(10, 2) // derived from deliveries + sales at time of entry
-  variance       Decimal  @db.Decimal(10, 2) // actualGallons − expectedGallons
-  variancePct    Decimal  @db.Decimal(6, 3) // variance / expectedGallons × 100
+  readingDate     DateTime @default(now())
+  actualGallons   Decimal  @db.Decimal(10, 2) // measured by cashier / manager
+  expectedGallons Decimal  @db.Decimal(10, 2) // derived from deliveries + sales at time of entry
+  variance        Decimal  @db.Decimal(10, 2) // actualGallons − expectedGallons
+  variancePct     Decimal  @db.Decimal(6, 3) // variance / expectedGallons × 100
 
-  shiftId   String? // optional — if entered as part of EoD close
-  notes     String? @db.Text
+  shiftId String? // optional — if entered as part of EoD close
+  notes   String? @db.Text
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -3417,21 +3539,21 @@ model FuelBlendConfig {
   storeId String
 
   // The middle grade produced by blending (e.g. FuelType "Plus 89")
-  middleFuelTypeId String @unique
+  middleFuelTypeId String   @unique
   middleFuelType   FuelType @relation("FuelBlendMiddle", fields: [middleFuelTypeId], references: [id])
 
   // Base (lower-grade) fuel type — typically Regular 87
   baseFuelTypeId String
   baseFuelType   FuelType @relation("FuelBlendBase", fields: [baseFuelTypeId], references: [id])
   // Fraction of base in the blend (0..1). E.g. 0.67 for 89 from 87+93.
-  baseRatio      Decimal @db.Decimal(5, 4)
+  baseRatio      Decimal  @db.Decimal(5, 4)
 
   // Premium (higher-grade) fuel type — typically Premium 93
   premiumFuelTypeId String
   premiumFuelType   FuelType @relation("FuelBlendPremium", fields: [premiumFuelTypeId], references: [id])
-  premiumRatio      Decimal @db.Decimal(5, 4) // 1 − baseRatio
+  premiumRatio      Decimal  @db.Decimal(5, 4) // 1 − baseRatio
 
-  active  Boolean @default(true)
+  active Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3531,7 +3653,7 @@ model FuelTransaction {
 // POs can flow in either direction freely.
 // ─────────────────────────────────────────────────
 model TradingPartner {
-  id               String    @id @default(cuid())
+  id               String @id @default(cuid())
   // Store that sent the initial request
   requesterStoreId String
   requesterOrgId   String
@@ -3543,13 +3665,13 @@ model TradingPartner {
   status String @default("pending")
 
   // Optional note shown to the recipient on their pending-requests list
-  requestNote    String?
-  requestedById  String
-  respondedById  String?
-  respondedAt    DateTime?
-  revokedAt      DateTime?
-  revokedById    String?
-  revokeReason   String?
+  requestNote   String?
+  requestedById String
+  respondedById String?
+  respondedAt   DateTime?
+  revokedAt     DateTime?
+  revokedById   String?
+  revokeReason  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3586,10 +3708,10 @@ model WholesaleOrder {
   status String @default("draft")
 
   // Totals (snapshot at latest state; recomputed on any line change)
-  subtotal     Decimal @default(0) @db.Decimal(12, 4) // Σ qty × unitCost
-  depositTotal Decimal @default(0) @db.Decimal(12, 4) // Σ qty × depositPerUnit
-  taxTotal     Decimal @default(0) @db.Decimal(12, 4) // Σ line taxAmount
-  grandTotal   Decimal @default(0) @db.Decimal(12, 4) // subtotal + depositTotal + taxTotal
+  subtotal            Decimal  @default(0) @db.Decimal(12, 4) // Σ qty × unitCost
+  depositTotal        Decimal  @default(0) @db.Decimal(12, 4) // Σ qty × depositPerUnit
+  taxTotal            Decimal  @default(0) @db.Decimal(12, 4) // Σ line taxAmount
+  grandTotal          Decimal  @default(0) @db.Decimal(12, 4) // subtotal + depositTotal + taxTotal
   // Receiver-confirmed totals (after partial-accept adjustments)
   confirmedSubtotal   Decimal? @db.Decimal(12, 4)
   confirmedDeposit    Decimal? @db.Decimal(12, 4)
@@ -3625,18 +3747,18 @@ model WholesaleOrder {
   // fully reconciled / settled before archiving. Archived orders are
   // hidden from the main Exchange view but retained for history via the
   // "Show archived" toggle.
-  senderArchived      Boolean   @default(false)
-  senderArchivedAt    DateTime?
-  receiverArchived    Boolean   @default(false)
-  receiverArchivedAt  DateTime?
+  senderArchived     Boolean   @default(false)
+  senderArchivedAt   DateTime?
+  receiverArchived   Boolean   @default(false)
+  receiverArchivedAt DateTime?
 
   // Dispute tracking (Session 39) — multi-round back-and-forth between
   // parties when the receiver partially accepts. The messages themselves
   // live in `events` as `eventType='dispute_message'`. These fields track
   // the overall dispute state.
-  disputeStatus      String?   // null | "open" | "resolved"
-  disputeOpenedAt    DateTime?
-  disputeResolvedAt  DateTime?
+  disputeStatus     String? // null | "open" | "resolved"
+  disputeOpenedAt   DateTime?
+  disputeResolvedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3666,7 +3788,7 @@ model WholesaleOrderItem {
 
   // Product references (nullable — product may be deleted later)
   // Source: MasterProduct in sender's catalog
-  senderProductId Int?
+  senderProductId   Int?
   // Target: MasterProduct in receiver's catalog (resolved on confirmation)
   receiverProductId Int?
 
@@ -3825,17 +3947,17 @@ model Settlement {
   note      String?
 
   // pending (within dispute window) | accepted | disputed
-  status              String    @default("pending")
+  status              String   @default("pending")
   disputeWindowEndsAt DateTime
 
   recordedById String
   recordedAt   DateTime @default(now())
 
-  disputedAt     DateTime?
-  disputedById   String?
-  disputeReason  String?
-  resolvedAt     DateTime?
-  resolvedById   String?
+  disputedAt    DateTime?
+  disputedById  String?
+  disputeReason String?
+  resolvedAt    DateTime?
+  resolvedById  String?
 
   ledgerEntries LedgerEntry[]
 
@@ -3913,15 +4035,15 @@ model PriceScenario {
 // viewport width is available.
 // ─────────────────────────────────────────────────
 model QuickButtonLayout {
-  id          String   @id @default(cuid())
-  orgId       String
-  storeId     String   @unique
-  name        String   @default("Main Screen")
-  gridCols    Int      @default(6)  // columns in the layout grid
-  rowHeight   Int      @default(64) // pixel height per grid row (for h=1 tile)
-  tree        Json     @default("[]")  // flat array of tiles (see shape above)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  orgId     String
+  storeId   String   @unique
+  name      String   @default("Main Screen")
+  gridCols  Int      @default(6) // columns in the layout grid
+  rowHeight Int      @default(64) // pixel height per grid row (for h=1 tile)
+  tree      Json     @default("[]") // flat array of tiles (see shape above)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([orgId, storeId])
   @@map("quick_button_layouts")
@@ -3943,14 +4065,14 @@ model QuickButtonLayout {
 //     games are created via LotteryGame with state=<code>)
 // ─────────────────────────────────────────────────
 model State {
-  code                     String   @id  // 2-letter US state code, e.g. "MA"
-  name                     String          // "Massachusetts"
+  code                     String   @id // 2-letter US state code, e.g. "MA"
+  name                     String // "Massachusetts"
   country                  String   @default("US")
-  defaultTaxRate           Decimal? @db.Decimal(6, 4)  // e.g. 0.0625 = 6.25%
+  defaultTaxRate           Decimal? @db.Decimal(6, 4) // e.g. 0.0625 = 6.25%
   // Legacy single-rate commission — kept for backward-compat. New stores
   // should use the 4-source rates below. If state-level rates are null, the
   // settlement engine falls back to LotterySettings.commissionRate per store.
-  defaultLotteryCommission Decimal? @db.Decimal(6, 4)  // 0.05 = 5%
+  defaultLotteryCommission Decimal? @db.Decimal(6, 4) // 0.05 = 5%
   // Phase 3e — per-revenue-stream commission rates. Set by superadmin for
   // each state and applied to all stores in that state. Decimal like 0.054
   // means 5.4%. Null means "use defaultLotteryCommission fallback."
@@ -3975,10 +4097,32 @@ model State {
   // every price has a match. Null/empty → backend falls back to a hardcoded
   // US-standard default.
   lotteryPackSizeRules     Json?    @default("[]")
-  notes                    String?
-  active                   Boolean  @default(true)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+
+  // ── Session 50 — Dual Pricing / Cash Discount per-state policy ──
+  //
+  // surchargeTaxable        — does sales tax apply to the surcharge itself?
+  //                           NY/FL/TX/PA/NJ/MD/VA/NC/SC/GA → true
+  //                           CA/MA/CT/DE/NH/VT/RI/ME → false
+  // maxSurchargePercent     — state cap (most US states: 4%). null = no cap.
+  // dualPricingAllowed      — when false, the model is forced to "cash_discount"
+  //                           framing (surcharge ILLEGAL but cash discount legal).
+  //                           MA/CT/CO/OK fall here.
+  // pricingFraming          — "surcharge" (most states; "+3% card surcharge")
+  //                           "cash_discount" (MA/CT/CO/OK; "−3% cash discount")
+  //                           Same math, different consumer-facing copy.
+  // surchargeDisclosureText — default verbatim disclosure for receipts/signage
+  //                           when stores in this state run dual pricing.
+  //                           Stores can override via Store.dualPricingDisclosure.
+  surchargeTaxable        Boolean  @default(false)
+  maxSurchargePercent     Decimal? @db.Decimal(5, 3) // e.g. 4.000 = 4%
+  dualPricingAllowed      Boolean  @default(true)
+  pricingFraming          String   @default("surcharge") // "surcharge" | "cash_discount"
+  surchargeDisclosureText String?  @db.Text
+
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   stores Store[]
 
@@ -3996,12 +4140,12 @@ model State {
 // ─────────────────────────────────────────────────
 model AiConversation {
   id            String   @id @default(cuid())
-  orgId         String?        // null for superadmin cross-tenant chats
-  storeId       String?        // active store at conversation start
-  userId        String         // who opened the conversation
-  userRole      String?        // denormalized: effective role at creation time
-  userName      String?        // denormalized for list views
-  title         String?        // auto-summary of first user message (<=80 chars)
+  orgId         String? // null for superadmin cross-tenant chats
+  storeId       String? // active store at conversation start
+  userId        String // who opened the conversation
+  userRole      String? // denormalized: effective role at creation time
+  userName      String? // denormalized for list views
+  title         String? // auto-summary of first user message (<=80 chars)
   lastMessageAt DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -4016,14 +4160,14 @@ model AiConversation {
 model AiMessage {
   id             String   @id @default(cuid())
   conversationId String
-  role           String         // "user" | "assistant"
+  role           String // "user" | "assistant"
   content        String   @db.Text
-  toolCalls      Json?          // [{name, input, output, durationMs}]
-  tokenCount     Int?           // input+output tokens reported by Anthropic
-  model          String?        // e.g. "claude-sonnet-4-6"
-  feedback       String?        // "helpful" | "unhelpful" | null
+  toolCalls      Json? // [{name, input, output, durationMs}]
+  tokenCount     Int? // input+output tokens reported by Anthropic
+  model          String? // e.g. "claude-sonnet-4-6"
+  feedback       String? // "helpful" | "unhelpful" | null
   feedbackNote   String?  @db.Text
-  ticketId       String?        // linked SupportTicket.id if escalated
+  ticketId       String? // linked SupportTicket.id if escalated
   createdAt      DateTime @default(now())
 
   conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -4043,12 +4187,12 @@ model AiMessage {
 // ─────────────────────────────────────────────────
 model AiKnowledgeArticle {
   id             String   @id @default(cuid())
-  orgId          String?        // null = platform-wide article (default for seeded)
-  category       String         // "feature" | "how-to" | "troubleshoot" | "faq"
+  orgId          String? // null = platform-wide article (default for seeded)
+  category       String // "feature" | "how-to" | "troubleshoot" | "faq"
   title          String
   content        String   @db.Text
-  embedding      Float[]        // 1536-dim vector
-  source         String   @default("curated")  // "seed" | "curated" | "admin"
+  embedding      Float[] // 1536-dim vector
+  source         String   @default("curated") // "seed" | "curated" | "admin"
   tags           String[] @default([])
   helpfulCount   Int      @default(0)
   unhelpfulCount Int      @default(0)
@@ -4075,13 +4219,13 @@ model AiKnowledgeArticle {
 // ─────────────────────────────────────────────────
 model ProductTour {
   id          String   @id @default(cuid())
-  orgId       String?        // null = platform-wide (default for seeded)
-  slug        String         // "add-product", "set-age-verification"
-  name        String         // "Add Your First Product"
+  orgId       String? // null = platform-wide (default for seeded)
+  slug        String // "add-product", "set-age-verification"
+  name        String // "Add Your First Product"
   description String?  @db.Text
   category    String   @default("onboarding") // "onboarding" | "feature" | "troubleshoot"
-  triggers    String[] @default([])           // phrases the AI uses to match intent
-  steps       Json     @default("[]")         // [{ title, body, url?, highlight? }]
+  triggers    String[] @default([]) // phrases the AI uses to match intent
+  steps       Json     @default("[]") // [{ title, body, url?, highlight? }]
   active      Boolean  @default(true)
   createdById String?
   createdAt   DateTime @default(now())
@@ -4101,19 +4245,19 @@ model ProductTour {
 // new KB article (capturing their corrected answer) or (b) dismisses.
 // ─────────────────────────────────────────────────
 model AiFeedbackReview {
-  id              String   @id @default(cuid())
-  orgId           String?        // which org the conversation came from
-  messageId       String   @unique  // denormalized — so we can cascade-delete cleanly
-  conversationId  String?        // for "View conversation" action
-  question        String   @db.Text  // denormalized user message
-  aiResponse      String   @db.Text  // denormalized assistant message
-  userSuggestion  String?  @db.Text  // feedbackNote from the user
-  status          String   @default("pending")  // "pending" | "promoted" | "dismissed"
-  reviewedById    String?
-  reviewedAt      DateTime?
-  articleId       String?        // if promoted to KB
-  ticketId        String?        // if escalated to support ticket alongside review
-  createdAt       DateTime @default(now())
+  id             String    @id @default(cuid())
+  orgId          String? // which org the conversation came from
+  messageId      String    @unique // denormalized — so we can cascade-delete cleanly
+  conversationId String? // for "View conversation" action
+  question       String    @db.Text // denormalized user message
+  aiResponse     String    @db.Text // denormalized assistant message
+  userSuggestion String?   @db.Text // feedbackNote from the user
+  status         String    @default("pending") // "pending" | "promoted" | "dismissed"
+  reviewedById   String?
+  reviewedAt     DateTime?
+  articleId      String? // if promoted to KB
+  ticketId       String? // if escalated to support ticket alongside review
+  createdAt      DateTime  @default(now())
 
   @@index([status, createdAt])
   @@index([orgId, status])
@@ -4337,7 +4481,7 @@ model TobaccoProductMap {
   manufacturerId String
   manufacturer   TobaccoManufacturer @relation(fields: [manufacturerId], references: [id])
 
-  brandFamily String // "Marlboro" | "Camel" | "Winston" | etc.
+  brandFamily    String // "Marlboro" | "Camel" | "Winston" | etc.
   // Manufacturer-assigned product code (some require this in submission)
   mfrProductCode String?
 
@@ -4360,7 +4504,7 @@ model TobaccoProductMap {
 }
 
 model ManufacturerCoupon {
-  id String @id @default(cuid())
+  id    String  @id @default(cuid())
   // null = platform-wide (rare); non-null = org-specific
   orgId String?
 
@@ -4417,8 +4561,8 @@ model CouponRedemption {
   // Original transaction this was redeemed against
   transactionId String
   // null = manual entry that didn't match a known coupon (still tracked)
-  couponId String?
-  coupon   ManufacturerCoupon? @relation(fields: [couponId], references: [id])
+  couponId      String?
+  coupon        ManufacturerCoupon? @relation(fields: [couponId], references: [id])
 
   // Denormalized so we keep the audit trail even if coupon row is deleted
   couponSerial   String
@@ -4495,9 +4639,9 @@ model ScanDataSubmission {
   //      reason?: string, code?: string, originalLine?: string }]
   // Stored as JSON because ack files are typically <10KB. If we ever
   // need per-line indexing/querying, promote to its own AckLine model.
-  ackLines       Json?
-  acceptedCount  Int  @default(0)
-  rejectedCount  Int  @default(0)
+  ackLines      Json?
+  acceptedCount Int   @default(0)
+  rejectedCount Int   @default(0)
 
   // Retry tracking
   attempts    Int       @default(0)

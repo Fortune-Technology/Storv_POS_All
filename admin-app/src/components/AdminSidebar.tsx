@@ -26,6 +26,7 @@ import {
   Sparkles,
   BookOpen,
   Compass,
+  Percent,
 } from 'lucide-react';
 import api from '../services/api';
 import { getRoutePermission } from '../rbac/routePermissions';
@@ -79,6 +80,8 @@ const adminMenuGroups: MenuGroup[] = [
     label: 'Payments',
     items: [
       { name: 'Merchants (Dejavoo)', icon: <CreditCard size={13} />, path: '/merchants' },
+      { name: 'Payment Models',      icon: <Percent size={13} />,    path: '/payment-models' },
+      { name: 'Pricing Tiers',       icon: <Percent size={13} />,    path: '/pricing-tiers' },
     ],
   },
   {

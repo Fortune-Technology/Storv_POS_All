@@ -84,6 +84,8 @@ const ORG_MODULES: ModuleDef[] = [
   // Session 45 — Scan Data / tobacco compliance
   { module: 'scan_data',       label: 'Scan Data (Tobacco)', actions: ['view','enroll','submit','configure'],              surface: 'back-office', desc: 'Daily-batch reporting of tobacco transactions to Altria/RJR/ITG. "enroll" gates SFTP credential management; "submit" allows manual file resubmission; "configure" gates product mapping + coupon catalog.' },
   { module: 'coupons',         label: 'Manufacturer Coupons', actions: ['view','redeem','manage','approve'],               surface: 'both',         desc: 'Digital coupon redemption at POS. "redeem" is the cashier-side action; "manage" gates catalog import/edit; "approve" is the manager-PIN gate when a coupon exceeds the configured threshold.' },
+  // Session 50 — Dual Pricing / Cash Discount model
+  { module: 'pricing_model',   label: 'Pricing Model',        actions: ['view'],                                            surface: 'back-office', desc: 'Read-only visibility into the per-store pricing model (Interchange vs Dual Pricing) and current surcharge rates. The "manage" action is admin-scope only — see admin_pricing_model below.' },
 ];
 
 // ─── Admin-scoped modules (superadmin panel only) ─────────────────────────
@@ -102,6 +104,13 @@ const ADMIN_MODULES: ModuleDef[] = [
   { module: 'admin_system',       label: 'System Config',      actions: ['view','edit','manage'] },
   { module: 'admin_backup',       label: 'Database Backup',    actions: ['view','manage'] },
   { module: 'admin_roles',        label: 'System Roles',       actions: ['view','create','edit','delete'] },
+  // Session 50 — Per-store pricing model toggle. Only superadmin can flip a
+  // store between Interchange and Dual Pricing because the change affects
+  // payment processing setup with the merchant processor.
+  { module: 'admin_pricing_model', label: 'Pricing Model (Per-Store)', actions: ['view','manage'] },
+  // Session 50 — Platform pricing tier catalog (tier_1 / tier_2 / tier_3 / etc.)
+  // Used for SaaS billing tiers. Superadmin manages these.
+  { module: 'admin_pricing_tiers', label: 'Pricing Tiers Catalog',     actions: ['view','create','edit','delete'] },
 ];
 
 function expand(modules: ModuleDef[], scope: Scope): PermissionDef[] {
@@ -213,6 +222,9 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       // and approves high-value coupon redemptions). Owner+ adds enroll + manage.
       'scan_data.view','scan_data.submit','scan_data.configure',
       'coupons.view','coupons.redeem','coupons.manage','coupons.approve',
+      // Session 50 — Read-only visibility into pricing model + surcharge rates.
+      // Toggle authority is admin-scope (admin_pricing_model.manage).
+      'pricing_model.view',
     ],
   },
   {
