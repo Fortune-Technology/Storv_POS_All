@@ -323,7 +323,11 @@ export default function POSScreen() {
       scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
       return;
     }
-    // Ask which account to check
+    // Ask which account to check.
+    // Intentionally left as window.confirm — this is a two-option chooser
+    // (SNAP vs Cash Benefit), not a delete confirmation. The themed
+    // ConfirmModal would need a third button or a dedicated chooser UI to
+    // do this cleanly. Tracked for a future follow-up.
     const choice = window.confirm('EBT Balance Check:\n\nOK = Food Stamp (SNAP)\nCancel = Cash Benefit');
     const paymentType = choice ? 'ebt_food' : 'ebt_cash';
     try {
