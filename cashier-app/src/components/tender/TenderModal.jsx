@@ -361,6 +361,49 @@ export default function TenderModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [method, hasDejavoo, hasPAX, ebtEnabled, amount, payStatus, remaining, saving]);
 
+  /**
+   * Centralised "retry the failed/declined sale" handler.
+   *
+   * The sale-fired-but-failed flow leaves a few stateful traps that ALL need
+   * resetting for a retry to actually re-fire:
+   *
+   *   - payStatus: 'declined' → null   (UI no longer shows decline screen)
+   *   - payResult: error obj → null    (clears the From-Terminal text below)
+   *   - cardAutoFireRef.current → null (otherwise the auto-fire effect sees
+   *                                     "already fired for this method" and
+   *                                     short-circuits — this was the bug
+   *                                     reported in live testing where the
+   *                                     second tap never reached the device)
+   *
+   * After retry-reset, the auto-fire effect re-evaluates conditions and
+   * fires Sale again automatically when method=card/ebt + remaining > 0
+   * + terminal configured + online. Cashier doesn't need a separate tap.
+   *
+   * Also: as a UX bonus, fire-and-forget pushes the cart back to the
+   * terminal display so the customer screen returns to the cart view
+   * before the new payment prompt overlays — covers the "terminal stuck
+   * on stale failed-payment screen" symptom from the live test.
+   */
+  const handleRetry = () => {
+    setPayStatus(null);
+    setPayResult(null);
+    setDjPaymentTxId(null);
+    setDjReferenceId(null);
+    setDjOfflineWarning(false);
+    cardAutoFireRef.current = null;
+    // Re-push the cart to bring the terminal back to the cart view so the
+    // customer doesn't sit on a stale "Payment Declined" screen. Same
+    // gates as the cart-sync hook — silent on failure.
+    if (hasDejavoo && station?.id && isOnline) {
+      const cart = buildDejavooCart(items, totals, { chargeAmount: remaining });
+      if (cart) {
+        posApi.dejavooPushCart({ stationId: station.id, cart }).catch(err => {
+          console.warn('[TenderModal] retry cart-push failed', err?.message);
+        });
+      }
+    }
+  };
+
   const canAddSplit = HAS_AMOUNT.includes(method) && activeAmt > 0 && activeAmt < remaining - 0.005;
 
   // Numpad shows for every method now (card/ebt can accept partial amounts)
@@ -1137,12 +1180,12 @@ export default function TenderModal({
               /* Declined — retry or switch method */
               <>
                 <button
-                  onClick={() => { setPayStatus(null); setPayResult(null); }}
+                  onClick={handleRetry}
                   className="tm-big-btn" style={{ background: 'var(--blue, #3b82f6)' }}
                 >
                   <RotateCcw size={18} /> Try Again
                 </button>
-                <button onClick={() => { setPayStatus(null); setPayResult(null); switchMethod('cash'); }}
+                <button onClick={() => { handleRetry(); switchMethod('cash'); }}
                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', padding: '4px 0' }}>
                   Use a different payment method
                 </button>
@@ -1896,7 +1939,7 @@ export default function TenderModal({
                 <div style={{ color: '#6b7280', fontSize: '0.87rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
                   {payResult?.message || 'The card was declined. Please try another card or payment method.'}
                 </div>
-                <button onClick={() => { setPayStatus(null); setPayResult(null); }} style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
+                <button onClick={handleRetry} style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
                   Try Again
                 </button>
               </>
@@ -1910,10 +1953,10 @@ export default function TenderModal({
                   {payResult?.message || 'Could not reach the payment terminal. Check network connection.'}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setPayStatus(null); setPayResult(null); }} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', background: 'transparent', color: '#94a3b8', fontSize: '0.87rem', cursor: 'pointer' }}>
+                  <button onClick={() => { handleRetry(); switchMethod('cash'); }} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', background: 'transparent', color: '#94a3b8', fontSize: '0.87rem', cursor: 'pointer' }}>
                     Use Cash Instead
                   </button>
-                  <button onClick={() => { setPayStatus(null); }} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>
+                  <button onClick={handleRetry} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>
                     Retry
                   </button>
                 </div>

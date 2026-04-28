@@ -1061,13 +1061,18 @@ export default function POSScreen() {
         console.warn('[POSScreen] thank-you push failed', err?.message);
       });
 
-      // Clear the cart display ~3s later so the thank-you message has time
-      // to register before the screen resets.
-      setTimeout(() => {
-        posApi.dejavooClearDisplay({ stationId: station.id }).catch(err => {
-          console.warn('[POSScreen] clear display failed', err?.message);
-        });
-      }, 3000);
+      // NOTE: we used to fire a 3-second-delayed `dejavooClearDisplay` here
+      // to wipe the cart from the terminal screen. Removed in live-test
+      // round 2 because:
+      //   1. useTerminalCartSync detects empty cart (after clearCart() runs
+      //      in TenderModal.complete) and pushes its own clear within ~500ms
+      //   2. The 3s timer raced with the cart-sync clear and produced a
+      //      brief flicker (cart → cleared → cleared-again)
+      //   3. Cashier feedback was that the terminal should always re-show
+      //      the new cart as soon as the next sale begins; sync-driven path
+      //      handles that automatically without a separate timer.
+      // The single sync-driven path is cleaner and matches "as long as
+      // products are in POS cart, terminal shows products."
     }
   }, [hasCashDrawer, hasReceiptPrinter, openDrawer, publishDisplay, storeBranding, handlePrintTx, hasQuickButtons, hasDejavooConfigured, station?.id, isOnline]);
 

@@ -71,19 +71,20 @@ export function buildDejavooCart(items, totals, opts = {}) {
     const unit = Number(line.effectivePrice ?? line.unitPrice ?? 0);
     const total = Number(line.lineTotal ?? unit * qty);
 
-    // Build optional sub-text the terminal can show under the item name.
-    // Useful for SKU/brand context. Cap length so it doesn't wrap weirdly.
-    const additional = [];
-    if (line.brand) additional.push(String(line.brand));
-    if (line.upc)   additional.push(String(line.upc));
-    const additionalInfo = additional.join(' · ').slice(0, 60);
+    // NOTE: We previously included `AdditionalInfo` (brand · UPC) under
+    // each item name. Removed because the terminal renders it as a second
+    // line per item, doubling the row height and limiting how many items
+    // fit on the customer-facing screen at once. Cashiers asked for tighter
+    // line items so more cart contents are visible without scrolling.
+    // Brand + UPC remain on the printed receipt; on the customer display
+    // they're noise. To re-enable per-merchant later, add a config flag.
 
     return {
       Name:       name.slice(0, 60),     // sane limit; terminals truncate anyway
       Price:      r(total),               // line total
       UnitPrice:  r(unit),
       Quantity:   qty,
-      AdditionalInfo: additionalInfo,
+      // AdditionalInfo deliberately omitted (compact display).
       CustomInfos:    [],
       Modifiers:      [],
     };
@@ -96,27 +97,35 @@ export function buildDejavooCart(items, totals, opts = {}) {
 
   if (dejavooItems.length === 0) return null;
 
-  // Cart-level Amounts. Dejavoo accepts arbitrary {Name, Value} pairs and
-  // displays them as labeled rows on the terminal. Standard presentation:
-  //   Subtotal · Taxes · (Deposits if any) · Total
-  // When charging less than the full cart (split payment), we annotate
-  // explicitly so the customer doesn't see the full grand total + a
-  // smaller charge prompt and get confused.
+  // Cart-level Amounts — kept intentionally minimal per cashier feedback.
+  //
+  // Just two lines so the customer-facing display is uncluttered:
+  //   Cart Total   = pre-tax subtotal (what the items add up to)
+  //   Total        = grand total (what's actually deducted from the card —
+  //                  includes tax + deposit + fees + surcharge if any)
+  //
+  // We previously also surfaced Subtotal / Tax / Deposit / "Charging Now"
+  // as separate rows. Cashiers found that too noisy on a small terminal
+  // screen. The detailed breakdown is still on the printed receipt; on
+  // the live cart display, "what items cost" + "what they pay" is enough.
+  //
+  // When pre-tax and grand-total are equal (no tax, no fees), we collapse
+  // to a single "Total" row so the customer doesn't see two identical
+  // numbers stacked on top of each other.
   const amounts = [];
-  if (Number.isFinite(totals?.subtotal)) {
-    amounts.push({ Name: 'Subtotal', Value: r(totals.subtotal) });
+  const subtotal = Number(totals?.subtotal);
+  const haveSeparateSubtotal = Number.isFinite(subtotal)
+    && Math.abs(subtotal - grandTotal) > 0.005;
+  if (haveSeparateSubtotal) {
+    amounts.push({ Name: 'Cart Total', Value: r(subtotal) });
   }
-  if (Number.isFinite(totals?.taxTotal) && totals.taxTotal > 0) {
-    amounts.push({ Name: 'Tax', Value: r(totals.taxTotal) });
-  }
-  if (Number.isFinite(totals?.depositTotal) && totals.depositTotal > 0) {
-    amounts.push({ Name: 'Deposit', Value: r(totals.depositTotal) });
-  }
-  amounts.push({ Name: 'Cart Total', Value: r(grandTotal) });
+  amounts.push({ Name: 'Total', Value: r(grandTotal) });
 
-  // When the charge amount is a partial (split tender), surface that on
-  // the prompt as a separate line so the customer understands what they're
-  // paying for on THIS card.
+  // Split-tender hint — when this card is paying LESS than the whole cart
+  // (e.g. customer is splitting $20 cart between $10 cash already collected
+  // and $10 on this card), make that explicit. Otherwise the customer sees
+  // the cart Total of $20 but the prompt says "Approve $10" — confusing
+  // without context. This single "Charging Now" row clarifies.
   if (Math.abs(chargeAmount - grandTotal) > 0.005) {
     amounts.push({ Name: 'Charging Now', Value: r(chargeAmount) });
   }
