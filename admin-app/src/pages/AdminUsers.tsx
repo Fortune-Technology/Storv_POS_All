@@ -84,6 +84,7 @@ const roleBadge = (role?: string): ReactNode => (
 /* ------------------------------------------------------------------ */
 
 const AdminUsers = () => {
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
 
   /* table state */
@@ -152,7 +153,12 @@ const AdminUsers = () => {
   /* ---- delete ---- */
 
   const handleDelete = async (user: AdminUser) => {
-    if (!window.confirm(`Delete user "${user.name}"? This action cannot be undone.`)) return;
+    if (!await confirm({
+      title: `Delete user "${user.name}"?`,
+      message: 'This action cannot be undone. The user will lose access to every organisation they were a member of.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteAdminUser(user.id);
       toast.success(`${user.name} deleted`);

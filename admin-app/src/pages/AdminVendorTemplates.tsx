@@ -18,6 +18,9 @@ import {
   deleteVendorTemplate,
   getVendorTemplateTransforms,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — useConfirmDialog is a shared .jsx file
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminVendorTemplates.css';
 
 const TARGETS = ['products', 'promotions', 'deposits', 'invoice_costs'] as const;
@@ -87,6 +90,7 @@ interface Transform {
 }
 
 export default function AdminVendorTemplates() {
+  const confirm = useConfirm();
   const [templates, setTemplates]     = useState<Template[]>([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -135,7 +139,12 @@ export default function AdminVendorTemplates() {
 
   const handleDelete = async (tmpl: Template) => {
     if (tmpl.id === undefined) return;
-    if (!window.confirm(`Delete "${tmpl.name}"? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: `Delete template "${tmpl.name}"?`,
+      message: 'This cannot be undone. Retailers will no longer see this template when uploading vendor files.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteVendorTemplate(tmpl.id);
       toast.success(`Template "${tmpl.name}" deleted`);

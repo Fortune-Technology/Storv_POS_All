@@ -1040,7 +1040,10 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
     })) setItems([]);
   };
 
-  const confirm = async () => {
+  // Renamed from `confirm` to avoid colliding with the `useConfirm()` hook
+  // value of the same name (Session 54). This is the "commit receive order"
+  // handler — it actually persists the boxes; the hook is just for dialogs.
+  const confirmReceive = async () => {
     if (items.length === 0) return;
     setSaving(true); setErr('');
     try {
@@ -1110,7 +1113,7 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
           </div>
           <div className="lbo-pane-actions">
             <button className="lbo-btn lbo-btn-outline" onClick={clearAll}>Clear</button>
-            <button className="lbo-btn lbo-btn-primary" onClick={confirm} disabled={saving}>
+            <button className="lbo-btn lbo-btn-primary" onClick={confirmReceive} disabled={saving}>
               {saving ? 'Saving…' : `Confirm & Send to Safe (${items.length})`}
             </button>
           </div>
