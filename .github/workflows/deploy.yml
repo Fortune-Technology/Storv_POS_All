@@ -30,11 +30,11 @@ jobs:
     outputs:
       cashier-app: ${{ steps.filter.outputs.cashier-app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Need history so paths-filter can diff against the base SHA.
           fetch-depth: 0
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -313,7 +313,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python (for node-gyp native modules)
         uses: actions/setup-python@v5
