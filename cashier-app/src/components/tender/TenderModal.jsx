@@ -28,6 +28,7 @@ import { useSyncStore }  from '../../stores/useSyncStore.js';
 import { useAuthStore }  from '../../stores/useAuthStore.js';
 import { submitTransaction } from '../../api/pos.js';
 import * as posApi from '../../api/pos.js';
+import { useConfirm } from '../../hooks/useConfirmDialog.jsx';
 import { fmt$, fmtDate, fmtTime, fmtTxNumber } from '../../utils/formatters.js';
 import { getSmartCashPresets, applyRounding } from '../../utils/cashPresets.js';
 import { describeDejavooError } from '../../utils/dejavooErrorCodes.js';
@@ -87,6 +88,7 @@ export default function TenderModal({
   bagPrice       = 0,
   shiftId        = null,   // active Shift.id — attached to the saved transaction
 }) {
+  const confirm = useConfirm();
   const { items, clearCart, customer, loyaltyRedemption, orderDiscount, couponRedemptions } = useCartStore();
 
   // Single source of truth for cart-level discount math (customer standing %
@@ -583,7 +585,12 @@ export default function TenderModal({
     if (!line) return;
     // If this split charged the terminal, void it there too
     if (line.paymentTransactionId && USES_TERMINAL.includes(line.method)) {
-      if (!window.confirm(`Void the ${fmt$(line.amount)} ${line.method.toUpperCase()} charge on the terminal?`)) return;
+      if (!await confirm({
+        title: `Void ${line.method.toUpperCase()} charge?`,
+        message: `Void the ${fmt$(line.amount)} charge on the terminal. This reverses the transaction at the processor and cannot be undone.`,
+        confirmLabel: 'Void',
+        danger: true,
+      })) return;
       try {
         await posApi.dejavooVoid({
           stationId: station?.id,
