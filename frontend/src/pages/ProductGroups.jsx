@@ -16,6 +16,7 @@ import {
   listProductGroups, createProductGroup, updateProductGroup, deleteProductGroup,
   applyGroupTemplate, getCatalogDepartments, getCatalogVendors,
 } from '../services/api';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/portal.css';
 import './ProductGroups.css';
 
@@ -381,6 +382,7 @@ function DetailField({ label, value, mono }) {
 }
 
 export default function ProductGroups() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [groups,      setGroups]      = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -440,7 +442,12 @@ export default function ProductGroups() {
   };
 
   const handleDelete = async (g) => {
-    if (!window.confirm(`Delete group "${g.name}"? Member products will be unlinked but NOT deleted.`)) return;
+    if (!await confirm({
+      title: `Delete group "${g.name}"?`,
+      message: 'Member products will be unlinked but NOT deleted. Their existing classification + pricing fields are kept.',
+      confirmLabel: 'Delete group',
+      danger: true,
+    })) return;
     try {
       await deleteProductGroup(g.id);
       toast.success('Group deleted');
@@ -451,7 +458,12 @@ export default function ProductGroups() {
   };
 
   const handleApply = async (g) => {
-    if (!window.confirm(`Apply template from "${g.name}" to all ${g._count?.products || 0} member products? This will overwrite their current classification and pricing fields.`)) return;
+    if (!await confirm({
+      title: `Apply template from "${g.name}"?`,
+      message: `This will overwrite the current classification and pricing fields on all ${g._count?.products || 0} member products.`,
+      confirmLabel: 'Apply template',
+      danger: true,
+    })) return;
     setApplying(g.id);
     try {
       const res = await applyGroupTemplate(g.id);

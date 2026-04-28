@@ -18,6 +18,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import PriceInput from '../PriceInput';
+import { useConfirm } from '../../hooks/useConfirmDialog.jsx';
 import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
@@ -134,6 +135,7 @@ const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptManager({ departments, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(departments);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -165,7 +167,12 @@ function DeptManager({ departments, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete department?')) return;
+    if (!await confirm({
+      title: 'Delete department?',
+      message: 'This cannot be undone. Products tied to this department keep their existing assignment.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogDepartment(id);
       setList(l => l.filter(d => d.id !== id));
@@ -272,6 +279,7 @@ const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim()
 const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
 
 function VendorManager({ vendors, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(vendors);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -313,7 +321,12 @@ function VendorManager({ vendors, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete vendor?')) return;
+    if (!await confirm({
+      title: 'Delete vendor?',
+      message: 'This cannot be undone. Products tied to this vendor keep their existing assignment.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogVendor(id);
       setList(l => l.filter(v => v.id!==id));
@@ -654,6 +667,7 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
  *   onSaved    — optional callback with the saved product (for parent refresh)
  */
 export default function ProductFormModal({ productId, scannedUpc, onClose, onSaved }) {
+  const confirm = useConfirm();
   const id = productId;
   // Router hooks replaced with a navigate() stub that resolves to onClose()
   // for every /portal/catalog* destination (which = "leave the form").
@@ -1360,9 +1374,15 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
   };
 
   // Guarded cancel — ask before discarding unsaved edits.
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (dirty) {
-      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'Your edits will be lost.',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true,
+      });
       if (!ok) return;
     }
     onClose?.();

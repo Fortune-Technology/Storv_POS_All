@@ -31,6 +31,8 @@ import TankVisualizer from '../components/fuel/TankVisualizer';
 import FuelPumpIcon from '../components/fuel/FuelPumpIcon';
 import ModuleDisabled from '../components/ModuleDisabled';
 import { useStoreModules } from '../hooks/useStoreModules';
+import { MoneyInput, FuelInput, CountInput } from '../components/NumericInputs';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './Fuel.css';
 
 const fmtMoney = (n) => n == null ? '—' : `$${Number(n).toFixed(2)}`;
@@ -206,6 +208,7 @@ function StatCard({ label, value, color }) {
 // TYPES (CRUD)
 // ═══════════════════════════════════════════════════════════════════════════
 function TypesTab({ storeId, setErr }) {
+  const confirm = useConfirm();
   const [types, setTypes]     = useState([]);
   const [editing, setEditing] = useState(null);   // FuelType being edited / 'new'
   const [loading, setLoad]    = useState(false);
@@ -221,7 +224,12 @@ function TypesTab({ storeId, setErr }) {
   useEffect(() => { load(); }, [load]);
 
   const handleDelete = async (t) => {
-    if (!window.confirm(`Delete fuel type "${t.name}"?`)) return;
+    if (!await confirm({
+      title: `Delete fuel type "${t.name}"?`,
+      message: 'This cannot be undone. Past fuel sales linked to this type will keep their snapshot data.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteFuelType(t.id);
       load();
@@ -346,13 +354,10 @@ function FuelTypeModal({ type, onClose, onSaved, setErr }) {
           </div>
           <div className="fuel-field">
             <label>Price per Gallon * (3 decimal places, e.g. 3.999)</label>
-            <input
+            <FuelInput
               className="fuel-input"
-              type="number"
-              step="0.001"
-              min="0"
               value={form.pricePerGallon}
-              onChange={e => set('pricePerGallon', e.target.value)}
+              onChange={(v) => set('pricePerGallon', v)}
               placeholder="3.999"
             />
           </div>
@@ -382,13 +387,11 @@ function FuelTypeModal({ type, onClose, onSaved, setErr }) {
               Taxable
             </label>
             {form.isTaxable && (
-              <input
+              <MoneyInput
                 className="fuel-input fuel-input-narrow"
-                type="number"
-                step="0.0001"
-                min="0"
+                maxDecimals={4}
                 value={form.taxRate}
-                onChange={e => set('taxRate', e.target.value)}
+                onChange={(v) => set('taxRate', v)}
                 placeholder="0.0825"
                 title="Tax rate (e.g. 0.0825 = 8.25%)"
               />
@@ -711,25 +714,21 @@ function SettingsTab({ storeId, setErr }) {
             </div>
             <div className="fuel-field">
               <label>Variance Alert Threshold (%)</label>
-              <input
-                type="number"
-                min={0}
-                step={0.1}
+              <MoneyInput
                 className="fuel-input"
                 value={settings.varianceAlertThreshold ?? 2}
-                onChange={e => set('varianceAlertThreshold', e.target.value)}
+                onChange={(v) => set('varianceAlertThreshold', v)}
+                maxValue={100}
               />
               <div className="fuel-field-help">Readings whose variance exceeds this % flag an alert on the Reconciliation tab.</div>
             </div>
             <div className="fuel-field">
               <label>Delivery Cost Variance Alert (%)</label>
-              <input
-                type="number"
-                min={0}
-                step={0.1}
+              <MoneyInput
                 className="fuel-input"
                 value={settings.deliveryCostVarianceThreshold ?? 5}
-                onChange={e => set('deliveryCostVarianceThreshold', e.target.value)}
+                onChange={(v) => set('deliveryCostVarianceThreshold', v)}
+                maxValue={100}
               />
               <div className="fuel-field-help">
                 A new delivery whose $/gal is above the last-3-delivery average by more than this % triggers a warning on save.
@@ -770,6 +769,7 @@ function SettingsTab({ storeId, setErr }) {
 
 // ─── Blend config panel — rendered inline inside Settings when enabled ─────
 function BlendConfigPanel({ storeId, types, setErr }) {
+  const confirm = useConfirm();
   const [blends, setBlends]   = useState([]);
   const [adding, setAdding]   = useState(false);
 
@@ -799,7 +799,12 @@ function BlendConfigPanel({ storeId, types, setErr }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this blend mapping?')) return;
+    if (!await confirm({
+      title: 'Delete blend mapping?',
+      message: 'The middle grade will fall back to its own tank (or fail to dispense if no tank is configured).',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteBlendConfig(id);
       load();
@@ -894,7 +899,7 @@ function BlendForm({ types, existing, onSave, onCancel }) {
           </div>
           <div className="fuel-form-row">
             <label>Base Ratio <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(0 to 1 — the rest is premium)</span></label>
-            <input type="number" min={0} max={1} step={0.01} value={form.baseRatio} onChange={e => set('baseRatio', e.target.value)} />
+            <MoneyInput value={form.baseRatio} onChange={(v) => set('baseRatio', v)} maxValue={1} placeholder="0.67" />
             <div className="fuel-field-help">
               Example: 0.67 → 67% base + 33% premium. Typical 87+93 blend for 89 grade uses 0.67.
             </div>
@@ -931,6 +936,7 @@ function ToggleSwitch({ on, onChange }) {
 // TANKS TAB — list of tanks per grade with the horizontal-cylinder viz
 // ═══════════════════════════════════════════════════════════════════════════
 function TanksTab({ storeId, setErr }) {
+  const confirm = useConfirm();
   const [tanks, setTanks]     = useState([]);
   const [types, setTypes]     = useState([]);
   const [groups, setGroups]   = useState([]);
@@ -963,7 +969,12 @@ function TanksTab({ storeId, setErr }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this tank? (Soft delete — historical data preserved.)')) return;
+    if (!await confirm({
+      title: 'Delete tank?',
+      message: 'Soft delete — historical sales + delivery records are preserved. The tank will no longer appear on dispenser lookup or in the active inventory list.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteFuelTank(id);
       load();
@@ -1100,16 +1111,16 @@ function TankForm({ tank, types, groups, onSave, onCancel }) {
           </div>
           <div className="fuel-form-row">
             <label>Capacity (gallons)</label>
-            <input type="number" min={1} step={1} value={form.capacityGal} onChange={e => set('capacityGal', e.target.value)} />
+            <CountInput min={1} value={form.capacityGal} onChange={(v) => set('capacityGal', v)} />
           </div>
           <div className="fuel-form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label>Diameter (inches)</label>
-              <input type="number" min={1} step={1} value={form.diameterInches} onChange={e => set('diameterInches', e.target.value)} />
+              <CountInput min={1} value={form.diameterInches} onChange={(v) => set('diameterInches', v)} />
             </div>
             <div>
               <label>Length (inches)</label>
-              <input type="number" min={1} step={1} value={form.lengthInches} onChange={e => set('lengthInches', e.target.value)} />
+              <CountInput min={1} value={form.lengthInches} onChange={(v) => set('lengthInches', v)} />
             </div>
           </div>
           <div className="fuel-form-row">
@@ -1161,6 +1172,7 @@ function TankForm({ tank, types, groups, onSave, onCancel }) {
 // DELIVERIES TAB — record BOL with per-tank split; show history + FIFO layers
 // ═══════════════════════════════════════════════════════════════════════════
 function DeliveriesTab({ storeId, setErr }) {
+  const confirm = useConfirm();
   const [deliveries, setDeliveries] = useState([]);
   const [tanks, setTanks]           = useState([]);
   const [adding, setAdding]         = useState(false);
@@ -1197,7 +1209,12 @@ function DeliveriesTab({ storeId, setErr }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this delivery? Only allowed if no fuel from it has been sold.')) return;
+    if (!await confirm({
+      title: 'Delete this delivery?',
+      message: 'Only allowed if no fuel from this BOL has been sold yet. The delivery and its FIFO cost layers will be removed.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteFuelDelivery(id);
       load();
@@ -1364,8 +1381,8 @@ function DeliveryForm({ tanks, onSave, onCancel }) {
               <select value={row.tankId} onChange={e => updateRow(idx, { tankId: e.target.value })}>
                 {tanks.map(t => <option key={t.id} value={t.id}>{t.name} ({t.capacityGal} gal)</option>)}
               </select>
-              <input type="number" min={0} step={0.1} placeholder="Gallons" value={row.gallonsReceived} onChange={e => updateRow(idx, { gallonsReceived: e.target.value })} />
-              <input type="number" min={0} step={0.001} placeholder="$/gal" value={row.pricePerGallon} onChange={e => updateRow(idx, { pricePerGallon: e.target.value })} />
+              <FuelInput placeholder="Gallons" value={row.gallonsReceived} onChange={(v) => updateRow(idx, { gallonsReceived: v })} />
+              <FuelInput placeholder="$/gal" value={row.pricePerGallon} onChange={(v) => updateRow(idx, { pricePerGallon: v })} />
               <button className="fuel-btn fuel-btn-ghost" onClick={() => removeRow(idx)} disabled={items.length === 1} title="Remove">
                 <X size={12} />
               </button>
@@ -1420,6 +1437,7 @@ function DeliveryForm({ tanks, onSave, onCancel }) {
 // RECONCILIATION TAB — stick-reading entry + variance report
 // ═══════════════════════════════════════════════════════════════════════════
 function ReconcileTab({ storeId, setErr }) {
+  const confirm = useConfirm();
   const [readings, setReadings] = useState([]);
   const [tanks, setTanks]       = useState([]);
   const [status, setStatus]     = useState(null);
@@ -1451,7 +1469,12 @@ function ReconcileTab({ storeId, setErr }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this stick reading?')) return;
+    if (!await confirm({
+      title: 'Delete stick reading?',
+      message: 'The variance entry for this measurement will be removed from the reconciliation history.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteStickReading(id);
       load();
@@ -1589,7 +1612,7 @@ function StickReadingForm({ tanks, onSave, onCancel }) {
           </div>
           <div className="fuel-form-row">
             <label>Actual Gallons (measured)</label>
-            <input type="number" min={0} step={0.1} value={actualGallons} onChange={e => setActual(e.target.value)} placeholder="e.g. 8240.5" />
+            <FuelInput value={actualGallons} onChange={(v) => setActual(v)} placeholder="e.g. 8240.500" />
           </div>
           {selected && (
             <div className="fuel-reconcile-info" style={{ marginBottom: 0 }}>
@@ -1627,6 +1650,7 @@ function StickReadingForm({ tanks, onSave, onCancel }) {
 // PUMPS TAB (V1.5)
 // ═══════════════════════════════════════════════════════════════════════════
 function PumpsTab({ storeId, setErr }) {
+  const confirm = useConfirm();
   const [pumps, setPumps]         = useState([]);
   const [types, setTypes]         = useState([]);
   const [tanks, setTanks]         = useState([]);
@@ -1661,7 +1685,12 @@ function PumpsTab({ storeId, setErr }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this pump? Historical sales keep their pump attribution.')) return;
+    if (!await confirm({
+      title: 'Delete pump?',
+      message: 'Historical sales keep their pump attribution. The pump will be removed from the cashier picker.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try { await deleteFuelPump(id); load(); }
     catch (e) { setErr(e.response?.data?.error || e.message); }
   };
@@ -1771,11 +1800,10 @@ function PumpForm({ pump, types, tanks, onSave, onCancel }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
             <div className="fuel-form-row">
               <label>Pump #</label>
-              <input
-                type="number"
+              <CountInput
                 min={1}
                 value={form.pumpNumber}
-                onChange={e => set('pumpNumber', e.target.value)}
+                onChange={(v) => set('pumpNumber', v)}
                 placeholder="1"
               />
             </div>

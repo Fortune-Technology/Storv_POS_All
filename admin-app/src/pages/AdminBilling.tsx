@@ -8,6 +8,9 @@
  */
 
 import { useState, useEffect, useCallback, FormEvent, ReactNode } from 'react';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Plus, Edit3, Trash2, RefreshCw, Loader, Save, X,
   ChevronLeft, ChevronRight, Package, FileText,
@@ -115,6 +118,7 @@ const EMPTY_PLAN: PlanForm = { name:'', slug:'', description:'', basePrice:'', p
 const toSlug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 function PlansTab() {
+  const confirm = useConfirm();
   const [plans,    setPlans]    = useState<Plan[]>([]);
   const [addons,   setAddons]   = useState<Addon[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -175,7 +179,12 @@ function PlansTab() {
   };
 
   const handleDeletePlan = async (plan: Plan) => {
-    if (!window.confirm(`Delete plan "${plan.name}"?`)) return;
+    if (!await confirm({
+      title: 'Delete plan?',
+      message: `Delete plan "${plan.name}"?`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await adminDeletePlan(plan.id);
       toast.success('Plan deleted');
@@ -600,6 +609,7 @@ interface InvoiceFilters {
 }
 
 function InvoicesTab() {
+  const confirm = useConfirm();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [total,    setTotal]    = useState(0);
   const [orgs,     setOrgs]     = useState<InvoiceOrg[]>([]);
@@ -626,7 +636,12 @@ function InvoicesTab() {
   useEffect(() => { load(); }, [load]);
 
   const handleWriteOff = async (id: string | number) => {
-    if (!window.confirm('Write off this invoice?')) return;
+    if (!await confirm({
+      title: 'Write off invoice?',
+      message: 'Write off this invoice?',
+      confirmLabel: 'Write Off',
+      danger: true,
+    })) return;
     try { await adminWriteOffInvoice(id); toast.success('Invoice written off'); load(); }
     catch { toast.error('Failed'); }
   };

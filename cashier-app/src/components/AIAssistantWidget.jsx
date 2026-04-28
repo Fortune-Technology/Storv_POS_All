@@ -100,6 +100,19 @@ export default function AIAssistantWidget() {
     };
   }, []);
 
+  // External trigger — StatusBar dispatches `cashier-ai-toggle` from a flex
+  // button beside Sign Out so the trigger lives in the same row, not as a
+  // floating FAB that overlapped the Sign Out button at narrow widths.
+  // Detail-less event toggles the panel; `{ open: true|false }` forces state.
+  useEffect(() => {
+    const handler = (e) => {
+      const wanted = e?.detail?.open;
+      setOpen((prev) => (typeof wanted === 'boolean' ? wanted : !prev));
+    };
+    window.addEventListener('cashier-ai-toggle', handler);
+    return () => window.removeEventListener('cashier-ai-toggle', handler);
+  }, []);
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, sending]);
@@ -246,20 +259,12 @@ export default function AIAssistantWidget() {
   // Hide entirely if no cashier is signed in.
   if (!user?.token) return null;
 
+  // Trigger button now lives inside StatusBar — beside Sign Out — and
+  // dispatches `cashier-ai-toggle` (handled in the effect above). The
+  // floating FAB has been removed to avoid overlapping the Sign Out
+  // button on the top status row.
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          className="aiw-fab"
-          onClick={() => setOpen(true)}
-          aria-label="Open AI Assistant"
-          title="Help"
-        >
-          <Sparkles size={18} />
-        </button>
-      )}
-
       {open && (
         <div className="aiw-panel" role="dialog" aria-label="AI Assistant">
           <div className="aiw-header">

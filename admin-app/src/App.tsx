@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 
 // Layout
 import AdminLayout from './components/AdminLayout';
@@ -49,7 +50,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
 function App() {
   return (
-    <>
+    <ConfirmDialogProvider>
       <ToastContainer theme="dark" position="top-right" />
       <Routes>
         {/* Public */}
@@ -87,7 +88,7 @@ function App() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
-    </>
+    </ConfirmDialogProvider>
   );
 }
 

@@ -6,11 +6,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings2, Plus, Trash2, Save, Check, ChevronDown, Ticket, Fuel, MapPin, Wand2 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   getStores, getPOSConfig, updatePOSConfig, getFuelSettings, updateFuelSettings,
   listStatesPublic, setStoreStateCode, applyStoreStateDefaults,
   getLotterySettings, updateLotterySettings,
 } from '../services/api.js';
+import { MoneyInput, CountInput } from '../components/NumericInputs';
 
 import './StoreSettings.css';
 
@@ -23,6 +25,7 @@ const DEFAULT_TENDER_METHODS = [
 ];
 
 export default function StoreSettings({ embedded }) {
+  const confirm = useConfirm();
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const [stores,      setStores]      = useState([]);
   const [storeId,     setStoreId]     = useState(localStorage.getItem('activeStoreId') || '');
@@ -133,11 +136,14 @@ export default function StoreSettings({ embedded }) {
 
   const applyDefaults = async () => {
     if (!storeId || !stateCode) return;
-    if (!window.confirm(
-      `Apply ${states.find(s => s.code === stateCode)?.name || stateCode} defaults to this store? ` +
-      `This will overwrite the Default Sales Tax rule, bottle-deposit rules for this state, ` +
-      `lottery settings (state + commission), and tobacco/alcohol age limits.`
-    )) return;
+    if (!await confirm({
+      title: 'Apply state defaults?',
+      message: `Apply ${states.find(s => s.code === stateCode)?.name || stateCode} defaults to this store? ` +
+        `This will overwrite the Default Sales Tax rule, bottle-deposit rules for this state, ` +
+        `lottery settings (state + commission), and tobacco/alcohol age limits.`,
+      confirmLabel: 'Apply Defaults',
+      danger: true,
+    })) return;
     setApplying(true);
     try {
       const res = await applyStoreStateDefaults(storeId);
@@ -530,7 +536,7 @@ export default function StoreSettings({ embedded }) {
                     </div>
                     <div>
                       <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>Default Tare Weight</label>
-                      <input className="ss-add-input" style={{ width: '100%' }} type="number" step="0.01" value={groceryConfig.tareWeightDefault} onChange={e => setGC('tareWeightDefault', e.target.value)} placeholder="0.00" />
+                      <MoneyInput className="ss-add-input" style={{ width: '100%' }} value={groceryConfig.tareWeightDefault} onChange={(v) => setGC('tareWeightDefault', v)} placeholder="0.00" />
                     </div>
                   </div>
 
@@ -614,12 +620,11 @@ export default function StoreSettings({ embedded }) {
                   <span>Minimum Age</span>
                 </div>
                 <div className="ss-age-input-wrap">
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
+                  <CountInput
+                    min={0}
+                    max={99}
                     value={ageLimits.tobacco}
-                    onChange={e => setAge('tobacco', e.target.value)}
+                    onChange={(v) => setAge('tobacco', v)}
                     className="ss-age-input"
                   />
                   <span className="ss-age-suffix">+</span>
@@ -633,12 +638,11 @@ export default function StoreSettings({ embedded }) {
                   <span>Minimum Age</span>
                 </div>
                 <div className="ss-age-input-wrap">
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
+                  <CountInput
+                    min={0}
+                    max={99}
                     value={ageLimits.alcohol}
-                    onChange={e => setAge('alcohol', e.target.value)}
+                    onChange={(v) => setAge('alcohol', v)}
                     className="ss-age-input"
                   />
                   <span className="ss-age-suffix">+</span>

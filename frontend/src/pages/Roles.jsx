@@ -4,6 +4,7 @@ import {
   RefreshCw, Check, Square, CheckSquare, Users, Loader,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import {
   getPermissions, listRoles, createRole, updateRole, deleteRole,
@@ -14,6 +15,7 @@ import './Roles.css';
 const EMPTY_FORM = { key: '', name: '', description: '', status: 'active', permissions: [] };
 
 export default function Roles() {
+  const confirm = useConfirm();
   const [roles, setRoles] = useState([]);
   const [permsGrouped, setPermsGrouped] = useState({});
   const [loading, setLoading] = useState(true);
@@ -113,7 +115,12 @@ export default function Roles() {
   const handleDelete = async (role) => {
     if (role.isSystem) return toast.error('System roles cannot be deleted');
     if (role.userCount > 0) return toast.error(`Role is assigned to ${role.userCount} user(s) — unassign first`);
-    if (!window.confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: 'Delete role?',
+      message: `Delete role "${role.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteRole(role.id);
       toast.success('Role deleted');

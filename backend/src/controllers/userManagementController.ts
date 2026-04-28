@@ -11,6 +11,7 @@ import prisma from '../config/postgres.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { validatePassword, validatePhone } from '../utils/validators.js';
 import { errMsg } from '../utils/typeHelpers.js';
+import { logAudit } from '../services/auditService.js';
 
 // Role keys that cannot be assigned via Invite / Role-change UI.
 // Owner is set only on org creation; superadmin is platform-level.
@@ -215,6 +216,14 @@ export const inviteUser = async (req: Request, res: Response, next: NextFunction
       console.warn('syncUserDefaultRole:', errMsg(e)),
     );
 
+    logAudit(req, 'create', 'user', user.id, {
+      name:     user.name,
+      email:    user.email,
+      role:     user.role,
+      storeIds: storeList,
+      invited:  true,
+    });
+
     const responseBody: { user: Record<string, unknown>; tempPassword?: string } = {
       user: {
         id:        user.id,
@@ -307,6 +316,24 @@ export const updateUserRole = async (req: Request, res: Response, next: NextFunc
       );
     }
 
+    // Build a field-level diff so the audit log shows exactly what shifted —
+    // role change, store-list change, or both. Skip the audit row when the
+    // request was effectively a no-op (caller hit save with no changes).
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+    if (role && role !== target.role) {
+      changes.role = { before: target.role, after: role };
+    }
+    if (storeList !== undefined) {
+      changes.storeIds = { before: '[updated]', after: storeList };
+    }
+    if (Object.keys(changes).length > 0) {
+      logAudit(req, 'update', 'user', updated.id, {
+        name: updated.name,
+        email: updated.email,
+        changes,
+      });
+    }
+
     res.json({
       ...updated,
       _id: updated.id,
@@ -356,6 +383,11 @@ export const removeUser = async (req: Request, res: Response, next: NextFunction
       await prisma.userStore.deleteMany({
         where: { userId: req.params.id, store: { orgId: req.orgId } },
       });
+      logAudit(req, 'delete', 'user', legacy.id, {
+        name: legacy.name,
+        legacy: true,
+        reason: 'removed_from_org',
+      });
       res.json({ message: `${legacy.name} has been removed from the organisation.` });
       return;
     }
@@ -374,6 +406,12 @@ export const removeUser = async (req: Request, res: Response, next: NextFunction
         where: { userId: req.params.id, store: { orgId: req.orgId } },
       }),
     ]);
+
+    logAudit(req, 'delete', 'user', req.params.id, {
+      name: membership.user.name,
+      role: membership.role,
+      reason: 'removed_from_org',
+    });
 
     res.json({ message: `${membership.user.name} has been removed from the organisation.` });
   } catch (err) {
@@ -489,11 +527,32 @@ export const updateMe = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
+    // Capture the before-state for the audit diff before we mutate.
+    const before = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { name: true, phone: true },
+    });
+
     const updated = await prisma.user.update({
       where: { id: req.user.id },
       data: patch,
       select: { id: true, name: true, email: true, phone: true, role: true, orgId: true },
     });
+
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+    for (const k of Object.keys(patch)) {
+      const b = (before as Record<string, unknown> | null)?.[k];
+      const a = patch[k];
+      if (String(b ?? '') !== String(a ?? '')) changes[k] = { before: b ?? null, after: a ?? null };
+    }
+    if (Object.keys(changes).length > 0) {
+      logAudit(req, 'update', 'user_profile', updated.id, {
+        email: updated.email,
+        self: true,
+        changes,
+      });
+    }
+
     res.json(updated);
   } catch (err) {
     next(err);
@@ -547,6 +606,9 @@ export const changeMyPassword = async (req: Request, res: Response, next: NextFu
 
     const newHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id: user.id }, data: { password: newHash } });
+
+    // Security event — never log the password value, just that it rotated.
+    logAudit(req, 'password_change', 'user', user.id, { self: true });
 
     res.json({ success: true, message: 'Password updated.' });
   } catch (err) {

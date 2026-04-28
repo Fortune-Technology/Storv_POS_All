@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import {
   getCatalogProducts, searchCatalogProducts,
@@ -123,6 +124,7 @@ const DEFAULT_VISIBLE_COLS = CATALOG_COLUMNS.filter(c => c.defaultOn).map(c => c
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ProductCatalog() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const setup    = useSetupStatus();
   const { can } = usePermissions();
@@ -386,7 +388,12 @@ export default function ProductCatalog() {
   }, [q, page, filters, activeStoreId, sort.sortKey, sort.sortDir]);
 
   const handleDelete = async (product) => {
-    if (!window.confirm(`Delete "${product.name}"?`)) return;
+    if (!await confirm({
+      title: 'Delete product?',
+      message: `Delete "${product.name}"?`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogProduct(product.id);
       setProducts(ps => ps.filter(p => p.id !== product.id));

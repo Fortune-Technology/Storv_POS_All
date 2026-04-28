@@ -36,6 +36,9 @@ import {
   getAdminOrganizations,
   getAdminStores,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminMerchants.css';
 
 type MerchantStatus = 'active' | 'pending' | 'disabled';
@@ -233,6 +236,7 @@ function StatusPill({ status }: StatusPillProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminMerchants() {
+  const confirm = useConfirm();
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [orgs, setOrgs]       = useState<Organization[]>([]);
   const [stores, setStores]   = useState<AdminStore[]>([]);
@@ -352,12 +356,15 @@ export default function AdminMerchants() {
     const isFirstTime = !form.hppWebhookSecretSet;
     const verb = isFirstTime ? 'generate' : 'regenerate';
     if (!isFirstTime) {
-      const ok = window.confirm(
-        'Regenerate the HPP webhook secret?\n\n' +
-        'The OLD URL will stop working immediately. iPOSpays will fail to deliver ' +
-        'callbacks until you paste the new URL into the merchant settings there.\n\n' +
-        'Only do this if you suspect the secret was leaked or want to rotate it.'
-      );
+      const ok = await confirm({
+        title: 'Regenerate webhook secret?',
+        message: 'Regenerate the HPP webhook secret?\n\n' +
+          'The OLD URL will stop working immediately. iPOSpays will fail to deliver ' +
+          'callbacks until you paste the new URL into the merchant settings there.\n\n' +
+          'Only do this if you suspect the secret was leaked or want to rotate it.',
+        confirmLabel: 'Regenerate',
+        danger: true,
+      });
       if (!ok) return;
     }
     setRegenerating(true);
@@ -408,7 +415,12 @@ export default function AdminMerchants() {
   };
 
   const handleDelete = async (merchant: Merchant) => {
-    if (!window.confirm(`Delete payment merchant for "${merchant.storeName}"?\n\nThis cannot be undone and will also remove all linked terminals.`)) return;
+    if (!await confirm({
+      title: 'Delete payment merchant?',
+      message: `Delete payment merchant for "${merchant.storeName}"?\n\nThis cannot be undone and will also remove all linked terminals.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deletePaymentMerchant(merchant.id);
       toast.success('Merchant deleted');
@@ -438,7 +450,11 @@ export default function AdminMerchants() {
       toast.warn('Test the terminal successfully within the last 24 hours before activating.');
       return;
     }
-    if (!window.confirm(`Activate payment processing for "${merchant.storeName}"?\n\nThe POS will immediately start accepting real card payments.`)) return;
+    if (!await confirm({
+      title: 'Activate payment processing?',
+      message: `Activate payment processing for "${merchant.storeName}"?\n\nThe POS will immediately start accepting real card payments.`,
+      confirmLabel: 'Activate',
+    })) return;
     try {
       await activatePaymentMerchant(merchant.id);
       toast.success('Merchant activated');
@@ -565,7 +581,12 @@ export default function AdminMerchants() {
   };
 
   const removeTerminal = async (t: Terminal) => {
-    if (!window.confirm(`Remove terminal "${t.nickname || t.deviceSerialNumber || t.id}"?`)) return;
+    if (!await confirm({
+      title: 'Remove terminal?',
+      message: `Remove terminal "${t.nickname || t.deviceSerialNumber || t.id}"?`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     try {
       await deletePaymentTerminal(t.id);
       toast.success('Terminal removed');

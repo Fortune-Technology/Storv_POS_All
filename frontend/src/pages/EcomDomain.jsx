@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './EcomDomain.css';
 
 const API = '/api/ecom';
@@ -24,6 +25,7 @@ async function api(method, path, body) {
 }
 
 export default function EcomDomain({ embedded }) {
+  const confirm = useConfirm();
   const [domain, setDomain] = useState(null);
   const [newDomain, setNewDomain] = useState('');
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,12 @@ export default function EcomDomain({ embedded }) {
   };
 
   const handleRemove = async () => {
-    if (!window.confirm('Remove custom domain? Your store will only be accessible via the default URL.')) return;
+    if (!await confirm({
+      title: 'Remove custom domain?',
+      message: 'Your store will only be accessible via the default URL until you connect a new domain.',
+      confirmLabel: 'Remove domain',
+      danger: true,
+    })) return;
     try {
       await api('DELETE', '/manage/domain');
       setDomain(prev => ({ ...prev, customDomain: null, domainVerified: false, sslStatus: 'pending' }));

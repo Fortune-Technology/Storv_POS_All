@@ -5,6 +5,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import EcomOrderNotifier from './components/EcomOrderNotifier';
 import ExchangeNotifier from './components/ExchangeNotifier';
 import InactivityLock from './components/InactivityLock';
+import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 
 // Marketing Pages
 import Home from './pages/marketing/Home';
@@ -178,6 +179,7 @@ function App() {
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ScrollToTop />
       <StoreProvider>
+      <ConfirmDialogProvider>
       <ToastContainer theme="dark" position="top-right" />
       <EcomOrderNotifier />
       <ExchangeNotifier />
@@ -357,6 +359,7 @@ function App() {
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      </ConfirmDialogProvider>
       </StoreProvider>
     </Router>
   );

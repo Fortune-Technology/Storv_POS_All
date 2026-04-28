@@ -14,6 +14,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
 import PriceInput from '../components/PriceInput';
@@ -117,6 +118,7 @@ const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptManager({ departments, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(departments);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -148,7 +150,12 @@ function DeptManager({ departments, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete this department?')) return;
+    if (!await confirm({
+      title: 'Delete department?',
+      message: 'Delete this department?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogDepartment(id);
       setList(l => l.filter(d => d.id !== id));
@@ -159,11 +166,14 @@ function DeptManager({ departments, onClose, onRefresh }) {
       // Offer the user an explicit opt-in cascade rather than silently
       // detaching (or leaving stranded assignments that blank out on edit).
       if (resp?.code === 'IN_USE') {
-        const confirmForce = window.confirm(
-          `${resp.error}\n\n` +
-          `Click OK to clear the department on ${resp.usageCount} product(s) and deactivate the department.\n` +
-          `Click Cancel to leave everything as-is and reassign the products first.`
-        );
+        const confirmForce = await confirm({
+          title: 'Department in use',
+          message: `${resp.error}\n\n` +
+            `Click OK to clear the department on ${resp.usageCount} product(s) and deactivate the department.\n` +
+            `Click Cancel to leave everything as-is and reassign the products first.`,
+          confirmLabel: 'Clear & Deactivate',
+          danger: true,
+        });
         if (confirmForce) {
           try {
             const r = await deleteCatalogDepartment(id, { force: true });
@@ -279,6 +289,7 @@ const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim()
 const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
 
 function VendorManager({ vendors, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(vendors);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -345,7 +356,12 @@ function VendorManager({ vendors, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete this vendor?')) return;
+    if (!await confirm({
+      title: 'Delete vendor?',
+      message: 'Delete this vendor?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogVendor(id);
       setList(l => l.filter(v => v.id!==id));
@@ -354,11 +370,14 @@ function VendorManager({ vendors, onClose, onRefresh }) {
       const resp = e.response?.data;
       // Backend returns 409 IN_USE when products still reference this vendor.
       if (resp?.code === 'IN_USE') {
-        const confirmForce = window.confirm(
-          `${resp.error}\n\n` +
-          `Click OK to clear the vendor on ${resp.usageCount} product(s) and deactivate the vendor.\n` +
-          `Click Cancel to leave everything as-is and reassign the products first.`
-        );
+        const confirmForce = await confirm({
+          title: 'Vendor in use',
+          message: `${resp.error}\n\n` +
+            `Click OK to clear the vendor on ${resp.usageCount} product(s) and deactivate the vendor.\n` +
+            `Click Cancel to leave everything as-is and reassign the products first.`,
+          confirmLabel: 'Clear & Deactivate',
+          danger: true,
+        });
         if (confirmForce) {
           try {
             const r = await deleteCatalogVendor(id, { force: true });
@@ -720,6 +739,7 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
 
 
 export default function ProductForm() {
+  const confirm = useConfirm();
   const { id }    = useParams();
   const navigate  = useNavigate();
   const isEdit    = Boolean(id);
@@ -1290,7 +1310,12 @@ export default function ProductForm() {
   };
 
   const handleDeleteVendorMapping = async (mapId) => {
-    if (!window.confirm('Remove this vendor mapping? The product\'s other vendor mappings (if any) stay intact.')) return;
+    if (!await confirm({
+      title: 'Remove vendor mapping?',
+      message: 'Remove this vendor mapping? The product\'s other vendor mappings (if any) stay intact.',
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     try {
       await deleteProductVendor(id, mapId);
       setVendorMappings(list => list.filter(m => m.id !== mapId));
@@ -1502,9 +1527,14 @@ export default function ProductForm() {
   };
 
   // Guarded cancel — ask before discarding unsaved edits.
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (dirty) {
-      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'You have unsaved changes. Discard them and leave?',
+        confirmLabel: 'Discard',
+        danger: true,
+      });
       if (!ok) return;
     }
     navigate('/portal/catalog');

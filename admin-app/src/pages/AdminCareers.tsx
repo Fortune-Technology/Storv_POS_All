@@ -5,6 +5,9 @@ import { toast } from 'react-toastify';
 
 import RichTextEditor from '../components/RichTextEditor';
 import { getAdminCareers, createAdminCareer, updateAdminCareer, deleteAdminCareer } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/admin.css';
 import './AdminCareers.css';
 
@@ -23,6 +26,7 @@ interface Career {
 type ModalState = { mode: 'create' | 'edit'; data: Career } | null;
 
 const AdminCareers = () => {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [careers, setCareers] = useState<Career[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +51,12 @@ const AdminCareers = () => {
   };
 
   const handleDelete = async (id: string | number) => {
-    if (!window.confirm('Delete this posting?')) return;
+    if (!await confirm({
+      title: 'Delete posting?',
+      message: 'Delete this posting?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try { await deleteAdminCareer(id); toast.success('Deleted'); fetchCareers(); }
     catch { toast.error('Delete failed'); }
   };

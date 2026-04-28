@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Edit, Trash2, Save, X, Settings2, Info, DollarSign } from 'lucide-react';
 import { getFeeMappings, upsertFeeMapping, deleteFeeMapping } from '../services/api';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './FeesMappings.css';
 
 const FeesMappings = () => {
+  const confirm = useConfirm();
   const [mappings, setMappings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingMapping, setEditingMapping] = useState(null);
@@ -38,7 +40,12 @@ const FeesMappings = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this mapping?')) return;
+    if (!await confirm({
+      title: 'Delete fee mapping?',
+      message: 'Are you sure you want to delete this mapping?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteFeeMapping(id);
       toast.success('Fee mapping deleted');

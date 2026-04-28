@@ -13,6 +13,8 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { sendUserApproved, sendUserRejected, sendUserSuspended } from '../services/emailService.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
+import { logAudit } from '../services/auditService.js';
+import { computeDiff, hasChanges } from '../services/auditDiff.js';
 
 // ─────────────────────────────────────────────────────────────
 // DASHBOARD
@@ -172,6 +174,7 @@ export const approveUser = async (req: Request, res: Response, next: NextFunctio
     }
 
     sendUserApproved(user.email, user.name);
+    logAudit(req, 'approve', 'user', user.id, { name: user.name, email: user.email });
     res.json({ success: true, data: user, message: 'User approved successfully' });
   } catch (error) {
     next(error);
@@ -188,6 +191,7 @@ export const suspendUser = async (req: Request, res: Response, next: NextFunctio
     });
 
     sendUserSuspended(user.email, user.name);
+    logAudit(req, 'suspend', 'user', user.id, { name: user.name, email: user.email });
     res.json({ success: true, data: user, message: 'User suspended' });
   } catch (error) {
     next(error);
@@ -212,6 +216,7 @@ export const rejectUser = async (req: Request, res: Response, next: NextFunction
     }
 
     sendUserRejected(user.email, user.name);
+    logAudit(req, 'reject', 'user', user.id, { name: user.name, email: user.email });
     res.json({ success: true, data: user, message: 'User rejected' });
   } catch (error) {
     next(error);
@@ -287,6 +292,14 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
 
     await syncUserDefaultRole(user.id).catch((err: Error) => console.warn('syncUserDefaultRole:', err.message));
 
+    logAudit(req, 'create', 'user', user.id, {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      orgId: user.orgId,
+      adminCreated: true,
+    });
+
     // Return the temp password exactly once. Admin must deliver it out-of-band.
     res.status(201).json({
       success: true,
@@ -313,6 +326,15 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
   try {
     const body = (req.body || {}) as UpdateUserBody;
     const { name, email, phone, role, status, orgId } = body;
+
+    // Snapshot before-state for the audit diff. Skip orgId on the patch
+    // object (it's wired to a relation) — we'll capture the org change
+    // separately in the diff payload.
+    const before = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { name: true, email: true, phone: true, role: true, status: true, orgId: true },
+    });
+
     const data: Prisma.UserUpdateInput = {};
     if (name !== undefined)   data.name = name;
     if (email !== undefined)  data.email = email;
@@ -344,6 +366,25 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
       await syncUserDefaultRole(user.id).catch((err: Error) => console.warn('syncUserDefaultRole:', err.message));
     }
 
+    // Build a flat patch view (the same fields the client sent) for the diff.
+    const patchView: Record<string, unknown> = {};
+    if (name   !== undefined) patchView.name   = name;
+    if (email  !== undefined) patchView.email  = email;
+    if (phone  !== undefined) patchView.phone  = phone;
+    if (role   !== undefined) patchView.role   = role;
+    if (status !== undefined) patchView.status = status;
+    if (orgId  !== undefined) patchView.orgId  = orgId;
+
+    const diff = computeDiff(before as unknown as Record<string, unknown>, patchView);
+    if (hasChanges(diff)) {
+      logAudit(req, 'update', 'user', user.id, {
+        name: user.name,
+        email: user.email,
+        adminAction: true,
+        changes: diff,
+      });
+    }
+
     res.json({ success: true, data: user });
   } catch (error) {
     const e = error as { code?: string };
@@ -359,6 +400,11 @@ export const softDeleteUser = async (req: Request, res: Response, next: NextFunc
       where: { id: req.params.id },
       data: { status: 'suspended' },
       select: { id: true, name: true, email: true, status: true },
+    });
+    logAudit(req, 'delete', 'user', user.id, {
+      name: user.name,
+      email: user.email,
+      reason: 'soft_delete_suspend',
     });
     res.json({ success: true, data: user, message: 'User suspended (soft delete)' });
   } catch (error) {
@@ -382,6 +428,15 @@ export const impersonateUser = async (req: Request, res: Response, next: NextFun
       process.env.JWT_SECRET as jwt.Secret,
       { expiresIn: '2h' } as jwt.SignOptions,
     );
+
+    // Security-sensitive event — record exactly which superadmin assumed
+    // which user's identity. Inferred actor = req.user (the superadmin).
+    logAudit(req, 'impersonate', 'user', target.id, {
+      targetName:  target.name,
+      targetEmail: target.email,
+      targetRole:  target.role,
+      targetOrgId: target.orgId,
+    });
 
     type StoreLink = { storeId: string };
     res.json({
@@ -445,6 +500,12 @@ export const updateOrganization = async (req: Request, res: Response, next: Next
   try {
     const body = (req.body || {}) as { plan?: string; maxStores?: number | string; maxUsers?: number | string; isActive?: boolean };
     const { plan, maxStores, maxUsers, isActive } = body;
+
+    const before = await prisma.organization.findUnique({
+      where: { id: req.params.id },
+      select: { plan: true, maxStores: true, maxUsers: true, isActive: true, name: true },
+    });
+
     const data: Prisma.OrganizationUpdateInput = {};
     if (plan !== undefined)      data.plan = plan;
     if (maxStores !== undefined)  data.maxStores = parseInt(String(maxStores));
@@ -458,6 +519,18 @@ export const updateOrganization = async (req: Request, res: Response, next: Next
       where: { id: req.params.id },
       data,
     });
+
+    // Build a flat patch view for the diff (skip deactivatedAt — derived).
+    const patchView: Record<string, unknown> = {};
+    if (plan !== undefined)      patchView.plan      = plan;
+    if (maxStores !== undefined) patchView.maxStores = parseInt(String(maxStores));
+    if (maxUsers !== undefined)  patchView.maxUsers  = parseInt(String(maxUsers));
+    if (isActive !== undefined)  patchView.isActive  = isActive;
+
+    const diff = computeDiff(before as unknown as Record<string, unknown>, patchView);
+    if (hasChanges(diff)) {
+      logAudit(req, 'update', 'organization', org.id, { name: org.name, changes: diff });
+    }
 
     res.json({ success: true, data: org });
   } catch (error) {
@@ -482,6 +555,12 @@ export const createOrganization = async (req: Request, res: Response, next: Next
       },
     });
 
+    logAudit(req, 'create', 'organization', org.id, {
+      name: org.name,
+      slug: org.slug,
+      plan: org.plan,
+    });
+
     res.status(201).json({ success: true, data: org });
   } catch (error) {
     const e = error as { code?: string };
@@ -496,6 +575,10 @@ export const softDeleteOrganization = async (req: Request, res: Response, next: 
     const org = await prisma.organization.update({
       where: { id: req.params.id },
       data: { isActive: false, deactivatedAt: new Date() },
+    });
+    logAudit(req, 'delete', 'organization', org.id, {
+      name: org.name,
+      reason: 'soft_delete_deactivate',
     });
     res.json({ success: true, data: org, message: 'Organization deactivated' });
   } catch (error) {
@@ -554,6 +637,13 @@ export const createStore = async (req: Request, res: Response, next: NextFunctio
       data: { name, orgId, address: address || null, stationCount: stationCount ? parseInt(String(stationCount)) : 1 },
     });
 
+    logAudit(req, 'create', 'store', store.id, {
+      name: store.name,
+      orgId: store.orgId,
+      address: store.address ?? null,
+      adminCreated: true,
+    });
+
     res.status(201).json({ success: true, data: store });
   } catch (error) {
     next(error);
@@ -565,6 +655,12 @@ export const updateStore = async (req: Request, res: Response, next: NextFunctio
   try {
     const body = (req.body || {}) as { name?: string; address?: string; stationCount?: number | string; isActive?: boolean; orgId?: string };
     const { name, address, stationCount, isActive, orgId } = body;
+
+    const before = await prisma.store.findUnique({
+      where: { id: req.params.id },
+      select: { name: true, address: true, stationCount: true, isActive: true, orgId: true },
+    });
+
     const data: Prisma.StoreUpdateInput = {};
     if (name !== undefined)         data.name = name;
     if (address !== undefined)      data.address = address;
@@ -573,6 +669,23 @@ export const updateStore = async (req: Request, res: Response, next: NextFunctio
     if (orgId !== undefined)        data.organization = { connect: { id: orgId } };
 
     const store = await prisma.store.update({ where: { id: req.params.id }, data });
+
+    const patchView: Record<string, unknown> = {};
+    if (name         !== undefined) patchView.name         = name;
+    if (address      !== undefined) patchView.address      = address;
+    if (stationCount !== undefined) patchView.stationCount = parseInt(String(stationCount));
+    if (isActive     !== undefined) patchView.isActive     = isActive;
+    if (orgId        !== undefined) patchView.orgId        = orgId;
+
+    const diff = computeDiff(before as unknown as Record<string, unknown>, patchView);
+    if (hasChanges(diff)) {
+      logAudit(req, 'update', 'store', store.id, {
+        name: store.name,
+        adminAction: true,
+        changes: diff,
+      });
+    }
+
     res.json({ success: true, data: store });
   } catch (error) {
     next(error);
@@ -585,6 +698,10 @@ export const softDeleteStore = async (req: Request, res: Response, next: NextFun
     const store = await prisma.store.update({
       where: { id: req.params.id },
       data: { isActive: false },
+    });
+    logAudit(req, 'delete', 'store', store.id, {
+      name: store.name,
+      reason: 'soft_delete_deactivate',
     });
     res.json({ success: true, data: store, message: 'Store deactivated' });
   } catch (error) {

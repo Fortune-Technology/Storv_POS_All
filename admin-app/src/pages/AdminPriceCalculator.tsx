@@ -18,6 +18,9 @@ import {
   listPriceScenarios, getPriceScenario, createPriceScenario,
   updatePriceScenario, deletePriceScenario,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminPriceCalculator.css';
 
 // ── D&A rates (fixed card-brand fees — not negotiable) ──
@@ -242,6 +245,7 @@ function TextField({ label, value, onChange, placeholder, multi }: TextFieldProp
 type Tab = 'calculator' | 'breakdown' | 'earnings' | 'compare';
 
 export default function AdminPriceCalculator() {
+  const confirm = useConfirm();
   const [scenarios,    setScenarios]    = useState<Scenario[]>([]);
   const [loadingList,  setLoadingList]  = useState(true);
   const [search,       setSearch]       = useState('');
@@ -269,8 +273,13 @@ export default function AdminPriceCalculator() {
 
   const results = useMemo<Results>(() => calcAll(form), [form]);
 
-  const handleNew = () => {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+  const handleNew = async () => {
+    if (dirty && !await confirm({
+      title: 'Discard unsaved changes?',
+      message: 'Discard unsaved changes?',
+      confirmLabel: 'Discard',
+      danger: true,
+    })) return;
     setActiveId(null);
     setForm(BLANK_INPUTS);
     setDirty(false);
@@ -278,7 +287,12 @@ export default function AdminPriceCalculator() {
   };
 
   const handleLoad = async (id: string | number) => {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    if (dirty && !await confirm({
+      title: 'Discard unsaved changes?',
+      message: 'Discard unsaved changes?',
+      confirmLabel: 'Discard',
+      danger: true,
+    })) return;
     try {
       const s = await getPriceScenario(id);
       setActiveId(s.id);
@@ -359,7 +373,12 @@ export default function AdminPriceCalculator() {
 
   const handleDelete = async () => {
     if (!activeId) return;
-    if (!window.confirm(`Delete scenario "${form.storeName}"? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: 'Delete scenario?',
+      message: `Delete scenario "${form.storeName}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deletePriceScenario(activeId);
       toast.success('Scenario deleted');

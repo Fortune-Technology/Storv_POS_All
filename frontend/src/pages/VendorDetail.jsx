@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import {
   getCatalogVendor,
@@ -640,6 +641,7 @@ function StatsTab({ vendorId }) {
 // read-only here (cashier creates them during a shift).
 
 function PayoutsCreditsTab({ vendorId, vendorName }) {
+  const confirm = useConfirm();
   const vendor = { id: vendorId, name: vendorName };
   const [payments, setPayments] = useState([]);
   const [paymentsSummary, setPaymentsSummary] = useState({ total: 0, count: 0 });
@@ -754,7 +756,12 @@ function PayoutsCreditsTab({ vendorId, vendorName }) {
               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                 <button onClick={() => { setEditingCredit(c); setShowCreditForm(true); }} style={pcIconBtnStyle} title="Edit credit"><Edit2 size={13} /></button>
                 <button onClick={async () => {
-                  if (!window.confirm(`Delete credit of ${fmt(c.amount)} from ${fmtDate(c.creditDate)}?`)) return;
+                  if (!await confirm({
+                    title: 'Delete credit?',
+                    message: `Delete credit of ${fmt(c.amount)} from ${fmtDate(c.creditDate)}?`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                  })) return;
                   try { await deleteVendorCreditEntry(c.id); toast.success('Credit removed'); load(); }
                   catch (err) { toast.error(err?.response?.data?.error || 'Delete failed'); }
                 }} style={{ ...pcIconBtnStyle, color: '#ef4444' }} title="Delete credit"><Trash2 size={13} /></button>

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './DocumentHistory.css';
 
 const DocumentHistory = ({ refresh }) => {
+    const confirm = useConfirm();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -27,7 +29,12 @@ const DocumentHistory = ({ refresh }) => {
 
     const handleDelete = async (id, e) => {
         e.stopPropagation();
-        if (!window.confirm('Are you sure?')) return;
+        if (!await confirm({
+            title: 'Delete document?',
+            message: 'Are you sure?',
+            confirmLabel: 'Delete',
+            danger: true,
+        })) return;
         try {
             await api.delete(`/document/${id}`);
             setHistory(prev => prev.filter(doc => doc.id !== id));

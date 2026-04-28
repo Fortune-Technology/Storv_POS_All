@@ -8,6 +8,9 @@ import {
   updateAdminOrganization,
   deleteAdminOrganization,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/admin.css';
 
 const toSlug = (str: string): string =>
@@ -248,6 +251,7 @@ const OrgModal = ({ open, onClose, onSaved, editOrg }: OrgModalProps) => {
 /* ─── Page ───────────────────────────────────────────────────── */
 
 const AdminOrganizations = () => {
+  const confirm = useConfirm();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -288,7 +292,12 @@ const AdminOrganizations = () => {
   };
 
   const handleDelete = async (org: Organization) => {
-    if (!window.confirm(`Deactivate "${org.name}"? This will suspend the organization.`)) return;
+    if (!await confirm({
+      title: 'Deactivate organization?',
+      message: `Deactivate "${org.name}"? This will suspend the organization.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    })) return;
     try {
       await deleteAdminOrganization(org.id);
       toast.success(`${org.name} deactivated`);

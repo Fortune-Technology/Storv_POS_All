@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './analytics.css';
 import './UserManagement.css';
 import {
@@ -563,6 +564,7 @@ function InviteModal({ stores, onClose, onInvited }) {
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function UserManagement({ embedded }) {
+  const confirm = useConfirm();
   const [users, setUsers] = useState([]);
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -620,7 +622,12 @@ export default function UserManagement({ embedded }) {
   };
 
   const handleRemove = async (userId, name) => {
-    if (!window.confirm(`Remove ${name} from the organisation?`)) return;
+    if (!await confirm({
+      title: 'Remove user?',
+      message: `Remove ${name} from the organisation?`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     setRemovingId(userId);
     try {
       await removeUser(userId);

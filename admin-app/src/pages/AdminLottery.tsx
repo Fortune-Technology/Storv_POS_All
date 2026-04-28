@@ -21,6 +21,10 @@ import {
   listAdminLotterySupportedStates,
   syncAdminLotteryCatalog,
 } from '../services/api';
+// useConfirmDialog is a shared .jsx file (no TS types needed) — see hooks dir.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminLottery.css';
 
 const CATEGORIES = ['instant', 'draw', 'daily', 'other'] as const;
@@ -92,6 +96,7 @@ const BLANK: CatalogForm = {
 };
 
 export default function AdminLottery() {
+  const confirm = useConfirm();
   const [tab, setTab]                 = useState<'catalog' | 'requests'>('catalog');
   const [catalog, setCatalog]         = useState<CatalogRow[]>([]);
   const [requests, setRequests]       = useState<LotteryRequest[]>([]);
@@ -204,7 +209,12 @@ export default function AdminLottery() {
   };
 
   const remove = async (row: CatalogRow) => {
-    if (!window.confirm(`Delete "${row.name}" from the catalog? Stores will no longer see it.`)) return;
+    if (!await confirm({
+      title: `Delete "${row.name}" from the catalog?`,
+      message: 'Stores will no longer see this game when receiving new books. Existing books already activated at stores keep working.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteAdminLotteryCatalog(row.id);
       toast.success('Removed');
@@ -217,7 +227,21 @@ export default function AdminLottery() {
   const handleSync = async (stateCode: string) => {
     if (syncing) return;
     const label = stateCode === 'all' ? 'all supported states' : stateCode;
-    if (!window.confirm(`Pull the latest games for ${label} from the state lottery's public feed?\n\n• New games will be added as Active\n• Existing games refresh name + price\n• Games no longer in the feed are marked Inactive (never deleted)\n\nAdmin-set ticketsPerBook + active overrides are preserved on existing games.`)) return;
+    if (!await confirm({
+      title: `Sync catalog for ${label}?`,
+      message: (
+        <>
+          <p>Pull the latest games from the state lottery's public feed.</p>
+          <p>
+            • New games are added as <b>Active</b><br/>
+            • Existing games refresh name + price<br/>
+            • Games no longer in the feed are marked <b>Inactive</b> (never deleted)
+          </p>
+          <p>Admin-set <code>ticketsPerBook</code> + active overrides are preserved on existing games.</p>
+        </>
+      ),
+      confirmLabel: 'Sync now',
+    })) return;
     setSyncing(stateCode);
     setSyncMenuOpen(false);
     try {

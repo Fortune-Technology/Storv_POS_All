@@ -4,6 +4,9 @@ import { toast } from 'react-toastify';
 
 import RichTextEditor from '../components/RichTextEditor';
 import { getAdminCmsPages, createAdminCmsPage, updateAdminCmsPage, deleteAdminCmsPage } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/admin.css';
 import './AdminCmsPages.css';
 
@@ -24,6 +27,7 @@ interface CmsPage {
 type ModalState = { mode: 'create' | 'edit'; data: CmsPage } | null;
 
 const AdminCmsPages = () => {
+  const confirm = useConfirm();
   const [pages, setPages] = useState<CmsPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<ModalState>(null);
@@ -57,7 +61,12 @@ const AdminCmsPages = () => {
   };
 
   const handleDelete = async (id: string | number) => {
-    if (!window.confirm('Delete this page?')) return;
+    if (!await confirm({
+      title: 'Delete page?',
+      message: 'Delete this page?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteAdminCmsPage(id);
       toast.success('Page deleted');

@@ -12,6 +12,7 @@ import {
   getStores,
   listRoles,
 } from '../services/api';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const STATUS_BADGE = {
@@ -36,6 +37,7 @@ function daysLeft(iso) {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function Invitations() {
+  const confirm = useConfirm();
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');   // all | pending | accepted | revoked | expired
@@ -72,7 +74,12 @@ export default function Invitations() {
   }
 
   async function handleRevoke(id) {
-    if (!window.confirm('Revoke this invitation? The recipient will no longer be able to accept.')) return;
+    if (!await confirm({
+      title: 'Revoke invitation?',
+      message: 'The recipient will no longer be able to accept. You can send a fresh invitation later.',
+      confirmLabel: 'Revoke',
+      danger: true,
+    })) return;
     try {
       await revokeInvitation(id);
       toast.success('Invitation revoked');

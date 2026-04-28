@@ -3,9 +3,11 @@ import type { AppProps } from 'next/app';
 import '../styles/globals.css';
 import '../styles/cart-drawer.css';
 import '../styles/templates.css';
+import '../components/ConfirmModal.css';
 import { StoreProvider } from '../lib/store';
 import { CartProvider } from '../lib/cart';
 import { AuthProvider } from '../lib/auth';
+import { ConfirmDialogProvider } from '../lib/useConfirmDialog.jsx';
 import type { Store } from '@storeveu/types';
 
 /**
@@ -89,7 +91,9 @@ export default function App({ Component, pageProps }: AppProps<SharedPageProps>)
       <BrandingInjector store={pageProps.store} />
       <AuthProvider>
         <CartProvider>
-          <Component {...pageProps} />
+          <ConfirmDialogProvider>
+            <Component {...pageProps} />
+          </ConfirmDialogProvider>
         </CartProvider>
       </AuthProvider>
     </StoreProvider>

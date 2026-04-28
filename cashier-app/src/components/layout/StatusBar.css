@@ -184,6 +184,42 @@
   flex-shrink: 0;
 }
 
+/* AI Assistant trigger — flex sibling of the Logout button. Same height
+   + padding scale as Logout so they read as a paired button group. Brand
+   gradient accent so it's visually distinct from the muted logout pill. */
+.sb-ai-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18) 0%, rgba(61, 86, 181, 0.18) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #c7d2fe;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.sb-ai-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.32) 0%, rgba(61, 86, 181, 0.32) 100%);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #ffffff;
+}
+.sb-ai-btn:active { transform: translateY(1px); }
+.sb-ai-btn-label  { display: inline; }
+
+/* Tight horizontal space — collapse to icon-only at narrow widths so we
+   don't push Sign Out off the row. The button still works (aria-label +
+   title attr keep it accessible). */
+@media (max-width: 1100px) {
+  .sb-ai-btn-label { display: none; }
+  .sb-ai-btn       { padding: 0 6px; }
+}
+
 /* Logout button */
 .sb-logout-btn {
   display: flex;

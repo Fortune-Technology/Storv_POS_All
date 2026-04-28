@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut, Database, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut, Database, AlertTriangle, ShieldCheck, Sparkles } from 'lucide-react';
 import StoreveuLogo from '../StoreveuLogo.jsx';
 import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
@@ -210,6 +210,23 @@ export default function StatusBar({ onRefresh }) {
         <Clock size={12} />
         <span>{time}</span>
       </div>
+
+      {/* AI Assistant trigger — sits beside Sign Out so the floating FAB
+          no longer overlaps the logout button. Dispatches a window event
+          that AIAssistantWidget listens to. Only shown when a cashier is
+          signed in (mirrors the widget's own visibility check). */}
+      {cashier && (
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('cashier-ai-toggle'))}
+          title="AI Assistant — get help, ask questions"
+          aria-label="Open AI Assistant"
+          className="sb-ai-btn"
+        >
+          <Sparkles size={12} />
+          <span className="sb-ai-btn-label">AI Assistant</span>
+        </button>
+      )}
 
       {/* Logout button — two-tap confirm */}
       <button

@@ -19,6 +19,7 @@ import {
   ShieldAlert, Leaf, Layers, GripVertical,
   Search, ToggleLeft, ToggleRight, Package, Monitor, Copy,
 } from 'lucide-react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 // ─── ID Chip (click to copy) ──────────────────────────────────────────────────
 function IdChip({ id }) {
@@ -887,6 +888,7 @@ export default function Departments() {
 // ─── Manage Attributes side panel ─────────────────────────────────────────────
 
 function AttrsPanel({ dept, onClose }) {
+  const confirm = useConfirm();
   const [attrs, setAttrs]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [addForm, setAddForm] = useState({ key: '', label: '', dataType: 'text', unit: '', placeholder: '', options: '', required: false });
@@ -939,7 +941,12 @@ function AttrsPanel({ dept, onClose }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this attribute? Any values already stored on products will become freeform "Other Details".')) return;
+    if (!await confirm({
+      title: 'Delete attribute?',
+      message: 'Any values already stored on products will become freeform "Other Details".',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       const api = await import('../services/api');
       await api.deleteDepartmentAttribute(id);

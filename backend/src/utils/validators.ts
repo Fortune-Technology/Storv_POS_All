@@ -92,3 +92,154 @@ export function runValidators(checks: ValidatorResult[]): ValidatorResult {
   }
   return null;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Numeric parsing — fuel (3 decimals), count (integer), alphanumeric text.
+ * Mirrors `parsePrice` shape (`{ ok, value | error }`) so existing call
+ * sites can pattern-match the same way.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface ParseFuelOptions {
+  min?: number;
+  max?: number;
+  allowNull?: boolean;
+}
+
+export type ParseNumericResult =
+  | { ok: true; value: number | null }
+  | { ok: false; error: string };
+
+/**
+ * Parse a fuel-related numeric value (gallons, $/gallon, tank capacity).
+ * Always rounds to 3 decimal places — fuel pricing routinely uses 3dp
+ * (e.g. $3.999/gal) and gallon dispensing measures to thousandths.
+ */
+export function parseFuel(
+  value: unknown,
+  { min = 0, max = 9_999_999.999, allowNull = true }: ParseFuelOptions = {},
+): ParseNumericResult {
+  if ((value === null || value === undefined || value === '') && allowNull) {
+    return { ok: true, value: null };
+  }
+  if (typeof value === 'string' && !/^-?\d+(\.\d+)?$/.test(value.trim())) {
+    return { ok: false, error: 'Invalid fuel value format' };
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { ok: false, error: 'Fuel value must be finite' };
+  if (n < min) return { ok: false, error: `Fuel value must be >= ${min}` };
+  if (n > max) return { ok: false, error: `Fuel value must be <= ${max}` };
+  // 3dp round — matches industry standard for fuel reporting + Prisma Decimal(10,3)
+  return { ok: true, value: Math.round(n * 1000) / 1000 };
+}
+
+export interface ParseCountOptions {
+  min?: number;
+  max?: number;
+  allowNull?: boolean;
+}
+
+/**
+ * Parse a non-negative integer count (qty, units, ticket numbers, register
+ * count, station count). Rejects any decimal portion outright — counts are
+ * counts.
+ */
+export function parseCount(
+  value: unknown,
+  { min = 0, max = 1_000_000_000, allowNull = true }: ParseCountOptions = {},
+): ParseNumericResult {
+  if ((value === null || value === undefined || value === '') && allowNull) {
+    return { ok: true, value: null };
+  }
+  if (typeof value === 'string' && !/^-?\d+$/.test(value.trim())) {
+    return { ok: false, error: 'Count must be a whole number' };
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { ok: false, error: 'Count must be finite' };
+  if (!Number.isInteger(n)) return { ok: false, error: 'Count must be a whole number' };
+  if (n < min) return { ok: false, error: `Count must be >= ${min}` };
+  if (n > max) return { ok: false, error: `Count must be <= ${max}` };
+  return { ok: true, value: n };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * String validation — alphanumeric with limited allowed specials.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface AlphanumericOptions {
+  minLength?: number;
+  maxLength?: number;
+  allowedSpecials?: string;       // additional non-alphanumeric chars allowed
+  allowSpaces?: boolean;          // default true
+  allowNull?: boolean;            // default true (treats empty as ok)
+  fieldLabel?: string;            // for error messages
+}
+
+export type ValidateStringResult = ValidatorResult;
+
+/**
+ * Validate a string field against an alphanumeric whitelist plus an
+ * optional set of allowed special characters. Use this for product names,
+ * customer names, store names, etc. — anywhere we want to block control
+ * characters / injection-prone glyphs while allowing common punctuation.
+ *
+ * Defaults to allowing `- _ . , ' & / ( )` plus spaces.
+ */
+export function validateAlphanumeric(
+  value: unknown,
+  opts: AlphanumericOptions = {},
+): ValidateStringResult {
+  const {
+    minLength = 0,
+    maxLength = 255,
+    allowedSpecials = "-_.,'&/() ",
+    allowSpaces = true,
+    allowNull = true,
+    fieldLabel = 'Value',
+  } = opts;
+
+  if (value === null || value === undefined || value === '') {
+    if (allowNull && minLength === 0) return null;
+    return `${fieldLabel} is required`;
+  }
+  if (typeof value !== 'string') return `${fieldLabel} must be a string`;
+
+  const trimmed = value.trim();
+  if (trimmed.length < minLength) return `${fieldLabel} must be at least ${minLength} characters`;
+  if (trimmed.length > maxLength) return `${fieldLabel} must be at most ${maxLength} characters`;
+
+  // Build allowed-char regex: alphanumeric + caller-supplied specials
+  // (escaped for use inside a character class).
+  const escaped = allowedSpecials.replace(/[\\\-\]^]/g, '\\$&');
+  const spaceClass = allowSpaces ? ' \\t' : '';
+  const re = new RegExp(`^[A-Za-z0-9${escaped}${spaceClass}]+$`);
+  if (!re.test(trimmed)) return `${fieldLabel} contains invalid characters`;
+
+  return null;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Formatters — output-only helpers to render numbers consistently. Use
+ * these on every API response and report so currency / fuel / counts have
+ * uniform precision across the platform.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/** Money formatter — always 2 decimals. Returns "0.00" for null/NaN. */
+export function formatMoney(n: unknown): string {
+  const v = typeof n === 'number' ? n : Number(n);
+  if (!Number.isFinite(v)) return '0.00';
+  return v.toFixed(2);
+}
+
+/** Fuel formatter — always 3 decimals. Returns "0.000" for null/NaN. */
+export function formatFuel(n: unknown): string {
+  const v = typeof n === 'number' ? n : Number(n);
+  if (!Number.isFinite(v)) return '0.000';
+  return v.toFixed(3);
+}
+
+/** Count formatter — integer, no decimals. Returns "0" for null/NaN. */
+export function formatCount(n: unknown): string {
+  const v = typeof n === 'number' ? n : Number(n);
+  if (!Number.isFinite(v)) return '0';
+  return String(Math.trunc(v));
+}

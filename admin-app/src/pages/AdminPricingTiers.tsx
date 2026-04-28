@@ -19,6 +19,9 @@ import {
   deletePricingTier,
   type PricingTier,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminPaymentModels.css';
 
 interface TierForm {
@@ -46,6 +49,7 @@ const BLANK: TierForm = {
 type ModalMode = 'create' | 'edit' | null;
 
 export default function AdminPricingTiers() {
+  const confirm = useConfirm();
   const [tiers,    setTiers]    = useState<PricingTier[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [modal,    setModal]    = useState<ModalMode>(null);
@@ -131,7 +135,12 @@ export default function AdminPricingTiers() {
       toast.warn('The "custom" sentinel tier cannot be deleted.');
       return;
     }
-    if (!window.confirm(`Delete tier "${t.name}"? Stores currently using it will block this action.`)) return;
+    if (!await confirm({
+      title: 'Delete pricing tier?',
+      message: `Delete tier "${t.name}"? Stores currently using it will block this action.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deletePricingTier(t.id);
       toast.success('Tier deleted');

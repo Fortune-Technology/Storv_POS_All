@@ -32,6 +32,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Calendar, ChevronLeft, ChevronRight, Info, Loader2, MoreVertical, Package,
   Play, RotateCcw, ScanLine, Ticket, Trash2, X, Archive, Undo2,
@@ -57,6 +58,7 @@ const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.ge
 // Main page
 // ════════════════════════════════════════════════════════════════════
 export default function LotteryBackOffice() {
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ── Date + mode (URL-backed so refresh preserves state)
@@ -258,7 +260,11 @@ export default function LotteryBackOffice() {
         await updateLotteryBox(box.id, { slotNumber: extra.slotNumber });
         showToast(extra.slotNumber == null ? 'Slot cleared' : `Moved to slot ${extra.slotNumber}`);
       } else if (kind === 'soldout') {
-        if (!window.confirm(`Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?`)) return;
+        if (!await confirm({
+          title: 'Mark book sold out?',
+          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?`,
+          confirmLabel: 'Mark Sold Out',
+        })) return;
         await soldoutLotteryBox(box.id, { reason: 'manual_mark_soldout' });
         showToast('Book marked sold out');
       } else if (kind === 'safe') {
@@ -279,11 +285,20 @@ export default function LotteryBackOffice() {
         window.dispatchEvent(new CustomEvent('lbo-return-preselect', { detail: { boxId: box.id } }));
       } else if (kind === 'return') {
         // Quick full-return (no partial — route through return-ui for partials)
-        if (!window.confirm(`Return ${box.game?.name} Book ${box.boxNumber} to lottery commission?`)) return;
+        if (!await confirm({
+          title: 'Return book to commission?',
+          message: `Return ${box.game?.name} Book ${box.boxNumber} to lottery commission?`,
+          confirmLabel: 'Return',
+        })) return;
         await returnLotteryBoxToLotto(box.id, { returnType: 'full' });
         showToast('Book returned');
       } else if (kind === 'delete') {
-        if (!window.confirm(`Delete ${box.game?.name} Book ${box.boxNumber}? This cannot be undone.`)) return;
+        if (!await confirm({
+          title: 'Delete book?',
+          message: `Delete ${box.game?.name} Book ${box.boxNumber}? This cannot be undone.`,
+          confirmLabel: 'Delete',
+          danger: true,
+        })) return;
         await deleteLotteryBox(box.id);
         showToast('Book deleted');
       }
@@ -329,7 +344,11 @@ export default function LotteryBackOffice() {
 
   // ── Close the day ───────────────────────────────────────────────────
   const runCloseDay = async () => {
-    if (!window.confirm(`Close the lottery day for ${date}?`)) return;
+    if (!await confirm({
+      title: 'Close lottery day?',
+      message: `Close the lottery day for ${date}?`,
+      confirmLabel: 'Close Day',
+    })) return;
     setSaving(true);
     try {
       await upsertLotteryOnlineTotal({
@@ -944,6 +963,7 @@ function BookList({ books, emptyMsg, variant, onAction }) {
 // (replaces the old modal that kept auto-closing)
 // ════════════════════════════════════════════════════════════════════
 function ReceivePanel({ games, catalog, onClose, onSaved }) {
+  const confirm = useConfirm();
   const [items, setItems] = useState([]);      // [{ key, source, gameId?, catalogTicketId?, gameName, gameNumber, bookNumber, ticketPrice, totalTickets, value }]
   const [scan, setScan]   = useState('');
   const [err, setErr]     = useState('');
@@ -1011,7 +1031,14 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
   };
 
   const remove = (key) => setItems(arr => arr.filter(i => i.key !== key));
-  const clearAll = () => { if (window.confirm(`Clear ${items.length} books?`)) setItems([]); };
+  const clearAll = async () => {
+    if (await confirm({
+      title: 'Clear scanned books?',
+      message: `Clear ${items.length} books?`,
+      confirmLabel: 'Clear',
+      danger: true,
+    })) setItems([]);
+  };
 
   const confirm = async () => {
     if (items.length === 0) return;
@@ -1097,6 +1124,7 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
 // Return Panel — supports full and partial returns
 // ════════════════════════════════════════════════════════════════════
 function ReturnPanel({ active, safe, onClose, onSaved }) {
+  const confirm = useConfirm();
   const boxes = [...active, ...safe];
   const [pickId, setPickId] = useState('');
   const [kind, setKind]     = useState('full');   // 'full' | 'partial'
@@ -1131,7 +1159,11 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
         setErr(`Tickets sold must be between 0 and ${total}`); return;
       }
     }
-    if (!window.confirm(`Return ${pick.game?.name} Book ${pick.boxNumber}?\n\n${kind === 'partial' ? `${soldN} sold · ${unsold} unsold → ${fmtMoney(unsoldValue)} deducted from settlement` : 'Full return'}`)) return;
+    if (!await confirm({
+      title: 'Return book?',
+      message: `Return ${pick.game?.name} Book ${pick.boxNumber}?\n\n${kind === 'partial' ? `${soldN} sold · ${unsold} unsold → ${fmtMoney(unsoldValue)} deducted from settlement` : 'Full return'}`,
+      confirmLabel: 'Return',
+    })) return;
     setSaving(true); setErr('');
     try {
       const body = { reason: reason || null, returnType: kind };

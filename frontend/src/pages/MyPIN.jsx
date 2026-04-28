@@ -13,9 +13,11 @@ import React, { useEffect, useState } from 'react';
 import { KeyRound, Check, AlertCircle, Trash2, Eye, EyeOff, Loader } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { listMyPins, setMyPin, removeMyPin } from '../services/api';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './MyPIN.css';
 
 export default function MyPIN() {
+  const confirm = useConfirm();
   const [stores,  setStores]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -79,7 +81,12 @@ export default function MyPIN() {
   };
 
   const handleRemove = async (store) => {
-    if (!window.confirm(`Remove your PIN for ${store.storeName}? You will need to enter a new PIN before logging in at that register again.`)) return;
+    if (!await confirm({
+      title: `Remove PIN for ${store.storeName}?`,
+      message: 'You will need to enter a new PIN before logging in at that register again.',
+      confirmLabel: 'Remove PIN',
+      danger: true,
+    })) return;
     setBusy(b => ({ ...b, [store.storeId]: 'remove' }));
     try {
       await removeMyPin(store.storeId);

@@ -9,6 +9,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Prisma, Store } from '@prisma/client';
 import prisma from '../config/postgres.js';
+import { logAudit } from '../services/auditService.js';
+import { computeDiff, hasChanges } from '../services/auditDiff.js';
 
 const isOwnerOrAdmin = (req: Request): boolean =>
   ['superadmin', 'admin', 'owner', 'manager'].includes(req.user?.role || '');
@@ -102,6 +104,14 @@ export const createStore = async (req: Request, res: Response, next: NextFunctio
         monthlyRatePerStation: monthly,   // store total (not per-register) for fast retrieval
         pos:                   pos ?? undefined,
       },
+    });
+
+    logAudit(req, 'create', 'store', store.id, {
+      name: store.name,
+      address: store.address ?? null,
+      timezone: store.timezone,
+      stationCount: registers,
+      monthlyTotal: monthly,
     });
 
     res.status(201).json({
@@ -218,6 +228,11 @@ export const updateStore = async (req: Request, res: Response, next: NextFunctio
       data: updates as Prisma.StoreUpdateInput,
     });
 
+    const diff = computeDiff(existing as unknown as Record<string, unknown>, updates);
+    if (hasChanges(diff)) {
+      logAudit(req, 'update', 'store', store.id, { name: store.name, changes: diff });
+    }
+
     res.json(stripCredentials(store as StoreWithExtras));
   } catch (err) {
     next(err);
@@ -243,6 +258,8 @@ export const deactivateStore = async (req: Request, res: Response, next: NextFun
       where: { id: existing.id },
       data: { isActive: false },
     });
+
+    logAudit(req, 'delete', 'store', store.id, { name: store.name, reason: 'deactivated' });
 
     res.json({ message: 'Store deactivated.', store: stripCredentials(store as StoreWithExtras) });
   } catch (err) {
@@ -353,6 +370,20 @@ export const updateStoreBranding = async (req: Request, res: Response, next: Nex
       where: { id: req.params.id },
       data:  { branding: branding as Prisma.InputJsonValue },
     });
+
+    // Diff branding subkeys so the audit log captures exactly which receipt /
+    // logo / store-info field changed. `publishedAt` always changes on save —
+    // strip it so an unchanged branding save doesn't write an audit row.
+    const { publishedAt: _prevTs, ...prevForDiff } = prev;
+    const { publishedAt: _newTs, ...newForDiff } = branding as Record<string, unknown>;
+    const diff = computeDiff(prevForDiff, newForDiff);
+    if (hasChanges(diff)) {
+      logAudit(req, 'update', 'store_branding', store.id, {
+        storeName: store.name,
+        changes: diff,
+      });
+    }
+
     res.json(stripCredentials(store as StoreWithExtras));
   } catch (err) { next(err); }
 };

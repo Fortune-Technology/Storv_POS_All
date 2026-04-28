@@ -15,6 +15,7 @@ import {
   refundChargeOnTx  as _refundChargeOnTx,
   sumChargeTender   as _sumChargeTender,
 } from '../services/chargeAccountService.js';
+import { logAudit } from '../services/auditService.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -920,6 +921,34 @@ export const savePOSConfig = async (req: Request, res: Response): Promise<void> 
       where: { id: storeId },
       data:  updateData,
     });
+
+    // Settings change audit. Full pos JSON would be too noisy in the audit
+    // feed — record which top-level config sections changed instead. The
+    // before-state is `store.pos` from the findFirst above (snapshot before
+    // the update lands).
+    try {
+      const prevPos = (store.pos && typeof store.pos === 'object')
+        ? (store.pos as Record<string, unknown>)
+        : {};
+      const nextPos = (config && typeof config === 'object')
+        ? (config as Record<string, unknown>)
+        : {};
+      const changedKeys: string[] = [];
+      const allKeys = new Set([...Object.keys(prevPos), ...Object.keys(nextPos)]);
+      for (const k of allKeys) {
+        if (JSON.stringify(prevPos[k]) !== JSON.stringify(nextPos[k])) changedKeys.push(k);
+      }
+      const brandingChanged = !!(branding && typeof branding === 'object');
+      if (changedKeys.length > 0 || brandingChanged) {
+        logAudit(req, 'settings_change', 'pos_config', store.id, {
+          storeName: store.name,
+          changedKeys,
+          brandingChanged,
+        });
+      }
+    } catch {
+      // Diff failure must never block the save response.
+    }
 
     res.json({ success: true, config, branding: branding || null });
   } catch (err) {

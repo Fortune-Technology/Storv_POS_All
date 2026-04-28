@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import PriceInput from '../components/PriceInput';
 import ModuleDisabled from '../components/ModuleDisabled';
 import { useStoreModules } from '../hooks/useStoreModules';
@@ -699,6 +700,7 @@ function inferPackSize(price, scannedTicket) {
  * should correct it inline via the dropdown before confirming.
  */
 function ReceiveScanTab({ games, onSave, onClose }) {
+  const confirmDialog = useConfirm();
   const [scanValue, setScanValue] = useState('');
   const [items, setItems]         = useState([]);   // [{ key, source, gameId?, catalogTicketId?, state?, gameNumber, gameName, bookNumber, ticketPrice, totalTickets, value }]
   const [catalog, setCatalog]     = useState([]);   // LotteryTicketCatalog rows for fallback lookup
@@ -884,9 +886,14 @@ function ReceiveScanTab({ games, onSave, onClose }) {
     return Array.from(groups.values());
   }, [items]);
 
-  const clearAll = () => {
+  const clearAll = async () => {
     if (items.length === 0) return;
-    if (!window.confirm(`Clear all ${items.length} scanned book${items.length === 1 ? '' : 's'}?`)) return;
+    if (!await confirmDialog({
+      title: 'Clear scanned books?',
+      message: `Clear all ${items.length} scanned book${items.length === 1 ? '' : 's'}?`,
+      confirmLabel: 'Clear',
+      danger: true,
+    })) return;
     setItems([]);
   };
 
@@ -1519,6 +1526,7 @@ function ReceiveOrderTab({ storeSettings, onReloadBoxes }) {
    TICKET CATALOG TAB  (admin / superadmin only)
 ══════════════════════════════════════════════════════════════════════════ */
 function TicketCatalogTab() {
+  const confirmDialog = useConfirm();
   const [catalog, setCatalog] = useState([]);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1563,7 +1571,12 @@ function TicketCatalogTab() {
   };
 
   const handleDeactivate = async (ticket) => {
-    if (!window.confirm(`${ticket.active ? 'Deactivate' : 'Reactivate'} "${ticket.name}"?`)) return;
+    if (!await confirmDialog({
+      title: `${ticket.active ? 'Deactivate' : 'Reactivate'} ticket?`,
+      message: `${ticket.active ? 'Deactivate' : 'Reactivate'} "${ticket.name}"?`,
+      confirmLabel: ticket.active ? 'Deactivate' : 'Reactivate',
+      danger: ticket.active,
+    })) return;
     await updateLotteryCatalogTicket(ticket.id, { active: !ticket.active });
     load();
   };
@@ -1737,6 +1750,7 @@ const URL_TAB_MAP = {
 };
 
 function LotteryBody({ urlTab } = {}) {
+  const confirmDialog = useConfirm();
   // Role check for admin-only tabs
   const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
   const isAdmin = ['superadmin', 'admin'].includes(user.role);
@@ -1941,7 +1955,12 @@ function LotteryBody({ urlTab } = {}) {
     setGameModal(null); loadGames();
   };
   const handleDeleteGame = async (id) => {
-    if (!window.confirm('Delete this game?')) return;
+    if (!await confirmDialog({
+      title: 'Delete game?',
+      message: 'Delete this game?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     await deleteLotteryGame(id); loadGames();
   };
 
@@ -1972,12 +1991,20 @@ function LotteryBody({ urlTab } = {}) {
     reloadCurrentTab();
   };
   const handleSoldout = async (id) => {
-    if (!window.confirm('Mark this book as Soldout? It will be settled in the next weekly report.')) return;
+    if (!await confirmDialog({
+      title: 'Mark book as Soldout?',
+      message: 'Mark this book as Soldout? It will be settled in the next weekly report.',
+      confirmLabel: 'Mark Soldout',
+    })) return;
     await soldoutLotteryBox(id, { reason: 'manual' });
     reloadCurrentTab();
   };
   const handleCancelPending = async (id) => {
-    if (!window.confirm('Cancel the scheduled move for this book?')) return;
+    if (!await confirmDialog({
+      title: 'Cancel scheduled move?',
+      message: 'Cancel the scheduled move for this book?',
+      confirmLabel: 'Cancel Move',
+    })) return;
     await cancelLotteryPendingMove(id);
     reloadCurrentTab();
   };
@@ -2196,7 +2223,12 @@ function LotteryBody({ urlTab } = {}) {
                               <button className="lt-btn lt-btn-amber lt-btn-sm" onClick={() => setReturnToLottoBox(b)}>Return</button>
                               <button className="lt-btn lt-btn-danger lt-btn-sm"
                                 onClick={async () => {
-                                  if (!window.confirm('Remove this book from inventory? This cannot be undone.')) return;
+                                  if (!await confirmDialog({
+                                    title: 'Remove book?',
+                                    message: 'Remove this book from inventory? This cannot be undone.',
+                                    confirmLabel: 'Remove',
+                                    danger: true,
+                                  })) return;
                                   await updateLotteryBox(b.id, { status: 'removed' });
                                   reloadCurrentTab();
                                 }}>
@@ -2223,7 +2255,11 @@ function LotteryBody({ urlTab } = {}) {
                           {/* Soldout / Returned tabs — view-only except undo-soldout for admin */}
                           {b.status === 'depleted' && (
                             <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={async () => {
-                              if (!window.confirm('Re-activate this book onto the counter?')) return;
+                              if (!await confirmDialog({
+                                title: 'Re-activate book?',
+                                message: 'Re-activate this book onto the counter?',
+                                confirmLabel: 'Re-activate',
+                              })) return;
                               await updateLotteryBox(b.id, { status: 'inventory' });
                               reloadCurrentTab();
                             }}>Undo</button>

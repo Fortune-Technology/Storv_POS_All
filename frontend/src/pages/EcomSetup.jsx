@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import { toast } from 'react-toastify';
 import {
@@ -505,6 +506,7 @@ function PageEditorView({ page, onBack, onSave }) {
 
 /* ── Main Component ───────────────────────────────────────────────── */
 export default function EcomSetup() {
+  const confirm = useConfirm();
   // Active store from StoreContext — re-renders this component when the user
   // switches stores from the sidebar, which re-triggers `load()` and prevents
   // sending a stale X-Store-Id header.
@@ -575,7 +577,12 @@ export default function EcomSetup() {
   };
 
   const handleDisable = async () => {
-    if (!window.confirm('Disable e-commerce? Storefront goes offline.')) return;
+    if (!await confirm({
+      title: 'Disable e-commerce?',
+      message: 'Disable e-commerce? Storefront goes offline.',
+      confirmLabel: 'Disable',
+      danger: true,
+    })) return;
     try { await api('POST', '/manage/ecom-store/disable'); setStore(s => ({ ...s, enabled: false })); toast.success('Disabled'); } catch (e) { toast.error(e.message); }
   };
 
@@ -601,7 +608,12 @@ export default function EcomSetup() {
   };
 
   const handleDeletePage = async (id) => {
-    if (!window.confirm('Delete this page?')) return;
+    if (!await confirm({
+      title: 'Delete page?',
+      message: 'Delete this page?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try { await api('DELETE', `/manage/pages/${id}`); toast.success('Deleted'); const p = await api('GET', '/manage/pages'); setPages(p.data || []); setEditingPage(null); } catch (e) { toast.error(e.message); }
   };
 

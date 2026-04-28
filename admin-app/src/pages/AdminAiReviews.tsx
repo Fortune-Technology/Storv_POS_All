@@ -18,6 +18,9 @@ import {
   promoteAiReview,
   dismissAiReview,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminAiReviews.css';
 
 const STATUS_TABS = [
@@ -63,6 +66,7 @@ interface PromoteForm {
 }
 
 export default function AdminAiReviews() {
+  const confirm = useConfirm();
   const [status, setStatus]       = useState<StatusKey>('pending');
   const [reviews, setReviews]     = useState<Review[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -146,7 +150,12 @@ export default function AdminAiReviews() {
   };
 
   const handleDismiss = async (review: Review) => {
-    if (!window.confirm('Dismiss this feedback? This cannot be undone.')) return;
+    if (!await confirm({
+      title: 'Dismiss feedback?',
+      message: 'Dismiss this feedback? This cannot be undone.',
+      confirmLabel: 'Dismiss',
+      danger: true,
+    })) return;
     try {
       await dismissAiReview(review.id);
       toast.success('Dismissed');
