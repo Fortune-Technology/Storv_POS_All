@@ -100,3 +100,40 @@ export function getRoutePermission(pathname) {
 
   return null;
 }
+
+/**
+ * Per-store module gating: which routes require a specific store-module flag
+ * (`useStoreModules().modules[<key>]`) to be enabled. When the active store
+ * has the module disabled, both the sidebar link AND direct URL navigation
+ * are blocked — users see the Unauthorized page instead of leaking the page.
+ *
+ * Keep in sync with `useStoreModules`'s returned shape:
+ *   • lottery → store.pos.lottery.enabled
+ *   • fuel    → FuelSettings.enabled
+ *   • ecom    → store.pos.ecomEnabled
+ */
+export const PORTAL_ROUTE_MODULES = {
+  '/portal/lottery':         'lottery',
+  '/portal/fuel':            'fuel',
+  '/portal/ecom/setup':      'ecom',
+  '/portal/ecom/orders':     'ecom',
+  '/portal/ecom/analytics':  'ecom',
+  '/portal/branding':        'ecom',
+  // Delivery Platforms is functionally part of the Online Store group — when
+  // the store has e-commerce disabled, this page has no purpose. Gating it
+  // by the ecom module hides the entire Online Store sidebar group as one
+  // unit (Store Setup + Online Orders + Analytics + Delivery Platforms).
+  '/portal/integrations':    'ecom',
+};
+
+export function getRouteModule(pathname) {
+  if (PORTAL_ROUTE_MODULES[pathname]) return PORTAL_ROUTE_MODULES[pathname];
+
+  for (const pattern of Object.keys(PORTAL_ROUTE_MODULES)) {
+    if (!pattern.includes(':')) continue;
+    const regex = new RegExp('^' + pattern.replace(/:[^/]+/g, '[^/]+') + '$');
+    if (regex.test(pathname)) return PORTAL_ROUTE_MODULES[pattern];
+  }
+
+  return null;
+}

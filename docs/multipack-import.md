@@ -154,6 +154,6 @@ This means: **migrating a multi-pack catalog from another POS requires pre-shapi
 ## Related pages
 
 - `frontend/src/pages/BulkImport.jsx` — the import UI
-- `backend/src/services/importService.js` — alias resolution + post-processing
+- `backend/src/services/inventory/import.ts` — alias resolution + post-processing (Session 55 — legacy `services/importService.js` path still works via shim)
 - `frontend/src/pages/ProductForm.jsx` — Barcodes + Pack Sizes managers (for manual edits)
 - `cashier-app/src/components/modals/PackSizePickerModal.jsx` — what the cashier sees at scan time

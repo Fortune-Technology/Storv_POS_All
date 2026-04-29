@@ -228,6 +228,10 @@ export default function StoreSettings({ embedded }) {
       await Promise.all([posSave, fuelSave]);
       setDirty(false);
       setSaved(true);
+      // Tell every mounted useStoreModules() consumer (Sidebar in particular)
+      // to refetch immediately so module-gated nav items show/hide without a
+      // page reload after the user toggles the feature flags.
+      window.dispatchEvent(new CustomEvent('storv:modules-changed', { detail: { storeId } }));
       toast.success('Store settings saved');
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
