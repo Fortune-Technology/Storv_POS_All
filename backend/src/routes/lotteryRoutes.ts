@@ -17,13 +17,13 @@ import {
   getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
   getLotteryBoxes, receiveBoxOrder, activateBox, updateBox, deleteBox, adjustBoxTickets,
   getLotteryTransactions, createLotteryTransaction, bulkCreateLotteryTransactions,
-  getLotteryShiftReport, saveLotteryShiftReport, getShiftReports,
+  getLotteryShiftReport, saveLotteryShiftReport, getShiftReports, getShiftAudit,
   getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
   getLotterySettings, updateLotterySettings,
   getCatalogTickets, getAllCatalogTickets, createCatalogTicket, updateCatalogTicket, deleteCatalogTicket,
   getTicketRequests, createTicketRequest, reviewTicketRequest, getPendingRequestCount,
   receiveFromCatalog,
-  scanLotteryBarcode, parseLotteryScan, moveBoxToSafe, markBoxSoldout, returnBoxToLotto,
+  scanLotteryBarcode, parseLotteryScan, moveBoxToSafe, markBoxSoldout, restoreBoxToCounter, returnBoxToLotto,
   cancelPendingMove, runPendingMovesNow,
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
   getDailyLotteryInventory, closeLotteryDay, getYesterdayCloses, getCounterSnapshot,
@@ -58,6 +58,7 @@ router.post('/transactions/bulk',  requirePermission('lottery.create'), bulkCrea
 
 // Shift reports
 router.get( '/shift-reports',          requirePermission('lottery.manage'), getShiftReports);
+router.get( '/shift-audit',            requirePermission('lottery.manage'), getShiftAudit);
 router.get( '/shift-reports/:shiftId', requirePermission('lottery.view'),   getLotteryShiftReport);
 router.post('/shift-reports',          requirePermission('lottery.manage'), saveLotteryShiftReport);
 
@@ -99,6 +100,10 @@ router.post('/scan/parse', requirePermission('lottery.manage'), parseLotteryScan
 // Book lifecycle actions (context menu on Counter/Safe/Soldout tabs)
 router.post(  '/boxes/:id/move-to-safe',     requirePermission('lottery.manage'), moveBoxToSafe);
 router.post(  '/boxes/:id/soldout',          requirePermission('lottery.manage'), markBoxSoldout);
+// Undo a soldout — flips back to active, restores currentTicket to its
+// pre-soldout position (read from prior close_day_snapshot), neutralises
+// the inflated soldout-day sales via a correction snapshot.
+router.post(  '/boxes/:id/restore-to-counter', requirePermission('lottery.manage'), restoreBoxToCounter);
 router.post(  '/boxes/:id/return-to-lotto',  requirePermission('lottery.manage'), returnBoxToLotto);
 router.delete('/boxes/:id/pending-move',     requirePermission('lottery.manage'), cancelPendingMove);
 

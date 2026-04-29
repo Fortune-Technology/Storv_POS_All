@@ -71,23 +71,43 @@ export function buildDejavooCart(items, totals, opts = {}) {
     const unit = Number(line.effectivePrice ?? line.unitPrice ?? 0);
     const total = Number(line.lineTotal ?? unit * qty);
 
-    // NOTE: We previously included `AdditionalInfo` (brand · UPC) under
-    // each item name. Removed because the terminal renders it as a second
-    // line per item, doubling the row height and limiting how many items
-    // fit on the customer-facing screen at once. Cashiers asked for tighter
-    // line items so more cart contents are visible without scrolling.
-    // Brand + UPC remain on the printed receipt; on the customer display
-    // they're noise. To re-enable per-merchant later, add a config flag.
-
-    return {
-      Name:       name.slice(0, 60),     // sane limit; terminals truncate anyway
-      Price:      r(total),               // line total
-      UnitPrice:  r(unit),
-      Quantity:   qty,
-      // AdditionalInfo deliberately omitted (compact display).
-      CustomInfos:    [],
-      Modifiers:      [],
+    // ── Compact line-item rendering on the customer-facing terminal ──
+    //
+    // We can't directly control the terminal's rendered font size or row
+    // padding — that's Dejavoo's UI on the device. But we CAN reduce the
+    // fields we send, which prevents the terminal from rendering its
+    // multi-line "Qty × Unit = Line Total" layout that takes ~3 rows of
+    // vertical space per item.
+    //
+    // For single-quantity items (the vast majority of cart lines), we send:
+    //   Name + Price only → terminal renders ONE line: "Name ........ $X.XX"
+    //
+    // For multi-quantity items (e.g. cashier scanned an item then bumped
+    // qty to 3), we send Name + Quantity + Price (no UnitPrice) → terminal
+    // renders one or two lines: "Name (×3) ......... $X.XX"
+    //
+    // Name is also clipped harder — 32 chars instead of 60. Long names
+    // wrapping to two lines was the other space-eater. Names longer than
+    // 32 chars get truncated with no ellipsis (terminals add their own).
+    //
+    // History:
+    //   - Round 1: shipped full Name+Price+UnitPrice+Quantity+AdditionalInfo
+    //     (brand/UPC). Each row rendered as 2-3 visual lines.
+    //   - Round 2: dropped AdditionalInfo. Each row rendered as 1-2 lines.
+    //   - Round 3 (this): drop UnitPrice always; drop Quantity when ==1;
+    //     shorten Name. Should land at 1 visual line per single-qty item.
+    //   - Beyond this is Dejavoo terminal config (compact display mode) —
+    //     escalate to Rehan if more compaction is needed.
+    const item = {
+      Name:  name.slice(0, 32),
+      Price: r(total),
+      // CustomInfos / Modifiers explicitly omitted — empty arrays sometimes
+      // trigger Dejavoo to render an empty placeholder row underneath.
     };
+    // Only include Quantity when it's not 1 — saves a render line per
+    // single-quantity item (which is the common case).
+    if (qty !== 1) item.Quantity = qty;
+    return item;
   };
 
   const dejavooItems = items

@@ -723,13 +723,24 @@ export default function POSScreen() {
 
   const handlePackSizeSelect = useCallback((product, size) => {
     setPackPickerProduct(null);
+    // Per-pack deposit (Session F). The product carries `depositPerBaseUnit`
+    // (one base unit's deposit, e.g. $0.05 per single bottle); a Double pack
+    // with unitCount=2 should bill 2× that. When `depositPerBaseUnit` isn't
+    // available (legacy products synced before this change), fall back to
+    // the master `depositAmount` so behaviour matches today.
+    const baseDep = product.depositPerBaseUnit;
+    const units   = Number(size.unitCount) || 1;
+    const depositAmount = baseDep != null
+      ? Math.round(Number(baseDep) * units * 10000) / 10000
+      : product.depositAmount;
     addWithAgeCheck({
       ...product,
       retailPrice: Number(size.retailPrice),
       qty: 1,
       packSizeLabel: size.label,
       packSizeId: size.id,
-      unitCount: size.unitCount,
+      unitCount: units,
+      depositAmount,
     });
     flash('hit');
   }, [addWithAgeCheck, flash]);
@@ -752,12 +763,22 @@ export default function POSScreen() {
     // Single pack → apply silently
     if (Array.isArray(product.packSizes) && product.packSizes.length === 1) {
       const size = product.packSizes[0];
+      // Match the picker path's deposit-per-pack scaling — even though there
+      // is only one pack, the user may still have configured a non-master
+      // unitCount, in which case master `depositAmount` (computed for master
+      // unitPack) wouldn't match.
+      const baseDep = product.depositPerBaseUnit;
+      const units   = Number(size.unitCount) || 1;
+      const depositAmount = baseDep != null
+        ? Math.round(Number(baseDep) * units * 10000) / 10000
+        : product.depositAmount;
       addWithAgeCheck({
         ...product,
         retailPrice: Number(size.retailPrice),
         packSizeLabel: size.label,
         packSizeId: size.id,
-        unitCount: size.unitCount,
+        unitCount: units,
+        depositAmount,
       });
       flash('hit');
       return;

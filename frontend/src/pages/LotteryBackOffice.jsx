@@ -35,15 +35,15 @@ import { useSearchParams } from 'react-router-dom';
 import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Calendar, ChevronLeft, ChevronRight, Info, Loader2, MoreVertical, Package,
-  Play, RotateCcw, ScanLine, Ticket, Trash2, X, Archive, Undo2,
+  Play, RotateCcw, ScanLine, Ticket, Trash2, X, Archive, Undo2, Settings,
 } from 'lucide-react';
 import {
   getLotteryBoxes, getLotteryGames, getDailyLotteryInventory,
   getLotteryOnlineTotal, upsertLotteryOnlineTotal, getLotteryCatalog,
   receiveLotteryBoxOrder, returnLotteryBoxToLotto, updateLotteryBox,
   scanLotteryBarcode, parseLotteryBarcode, closeLotteryDay,
-  listPosShifts, getLotterySettings,
-  soldoutLotteryBox, moveLotteryBoxToSafe, activateLotteryBox, deleteLotteryBox,
+  listPosShifts, getLotterySettings, updateLotterySettings,
+  soldoutLotteryBox, restoreLotteryBoxToCounter, moveLotteryBoxToSafe, activateLotteryBox, deleteLotteryBox,
   getLotteryCounterSnapshot, upsertLotteryHistoricalClose,
 } from '../services/api';
 import './LotteryBackOffice.css';
@@ -67,11 +67,31 @@ export default function LotteryBackOffice() {
   const urlMode  = searchParams.get('mode');
   const [scanMode, setScanModeState] = useState(urlMode !== 'manual');   // default scan
 
-  const setDate = (d) => {
+  // Date setter wrapped in an unsaved-edits guard. When the user is in
+  // manual mode and has typed counter ticket drafts that haven't been
+  // saved, switching dates would silently lose those edits. Confirm first.
+  // (Session 46 — user reported losing edits on calendar nav.)
+  const setDate = async (d) => {
+    if (hasUnsavedDrafts()) {
+      const ok = await confirm({
+        title: 'Discard unsaved counter edits?',
+        message: 'You have unsaved ticket numbers on the counter. Switching to a different date will discard them. Save first?',
+        confirmLabel: 'Discard & Switch',
+        danger: true,
+      });
+      if (!ok) return;
+      // User chose to discard — clear the drafts before navigating.
+      setCounterDrafts({});
+    }
     const n = new URLSearchParams(searchParams);
     if (d && d !== todayStr()) n.set('date', d); else n.delete('date');
     setSearchParams(n, { replace: true });
   };
+
+  // Helper: are there any pending counter ticket drafts? Drafts are only
+  // meaningful when scanMode is OFF (manual mode); in scan mode every scan
+  // is auto-saved.
+  const hasUnsavedDrafts = () => Object.keys(counterDrafts).length > 0;
   const setRightPane = (p) => {
     const n = new URLSearchParams(searchParams);
     if (p && p !== 'safe') n.set('pane', p); else n.delete('pane');
@@ -182,6 +202,21 @@ export default function LotteryBackOffice() {
       setTimeout(() => scanRef.current?.focus(), 100);
     }
   }, [scanMode, rightPane]);
+
+  // Browser-level guard for refresh / tab close / window close. Modern
+  // Chromium browsers ignore the custom string but still show a generic
+  // "Leave site? Changes you made may not be saved" prompt as long as we
+  // call preventDefault + set returnValue. (Session 46 — same trigger as
+  // the date-switch guard above.)
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (Object.keys(counterDrafts).length === 0) return;
+      e.preventDefault();
+      e.returnValue = '';   // required by some browsers to actually trigger the dialog
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [counterDrafts]);
 
   const sellDirection = settings?.sellDirection === 'asc' ? 'asc' : 'desc';
 
@@ -298,6 +333,17 @@ export default function LotteryBackOffice() {
         })) return;
         await returnLotteryBoxToLotto(box.id, { returnType: 'full' });
         showToast('Book returned');
+      } else if (kind === 'restore') {
+        // Undo a soldout that was hit by mistake. Restores the book to
+        // active state, walks currentTicket back to its pre-soldout
+        // position, neutralises the inflated soldout-day sale.
+        if (!await confirm({
+          title: 'Restore to counter?',
+          message: `Restore ${box.game?.name || 'book'} ${box.boxNumber} to the counter? The soldout will be undone, and tickets that were counted as sold on the soldout day will revert to their actual position.`,
+          confirmLabel: 'Restore',
+        })) return;
+        await restoreLotteryBoxToCounter(box.id, { reason: 'manual_restore' });
+        showToast('Book restored to counter');
       } else if (kind === 'delete') {
         if (!await confirm({
           title: 'Delete book?',
@@ -473,7 +519,13 @@ export default function LotteryBackOffice() {
         <div className="lbo-grid">
               {/* ─────────────────── LEFT COLUMN: REPORT ─────────────────── */}
               <section className="lbo-col lbo-col-report">
-                <div className="lbo-col-title">Report</div>
+                {/* Mode toggle pinned to the top so cashiers always see whether
+                    they're in Scan vs Manual mode without scrolling. (Session
+                    46 — moved from bottom of column per user direction.) */}
+                <div className="lbo-col-title-bar">
+                  <div className="lbo-col-title">Report</div>
+                  <ModeToggle scanMode={scanMode} onChange={setScanMode} />
+                </div>
 
                 {/* Cash Balance — combined cash position for the SELECTED date.
                     Reads from POS shift cash + ticket-math un-rung + online net.
@@ -516,16 +568,8 @@ export default function LotteryBackOffice() {
                   <ReadonlyField label="End Inv."     value={fmtMoney(inventory?.end || 0)} accent="green" />
                 </Section>
 
-                <div className="lbo-actions">
-                  <button className={`lbo-btn ${rightPane === 'receive' ? 'lbo-btn-primary' : 'lbo-btn-outline'}`} onClick={() => setRightPane(rightPane === 'receive' ? 'safe' : 'receive')}>
-                    <Package size={14} /> Receive Books
-                  </button>
-                  <button className={`lbo-btn ${rightPane === 'return' ? 'lbo-btn-warn' : 'lbo-btn-outline'}`} onClick={() => setRightPane(rightPane === 'return' ? 'safe' : 'return')}>
-                    <RotateCcw size={14} /> Return Books
-                  </button>
-                </div>
-
-                <ModeToggle scanMode={scanMode} onChange={setScanMode} />
+                {/* Receive / Return moved to top of right column — Session 46.
+                    Mode toggle moved to top of this column — Session 46. */}
 
                 {/* Two-step workflow help — Session 45 / L6.
                     Cashiers were unsure when to use which button. */}
@@ -608,6 +652,33 @@ export default function LotteryBackOffice() {
 
               {/* ──────── RIGHT COLUMN: SAFE / SOLDOUT / RETURNED / RECEIVE / RETURN ──────── */}
               <section className="lbo-col lbo-col-right">
+                {/* Receive / Return action buttons pinned to the TOP of the
+                    right column — Session 46. Previously buried at the bottom
+                    of the Report column where they competed visually with the
+                    Cash Balance card. Putting them here makes the action ↔
+                    target relationship obvious (button on top, list below). */}
+                <div className="lbo-right-actions">
+                  <button
+                    className={`lbo-btn ${rightPane === 'receive' ? 'lbo-btn-primary' : 'lbo-btn-outline'}`}
+                    onClick={() => setRightPane(rightPane === 'receive' ? 'safe' : 'receive')}
+                  >
+                    <Package size={14} /> Receive Books
+                  </button>
+                  <button
+                    className={`lbo-btn ${rightPane === 'return' ? 'lbo-btn-warn' : 'lbo-btn-outline'}`}
+                    onClick={() => setRightPane(rightPane === 'return' ? 'safe' : 'return')}
+                  >
+                    <RotateCcw size={14} /> Return Books
+                  </button>
+                  <button
+                    className={`lbo-btn ${rightPane === 'settings' ? 'lbo-btn-primary' : 'lbo-btn-outline'}`}
+                    onClick={() => setRightPane(rightPane === 'settings' ? 'safe' : 'settings')}
+                    title="Lottery store settings"
+                  >
+                    <Settings size={14} /> Settings
+                  </button>
+                </div>
+
                 {(rightPane === 'safe' || rightPane === 'soldout' || rightPane === 'returned') && (
                   <>
                     <div className="lbo-right-tabs">
@@ -643,6 +714,13 @@ export default function LotteryBackOffice() {
                     safe={safe}
                     onClose={() => setRightPane('safe')}
                     onSaved={() => { setRightPane('safe'); load(); }}
+                  />
+                )}
+                {rightPane === 'settings' && (
+                  <SettingsPanel
+                    settings={settings}
+                    onClose={() => setRightPane('safe')}
+                    onSaved={(saved) => { setSettings(saved); setToast({ kind: 'ok', msg: 'Lottery settings saved.' }); setTimeout(() => setToast(null), 2200); }}
                   />
                 )}
               </section>
@@ -994,7 +1072,12 @@ function BookList({ books, emptyMsg, variant, onAction }) {
     }
     if (variant === 'soldout') {
       return [
-        { key: 'return', label: 'Return to Lottery', icon: RotateCcw, onClick: () => onAction?.('return', b) },
+        // Undo soldout — flips back to active, restores currentTicket to
+        // its pre-soldout position, neutralises that day's inflated sale.
+        // (Session 46 — handles the "I hit Sold Out by mistake" case.)
+        { key: 'restore', label: 'Restore to Counter',  icon: Play,      onClick: () => onAction?.('restore', b) },
+        { separator: true },
+        { key: 'return',  label: 'Return to Lottery',   icon: RotateCcw, onClick: () => onAction?.('return',  b) },
       ];
     }
     if (variant === 'returned') {
@@ -1326,6 +1409,214 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SETTINGS PANEL — store-level lottery configuration (Phase E, Apr 2026)
+// Inline panel so the owner can tune lottery behavior without leaving
+// the back-office Daily view (was previously buried under Lottery →
+// Settings tab and easy to miss).
+// ════════════════════════════════════════════════════════════════════
+function SettingsPanel({ settings, onClose, onSaved }) {
+  const initial = useMemo(() => ({
+    enabled:                    settings?.enabled                    ?? true,
+    cashOnly:                   settings?.cashOnly                   ?? false,
+    state:                      settings?.state                      ?? '',
+    commissionRate:             settings?.commissionRate != null
+                                  ? Number(settings.commissionRate) * 100  // store rate is 0.054 → display 5.4
+                                  : '',
+    scanRequiredAtShiftEnd:     settings?.scanRequiredAtShiftEnd     ?? false,
+    sellDirection:              settings?.sellDirection              ?? 'desc',
+    allowMultipleActivePerGame: settings?.allowMultipleActivePerGame ?? false,
+    shiftVarianceDisplay:       settings?.shiftVarianceDisplay       ?? 'always',
+    shiftVarianceThreshold:     settings?.shiftVarianceThreshold != null
+                                  ? Number(settings.shiftVarianceThreshold)
+                                  : 0,
+  }), [settings]);
+
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Re-init when settings change (e.g. after first load)
+  useEffect(() => { setForm(initial); }, [initial]);
+
+  const isDirty = useMemo(() => {
+    return Object.keys(initial).some(k => initial[k] !== form[k]);
+  }, [initial, form]);
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const submit = async () => {
+    setSaving(true); setErr('');
+    try {
+      const storeId = localStorage.getItem('activeStoreId');
+      const payload = {
+        enabled:                    Boolean(form.enabled),
+        cashOnly:                   Boolean(form.cashOnly),
+        state:                      form.state || null,
+        commissionRate:             form.commissionRate === '' ? null : Number(form.commissionRate) / 100,
+        scanRequiredAtShiftEnd:     Boolean(form.scanRequiredAtShiftEnd),
+        sellDirection:              form.sellDirection || 'desc',
+        allowMultipleActivePerGame: Boolean(form.allowMultipleActivePerGame),
+        shiftVarianceDisplay:       form.shiftVarianceDisplay || 'always',
+        shiftVarianceThreshold:     Number(form.shiftVarianceThreshold || 0),
+      };
+      const saved = await updateLotterySettings(storeId, payload);
+      onSaved?.(saved);
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="lbo-right-tabs lbo-right-tabs--single">
+        <span className="active"><Settings size={13} /> Lottery Settings</span>
+        <button className="lbo-right-close" onClick={onClose} title="Close settings"><X size={14} /></button>
+      </div>
+      <div className="lbo-settings-panel">
+      {err && <div className="lbo-settings-err">{err}</div>}
+
+      <div className="lbo-settings-body">
+        {/* General */}
+        <div className="lbo-settings-section">
+          <div className="lbo-settings-section-title">GENERAL</div>
+          <SettingsToggle
+            label="Lottery module enabled"
+            hint="Turn off to hide all lottery UI in the cashier app"
+            value={form.enabled}
+            onChange={v => set('enabled', v)}
+          />
+          <SettingsToggle
+            label="Cash only at register"
+            hint="Restrict lottery transactions to cash tender"
+            value={form.cashOnly}
+            onChange={v => set('cashOnly', v)}
+          />
+          <SettingsRow label="State / Province" hint="Determines which catalog tickets appear">
+            <select className="lbo-settings-input" value={form.state || ''} onChange={e => set('state', e.target.value)}>
+              <option value="">— Select —</option>
+              {['MA','ME','NH','VT','CT','RI','NY','NJ','PA','DE','MD','VA','NC','SC','GA','FL','ON','QC'].map(s =>
+                <option key={s} value={s}>{s}</option>
+              )}
+            </select>
+          </SettingsRow>
+          <SettingsRow label="Commission rate (%)" hint="Store-level rate applied to all lottery sales (e.g. 5.4)">
+            <input
+              className="lbo-settings-input"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              placeholder="e.g. 5.4"
+              value={form.commissionRate}
+              onChange={e => set('commissionRate', e.target.value)}
+            />
+          </SettingsRow>
+        </div>
+
+        {/* Counter behavior */}
+        <div className="lbo-settings-section">
+          <div className="lbo-settings-section-title">COUNTER BEHAVIOR</div>
+          <SettingsRow label="Sell direction" hint="How tickets are loaded in the dispenser">
+            <select className="lbo-settings-input" value={form.sellDirection} onChange={e => set('sellDirection', e.target.value)}>
+              <option value="desc">Descending (149 → 0 — top of pack first)</option>
+              <option value="asc">Ascending (0 → 149 — bottom of pack first)</option>
+            </select>
+          </SettingsRow>
+          <SettingsToggle
+            label="Allow multiple active books per game"
+            hint="When OFF, scanning a new book of an active game auto-soldouts the old one"
+            value={form.allowMultipleActivePerGame}
+            onChange={v => set('allowMultipleActivePerGame', v)}
+          />
+          <SettingsToggle
+            label="Require ticket scan at shift end"
+            hint="Cashier must scan every active book before closing their shift"
+            value={form.scanRequiredAtShiftEnd}
+            onChange={v => set('scanRequiredAtShiftEnd', v)}
+          />
+        </div>
+
+        {/* Audit / variance display */}
+        <div className="lbo-settings-section">
+          <div className="lbo-settings-section-title">SHIFT VARIANCE DISPLAY</div>
+          <div className="lbo-settings-section-hint">
+            How the per-shift Audit view shows cash variance for each shift.
+            Day-level rollup is always shown.
+          </div>
+          <SettingsRow label="Display mode">
+            <select className="lbo-settings-input" value={form.shiftVarianceDisplay} onChange={e => set('shiftVarianceDisplay', e.target.value)}>
+              <option value="always">Always show variance per shift</option>
+              <option value="threshold">Only flag when variance exceeds threshold</option>
+              <option value="hidden">Hide per-shift variance (day rollup only)</option>
+            </select>
+          </SettingsRow>
+          {form.shiftVarianceDisplay === 'threshold' && (
+            <SettingsRow label="Threshold ($)" hint="Per-shift variance below this is hidden">
+              <input
+                className="lbo-settings-input"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 5.00"
+                value={form.shiftVarianceThreshold}
+                onChange={e => set('shiftVarianceThreshold', e.target.value)}
+              />
+            </SettingsRow>
+          )}
+        </div>
+      </div>
+
+      <div className="lbo-pane-foot">
+        <div className="lbo-pane-actions">
+          <button className="lbo-btn lbo-btn-outline" onClick={onClose}>Close</button>
+          <button
+            className="lbo-btn lbo-btn-primary"
+            disabled={!isDirty || saving}
+            onClick={submit}
+          >
+            {saving ? 'Saving…' : isDirty ? 'Save Changes' : 'Saved'}
+          </button>
+        </div>
+      </div>
+      </div>
+    </>
+  );
+}
+
+function SettingsRow({ label, hint, children }) {
+  return (
+    <label className="lbo-settings-row">
+      <div className="lbo-settings-row-head">
+        <span className="lbo-settings-row-label">{label}</span>
+        {hint && <span className="lbo-settings-row-hint">{hint}</span>}
+      </div>
+      <div className="lbo-settings-row-control">{children}</div>
+    </label>
+  );
+}
+
+function SettingsToggle({ label, hint, value, onChange }) {
+  return (
+    <div className="lbo-settings-toggle-row">
+      <div className="lbo-settings-row-head">
+        <span className="lbo-settings-row-label">{label}</span>
+        {hint && <span className="lbo-settings-row-hint">{hint}</span>}
+      </div>
+      <button
+        type="button"
+        className={`lbo-settings-toggle ${value ? 'on' : ''}`}
+        onClick={() => onChange(!value)}
+        aria-pressed={value}
+      >
+        <span className="lbo-settings-toggle-knob" />
+      </button>
+    </div>
   );
 }
 

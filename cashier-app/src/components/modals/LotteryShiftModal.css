@@ -679,10 +679,40 @@
 }
 
 /* ── Step 2: Online Sales Grid ──────────────────────────────────────── */
+/* Two-column layout for 6 cumulative-day input fields. Collapses to
+   single column on narrow screens (< 560px). */
 .lsm-online-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.lsm-online-section-hint {
+  grid-column: 1 / -1;
+  background: #fef3c7;
+  border: 1.5px solid #fde68a;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+.lsm-online-section-hint strong {
+  font-weight: 800;
+}
+
+.lsm-online-formula-hint {
+  font-size: 0.72rem;
+  color: #6b7280;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .lsm-online-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lsm-online-field {
@@ -744,6 +774,7 @@
 }
 
 .lsm-online-preview {
+  grid-column: 1 / -1;
   background: #f0fdf4;
   border: 1.5px solid #bbf7d0;
   border-radius: 12px;

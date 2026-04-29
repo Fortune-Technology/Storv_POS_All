@@ -28,7 +28,7 @@ import {
 import {
   getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
   getLotteryBoxes, receiveLotteryBoxOrder, activateLotteryBox, updateLotteryBox,
-  getLotteryShiftReports,
+  getLotteryShiftReports, getLotteryShiftAudit,
   getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
   getLotterySettings, updateLotterySettings,
   // Phase 1a: scan + lifecycle
@@ -1793,6 +1793,12 @@ function LotteryBody({ urlTab } = {}) {
   const [games, setGames] = useState([]);
   const [boxes, setBoxes] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
+  // Per-day audit view (Phase D, Apr 2026) — chronological per-shift breakdown
+  // with cumulative-reading deltas + reconcileShift drawer math + day rollup.
+  const [shiftAudit, setShiftAudit] = useState(null);
+  const [shiftAuditLoading, setShiftAuditLoading] = useState(false);
+  const [shiftAuditMode, setShiftAuditMode] = useState('table');   // 'table' | 'audit'
+  const [expandedShiftIds, setExpandedShiftIds] = useState(() => new Set());
   const [dashboard, setDashboard] = useState(null);
   const [report, setReport] = useState(null);
   const [reportData, setReportData] = useState(null);
@@ -1833,6 +1839,20 @@ function LotteryBody({ urlTab } = {}) {
 
   const loadShiftReports = useCallback(async () => {
     try { const r = await getLotteryShiftReports(); setShiftReports(Array.isArray(r) ? r : r?.reports || []); } catch { }
+  }, []);
+
+  const loadShiftAudit = useCallback(async (date) => {
+    if (!date) { setShiftAudit(null); return; }
+    setShiftAuditLoading(true);
+    try {
+      const r = await getLotteryShiftAudit({ date });
+      setShiftAudit(r);
+    } catch (e) {
+      console.warn('[Lottery] shift-audit load failed', e);
+      setShiftAudit(null);
+    } finally {
+      setShiftAuditLoading(false);
+    }
   }, []);
 
   const loadDashboard = useCallback(async () => {
@@ -1897,6 +1917,14 @@ function LotteryBody({ urlTab } = {}) {
     if (tab === 'Settings') loadSettings();
     if (tab === 'Ticket Catalog') loadPendingCount();
   }, [tab, reportPeriod]); // eslint-disable-line
+
+  // Audit view loader — fires when user switches to audit mode + has a date
+  // selected. Refreshes when either changes.
+  useEffect(() => {
+    if (tab === 'Shift Reports' && shiftAuditMode === 'audit' && boxDateFilter) {
+      loadShiftAudit(boxDateFilter);
+    }
+  }, [tab, shiftAuditMode, boxDateFilter, loadShiftAudit]);
 
   /* ── Date presets ─────────────────────────────────────────────────────── */
   const applyPreset = (preset) => {
@@ -2313,10 +2341,49 @@ function LotteryBody({ urlTab } = {}) {
             {boxDateFilter && (
               <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={() => setBoxDateFilter('')}>Clear</button>
             )}
+            <div className="lt-shift-mode-toggle" role="tablist">
+              <button
+                role="tab"
+                aria-selected={shiftAuditMode === 'table'}
+                className={`lt-shift-mode-btn ${shiftAuditMode === 'table' ? 'active' : ''}`}
+                onClick={() => setShiftAuditMode('table')}
+              >Table</button>
+              <button
+                role="tab"
+                aria-selected={shiftAuditMode === 'audit'}
+                className={`lt-shift-mode-btn ${shiftAuditMode === 'audit' ? 'active' : ''}`}
+                onClick={() => setShiftAuditMode('audit')}
+                title={!boxDateFilter ? 'Pick a date first to see the per-shift audit view' : undefined}
+              >Audit Day</button>
+            </div>
             <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
               {filteredReports.length} / {shiftReports.length} shift{shiftReports.length === 1 ? '' : 's'}
             </span>
           </div>
+
+          {/* Audit mode — per-shift drill-down powered by /lottery/shift-audit */}
+          {shiftAuditMode === 'audit' && !boxDateFilter && (
+            <div className="lt-audit-empty">Pick a date above to load the per-shift audit view.</div>
+          )}
+          {shiftAuditMode === 'audit' && boxDateFilter && (
+            <ShiftAuditView
+              audit={shiftAudit}
+              loading={shiftAuditLoading}
+              date={boxDateFilter}
+              expanded={expandedShiftIds}
+              onToggleExpand={(id) => {
+                setExpandedShiftIds(prev => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id); else next.add(id);
+                  return next;
+                });
+              }}
+              onRefresh={() => loadShiftAudit(boxDateFilter)}
+            />
+          )}
+
+          {/* Table mode — flat shift list (existing behavior, untouched) */}
+          {shiftAuditMode === 'table' && (
           <div className="lt-table-wrap">
           <table className="lt-table">
             <thead>
@@ -2348,6 +2415,7 @@ function LotteryBody({ urlTab } = {}) {
             </tbody>
           </table>
           </div>
+          )}
         </div>
       );})()}
 
@@ -2606,5 +2674,249 @@ function LotteryBody({ urlTab } = {}) {
         <BookTimelineModal box={timelineBox} onClose={() => setTimelineBox(null)} />
       )}
     </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * SHIFT AUDIT VIEW (Phase D, Apr 2026)
+ *
+ * Per-day owner audit. Powered by GET /api/lottery/shift-audit, which
+ * returns chronologically-ordered closed shifts with:
+ *   - cumulative-day readings off the lottery terminal (snapshotted per
+ *     shift at close on LotteryShiftReport)
+ *   - per-shift deltas (this − previous)
+ *   - reconcileShift() drawer math (expected vs counted vs variance)
+ *   - day-level rollup (last shift's reading IS the day total for any
+ *     cumulative field; per-shift instant scans sum to day total)
+ * ────────────────────────────────────────────────────────────────── */
+function ShiftAuditView({ audit, loading, date, expanded, onToggleExpand, onRefresh }) {
+  const fmtTime = (d) => d ? new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+  const day = audit?.day || {};
+  const shifts = audit?.shifts || [];
+  const settings = audit?.settings || { shiftVarianceDisplay: 'always', shiftVarianceThreshold: 0 };
+
+  // Variance display rule per store settings (Phase E):
+  //   'always'    → always show signed variance, color-coded
+  //   'threshold' → only show when |variance| >= threshold; otherwise muted
+  //   'hidden'    → never show per-shift variance (day rollup still shown)
+  const varianceCell = (v) => {
+    const n = Number(v || 0);
+    if (settings.shiftVarianceDisplay === 'hidden') return <span className="lt-audit-var-muted">—</span>;
+    if (settings.shiftVarianceDisplay === 'threshold' && Math.abs(n) < Number(settings.shiftVarianceThreshold || 0)) {
+      return <span className="lt-audit-var-muted" title={`Below ${fmt(settings.shiftVarianceThreshold)} threshold`}>—</span>;
+    }
+    const cls = Math.abs(n) < 0.01 ? 'lt-audit-var-ok'
+              : Math.abs(n) <= 5    ? 'lt-audit-var-warn'
+                                    : 'lt-audit-var-err';
+    return <span className={cls}>{n >= 0 ? '+' : ''}{fmt(n)}</span>;
+  };
+
+  if (loading) {
+    return <div className="lt-audit-empty">Loading audit for {date}…</div>;
+  }
+  if (!audit) {
+    return <div className="lt-audit-empty">Audit data unavailable. <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={onRefresh}>Retry</button></div>;
+  }
+  if (!shifts.length) {
+    return <div className="lt-audit-empty">No shifts closed on {date}.</div>;
+  }
+
+  return (
+    <div className="lt-audit">
+      {/* DAY-LEVEL ROLLUP — single source of truth */}
+      <div className="lt-audit-day">
+        <div className="lt-audit-day-head">
+          <strong>Day Rollup · {date}</strong>
+          <span className="lt-audit-day-sub">{shifts.length} shift{shifts.length === 1 ? '' : 's'}</span>
+          <button className="lt-btn lt-btn-ghost lt-btn-sm" onClick={onRefresh} title="Reload audit">↻ Refresh</button>
+        </div>
+        <div className="lt-audit-day-grid">
+          <AuditMetric label="Instant Sales (scan)"    value={fmt(day.instantSalesTotal)}   accent="brand" />
+          <AuditMetric label="Online Sales (net)"      value={fmt(day.onlineSalesNet)}      accent="brand" />
+          <AuditMetric label="Daily Due to Lottery"    value={fmt(day.dailyDue)}            accent={day.dailyDue >= 0 ? 'good' : 'amber'} big />
+          <AuditMetric label="Drawer Variance Sum"     value={(day.varianceSum >= 0 ? '+' : '') + fmt(day.varianceSum)} accent={Math.abs(day.varianceSum) < 0.01 ? 'good' : Math.abs(day.varianceSum) <= 5 ? 'amber' : 'red'} />
+        </div>
+
+        {/* POS-rang vs ticket-math — surfaced as audit signal */}
+        <div className="lt-audit-day-row">
+          <div className="lt-audit-mini">
+            <span>POS-rang lottery sales</span>
+            <strong>{fmt(day.posSalesTotal)}</strong>
+          </div>
+          <div className="lt-audit-mini">
+            <span>⚠ Un-rung at register</span>
+            <strong className={day.unreportedCashTotal > 0.01 ? 'lt-audit-mini-warn' : ''}>{fmt(day.unreportedCashTotal)}</strong>
+          </div>
+          <div className="lt-audit-mini">
+            <span>Drawer expected (sum)</span>
+            <strong>{fmt(day.expectedDrawerSum)}</strong>
+          </div>
+          <div className="lt-audit-mini">
+            <span>Drawer counted (sum)</span>
+            <strong>{fmt(day.countedSum)}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* PER-SHIFT BREAKDOWN — chronologically ordered */}
+      <div className="lt-audit-shifts">
+        {shifts.map((s, idx) => {
+          const isExpanded = expanded.has(s.shiftId);
+          const isFirst = idx === 0;
+          const r = s.reconciliation || {};
+          const variance = Number(r.variance || 0);
+          const showVariancePill = settings.shiftVarianceDisplay !== 'hidden' &&
+            !(settings.shiftVarianceDisplay === 'threshold' && Math.abs(variance) < Number(settings.shiftVarianceThreshold || 0));
+
+          return (
+            <div key={s.shiftId} className={`lt-audit-shift ${isExpanded ? 'open' : ''}`}>
+              <button className="lt-audit-shift-head" onClick={() => onToggleExpand(s.shiftId)} aria-expanded={isExpanded}>
+                <span className="lt-audit-shift-toggle">{isExpanded ? '▾' : '▸'}</span>
+                <span className="lt-audit-shift-pos">#{idx + 1}</span>
+                <span className="lt-audit-shift-cashier">
+                  <strong>{s.cashierName}</strong>
+                  <small>{s.stationName}</small>
+                </span>
+                <span className="lt-audit-shift-time">
+                  {fmtTime(s.openedAt)} → {fmtTime(s.closedAt)}
+                </span>
+                <span className="lt-audit-shift-readings-sum">
+                  {!s.hasReadings ? (
+                    <span className="lt-audit-no-readings" title="Cashier didn't enter machine readings">No readings entered</span>
+                  ) : (
+                    <>
+                      <span title="Instant scan sales this shift">{fmt(s.instantSalesScan)} instant</span>
+                      <span className="lt-audit-shift-sep">·</span>
+                      <span title="Online sales delta this shift (gross − cancels − pays − coupon − discounts)">{fmt(s.onlineSalesNet)} online</span>
+                    </>
+                  )}
+                </span>
+                {showVariancePill && (
+                  <span className={`lt-audit-shift-variance ${Math.abs(variance) < 0.01 ? 'ok' : Math.abs(variance) <= 5 ? 'warn' : 'err'}`}>
+                    {variance >= 0 ? '+' : ''}{fmt(variance)}
+                  </span>
+                )}
+              </button>
+
+              {isExpanded && (
+                <div className="lt-audit-shift-body">
+                  {/* Cumulative readings + deltas */}
+                  <div className="lt-audit-readings-card">
+                    <div className="lt-audit-readings-head">Lottery Terminal Readings</div>
+                    {!s.hasReadings ? (
+                      <div className="lt-audit-no-readings-body">
+                        Cashier didn't enter terminal readings at shift close. Per-shift online activity for this shift cannot be computed.
+                        {!isFirst && ' Next shift\'s deltas will pick up from the previous reading.'}
+                      </div>
+                    ) : (
+                      <table className="lt-audit-readings-table">
+                        <thead>
+                          <tr>
+                            <th>Field</th>
+                            <th>Reading at close (cumulative day)</th>
+                            <th>This shift Δ (delta)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <ReadingRow label="Gross Sales"        reading={s.readings.grossSales}     delta={s.deltas.grossSales}     />
+                          <ReadingRow label="Cancels"            reading={s.readings.cancels}        delta={s.deltas.cancels}        />
+                          <ReadingRow label="Pays / Cashes"      reading={s.readings.machineCashing} delta={s.deltas.machineCashing} />
+                          <ReadingRow label="Coupon Cash"        reading={s.readings.couponCash}     delta={s.deltas.couponCash}     />
+                          <ReadingRow label="Discounts"          reading={s.readings.discounts}      delta={s.deltas.discounts}      />
+                          <ReadingRow label="Instant Pays/Cashes" reading={s.readings.instantCashing} delta={s.deltas.instantCashing} />
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td><strong>Online Sales (net) this shift</strong></td>
+                            <td></td>
+                            <td><strong>{fmt(s.onlineSalesNet)}</strong></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Per-shift drawer reconciliation */}
+                  <div className="lt-audit-recon-card">
+                    <div className="lt-audit-readings-head">Cash Drawer Reconciliation</div>
+                    {r && Array.isArray(r.lineItems) ? (
+                      <table className="lt-audit-recon-table">
+                        <tbody>
+                          {r.lineItems.map((line, i) => (
+                            <tr key={i} className={`lt-audit-recon-${line.kind || ''}`}>
+                              <td className="lt-audit-recon-label">{line.label}</td>
+                              <td className="lt-audit-recon-amt">
+                                {line.kind === 'outgoing' && line.amount > 0 ? '−' : ''}{fmt(Math.abs(line.amount))}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="lt-audit-recon-expected">
+                            <td className="lt-audit-recon-label">= Expected drawer</td>
+                            <td className="lt-audit-recon-amt">{fmt(r.expectedDrawer)}</td>
+                          </tr>
+                          <tr className="lt-audit-recon-counted">
+                            <td className="lt-audit-recon-label">Counted by cashier</td>
+                            <td className="lt-audit-recon-amt">{fmt(r.closingAmount)}</td>
+                          </tr>
+                          <tr className="lt-audit-recon-variance">
+                            <td className="lt-audit-recon-label">Variance</td>
+                            <td className="lt-audit-recon-amt">{varianceCell(r.variance)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="lt-audit-no-readings-body">Reconciliation data unavailable for this shift.</div>
+                    )}
+                  </div>
+
+                  {/* POS-rang lottery activity for this shift */}
+                  <div className="lt-audit-pos-card">
+                    <div className="lt-audit-pos-row">
+                      <span>POS-rang sales</span>
+                      <strong>{fmt(s.posRangSales)}</strong>
+                    </div>
+                    <div className="lt-audit-pos-row">
+                      <span>POS-rang payouts</span>
+                      <strong>{fmt(s.posRangPayouts)}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="lt-audit-footer">
+        Variance display: <strong>{settings.shiftVarianceDisplay}</strong>
+        {settings.shiftVarianceDisplay === 'threshold' && (
+          <> (threshold {fmt(settings.shiftVarianceThreshold)})</>
+        )}
+        {' · '}
+        <span>Configure in Lottery → Settings or back-office Daily page.</span>
+      </div>
+    </div>
+  );
+}
+
+function AuditMetric({ label, value, accent, big }) {
+  return (
+    <div className={`lt-audit-metric lt-audit-metric--${accent} ${big ? 'big' : ''}`}>
+      <div className="lt-audit-metric-label">{label}</div>
+      <div className="lt-audit-metric-value">{value}</div>
+    </div>
+  );
+}
+
+function ReadingRow({ label, reading, delta }) {
+  const dCls = delta > 0.005 ? 'lt-audit-delta-pos'
+             : delta < -0.005 ? 'lt-audit-delta-neg'
+                              : 'lt-audit-delta-zero';
+  return (
+    <tr>
+      <td>{label}</td>
+      <td>{fmt(reading)}</td>
+      <td className={dCls}>{delta > 0 ? '+' : ''}{fmt(delta)}</td>
+    </tr>
   );
 }

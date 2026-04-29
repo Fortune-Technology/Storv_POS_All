@@ -777,7 +777,14 @@ export default function ProductForm() {
   const [duplicating, setDuplicating] = useState(false);
 
   // ── Pack Configuration ───────────────────────────────────────────────────────
-  const [packEnabled, setPackEnabled] = useState(false);
+  // packEnabled toggle removed in Session F — packs are always present (the
+  // primary row is the master), packRows holds only the additional sizes.
+  // Kept as `false` constant so the legacy save-path checks at line ~1362,
+  // 1382, 1488 (which gated on `packEnabled && packRows.length > 0`) flip to
+  // a simpler `packRows.length > 0` check below — see those edits.
+  // Focused row index for the Quick-set margin chips. null = primary (master);
+  // 0..N = the corresponding packRows entry.
+  const [focusedPackIdx, setFocusedPackIdx] = useState(null);
   const [packRows,    setPackRows]    = useState([
     { id: 'new-0', label: 'Single', unitPack: '1', packsPerCase: '', packPrice: '', isDefault: true },
   ]);
@@ -992,7 +999,7 @@ export default function ProductForm() {
 
         const sizes = sizeRes?.data ?? [];
         if (sizes.length > 0) {
-          setPackEnabled(true);
+          // packEnabled toggle removed in Session F — packs always show.
           setPackRows(sizes.map(s => ({
             id:          s.id,
             label:       s.label ?? '',
@@ -1356,10 +1363,10 @@ export default function ProductForm() {
     if (!form.departmentId) { toast.error('Department is required');   return; }
     if (upcWarning)         { toast.error(upcWarning);                 return; }
 
-    // Pack-size validation: when pack pricing is enabled, every row must
-    // have a positive unit count and a non-zero price. Silently coercing to
-    // 1 (as the old code did) produced phantom pack sizes on save.
-    if (packEnabled && packRows.length > 0) {
+    // Pack-size validation (Session F: packEnabled gate removed — packRows
+    // are always saved when present). Each row must have positive unit count
+    // and non-zero price.
+    if (packRows.length > 0) {
       for (let i = 0; i < packRows.length; i++) {
         const r = packRows[i];
         const units = parseInt(r.unitPack, 10);
@@ -1378,11 +1385,9 @@ export default function ProductForm() {
       if (defaults > 1) { toast.error('Only one pack size can be marked as default'); return; }
     }
 
-    let derivedRetailPrice = form.defaultRetailPrice || null;
-    if (packEnabled && packRows.length > 0) {
-      const defaultRow = packRows.find(r => r.isDefault) || packRows[0];
-      if (defaultRow?.packPrice) derivedRetailPrice = defaultRow.packPrice;
-    }
+    // Master retail comes from form.defaultRetailPrice (the primary pack row's
+    // retail input, bound directly to that field).
+    const derivedRetailPrice = form.defaultRetailPrice || null;
 
     setSaving(true);
     try {
@@ -1485,16 +1490,19 @@ export default function ProductForm() {
       }
 
       if (productId) {
-        const sizes = packEnabled
-          ? packRows.map((r, i) => ({
-              label:       r.label || `Pack ${i + 1}`,
-              unitCount:   parseInt(r.unitPack) || 1,
-              packsPerCase: r.packsPerCase ? parseInt(r.packsPerCase) : null,
-              retailPrice:  parseFloat(r.packPrice) || 0,
-              isDefault:   r.isDefault,
-              sortOrder:   i,
-            }))
-          : [];
+        // Session F: packEnabled gate removed. packRows are the additional
+        // pack sizes (Double, Quartars, …) — the primary pack lives on the
+        // master product itself and is no longer stored as a duplicated row.
+        // Empty array clears any stale entries; populated array REPLACE-writes
+        // them via the existing /pack-sizes endpoint.
+        const sizes = packRows.map((r, i) => ({
+          label:       r.label || `Pack ${i + 1}`,
+          unitCount:   parseInt(r.unitPack) || 1,
+          packsPerCase: r.packsPerCase ? parseInt(r.packsPerCase) : null,
+          retailPrice:  parseFloat(r.packPrice) || 0,
+          isDefault:   r.isDefault,
+          sortOrder:   i,
+        }));
         await bulkReplaceProductPackSizes(productId, sizes).catch(() => {});
       }
 
@@ -1997,233 +2005,268 @@ export default function ProductForm() {
                   </div>
                 </div>
 
-              {/* ── 2. Pricing ── */}
+              {/* ── 2. Pricing & Packs (Session F: unified table) ──
+                  The previous form had a "Pricing" card + a "Pack Configuration"
+                  card with a Yes/No toggle. The two duplicated the same data
+                  shape (master Unit-Pack/Packs-per-Case = packRow #1's fields)
+                  and the toggle created two-mode UX. Consolidated here:
+                    • One table. First row = the primary pack (★), bound to
+                      master fields (defaultRetailPrice/defaultCasePrice/
+                      defaultUnitPack/defaultPacksPerCase/defaultCostPrice).
+                      Invoice OCR cost-sync writes to MasterProduct =
+                      this row, exactly as the user requested.
+                    • Subsequent rows are ProductPackSize entries.
+                    • "+ Add Pack Size" is always visible — no toggle.
+                    • Single Case Deposit field above the table; per-row DEP/PK
+                      derived from caseDeposit ÷ row.packsPerCase.
+                    • Quick-set margin chips below the table apply to the
+                      currently-focused row (focusedPackIdx === null is the
+                      primary; integer is the packRow index).
+              */}
               <div className="pf-card">
-                <div className="pf-section-title">Pricing</div>
+                <div className="pf-section-title">Pricing &amp; Packs</div>
 
-                {/* Single row: Retail | Case Cost | Unit-Pack | Packs or Case Size | Unit Cost | Margin */}
-                <div className="pf-pricing-row">
-
-                  {/* Retail Price */}
-                  <div>
-                    <label className="pf-label">Retail Price</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
-                        value={form.defaultRetailPrice} placeholder="0.00"
-                        onChange={(v) => setF('defaultRetailPrice', v)}
-                        onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
-                    </div>
+                {/* Single product-level Case Deposit input. Drives every row's
+                    DEP/PK column (= caseDeposit ÷ packsPerCase) so the cashier
+                    sees the right deposit per pack at scan time. */}
+                <div className="pf-deposit-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.875rem' }}>
+                  <label className="pf-label" style={{ marginBottom: 0 }}>Case Deposit</label>
+                  <div className="pf-dollar-wrap" style={{ width: 140 }}>
+                    <span className="pf-dollar-sign">$</span>
+                    <PriceInput className="form-input pf-dollar-input"
+                      value={caseDeposit} placeholder="0.00"
+                      onChange={(v) => setCaseDeposit(v)}
+                      onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))} />
                   </div>
-
-                  {/* Case Cost — editing auto-fills Unit Cost (Item 21, Level 1) */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Case Cost</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
-                        value={form.defaultCasePrice} placeholder="0.00"
-                        onChange={(v) => {
-                          setF('defaultCasePrice', v);
-                          // Auto-recalc Unit Cost when pack math is complete.
-                          const caseNum = parseFloat(v);
-                          const packsNum = parseFloat(defaultPacksPerCase);
-                          const upNum    = parseFloat(defaultUnitPack) || 1;
-                          if (caseNum > 0 && packsNum > 0 && upNum > 0) {
-                            setF('defaultCostPrice', (caseNum / packsNum / upNum).toFixed(4));
-                          }
-                        }}
-                        onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
-                    </div>
-                  </div>
-
-                  {/* Unit-Pack */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Unit-Pack</label>
-                    <input className="form-input pf-compact-input pf-center-input"
-                      type="number" min="1" step="1"
-                      value={defaultUnitPack} placeholder="1"
-                      onChange={e => setDefaultUnitPack(e.target.value || '1')} />
-                  </div>
-
-                  {/* Packs or Case Size */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Packs or Case Size</label>
-                    <input className="form-input pf-compact-input pf-center-input"
-                      type="number" min="1" step="1"
-                      value={defaultPacksPerCase} placeholder="—"
-                      onChange={e => setDefaultPacksPerCase(e.target.value)} />
-                  </div>
-
-                  {/* Unit Cost — editable; reverse auto-fills Case Cost.
-                      When user types here, Case Cost recomputes = unit × packs × unitPack.
-                      When Case Cost changes above, this field recomputes too.
-                      Latest-edited wins; the other field updates in sync. */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Unit Cost</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
-                        value={form.defaultCostPrice} placeholder="0.00"
-                        onChange={(v) => {
-                          setF('defaultCostPrice', v);
-                          // Auto-recalc Case Cost when pack math is complete.
-                          const unitNum = parseFloat(v);
-                          const packsNum = parseFloat(defaultPacksPerCase);
-                          const upNum    = parseFloat(defaultUnitPack) || 1;
-                          if (unitNum > 0 && packsNum > 0 && upNum > 0) {
-                            setF('defaultCasePrice', (unitNum * packsNum * upNum).toFixed(2));
-                          }
-                        }}
-                        onBlur={e => e.target.value && setF('defaultCostPrice', parseFloat(e.target.value).toFixed(4))} />
-                    </div>
-                  </div>
-
-                  {/* Margin — inline at end */}
-                  <div className="pf-margin-inline-col">
-                    {margin !== null ? (
-                      <span className="pf-margin-inline-pill" style={{ background: mColor+'20', color: mColor }}>
-                        {fmtPct(margin)}
-                      </span>
-                    ) : (
-                      <span className="pf-margin-inline-empty">—</span>
-                    )}
-                    {depositEnabled && caseDeposit && ppcVal && (
-                      <span className="pf-deposit-inline">
-                        <span className="pf-deposit-inline-label">dep/pk</span>
-                        {fmt$(parseFloat(caseDeposit) / ppcVal)}
-                      </span>
-                    )}
-                  </div>
-
+                  <span className="pf-hint" style={{ fontSize: '0.7rem' }}>
+                    <Info size={10} /> Per-pack deposit auto-derived from case deposit ÷ packs-per-case for each row below.
+                  </span>
                 </div>
+
+                {/* Table header */}
+                <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
+                  <span>Label</span>
+                  <span>Retail Price</span>
+                  <span>Unit-Pack</span>
+                  <span>Packs or Case Size</span>
+                  <span>Case Cost</span>
+                  <span>Unit Cost</span>
+                  <span>Margin</span>
+                  {depositEnabled && <span>Deposit/Pack</span>}
+                  <span></span>
+                </div>
+
+                {/* ── Primary row (master) ── always rendered, always first.
+                    No delete button — the master row can never be removed. */}
+                {(() => {
+                  const ppc = parseFloat(defaultPacksPerCase) || null;
+                  const up  = parseFloat(defaultUnitPack)     || 1;
+                  const cc  = parseFloat(form.defaultCasePrice) || null;
+                  const uc  = unitCostVal;
+                  const r   = parseFloat(form.defaultRetailPrice) || null;
+                  const rowMargin = r && uc ? ((r - uc) / r) * 100 : null;
+                  const rowDeposit = depositEnabled && caseDeposit && ppc
+                    ? parseFloat(caseDeposit) / ppc : null;
+                  const isFocused = focusedPackIdx === null;
+                  return (
+                    <div
+                      className={`pf-pack-row pf-pack-row--primary${depositEnabled ? ' with-deposit' : ''}${isFocused ? ' pf-pack-row--focused' : ''}`}
+                      onClickCapture={() => setFocusedPackIdx(null)}
+                    >
+                      {/* Label cell — primary star + product-name placeholder */}
+                      <div className="pf-pack-primary-cell" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Star size={12} fill="#f59e0b" color="#f59e0b" />
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f59e0b' }}>Primary</span>
+                      </div>
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className={`form-input pf-pack-input pf-dollar-input${priceWarning ? ' pf-input-error' : ''}`}
+                          value={form.defaultRetailPrice} placeholder="0.00"
+                          onChange={(v) => setF('defaultRetailPrice', v)}
+                          onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))}
+                          onFocus={() => setFocusedPackIdx(null)} />
+                      </div>
+                      <input className="form-input pf-pack-input" type="number" min="1" step="1"
+                        value={defaultUnitPack} placeholder="1"
+                        onChange={e => setDefaultUnitPack(e.target.value || '1')}
+                        onFocus={() => setFocusedPackIdx(null)} />
+                      <input className="form-input pf-pack-input" type="number" min="1" step="1"
+                        value={defaultPacksPerCase} placeholder="—"
+                        onChange={e => setDefaultPacksPerCase(e.target.value)}
+                        onFocus={() => setFocusedPackIdx(null)} />
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className="form-input pf-pack-input pf-dollar-input"
+                          value={form.defaultCasePrice} placeholder="0.00"
+                          onChange={(v) => {
+                            setF('defaultCasePrice', v);
+                            const caseNum = parseFloat(v);
+                            const packsNum = parseFloat(defaultPacksPerCase);
+                            const upNum    = parseFloat(defaultUnitPack) || 1;
+                            if (caseNum > 0 && packsNum > 0 && upNum > 0) {
+                              setF('defaultCostPrice', (caseNum / packsNum / upNum).toFixed(4));
+                            }
+                          }}
+                          onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))}
+                          onFocus={() => setFocusedPackIdx(null)} />
+                      </div>
+                      <div className="pf-cost-cell">
+                        {uc != null ? fmt$(uc) : '—'}
+                      </div>
+                      <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
+                        {rowMargin != null ? fmtPct(rowMargin) : '—'}
+                      </div>
+                      {depositEnabled && (
+                        <div className="pf-pack-deposit-cell">
+                          {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
+                        </div>
+                      )}
+                      {/* No delete on the primary row — master can never be removed */}
+                      <span style={{ width: 24 }} />
+                    </div>
+                  );
+                })()}
+
+                {/* ── Additional pack rows (ProductPackSize entries) ── */}
+                {packRows.map((row, idx) => {
+                  const ppc       = parseInt(row.packsPerCase)  || null;
+                  const up        = parseFloat(row.unitPack)    || 1;
+                  const pp        = parseFloat(row.packPrice)   || null;
+                  const unitCost  = caseCostVal && ppc ? caseCostVal / ppc / up : null;
+                  const rowMargin = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
+                  const rowDeposit = depositEnabled && caseDeposit && ppc
+                    ? parseFloat(caseDeposit) / ppc : null;
+                  const isFocused = focusedPackIdx === idx;
+                  return (
+                    <div
+                      key={row.id}
+                      className={`pf-pack-row${depositEnabled ? ' with-deposit' : ''}${isFocused ? ' pf-pack-row--focused' : ''}`}
+                      onClickCapture={() => setFocusedPackIdx(idx)}
+                    >
+                      <input className="form-input pf-pack-input"
+                        placeholder='e.g. "Double"'
+                        value={row.label}
+                        onChange={e => updatePackRow(idx, 'label', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className="form-input pf-pack-input pf-dollar-input"
+                          placeholder="0.00"
+                          value={row.packPrice}
+                          onChange={(v) => updatePackRow(idx, 'packPrice', v)}
+                          onFocus={() => setFocusedPackIdx(idx)} />
+                      </div>
+                      <input className="form-input pf-pack-input" type="number" min="1"
+                        placeholder="1"
+                        value={row.unitPack}
+                        onChange={e => updatePackRow(idx, 'unitPack', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      <input className="form-input pf-pack-input" type="number" min="1"
+                        placeholder="—"
+                        value={row.packsPerCase}
+                        onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      {/* Case cost — same value across all rows (one product = one
+                          vendor case). Reads master.defaultCasePrice; non-editable
+                          here so cost-sync stays single-source-of-truth. */}
+                      <div className="pf-cost-cell" style={{ opacity: 0.7 }}>
+                        {form.defaultCasePrice ? fmt$(parseFloat(form.defaultCasePrice)) : '—'}
+                      </div>
+                      <div className="pf-cost-cell">
+                        {unitCost != null ? fmt$(unitCost) : '—'}
+                      </div>
+                      <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
+                        {rowMargin != null ? fmtPct(rowMargin) : '—'}
+                      </div>
+                      {depositEnabled && (
+                        <div className="pf-pack-deposit-cell">
+                          {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
+                        </div>
+                      )}
+                      <button type="button" className="pf-pack-delete-btn"
+                        onClick={(e) => { e.stopPropagation(); removePackRow(idx); }}
+                        title="Remove row">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <button type="button" className="pf-pack-add-btn" onClick={addPackRow}>
+                  <Plus size={13} /> Add Pack Size
+                </button>
+
+                {packRows.length > 0 && (
+                  <p className="pf-hint">
+                    <Info size={11} /> {packRows.length + 1} pack{packRows.length === 0 ? '' : 's'} configured — cashier sees a picker modal on scan
+                  </p>
+                )}
 
                 {/* Warnings */}
                 {priceWarning && (
-                  <div className="pf-warn pf-mb-2">
+                  <div className="pf-warn pf-mb-2" style={{ marginTop: '0.5rem' }}>
                     <AlertCircle size={10} /> {priceWarning}
                   </div>
                 )}
                 {!ppcVal && caseCostVal && (
-                  <div className="pf-hint pf-mb-2">
-                    <Info size={10} /> Enter Packs or Case Size to auto-calculate unit cost
+                  <div className="pf-hint pf-mb-2" style={{ marginTop: '0.5rem' }}>
+                    <Info size={10} /> Enter Packs or Case Size on the primary row to auto-calculate unit cost
                   </div>
                 )}
 
-                {/* Quick-set margin */}
-                <div>
-                  <label className="pf-label">Quick-set margin</label>
+                {/* Quick-set margin — applies to focused row (Session F) */}
+                <div style={{ marginTop: '0.875rem' }}>
+                  <label className="pf-label">
+                    Quick-set margin
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>
+                      (applies to {focusedPackIdx === null ? 'Primary' : (packRows[focusedPackIdx]?.label || `Row ${focusedPackIdx + 1}`)})
+                    </span>
+                  </label>
                   <div className="pf-quick-margins">
-                    {MARGIN_PRESETS.map(m => (
-                      <button key={m} type="button"
-                        onClick={() => {
-                          const cost = unitCostVal;
-                          if (!cost) { toast.error('Enter cost price first'); return; }
-                          setF('defaultRetailPrice', (cost / (1 - m / 100)).toFixed(2));
-                        }}
-                        className="pf-margin-preset-btn"
-                        style={{
-                          border: Math.abs((margin||0)-m) < 0.5 ? 'none' : '1px solid var(--border-color)',
-                          background: Math.abs((margin||0)-m) < 0.5 ? mColor : 'var(--bg-tertiary)',
-                          color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)'
-                        }}>
-                        {m}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* ── 3. Pack Configuration ── */}
-              <div className="pf-card">
-                <div className="pf-pack-toggle-header" style={{ marginBottom: packEnabled ? '1rem' : 0 }}>
-                  <div className="pf-section-title">Pack Configuration</div>
-                  <Tog value={packEnabled} onChange={v => setPackEnabled(v)} />
-                </div>
-
-                {!packEnabled && (
-                  <div className="pf-muted-hint">
-                    Enable to sell this product in multiple sizes (Single, 6‑Pack, 12‑Pack…).
-                    Cashier sees a picker modal when multiple sizes are configured.
-                  </div>
-                )}
-
-                {packEnabled && (
-                  <>
-                    {/* Table header */}
-                    <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
-                      <span>Label</span>
-                      <span>Retail Price</span>
-                      <span>Unit-Pack</span>
-                      <span>Packs or Case Size</span>
-                      <span>Unit Cost</span>
-                      <span>Margin</span>
-                      {depositEnabled && <span>Deposit/Pack</span>}
-                      <span></span>
-                    </div>
-
-                    {/* Pack rows */}
-                    {packRows.map((row, idx) => {
-                      const ppc       = parseInt(row.packsPerCase)  || null;
-                      const up        = parseFloat(row.unitPack)    || 1;
-                      const pp        = parseFloat(row.packPrice)   || null;
-                      const unitCost  = caseCostVal && ppc ? caseCostVal / ppc / up : null;
-                      const rowMargin = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
-                      const rowDeposit = depositEnabled && caseDeposit && ppc
-                        ? parseFloat(caseDeposit) / ppc : null;
+                    {MARGIN_PRESETS.map(m => {
+                      // Compute target retail = unitCost / (1 - m/100). Cost source
+                      // depends on focused row — primary uses unitCostVal (master),
+                      // packRow uses its own caseCost-derived unit cost.
+                      let cost = null;
+                      let activeMargin = null;
+                      if (focusedPackIdx === null) {
+                        cost = unitCostVal;
+                        activeMargin = margin;
+                      } else {
+                        const r = packRows[focusedPackIdx];
+                        if (r) {
+                          const rPpc = parseInt(r.packsPerCase) || null;
+                          const rUp  = parseFloat(r.unitPack)    || 1;
+                          if (caseCostVal && rPpc) cost = caseCostVal / rPpc / rUp;
+                          const rPp = parseFloat(r.packPrice) || null;
+                          activeMargin = rPp && cost ? ((rPp - cost) / rPp) * 100 : null;
+                        }
+                      }
+                      const rowColor = marginColor(activeMargin);
+                      const isActive = activeMargin != null && Math.abs(activeMargin - m) < 0.5;
                       return (
-                        <div key={row.id} className={`pf-pack-row${depositEnabled ? ' with-deposit' : ''}`}>
-                          <input className="form-input pf-pack-input"
-                            placeholder='e.g. "Single"'
-                            value={row.label}
-                            onChange={e => updatePackRow(idx, 'label', e.target.value)} />
-                          <div className="pf-dollar-wrap">
-                            <span className="pf-dollar-sign">$</span>
-                            <PriceInput className="form-input pf-pack-input pf-dollar-input"
-                              placeholder="0.00"
-                              value={row.packPrice}
-                              onChange={(v) => updatePackRow(idx, 'packPrice', v)} />
-                          </div>
-                          <input className="form-input pf-pack-input" type="number" min="1"
-                            placeholder="1"
-                            value={row.unitPack}
-                            onChange={e => updatePackRow(idx, 'unitPack', e.target.value)} />
-                          <input className="form-input pf-pack-input" type="number" min="1"
-                            placeholder="—"
-                            value={row.packsPerCase}
-                            onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)} />
-                          <div className="pf-cost-cell">
-                            {unitCost != null ? fmt$(unitCost) : '—'}
-                          </div>
-                          <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
-                            {rowMargin != null ? fmtPct(rowMargin) : '—'}
-                          </div>
-                          {depositEnabled && (
-                            <div className="pf-pack-deposit-cell">
-                              {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
-                            </div>
-                          )}
-                          <button type="button" className="pf-pack-delete-btn"
-                            onClick={() => removePackRow(idx)}
-                            disabled={packRows.length === 1}
-                            title="Remove row">
-                            <X size={13} />
-                          </button>
-                        </div>
+                        <button key={m} type="button"
+                          onClick={() => {
+                            if (!cost) { toast.error('Enter cost price first'); return; }
+                            const newRetail = (cost / (1 - m / 100)).toFixed(2);
+                            if (focusedPackIdx === null) {
+                              setF('defaultRetailPrice', newRetail);
+                            } else {
+                              updatePackRow(focusedPackIdx, 'packPrice', newRetail);
+                            }
+                          }}
+                          className="pf-margin-preset-btn"
+                          style={{
+                            border: isActive ? 'none' : '1px solid var(--border-color)',
+                            background: isActive ? rowColor : 'var(--bg-tertiary)',
+                            color: isActive ? '#fff' : 'var(--text-secondary)'
+                          }}>
+                          {m}%
+                        </button>
                       );
                     })}
-
-                    <button type="button" className="pf-pack-add-btn" onClick={addPackRow}>
-                      <Plus size={13} /> Add Pack Size
-                    </button>
-
-                    {packRows.length > 0 && (
-                      <p className="pf-hint">
-                        <Info size={11} /> {packRows.length} size{packRows.length > 1 ? 's' : ''} configured — cashier sees a picker modal on scan
-                      </p>
-                    )}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
 
               {/* ── 4. Store Deals & Offers ── */}
@@ -2882,7 +2925,7 @@ export default function ProductForm() {
                   </div>
                 </div>
 
-                {packEnabled && packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
+                {packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
                   <div style={{ padding:'0.6rem 0.75rem', background:'#06b6d408', borderRadius:7,
                     border:'1px solid #06b6d425', marginBottom:'0.5rem' }}>
                     <div style={{ fontSize:'0.65rem', fontWeight:700, color:'#06b6d4',

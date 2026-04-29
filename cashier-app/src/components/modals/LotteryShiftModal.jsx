@@ -7,8 +7,14 @@
  *      auto-fills the matching book's today-end OR auto-activates a
  *      new-book scan. Each row also has a Soldout button.
  *      Every row MUST have an end-ticket OR be soldout before Next.
- *   2. Online Sales — 3 fields (instantCashing, machineSales, machineCashing)
- *      that persist into LotteryOnlineTotal for today.
+ *   2. Online Sales — 6 cumulative-day readings off the lottery terminal
+ *      (grossSales, cancels, machineCashing, couponCash, discounts,
+ *      instantCashing). All values are day-to-date totals (the terminal
+ *      shows running daily totals — per-shift activity is later computed
+ *      by delta-ing chronologically-ordered shifts in the same day).
+ *      Persists into LotteryOnlineTotal (day) AND LotteryShiftReport
+ *      (per-shift snapshot) so the back-office audit view can reconstruct
+ *      per-shift deltas.
  *   3. Confirm — final report with all numbers + net due formula.
  *      Confirm saves LotteryShiftReport + LotteryOnlineTotal + flips any
  *      soldout boxes to depleted.
@@ -48,7 +54,14 @@ export default function LotteryShiftModal({
   const [notes, setNotes]           = useState('');
   const [scanValue, setScanValue]   = useState('');
   const [scanLog, setScanLog]       = useState([]);           // recent scans for operator feedback
-  const [online, setOnline]         = useState({ instantCashing: '', machineSales: '', machineCashing: '' });
+  const [online, setOnline]         = useState({
+    grossSales:     '',
+    cancels:        '',
+    machineCashing: '',
+    couponCash:     '',
+    discounts:      '',
+    instantCashing: '',
+  });
   const [saving, setSaving]         = useState(false);
   const [err, setErr]               = useState('');
   const scanInputRef = useRef(null);
@@ -69,7 +82,14 @@ export default function LotteryShiftModal({
     setNotes('');
     setScanValue('');
     setScanLog([]);
-    setOnline({ instantCashing: '', machineSales: '', machineCashing: '' });
+    setOnline({
+      grossSales:     '',
+      cancels:        '',
+      machineCashing: '',
+      couponCash:     '',
+      discounts:      '',
+      instantCashing: '',
+    });
     setErr('');
     setTimeout(() => scanInputRef.current?.focus(), 100);
   }, [open, activeBoxes]);
@@ -151,26 +171,44 @@ export default function LotteryShiftModal({
   const allComplete = boxData.every(b => b.rowComplete);
   const scannedTotal = boxData.reduce((s, b) => s + (b.isSoldout ? (b.soldoutAmount || 0) : (b.calcAmount || 0)), 0);
 
-  // ── Step 2 → numeric online totals ───────────────────────────────────────
+  // ── Step 2 → numeric online totals (cumulative-day readings off the terminal) ─
   const onlineNums = {
-    instantCashing: Number(online.instantCashing || 0),
-    machineSales:   Number(online.machineSales   || 0),
+    grossSales:     Number(online.grossSales     || 0),
+    cancels:        Number(online.cancels        || 0),
     machineCashing: Number(online.machineCashing || 0),
+    couponCash:     Number(online.couponCash     || 0),
+    discounts:      Number(online.discounts      || 0),
+    instantCashing: Number(online.instantCashing || 0),
   };
 
   // ── Step 3 → final report totals ────────────────────────────────────────
   const report = useMemo(() => {
-    const instantSales = scannedTotal;
+    const instantSales    = scannedTotal;
     const instantCashings = onlineNums.instantCashing;
-    const machineSales = onlineNums.machineSales;
-    const machineCashings = onlineNums.machineCashing;
-    // Daily formula: Instant sales − Instant cashings + Machine sales − Machine cashings
-    const dailyDue = (instantSales - instantCashings) + (machineSales - machineCashings);
+    // Online sales (net) = gross − cancels − pays/cashes − coupon − discounts
+    // Matches the back-office Online Sales formula.
+    const onlineSalesNet =
+      onlineNums.grossSales -
+      onlineNums.cancels -
+      onlineNums.machineCashing -
+      onlineNums.couponCash -
+      onlineNums.discounts;
+    // Daily Due = (Instant sales − Instant cashings) + Online sales (net)
+    const dailyDue = (instantSales - instantCashings) + onlineSalesNet;
     return {
-      instantSales, instantCashings, machineSales, machineCashings,
-      dailyDue: Math.round(dailyDue * 100) / 100,
+      instantSales,
+      instantCashings,
+      // Per-field cumulative readings (snapshotted at this shift close)
+      grossSales:     onlineNums.grossSales,
+      cancels:        onlineNums.cancels,
+      machineCashing: onlineNums.machineCashing,
+      couponCash:     onlineNums.couponCash,
+      discounts:      onlineNums.discounts,
+      // Net machine sales (post-deductions, used for top-line summary)
+      onlineSalesNet: Math.round(onlineSalesNet * 100) / 100,
+      dailyDue:       Math.round(dailyDue * 100) / 100,
     };
-  }, [scannedTotal, onlineNums.instantCashing, onlineNums.machineSales, onlineNums.machineCashing]);
+  }, [scannedTotal, onlineNums.grossSales, onlineNums.cancels, onlineNums.machineCashing, onlineNums.couponCash, onlineNums.discounts, onlineNums.instantCashing]);
 
   // ── Step navigation ─────────────────────────────────────────────────────
   const canNext = () => {
@@ -206,17 +244,32 @@ export default function LotteryShiftModal({
         setErr(`Some soldouts didn't apply:\n${soldoutErrors.slice(0, 3).join('\n')}`);
       }
 
-      // 2. Save online totals for today
-      if (onlineNums.instantCashing > 0 || onlineNums.machineSales > 0 || onlineNums.machineCashing > 0) {
+      // 2. Save day-level online totals (LotteryOnlineTotal — keyed by date)
+      // The lottery terminal shows running daily totals — every shift close
+      // overwrites this row with the latest cumulative reading. The LAST
+      // shift of the day's reading IS the day total.
+      const anyOnlineEntered =
+        onlineNums.grossSales > 0 || onlineNums.cancels > 0 ||
+        onlineNums.machineCashing > 0 || onlineNums.couponCash > 0 ||
+        onlineNums.discounts > 0 || onlineNums.instantCashing > 0;
+      if (anyOnlineEntered) {
         await upsertLotteryOnlineTotal({
           date:            todayISO(),
-          instantCashing:  onlineNums.instantCashing,
-          machineSales:    onlineNums.machineSales,
+          grossSales:      onlineNums.grossSales,
+          cancels:         onlineNums.cancels,
           machineCashing:  onlineNums.machineCashing,
+          couponCash:      onlineNums.couponCash,
+          discounts:       onlineNums.discounts,
+          instantCashing:  onlineNums.instantCashing,
+          // Legacy "machineSales" — keep populated as the net so older
+          // back-office views that still read it stay consistent.
+          machineSales:    report.onlineSalesNet,
         }).catch(() => {});
       }
 
       // 3. Save shift report via onSave callback (parent triggers saveLotteryShiftReport)
+      // Per-shift row also stores the SNAPSHOT of cumulative readings so the
+      // back-office Shift Reports tab can compute per-shift deltas later.
       const boxScans = boxData.map(b => ({
         boxId:       b.id,
         gameId:      b.gameId,
@@ -234,9 +287,17 @@ export default function LotteryShiftModal({
         boxScans,
         totalSales:     sessionSales,
         totalPayouts:   sessionPayouts,
-        machineAmount:  onlineNums.machineSales,
+        // Legacy fields kept for back-compat
+        machineAmount:  report.onlineSalesNet,
         digitalAmount:  onlineNums.instantCashing + onlineNums.machineCashing,
         notes:          notes.trim() || undefined,
+        // Cumulative-day readings (per-shift snapshot — used by audit view)
+        grossSalesReading:     onlineNums.grossSales,
+        cancelsReading:        onlineNums.cancels,
+        machineCashingReading: onlineNums.machineCashing,
+        couponCashReading:     onlineNums.couponCash,
+        discountsReading:      onlineNums.discounts,
+        instantCashingReading: onlineNums.instantCashing,
       });
     } catch (e) {
       setErr(e?.response?.data?.error || e.message || 'Save failed');
@@ -383,35 +444,70 @@ export default function LotteryShiftModal({
           )}
 
           {/* ── STEP 2: Online Sales ─────────────────────────────────── */}
+          {/* Six cumulative-day readings off the lottery terminal. Cashier
+              enters whatever the machine display shows — these are running
+              daily totals, not per-shift activity. Per-shift deltas are
+              computed later in the back-office audit view. */}
           {step === 1 && (
             <div className="lsm-online-grid">
+              <div className="lsm-online-section-hint">
+                Enter the cumulative day totals exactly as shown on the lottery terminal printout.
+                These are <strong>running totals for today</strong>, not just your shift.
+              </div>
+
               <OnlineField
-                label="Instant Cashings"
+                label="Gross Sales"
+                hint="Total online machine sales for today"
+                value={online.grossSales}
+                onChange={v => setOnline(p => ({ ...p, grossSales: v }))}
+              />
+              <OnlineField
+                label="Cancels"
+                hint="Cancelled / voided online tickets"
+                value={online.cancels}
+                onChange={v => setOnline(p => ({ ...p, cancels: v }))}
+              />
+              <OnlineField
+                label="Pays / Cashes"
+                hint="Online winnings paid from the drawer"
+                value={online.machineCashing}
+                onChange={v => setOnline(p => ({ ...p, machineCashing: v }))}
+              />
+              <OnlineField
+                label="Coupon Cash"
+                hint="Coupons redeemed against online sales"
+                value={online.couponCash}
+                onChange={v => setOnline(p => ({ ...p, couponCash: v }))}
+              />
+              <OnlineField
+                label="Discounts"
+                hint="Discounts given on online tickets"
+                value={online.discounts}
+                onChange={v => setOnline(p => ({ ...p, discounts: v }))}
+              />
+              <OnlineField
+                label="Instant Pays / Cashes"
                 hint="Scratch-off winnings paid from the drawer"
                 value={online.instantCashing}
                 onChange={v => setOnline(p => ({ ...p, instantCashing: v }))}
               />
-              <OnlineField
-                label="Machine Draw Sales"
-                hint="Powerball / Mega Millions / Keno totals off the terminal"
-                value={online.machineSales}
-                onChange={v => setOnline(p => ({ ...p, machineSales: v }))}
-              />
-              <OnlineField
-                label="Machine Draw Cashings"
-                hint="Draw-game winnings paid from the drawer"
-                value={online.machineCashing}
-                onChange={v => setOnline(p => ({ ...p, machineCashing: v }))}
-              />
+
               <div className="lsm-online-preview">
                 <div>
-                  <span>Running total</span>
-                  <strong>{fmt(
-                    report.instantSales - report.instantCashings + report.machineSales - report.machineCashings
-                  )}</strong>
+                  <span>Online Sales (net)</span>
+                  <strong>{fmt(report.onlineSalesNet)}</strong>
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)', fontStyle: 'italic' }}>
-                  Instant sales − Instant cashings + Machine sales − Machine cashings
+                <div className="lsm-online-formula-hint">
+                  Gross − Cancels − Pays/Cashes − Coupon − Discounts
+                </div>
+              </div>
+              <div className="lsm-online-preview">
+                <div>
+                  <span>Daily Due Running Total</span>
+                  <strong>{fmt(report.dailyDue)}</strong>
+                </div>
+                <div className="lsm-online-formula-hint">
+                  (Instant sales − Instant cashings) + Online sales (net)
                 </div>
               </div>
             </div>
@@ -423,14 +519,18 @@ export default function LotteryShiftModal({
               <div className="lsm-confirm-head">Final Report</div>
 
               <div className="lsm-confirm-grid">
-                <ReportRow label="Instant Sales"     value={fmt(report.instantSales)}     good />
-                <ReportRow label="Instant Cashings"  value={fmt(report.instantCashings)}  warn />
-                <ReportRow label="Machine Sales"     value={fmt(report.machineSales)}     good />
-                <ReportRow label="Machine Cashings"  value={fmt(report.machineCashings)}  warn />
+                <ReportRow label="Instant Sales (scanned)"   value={fmt(report.instantSales)}    good />
+                <ReportRow label="Instant Pays / Cashes"     value={fmt(report.instantCashings)} warn />
+                <ReportRow label="Gross Sales"               value={fmt(report.grossSales)}     good />
+                <ReportRow label="Cancels"                   value={fmt(report.cancels)}        warn />
+                <ReportRow label="Pays / Cashes"             value={fmt(report.machineCashing)} warn />
+                <ReportRow label="Coupon Cash"               value={fmt(report.couponCash)}     warn />
+                <ReportRow label="Discounts"                 value={fmt(report.discounts)}      warn />
+                <ReportRow label="Online Sales (net)"        value={fmt(report.onlineSalesNet)} good />
               </div>
 
               <div className="lsm-formula">
-                Daily Due = Instant sales − Instant cashings + Machine sales − Machine cashings
+                Daily Due = (Instant sales − Instant cashings) + Online sales (net)
               </div>
 
               <div className="lsm-grand-due">
