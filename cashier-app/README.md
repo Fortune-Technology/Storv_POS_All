@@ -81,7 +81,9 @@ cashier-app/
 │   │   ├── modals/         → 20+ modals (Tender, Lottery, Fuel, Refund, Void, OpenItem, CustomerLookup,
 │   │   │                     EndOfDay, CloseShift, CashDrawer, VendorPayout, BottleRedemption,
 │   │   │                     ManagerPin, PackSizePicker, AgeVerification, AddProduct, Discount,
-│   │   │                     HoldRecall, TransactionHistory, ReprintReceipt, PriceCheck)
+│   │   │                     HoldRecall, TransactionHistory, ReprintReceipt, PriceCheck, Coupon,
+│   │   │                     ProductFormModal — full back-office parity, ConfirmModal — themed
+│   │   │                     replacement for window.confirm via useConfirmDialog hook)
 │   │   ├── pos/            → ActionBar (scrollable), CategoryPanel, NumPad, QuickButtonRenderer,
 │   │   │                     ChangeDueOverlay (unified 5s auto-close post-sale screen)
 │   │   └── tender/         → TenderModal, ReceiptModal
@@ -114,10 +116,12 @@ npm install
 ```
 
 ### Environment Setup
-Create a `.env` file:
+Copy `.env.example` → `.env`:
 ```env
 VITE_API_URL=http://localhost:5000/api
+VITE_PORTAL_URL=http://localhost:5173    # used by "Back Office" PIN-SSO into the portal
 ```
+For the production NSIS build use `.env.production` with the cloud URLs.
 
 ### Running Locally (Web)
 ```bash

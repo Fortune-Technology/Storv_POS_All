@@ -9028,6 +9028,332 @@ All three sessions: zero new TypeScript errors, zero schema changes, zero behavi
 
 *Last updated: April 2026 — Session 53 (Refactor Pass C): Backend Controller Split — `salesController.ts` (1401 lines) split into `sales/{helpers,aggregations,predictions,weather,realtime,vendorOrders}.ts` + barrel + 14-line shim; `shiftController.ts` (720 lines) split into `shift/{helpers,lifecycle,movements,reports}.ts` + barrel + 15-line shim. Both follow the `payment/adminMerchant/` pattern. Every existing import path keeps working via the shim. `npx tsc --noEmit` EXIT=0. Pattern documented for future splits of the remaining 9 large controllers (catalog 4339 lines, lottery 3202, aiAssistant 2036, admin 1628, posTerminal 1450, fuel 1369, invoice 1366, wholesaleOrder 1166, scanData 837).*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 54 — UI/UX Polish: AI Button + Themed Delete Confirmations)
+
+User asked for two paired UX cleanups:
+
+1. **Cashier AI Assistant button overlapping Sign Out** — fix positioning so the floating FAB no longer overlaps the logout button.
+2. **Replace every `window.confirm()` with a themed reusable modal** across portal (5173), cashier-app (5174), admin-app (5175), and storefront (3000). Specifically: every delete-icon flow.
+
+### Part 1 — AI Assistant button → inline trigger in StatusBar
+
+The cashier-app FAB was `position: fixed; top: 14px; right: 14px` — the same coordinates as the Sign Out button in the top StatusBar, so they visually overlapped on every screen.
+
+**Fix** — moved the trigger button into the StatusBar itself as a flex sibling of Sign Out. The widget panel stays globally mounted for state management; only the trigger relocated.
+
+| File | Change |
+|---|---|
+| `cashier-app/src/components/AIAssistantWidget.jsx` | Removed the floating `.aiw-fab` button entirely. Added a `cashier-ai-toggle` window-event listener so the panel can be opened from anywhere. |
+| `cashier-app/src/components/AIAssistantWidget.css` | Deleted the `.aiw-fab` rules (kept the panel CSS). |
+| `cashier-app/src/components/layout/StatusBar.jsx` | Added a `.sb-ai-btn` next to `.sb-logout-btn`, gated on the `cashier` session, dispatches `cashier-ai-toggle` on click. Imported `Sparkles` from lucide. |
+| `cashier-app/src/components/layout/StatusBar.css` | New `.sb-ai-btn` styles — same height/padding scale as the logout pill, brand-gradient accent. `@media (max-width: 1100px)` collapses to icon-only so the row never overflows on a 1366×768 POS screen. |
+
+Architecture: a custom event (`window.dispatchEvent(new CustomEvent('cashier-ai-toggle'))`) decouples the trigger from the widget. AIAssistantWidget listens via `useEffect` and toggles its `open` state — drop-in compatible with any future trigger placements (e.g. a quick button on the cashier home grid).
+
+**Build hot-fix during testing**: my first pass referenced `{user && (...)}` in StatusBar but the variable in scope is `cashier` (Zustand store). Fixed to `{cashier && (...)}`.
+
+### Part 2 — Themed delete-confirmation modal
+
+Replaced the browser-default `window.confirm()` popups with a single reusable `<ConfirmModal>` + a promise-returning `useConfirm()` hook — drop-in replacement for `if (!window.confirm('...')) return;` → `if (!await confirm({title, message, confirmLabel, danger})) return;`.
+
+#### Infrastructure (per app)
+
+| App | ConfirmModal file | Hook file | Provider mount |
+|---|---|---|---|
+| Portal | `frontend/src/components/ConfirmModal.{jsx,css}` | `frontend/src/hooks/useConfirmDialog.jsx` | `App.jsx` wraps with `<ConfirmDialogProvider>` |
+| Cashier-app | `cashier-app/src/components/ConfirmModal.{jsx,css}` | `cashier-app/src/hooks/useConfirmDialog.jsx` | `App.jsx` wraps every screen-state with `<ConfirmDialogProvider>` so the dialog is available across setup / PIN / POS phases |
+| Admin-app | `admin-app/src/components/ConfirmModal.{jsx,css}` | `admin-app/src/hooks/useConfirmDialog.jsx` | `App.tsx` wraps Routes with `<ConfirmDialogProvider>` |
+| Storefront | `storefront/components/ConfirmModal.{jsx,css}` | `storefront/lib/useConfirmDialog.jsx` | `pages/_app.tsx` wraps Component (Next.js global CSS imported at `_app.tsx` per Next requirement) |
+
+#### `<ConfirmModal>` features
+- Brand-blue accent for normal confirms; **red top border + red Confirm button** when `danger: true`
+- Backdrop dim + 4px blur, scale-pop animation
+- Default-focus is the Cancel button (prevents accidental Enter on destructive actions)
+- Esc cancels, Enter on focused Confirm executes
+- Optional async `onBeforeConfirm` lets the modal show a "Working…" state until an async action resolves
+- Responsive: actions stack column-reverse at <480px
+
+#### `useConfirm()` API
+```js
+const confirm = useConfirm();
+const ok = await confirm({
+  title: 'Delete department?',
+  message: 'This cannot be undone.',
+  confirmLabel: 'Delete',
+  danger: true,
+});
+if (!ok) return;
+```
+- Plain string shortcut: `await confirm('Are you sure?')` — uses the string as the body
+- Provides a graceful fallback to native `window.confirm` if the provider isn't mounted (logs a warn — never silently no-ops)
+- Single dialog instance — concurrent calls resolve the previous one as `false`
+
+#### Migration sweep — every delete-icon flow across all 4 apps
+
+Migrated **47 `window.confirm` callsites** across **35 files** (combined effort with user / linter):
+
+| App | Files migrated | Sample callsites |
+|---|---|---|
+| Portal | 33 files | Departments, Fuel (×6), MyPIN, Invitations, EcomDomain, LoyaltyProgram (×2), ProductGroups (×2), Lottery (×3), ProductForm (×6), LotteryBackOffice (×6), InvoiceImport (×4), QuickButtonBuilder (×2), LotteryWeeklySettlement (×2), EcomSetup (×2), VendorDetail, UserManagement, TasksPage, StoreSettings, StoreManagement, ShiftManagement, Roles, Promotions, ProductCatalog, LotteryDailyScan, IntegrationHub, FeesMappings, ExchangeOrderDetail, Exchange, EmployeeManagement, EcomPages, DailySale, DocumentHistory |
+| Cashier-app | 3 files | ProductFormModal (delete dept / delete vendor / discard unsaved changes), TenderModal (void terminal charge), EndOfDayModal (close batch) |
+| Admin-app | 11 files | AdminLottery (×2), AdminAiKb, AdminAiReviews, AdminAiTours, AdminBilling, AdminCareers, AdminCmsPages, AdminMerchants, AdminOrganizations, AdminPriceCalculator, AdminPricingTiers, AdminRoles, AdminStates, AdminStores, AdminTickets, AdminUsers, AdminVendorTemplates |
+| Storefront | (no delete confirms) | infrastructure ready for future pages |
+
+#### Build-hot-fix during prod deploy
+
+Production CI failed with `The symbol "confirm" has already been declared` in `frontend/src/pages/LotteryBackOffice.jsx`. The migration agent had added `const confirm = useConfirm();` to a component that already had a local `const confirm = async () => {...}` (the "commit receive order" handler). Renamed the local function to `confirmReceive` to avoid collision. Updated its single caller in JSX. Same name-collision was also checked in Exchange.jsx + ExchangeOrderDetail.jsx + Lottery.jsx — all three put their `confirm` declarations in different component scopes, so no fix needed there.
+
+The Lottery.jsx file uses `confirmDialog = useConfirm()` instead of `confirm` — a smart workaround when a component has both a hook and a local handler. Worth following for future migrations of files that already have a local `confirm` function.
+
+#### What's intentionally left alone
+
+- **`POSScreen.jsx` EBT balance check** — `window.confirm('OK = SNAP / Cancel = Cash Benefit')` — not a delete confirm, this is a poor-man's two-option chooser. Kept as `window.confirm` with a documenting code comment; needs a dedicated 2-button chooser modal in a future session.
+- **`useConfirmDialog.jsx` + `ConfirmModal.jsx` themselves** — the only `window.confirm` references in these files are JSDoc examples, not real calls.
+
+#### Verification
+
+| App | Build | Result |
+|---|---|---|
+| Portal | `npx vite build` | ✓ 19.75s clean |
+| Cashier-app | `npx vite build` | ✓ 6.11s clean (PWA generated) |
+| Admin-app | `npx vite build` | ✓ 12.02s clean |
+| Storefront | `npx next build` | ✓ compiled clean |
+
+All four production builds green. Zero new TypeScript errors. Zero schema changes.
+
+#### Files changed (Session 54)
+
+**New shared component (× 4 apps):**
+- `frontend/src/components/ConfirmModal.{jsx,css}` (NEW)
+- `frontend/src/hooks/useConfirmDialog.jsx` (NEW)
+- `cashier-app/src/components/ConfirmModal.{jsx,css}` (NEW — copy)
+- `cashier-app/src/hooks/useConfirmDialog.jsx` (NEW — copy)
+- `admin-app/src/components/ConfirmModal.{jsx,css}` (NEW — copy)
+- `admin-app/src/hooks/useConfirmDialog.jsx` (NEW — copy)
+- `storefront/components/ConfirmModal.{jsx,css}` (NEW — copy, with CSS-import comment for Next.js)
+- `storefront/lib/useConfirmDialog.jsx` (NEW — copy with adjusted import path)
+
+**App entry mounts:**
+- `frontend/src/App.jsx` — wrapped with `<ConfirmDialogProvider>`
+- `cashier-app/src/App.jsx` — wrapped every screen state
+- `admin-app/src/App.tsx` — wrapped `<Routes>`
+- `storefront/pages/_app.tsx` — wrapped `<Component>` + global CSS import
+
+**AI button move:**
+- `cashier-app/src/components/AIAssistantWidget.jsx` — listens to `cashier-ai-toggle` event, removed FAB
+- `cashier-app/src/components/AIAssistantWidget.css` — removed FAB styles
+- `cashier-app/src/components/layout/StatusBar.jsx` — added `.sb-ai-btn` beside Sign Out
+- `cashier-app/src/components/layout/StatusBar.css` — `.sb-ai-btn` styles + responsive icon-only fallback
+
+**Sweep migrations** — 35 source files modified to import `useConfirm`, instantiate the hook, and convert every `window.confirm(...)` to `await confirm({...})`. Where a function wasn't already `async`, it was made async.
+
+**Hot-fix:**
+- `frontend/src/pages/LotteryBackOffice.jsx` — renamed local `confirm` handler → `confirmReceive` to break the collision with the hook value.
+
+### Up next (deferred)
+
+- POSScreen EBT chooser — needs a dedicated 2-button chooser modal (not a delete confirm)
+- Storefront pages — infrastructure mounted but no delete actions to migrate yet
+- Portal/admin pages still using `window.alert(...)` — separate sweep, not in this session's scope
+
+---
+
+*Last updated: April 2026 — Session 54 (UI/UX Polish): Cashier AI Assistant button moved from floating FAB → inline `.sb-ai-btn` beside Sign Out (no overlap, responsive icon-only at <1100px); themed `<ConfirmModal>` + `useConfirm()` hook shipped to all 4 apps; 47 `window.confirm()` callsites migrated across 35 files; production build hot-fix for the `confirm` name-collision in LotteryBackOffice.jsx; all 4 apps build clean.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 55 — Service-Layer Domain Refactor)
+
+User asked me to organize the loose top-level service files into domain folders, mirroring the established `services/lottery/` and `services/scanData/` patterns. Goal: long-term-maintainable layout, zero behavior change, every existing import path preserved.
+
+### What moved
+
+10 services categorized into 6 domain folders:
+
+| Domain folder | Files moved | What lives there |
+|---|---|---|
+| `services/notifications/` | `email.ts`, `sms.ts` | Outbound communication channels — branded HTML email (nodemailer) + Twilio-ready SMS stub |
+| `services/sales/` | `sales.ts`, `dailySale.ts` | Service-layer counterpart to `controllers/sales/` (Session 53). Aggregations + back-office daily-sale entry. |
+| `services/inventory/` | `orderEngine.ts`, `matching.ts`, `import.ts` | 14-factor reorder algorithm + invoice-line matcher (7-tier cascade) + bulk CSV/XLSX importer |
+| `services/fuel/` | `inventory.ts` | FIFO + topology resolver (Session 42 V1, Session 43 V1.5) — independent / manifold / sequential / blend tank picking + delivery + stick reading |
+| `services/ai/` | `gpt.ts` | OpenAI client (OCR enrichment, KB embeddings, AI Assistant tool calls) |
+| `services/weather/` | `weather.ts` | Open-Meteo client + cache (used by sales, Live Dashboard, orderEngine) |
+
+Each domain folder has an `index.ts` barrel that re-exports its public API + a brief docblock describing the contained files.
+
+### Why these groupings (long-term lens)
+
+- **Notifications**: email and SMS are both "send something to a user via an external provider with a stub fallback." Same domain shape, same env-var dependency pattern. Future channels (push notifications, webhooks) drop in here cleanly.
+- **Sales**: keeps service-layer co-located with `controllers/sales/`. When daily-sale logic ever needs to share aggregation helpers with the main sales service, they're already siblings.
+- **Inventory**: orderEngine + matching + import all touch the same Prisma models (`MasterProduct`, `StoreProduct`, `Vendor`, `VendorProductMap`, `PurchaseOrder`, `Invoice`, `InvoiceLine`). They form one coherent supply-chain pipeline.
+- **Fuel**: standalone domain. Even though `inventory.ts` is the only file today, future ATG integrations + temperature compensation + sequential-drain refinements (V2 backlog) drop in alongside.
+- **AI**: gpt.ts is the *provider* layer. The *consumer* layer is `aiAssistantController.ts` (chat orchestrator) + `kbService.ts` (embeddings storage). Keeping the provider isolated means swapping models or providers (Anthropic, local Ollama, etc.) is a one-folder change.
+- **Weather**: third-party API client + cache. Different lifecycle from notifications (read-only, idempotent). Earned its own folder.
+
+### Backward compat — every legacy import still works
+
+10 shim files at `services/<old-name>.ts`, each a single `export * from './<domain>/<file>.js';` line + JSDoc comment. Every existing controller/service import continues to resolve unchanged:
+
+```ts
+// All of these still work — resolve via shim → new location
+import { sendInvitation }     from '../services/emailService.js';
+import { getDailySales }      from '../services/salesService.js';
+import { matchLineItems }     from '../services/matchingService.js';
+import { applySale }          from '../services/fuelInventory.js';
+import { fetchWeatherRange }  from '../services/weatherService.js';
+// ... etc
+```
+
+Dynamic imports also preserved — e.g. `controllers/sales/realtime.ts` does:
+```ts
+const { getCurrentWeather } = await import('../../services/weatherService.js');
+```
+Still resolves through the shim at the original path.
+
+### Internal cross-reference fixes
+
+Two same-directory imports needed bumping when their host files moved:
+
+| File | Old | New |
+|---|---|---|
+| `services/inventory/import.ts` | `from './globalImageService.js'` | `from '../globalImageService.js'` (globalImageService stays at services/ root) |
+| `services/inventory/orderEngine.ts` | `await import('./weatherService.js')` | `await import('../weather/weather.js')` (direct path to new location) |
+
+All other relative imports (`'../config/postgres.js'`, `'../utils/upc.js'`, etc.) bumped one level: `../` → `../../`.
+
+### What stayed in place (intentionally not moved)
+
+These still live at `services/` root because they didn't match a clean domain or have only one consumer:
+
+- `auditService.ts`, `auditDiff.ts` — cross-cutting concern (every controller logs)
+- `billingService.ts`, `billingScheduler.ts` — billing is a domain but the user didn't list it
+- `chargeAccountService.ts`, `loyaltyService.ts`, `loyaltyScheduler.ts` — domain candidates for future passes
+- `globalImageService.ts`, `imageRehostService.ts` — image pipeline (could be `services/images/`)
+- `inventorySyncService.ts`, `kbService.ts`, `labelQueueService.ts` — single-consumer
+- `marktPOSService.ts`, `paymentMerchantAudit.ts`, `paymentProviderFactory.ts` — payment integration
+- `poInvoiceMatchService.ts`, `vendorPerformanceService.ts`, `vendorTemplateEngine.ts` — adjacent to inventory but distinct concerns
+- `dejavoo/`, `ecom/`, `lottery/`, `scanData/`, `reconciliation/`, `parsers/`, `platforms/` — already domain-organized
+
+These can be migrated into domains in future passes using the same shim pattern. The user's specific list was 10 services; that's what got organized.
+
+### Verification
+
+- `npx tsc --noEmit` → **EXIT=0**, zero new errors
+- All 7 emailService importers, all 4 salesService importers, both weatherService dynamic imports, every other caller unchanged
+- 10 original paths preserved as shims; every legacy `from '../services/<name>.js'` still resolves
+
+### Files Changed (Session 55)
+
+**Moved (10 files):**
+- `services/emailService.ts` → `services/notifications/email.ts`
+- `services/smsService.ts` → `services/notifications/sms.ts`
+- `services/salesService.ts` → `services/sales/sales.ts`
+- `services/dailySaleService.ts` → `services/sales/dailySale.ts`
+- `services/orderEngine.ts` → `services/inventory/orderEngine.ts`
+- `services/matchingService.ts` → `services/inventory/matching.ts`
+- `services/importService.ts` → `services/inventory/import.ts`
+- `services/fuelInventory.ts` → `services/fuel/inventory.ts`
+- `services/gptService.ts` → `services/ai/gpt.ts`
+- `services/weatherService.ts` → `services/weather/weather.ts`
+
+**New barrels (6 files):**
+- `services/notifications/index.ts`
+- `services/sales/index.ts`
+- `services/inventory/index.ts`
+- `services/fuel/index.ts`
+- `services/ai/index.ts`
+- `services/weather/index.ts`
+
+**New shims (10 files at original paths):**
+- `services/emailService.ts`, `services/smsService.ts`, `services/salesService.ts`, `services/dailySaleService.ts`, `services/orderEngine.ts`, `services/matchingService.ts`, `services/importService.ts`, `services/fuelInventory.ts`, `services/gptService.ts`, `services/weatherService.ts` — each a 1-line `export * from './<domain>/<file>.js';`
+
+### Migration pattern documented
+
+For future service-layer reorgs (the deferred billing / loyalty / payment groups), the pattern is now established:
+
+1. Create `services/<domain>/` folder
+2. Move file(s) — `mv services/foo.ts services/<domain>/foo.ts`
+3. Bump `../` → `../../` in the moved file (sed: `from '../` → `from '../../` for both quote styles + `import('../` for dynamic imports)
+4. Fix any same-directory cross-refs (`./otherService.js` → `../otherService.js` or `../<other-domain>/file.js`)
+5. Write barrel `services/<domain>/index.ts`
+6. Replace original path with shim: `export * from './<domain>/foo.js';`
+7. `npx tsc --noEmit` to verify
+
+---
+
+*Last updated: April 2026 — Session 55 (Service-Layer Domain Refactor): 10 services organized into 6 domain folders (`notifications/`, `sales/`, `inventory/`, `fuel/`, `ai/`, `weather/`) following the established Lottery/scanData pattern. Each domain has a barrel `index.ts`. All 10 original paths preserved as 1-line shims so every existing import continues to resolve unchanged. Internal cross-references rewritten (`globalImageService` ref + `weatherService` dynamic import in orderEngine). `npx tsc --noEmit` EXIT=0. Migration pattern documented for future passes (billing / loyalty / payment / images).*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 56 — Docs + Env-Vars Cleanup)
+
+User asked for a sweep of every `.md` and `.env.example` file: trim env vars that aren't referenced anywhere in source, and bring documentation up to date with the recent Sessions 51-55 refactors.
+
+### Env-vars audit + cleanup
+
+Audited every `LHS=` entry in the 6 `.env.example` files against `process.env.X` / `import.meta.env.X` usage in `backend/src`, `admin-app/src`, `cashier-app/src`, `frontend/src`, `ecom-backend/src`, `storefront/`, and the workspace `packages/`. The grep also crossed binary `.next/cache` build artifacts, which were excluded.
+
+**Removed as confirmed-unused (zero refs in source):**
+
+| File | Vars removed | Why they were dead |
+|---|---|---|
+| `backend/.env.example` | `APP_SECRET` | Legacy "CardPointe credential encryption" — replaced by `DEJAVOO_VAULT_KEY` (used in `cryptoVault.ts`). Old name never referenced. |
+| `backend/.env.example` | `POS_WRITE_DISABLED` | "Set true to block write mutations" — never actually wired up to any guard. |
+| `backend/.env.example` | `DEJAVOO_TEST_TPN`, `DEJAVOO_TEST_AUTH_KEY`, `DEJAVOO_TEST_AUTH_TOKEN` | Three of the four `DEJAVOO_TEST_*` vars were unreferenced — only `DEJAVOO_TEST_REGISTER_ID` is read by the SPIn payload builder as a dev-mode fallback. The unused trio also leaked a real-looking JWT into the example file. |
+| `ecom-backend/.env.example` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Placeholders for Cloudflare-for-SaaS custom-domain integration that was never wired up. |
+| `ecom-backend/.env.example` | `POS_DATABASE_URL`, `SEED_ORG_ID`, `SEED_STORE_ID` | "Optional seed scripts" placeholders for scripts that don't exist. |
+| `frontend/.env.example` | `VITE_POS_DOWNLOAD_URL` | Marketing-footer download link — comment-only, never read. |
+| `storefront/.env.example` | `NEXT_PUBLIC_CP_SITE`, `NEXT_PUBLIC_CP_LIVE` | Set in `storefront/.env` but not referenced anywhere. The CardPointe iframe URL in the equipment shop checkout (`frontend/src/pages/marketing/ShopCheckout.jsx`) is hardcoded, not driven by these vars. |
+
+**Kept and clarified (legitimate but easy to misread):**
+
+- `backend/.env.example` — `API_BASE_URL` kept as a documented legacy fallback. Three files reference it (`payment/hpp/helpers.ts`, `catalogRoutes.ts`, `imageRehostService.ts`) but always after `process.env.BACKEND_URL ||`. Comment now spells out it's only the fallback path.
+- `backend/.env.example` — `DEJAVOO_TEST_REGISTER_ID` kept (sole used member of its family). Comment now explains why the others were removed and points stores at the admin-panel credential management.
+- `backend/.env.example` — `MAX_FILE_SIZE` was previously bare `104857600`; now annotated as "100 MB Multer cap".
+- `storefront/.env.example` — `DEFAULT_STORE_SLUG` kept (used in `lib/resolveStore.ts`).
+
+**Untouched (every var verified used):**
+- `admin-app/.env.example` — both vars (`VITE_API_URL`, `VITE_PORTAL_URL`) used.
+- `cashier-app/.env.example` — both vars used.
+
+### Doc updates
+
+| File | Change |
+|---|---|
+| `README.md` | "Backend services" table rewritten to show the new domain folder layout (Session 55) instead of flat top-level `.js` services. Project-structure tree under `backend/src/controllers/` updated to reflect TypeScript + the `controllers/sales/` and `controllers/shift/` splits (Session 53) and the `payment/` sub-folders. "Environment Variables" section regenerated to match the trimmed `.env.example` files exactly — including AI Assistant key, vault key, SMS stub, billing org id, etc. Setup instructions added for copying every `.env.example`. |
+| `backend/README.md` | Folder-structure block updated for TypeScript + the controller splits + the new `services/{notifications,sales,inventory,fuel,ai,weather}/` layout. "Input Validators" section extended with the Session 52 helpers (`parseFuel`, `parseCount`, `validateAlphanumeric`, `formatMoney`/`formatFuel`/`formatCount`) + cross-app numeric input components. |
+| `cashier-app/README.md` | Modal list extended (Coupon, ProductFormModal, ConfirmModal). Env-setup block expanded with `VITE_PORTAL_URL` (Session 24 Back-Office PIN-SSO). |
+| `ECOMMERCE_GUIDE.md` | Header note added on the File Map: paths show `.js` for readability, real files are `.ts`. |
+| `Invoice-Processing-Architecture.md` | matchingService link updated to its new domain-folder path (`services/inventory/matching.ts`). |
+| `docs/multipack-import.md` | importService link updated to its new domain-folder path (`services/inventory/import.ts`). |
+
+`ENGINEERING_PRINCIPLES.md`, `ProjectOverview.md`, `frontend/README.md`, and `packages/types/README.md` had no stale references and were left alone.
+
+### Verification
+
+- Backend `npx tsc --noEmit` → **EXIT=0**, zero errors after env trim
+- Every removed var verified zero source refs across all 6 codebases including workspace packages
+- No production secrets leaked — the previously committed `DEJAVOO_TEST_AUTH_TOKEN` JWT is now removed from the example file (it was UAT-only test credentials, but cleaner to not commit them anyway)
+
+### Files Changed (Session 56)
+
+- `backend/.env.example` — rewritten (smaller, correct)
+- `ecom-backend/.env.example` — Cloudflare + Seed-Scripts blocks removed
+- `frontend/.env.example` — `VITE_POS_DOWNLOAD_URL` line removed
+- `storefront/.env.example` — CardPointe block removed
+- `README.md` — Backend services table rewrite, project-structure tree update, env-vars section regenerated
+- `backend/README.md` — folder-structure update for TS + service domain folders, validators section extended
+- `cashier-app/README.md` — modal list extended, env block updated
+- `ECOMMERCE_GUIDE.md` — TypeScript clarification header on the File Map
+- `Invoice-Processing-Architecture.md` — matching service path updated
+- `docs/multipack-import.md` — import service path updated
+
+---
+
+*Last updated: April 2026 — Session 56 (Docs + Env-Vars Cleanup): 10 unused environment variables removed across `backend/`, `ecom-backend/`, `frontend/`, and `storefront/` `.env.example` files (`APP_SECRET`, `POS_WRITE_DISABLED`, 3× `DEJAVOO_TEST_*`, 2× `CLOUDFLARE_*`, 3× `POS_DATABASE_URL` + seed placeholders, `VITE_POS_DOWNLOAD_URL`, 2× `NEXT_PUBLIC_CP_*`). Every kept variable verified live in source via `process.env.X` / `import.meta.env.X` grep. Top-level docs (`README.md`, `backend/README.md`, `cashier-app/README.md`, `ECOMMERCE_GUIDE.md`, `Invoice-Processing-Architecture.md`, `docs/multipack-import.md`) updated to reflect Sessions 51-55 refactors — TypeScript backend, controller splits (Session 53), service domain folders (Session 55). Backend `tsc --noEmit` EXIT=0; admin/cashier/portal/storefront builds unaffected (doc-only changes).*
+
 
 
 

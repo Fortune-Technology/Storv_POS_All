@@ -173,6 +173,19 @@ const ImpersonateLanding = () => {
         localStorage.removeItem('storv:il:lastActive');
         localStorage.removeItem('storv:il:lockedFor');
         localStorage.setItem('user', JSON.stringify(user));
+        // Re-anchor the active store to one belonging to the impersonated
+        // user. Otherwise the previously-cached `activeStoreId` (from the
+        // admin's browser session) would still be sent as `X-Store-Id` and
+        // resolve to a store outside the impersonated user's org — the
+        // ecom-backend then 401s and the page bounces to /login. Pick the
+        // user's first store; if they have none, clear the value so the
+        // store-switcher prompts.
+        const firstStoreId = Array.isArray(user.storeIds) ? user.storeIds[0] : null;
+        if (firstStoreId) {
+          localStorage.setItem('activeStoreId', firstStoreId);
+        } else {
+          localStorage.removeItem('activeStoreId');
+        }
         navigate('/portal/realtime', { replace: true });
       } catch { navigate('/login', { replace: true }); }
     } else {

@@ -51,7 +51,7 @@ import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
 import { useStoreModules } from '../hooks/useStoreModules';
 import { useNotificationCounts } from '../hooks/useNotificationCounts';
-import { getRoutePermission } from '../rbac/routePermissions';
+import { getRoutePermission, getRouteModule } from '../rbac/routePermissions';
 
 const menuGroups = [
   {
@@ -177,22 +177,22 @@ const Sidebar = () => {
   // ("chat", etc.) are visible to any authenticated user. Items whose path
   // belongs to a module the current store has disabled are hidden.
   const visibleMenuGroups = React.useMemo(() => {
-    const moduleRoutes = {
-      '/portal/lottery': modules.lottery,
-      '/portal/fuel':    modules.fuel,
-    };
     return menuGroups
       .map(g => ({
         ...g,
         items: g.items.filter(i => {
           const perm = getRoutePermission(i.path);
           if (perm && !can(perm)) return false;
-          if (i.path in moduleRoutes && !moduleRoutes[i.path]) return false;
+          // Hide nav items whose store-module flag is disabled (lottery,
+          // fuel, ecom). Module map is the single source of truth shared
+          // with the route-level guard in PermissionRoute.
+          const moduleKey = getRouteModule(i.path);
+          if (moduleKey && modules[moduleKey] === false) return false;
           return true;
         }),
       }))
       .filter(g => g.items.length > 0);
-  }, [can, modules.lottery, modules.fuel]);
+  }, [can, modules.lottery, modules.fuel, modules.ecom]);
 
   // ── Poll chat unread count every 15 s ────────────────────────────────────
   const fetchUnread = useCallback(() => {

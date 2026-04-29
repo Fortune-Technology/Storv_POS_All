@@ -275,6 +275,11 @@ SUPPORT_EMAIL=support@yourdomain.com
 
 ## File Map
 
+> The paths below show `.js` extensions for readability, but every backend
+> file in this map is **TypeScript** (`.ts`) on disk. The TypeScript compiler
+> resolves `.js` imports to the corresponding `.ts` source, so the runtime
+> import paths look the same.
+
 ### ecom-backend/ (28 files)
 ```
 src/server.js                          — Express app + BullMQ worker startup

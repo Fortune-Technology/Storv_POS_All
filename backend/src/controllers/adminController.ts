@@ -423,10 +423,23 @@ export const impersonateUser = async (req: Request, res: Response, next: NextFun
     if (!target) { res.status(404).json({ error: 'User not found' }); return; }
     if (target.role === 'superadmin') { res.status(403).json({ error: 'Cannot impersonate another superadmin' }); return; }
 
+    // Include orgId in the JWT payload — login tokens carry it (see
+    // authController.generateToken callsites) and downstream services
+    // (ecom-backend protect middleware in particular) read req.user.orgId
+    // straight off the decoded token. Without it, impersonated sessions
+    // hit 401 on cross-service calls because the X-Org-Id-header fallback
+    // is fragile (omitted on direct fetches, lost across redirects).
     const token = jwt.sign(
-      { id: target.id, name: target.name, email: target.email, role: target.role, impersonatedBy: req.user!.id },
+      {
+        id: target.id,
+        name: target.name,
+        email: target.email,
+        role: target.role,
+        orgId: target.orgId,
+        impersonatedBy: req.user!.id,
+      },
       process.env.JWT_SECRET as jwt.Secret,
-      { expiresIn: '2h' } as jwt.SignOptions,
+      { expiresIn: '8h' } as jwt.SignOptions,
     );
 
     // Security-sensitive event — record exactly which superadmin assumed

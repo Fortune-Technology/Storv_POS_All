@@ -212,6 +212,11 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'organization.view',
       'pos_config.view','pos_config.edit',
       'rules_fees.view','rules_fees.edit',
+      // Online Store / E-commerce — manager runs day-to-day storefront ops
+      // (page edits, branding tweaks, monitoring orders/analytics). Owner
+      // gets `manage` via the `*` wildcard for enable/disable + plan-level
+      // changes.
+      'ecom.view','ecom.edit',
       'support.view','support.create','support.edit',
       'audit.view',
       'tasks.view','tasks.create','tasks.edit','tasks.delete',
