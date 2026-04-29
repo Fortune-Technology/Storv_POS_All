@@ -6,6 +6,7 @@
 
 import * as agneTransformer from './agne.js';
 import * as pineStateSpiritTransformer from './pine-state-spirits.js';
+import * as santeTransformer from './sante.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ export interface VendorTransformer {
 const vendorRegistry: Record<string, VendorTransformer> = {
     AGNE: agneTransformer as unknown as VendorTransformer,
     PINE_STATE_SPIRITS: pineStateSpiritTransformer as unknown as VendorTransformer,
+    SANTE: santeTransformer as unknown as VendorTransformer,
     // Add more vendors here as they are implemented
 };
 

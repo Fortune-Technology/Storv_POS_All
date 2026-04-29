@@ -1921,12 +1921,45 @@ export const moveBoxToSafe = async (req: Request, res: Response): Promise<void> 
  * POST /api/lottery/boxes/:id/soldout
  * Body: { reason?: 'manual'|'eod_so_button' }
  */
+/**
+ * POST /api/lottery/boxes/:id/soldout
+ * Body: { reason?: string, date?: 'YYYY-MM-DD' }
+ *
+ * Marks a book as sold out — i.e. ALL remaining tickets sold. The math
+ * implications (Session 46 fix) the cashier expects:
+ *
+ *   1. The book's currentTicket moves to the "fully sold" position:
+ *        descending: -1   (one past ticket #0; "even ticket 0 is gone")
+ *        ascending:  totalTickets
+ *      so that subsequent ticket-math runs (snapshotSales) compute
+ *      `|prev − new| × price` = full pack value as that day's sale.
+ *
+ *   2. ticketsSold = totalTickets, salesAmount = totalValue (LotteryBox
+ *      aggregates kept in sync with reality).
+ *
+ *   3. A close_day_snapshot event is INSERTED for the SELECTED date with
+ *      the new currentTicket. snapshotSales' "latest event of the day
+ *      wins" rule means this overrides any earlier same-day snapshot
+ *      (e.g. one written at 10pm by the EoD wizard before the cashier
+ *      realised the book was empty at 11pm).
+ *
+ *   4. depletedAt = end-of-selected-date (23:59:59 UTC). Same-day
+ *      filter math (depletedAt > start of D) treats this book as
+ *      "depleted on day D" for that day's daily-inventory return-tracking.
+ *
+ * `date` is optional. Defaults to today when omitted (legacy callers).
+ * The frontend Counter UI passes the selected calendar date so admins
+ * can correctly mark a book that ran out yesterday or earlier.
+ */
 export const markBoxSoldout = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const storeId = getStore(req);
     const boxId = req.params.id;
-    const { reason = 'manual' } = req.body || {};
+    const { reason = 'manual', date: dateStr } = (req.body || {}) as {
+      reason?: string;
+      date?: string;
+    };
 
     const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
     if (!box) {
@@ -1940,16 +1973,74 @@ export const markBoxSoldout = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Resolve the soldout date. parseDate returns UTC-midnight; we shift
+    // to end-of-day so:
+    //   - depletedAt sorts last on the day
+    //   - the close_day_snapshot event we write below is the LATEST event
+    //     for that day → snapshotSales picks our new "fully sold" position
+    //     over any prior same-day snapshot.
+    const dateParsed = dateStr ? parseDate(dateStr) : new Date();
+    if (!dateParsed) {
+      res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+      return;
+    }
+    const soldoutAt = new Date(dateParsed);
+    soldoutAt.setUTCHours(23, 59, 59, 0);
+
+    // sellDirection drives the "fully sold" position. -1 for desc, total
+    // for asc. (Per Session 46 user direction: a 150-pack `desc` book
+    // starts at 149 and ends at -1 once even ticket #0 is gone, so
+    // |start − end| = 150 captures the full pack as sold.)
+    const settings = await prisma.lotterySettings
+      .findUnique({ where: { storeId }, select: { sellDirection: true } })
+      .catch(() => null);
+    const sellDir = settings?.sellDirection || 'desc';
+    const total = Number(box.totalTickets || 0);
+    const fullySoldPos = sellDir === 'asc' ? String(total) : '-1';
+    const ticketPriceNum = Number(box.ticketPrice || 0);
+    const totalValueNum = total * ticketPriceNum;
+
     const updated = await prisma.lotteryBox.update({
       where: { id: boxId },
       data: {
         status: 'depleted',
-        depletedAt: new Date(),
+        depletedAt: soldoutAt,
         autoSoldoutReason: reason,
+        currentTicket: fullySoldPos,
+        ticketsSold: total,
+        salesAmount: totalValueNum,
         updatedAt: new Date(),
       },
       include: { game: true },
     });
+
+    // Write a close_day_snapshot for the soldout day so ticket-math sales
+    // reports include the remaining-tickets-as-sold-today amount.
+    // Idempotent on accidental double-call: snapshotSales picks the
+    // latest event of the day, so a duplicate is harmless.
+    await prisma.lotteryScanEvent
+      .create({
+        data: {
+          orgId: orgId as string,
+          storeId: storeId as string,
+          boxId,
+          scannedBy: req.user?.id || null,
+          raw: `soldout:${boxId}:${dateStr || soldoutAt.toISOString().slice(0, 10)}`,
+          parsed: {
+            gameNumber: updated.game?.gameNumber ?? null,
+            gameName: updated.game?.name ?? null,
+            currentTicket: fullySoldPos,
+            ticketsSold: total,
+            soldout: true,
+            source: 'manual-soldout',
+          } as Prisma.InputJsonValue,
+          action: 'close_day_snapshot',
+          context: 'eod',
+          createdAt: soldoutAt,
+        },
+      })
+      .catch((e: Error) => console.warn('[markBoxSoldout] snapshot insert failed', boxId, e.message));
+
     res.json({ success: true, data: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: errMsg(err) });
