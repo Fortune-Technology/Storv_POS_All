@@ -262,11 +262,17 @@ export default function LotteryBackOffice() {
       } else if (kind === 'soldout') {
         if (!await confirm({
           title: 'Mark book sold out?',
-          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?`,
+          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out on ${date}? All remaining tickets will be counted as sold on that day.`,
           confirmLabel: 'Mark Sold Out',
         })) return;
-        await soldoutLotteryBox(box.id, { reason: 'manual_mark_soldout' });
-        showToast('Book marked sold out');
+        // Pass the SELECTED calendar date so the soldout is dated correctly
+        // (Session 46) — backend bumps currentTicket to the fully-sold
+        // position and writes a close_day_snapshot for `date` so ticket-
+        // math captures the remaining tickets as that day's sale.
+        await soldoutLotteryBox(box.id, { reason: 'manual_mark_soldout', date });
+        showToast(date === todayStr()
+          ? 'Book marked sold out'
+          : `Book marked sold out on ${date}`);
       } else if (kind === 'safe') {
         await moveLotteryBoxToSafe(box.id, { date });
         showToast('Book moved back to safe');
@@ -398,6 +404,49 @@ export default function LotteryBackOffice() {
   [active]);
 
   const instantSalesAuto = Number(inventory?.sold || 0);
+  // posSold = ticket sales the cashier rang up at the POS (LotteryTransaction
+  // sum). un-rung instant cash = max(0, ticket-math sales − POS sales) =
+  // cash IS in the drawer but Transaction.cashSales doesn't reflect it.
+  const posSold = Number(inventory?.posSold || 0);
+  const lotteryUnreportedCash = Math.max(0, instantSalesAuto - posSold);
+
+  // Net Online Sales (drives the Online Sales section header).
+  // Same logic regardless of where the data was entered (cashier-app EoD
+  // wizard via online.* OR back-office form via manualSales.*).
+  // Dropped legacy `+ online.machineSales` term — `manualSales.gross` is
+  // now the single source for "machine gross sales" (Session 44b rename).
+  const onlineSalesNet =
+    Number(manualSales.gross)
+    - Number(manualSales.cancels)
+    - Number(online.machineCashing)
+    - Number(manualSales.coupon)
+    - Number(manualSales.discounts);
+
+  // Net Instant Sales = total instant tickets sold − instant cashings.
+  // Per Session 46 user direction: section header should be NET (the cash
+  // contribution from instant tickets to the drawer), with the Today Sold
+  // gross visible as a sub-row. Reverts L7 from Session 45.
+  const instantSalesNet = instantSalesAuto - Number(online.instantCashing || 0);
+
+  // Cash Balance = combined cash position for the selected date.
+  // Pulls from EVERY source (POS-rung, ticket-math un-rung, manual back-
+  // office entries) so it reconciles regardless of how the day was closed
+  // (cashier shift close vs back-office "Close the Day").
+  //
+  // Same formula whether data came from POS Transaction tenders, the EoD
+  // wizard's LotteryOnlineTotal write, or a back-office admin manually
+  // typing into the form here. One math, multiple input paths.
+  //
+  // No double-counting: `onlineSalesNet` already nets machineCashing,
+  // cancels, coupons, discounts. We add `lotteryUnreportedCash` (un-rung
+  // instant only — POS-rung is already in `cashBalance`) and deduct
+  // instant cashings on top.
+  const computedCashBalance =
+    cashBalance                                 // POS-rung cash from closed shifts (lottery + non-lottery)
+    + lotteryUnreportedCash                     // un-rung instant tickets (drawer has cash, no Transaction)
+    + onlineSalesNet                             // machine net (gross − cancels − machineCashing − coupon − discounts)
+    - Number(online.instantCashing || 0);       // instant cashings paid via the lottery machine
+
   const rightBooks = rightPane === 'safe'     ? safe
                    : rightPane === 'soldout'  ? soldout
                    : rightPane === 'returned' ? returned
@@ -426,12 +475,23 @@ export default function LotteryBackOffice() {
               <section className="lbo-col lbo-col-report">
                 <div className="lbo-col-title">Report</div>
 
-                <Metric label="Cash Balance" value={fmtMoney(cashBalance)} big accent="green" sub="Auto from closed shifts today" />
+                {/* Cash Balance — combined cash position for the SELECTED date.
+                    Reads from POS shift cash + ticket-math un-rung + online net.
+                    Same math regardless of how the day was closed (cashier
+                    POS shift close OR back-office Close-the-Day). */}
+                <Metric
+                  label="Cash Balance"
+                  value={fmtMoney(computedCashBalance)}
+                  big
+                  accent="green"
+                  sub={`Auto for ${date}${date === todayStr() ? ' (today)' : ''}`}
+                />
 
-                <Section title="Online Sales" total={
-                  fmtMoney(
-                    Number(manualSales.gross) - Number(manualSales.cancels) - Number(online.machineCashing) + Number(online.machineSales) - Number(manualSales.coupon) - Number(manualSales.discounts)
-                  )}>
+                {/* Online Sales section header — NET cash from online lottery.
+                    Dropped legacy `+ online.machineSales` term — it was orphan
+                    code from before Session 44b's `gross` rename and risked
+                    double-counting if both fields ever held a value. */}
+                <Section title="Online Sales" total={fmtMoney(onlineSalesNet)}>
                   <EditableField label="Gross Sales"     value={manualSales.gross}    onChange={v => setManualSales({...manualSales, gross: v})} />
                   <EditableField label="Cancels"         value={manualSales.cancels}  onChange={v => setManualSales({...manualSales, cancels: v})} />
                   <EditableField label="Pays/Cashes"     value={online.machineCashing} onChange={v => setOnline({...online, machineCashing: v})} />
@@ -439,12 +499,11 @@ export default function LotteryBackOffice() {
                   <EditableField label="Discounts"       value={manualSales.discounts} onChange={v => setManualSales({...manualSales, discounts: v})} />
                 </Section>
 
-                {/* Instant Sales header now shows Today Sold ONLY (Session 45
-                    / L7) — matches the cashier's mental model: "instant sales
-                    = total tickets sold today". Pays/Cashes are tracked
-                    below for the daily-due math, but DON'T subtract from
-                    the section total. */}
-                <Section title="Instant Sales" total={fmtMoney(instantSalesAuto)} totalAccent="green">
+                {/* Instant Sales section header — NET cash from instant tickets
+                    (Today Sold gross − Pays/Cashes). Today Sold sub-row still
+                    shows the gross so the user can see both numbers. Reverts
+                    Session 45's L7 per Session 46 user direction. */}
+                <Section title="Instant Sales" total={fmtMoney(instantSalesNet)} totalAccent="green">
                   <ReadonlyField label="Today Sold" value={fmtMoney(instantSalesAuto)} note="Auto — total instant tickets sold" />
                   <EditableField label="Pays/Cashes" value={online.instantCashing} onChange={v => setOnline({...online, instantCashing: v})} />
                 </Section>
@@ -856,7 +915,14 @@ function CounterRow({
       {/* Action column — always show the menu (Session 45 / L8). Previous
           version hid the menu while the row was `dirty` or historical, so
           the cashier couldn't mark a book sold-out mid-edit. The Save tick
-          + HIST pill are now COMPLEMENTARY to the menu, not exclusive. */}
+          + HIST pill + status chip are COMPLEMENTARY to the menu, not
+          exclusive.
+
+          Status chip (Session 46): when viewing a HISTORICAL counter snapshot,
+          a book that's since been depleted/returned still shows on the row
+          — the chip + filtered menu items signal "this book has moved, you
+          can't act on it from here." Without these, a click on Sold Out
+          would 400 with "Cannot soldout from status depleted" (Issue B). */}
       <span className="lbo-cnt-act">
         {dirty && (
           <button onClick={onSave} className="lbo-cnt-save" title={historicalView ? 'Save corrected close' : 'Save'}>✓</button>
@@ -864,15 +930,30 @@ function CounterRow({
         {historicalView && !dirty && (
           <span className="lbo-cnt-histpill" title="Viewing a past date">HIST</span>
         )}
+        {box.status === 'depleted' && (
+          <span className="lbo-cnt-statuspill lbo-cnt-statuspill--depleted" title="This book is currently in Soldout">SO</span>
+        )}
+        {box.status === 'returned' && (
+          <span className="lbo-cnt-statuspill lbo-cnt-statuspill--returned" title="This book has been returned to Lottery">RET</span>
+        )}
         <ActionMenu
-          items={[
-            { key: 'so',     label: 'Mark Sold Out (SO)', icon: Archive,   onClick: onSoldout },
-            { key: 'return', label: 'Return to Lottery',  icon: RotateCcw, onClick: onReturn },
-            { key: 'safe',   label: 'Move to Safe',       icon: Package,   onClick: onMoveToSafe },
-            { separator: true },
-            { key: 'slot',   label: 'Change Slot Number', icon: Ticket,    onClick: () => setEditingSlot(true) },
-            { key: 'rename', label: 'Edit Book Number',   icon: Ticket,    onClick: () => setEditingBookNo(true) },
-          ]}
+          items={(() => {
+            // Hide Sold Out / Return / Move-to-Safe when the book's CURRENT
+            // state isn't active/inventory — backend would reject anyway,
+            // and showing them invites the "Cannot soldout from status X"
+            // error users were hitting.
+            const isLive = box.status === 'active' || box.status === 'inventory';
+            return [
+              ...(isLive ? [
+                { key: 'so',     label: 'Mark Sold Out (SO)', icon: Archive,   onClick: onSoldout },
+                { key: 'return', label: 'Return to Lottery',  icon: RotateCcw, onClick: onReturn },
+                { key: 'safe',   label: 'Move to Safe',       icon: Package,   onClick: onMoveToSafe },
+                { separator: true },
+              ] : []),
+              { key: 'slot',   label: 'Change Slot Number', icon: Ticket,    onClick: () => setEditingSlot(true) },
+              { key: 'rename', label: 'Edit Book Number',   icon: Ticket,    onClick: () => setEditingBookNo(true) },
+            ];
+          })()}
         />
       </span>
     </div>
