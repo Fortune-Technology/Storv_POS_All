@@ -1,7 +1,17 @@
-/* CartTotals.css — prefix: ct- */
+/* CartTotals.css — prefix: ct-
+ *
+ * Compact totals card. Cashier feedback: prior version had too much
+ * vertical breathing room — the area between the row stack and the next
+ * element on POSScreen (BagFeeRow / QUICK CASH presets) felt empty.
+ * All spacing/padding values halved (~50% height reduction) without
+ * sacrificing legibility. Grand-total value still scales to 1.15rem
+ * (was 1.5rem) — large enough to scan from across a counter, no longer
+ * the dominant visual block in the right pane.
+ */
 
 .ct-wrap {
-  padding: 0.875rem 0.875rem 0;
+  /* was: 0.875rem 0.875rem 0  → halved top padding */
+  padding: 0.4rem 0.875rem 0;
   border-top: 1px solid var(--border);
 }
 
@@ -9,23 +19,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.3rem;
+  /* was: 0.3rem  → halved gap between rows */
+  margin-bottom: 0.15rem;
 }
 
 .ct-row-label {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-secondary);
 }
 
 .ct-row-value {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .ct-row-note {
   margin-left: 6px;
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: var(--text-muted);
 }
 
@@ -43,27 +54,32 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
+  /* was: 0.5rem each  → halved both */
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
   border-top: 1px solid var(--border-light);
 }
 
 .ct-grand-label {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .ct-grand-value {
-  font-size: 1.5rem;
+  /* was: 1.5rem  → 1.15rem (~25% smaller, still very readable) */
+  font-size: 1.15rem;
   font-weight: 800;
   color: var(--green);
   font-family: Inter, sans-serif;
+  /* Tabular figures so $0 / $9 / $19 / $99 align right-edge cleanly */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .ct-grand-value {
-    font-size: 1.25rem;
+    font-size: 1rem;
   }
 }

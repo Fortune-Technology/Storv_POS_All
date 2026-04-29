@@ -517,6 +517,9 @@ export const scanLotteryBarcode       = (data)   => api.post('/lottery/scan', da
 export const parseLotteryBarcode      = (raw)    => api.post('/lottery/scan/parse', { raw }).then(lotteryUnwrap);
 export const moveLotteryBoxToSafe     = (id, d)  => api.post(`/lottery/boxes/${id}/move-to-safe`, d).then(lotteryUnwrap);
 export const soldoutLotteryBox        = (id, d)  => api.post(`/lottery/boxes/${id}/soldout`, d).then(lotteryUnwrap);
+// Undo a soldout — flips depleted → active, restores currentTicket from
+// the prior close_day_snapshot, neutralises the inflated soldout-day sale.
+export const restoreLotteryBoxToCounter = (id, d) => api.post(`/lottery/boxes/${id}/restore-to-counter`, d).then(lotteryUnwrap);
 export const returnLotteryBoxToLotto  = (id, d)  => api.post(`/lottery/boxes/${id}/return-to-lotto`, d).then(lotteryUnwrap);
 export const cancelLotteryPendingMove = (id)     => api.delete(`/lottery/boxes/${id}/pending-move`).then(lotteryUnwrap);
 export const runLotteryPendingMoves   = ()       => api.post('/lottery/run-pending-moves').then(lotteryUnwrap);
@@ -589,6 +592,8 @@ export const getLotteryCommissionReport = (params) => api.get('/lottery/commissi
 
 export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
 export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
+// Per-day owner audit view — chronological per-shift breakdown with cumulative-reading deltas + reconcileShift drawer math + day-level rollup. Powers the Shift Reports drill-down (Phase D).
+export const getLotteryShiftAudit  = (params) => api.get('/lottery/shift-audit', { params }).then(r => r.data);
 
 // ── Lottery Ticket Catalog ────────────────────────────────────────────────────
 export const getLotteryCatalog          = (params) => api.get('/lottery/catalog', { params }).then(lotteryUnwrap);

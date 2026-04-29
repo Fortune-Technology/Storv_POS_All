@@ -197,9 +197,17 @@ export const getCatalogSnapshot = async (req: Request, res: Response): Promise<v
         taxClass:       p.taxClass || p.department?.taxClass || 'grocery',
         ebtEligible:    p.ebtEligible || p.department?.ebtEligible || false,
         ageRequired:    p.ageRequired,
-        // Deposit — emits per-sell-pack $ (see legacy js file for full notes).
-        depositAmount: (() => {
-          const sellPackUnits =
+        // Deposit — TWO fields emitted:
+        //   • depositAmount       — per-sell-pack $ for the master pack row
+        //                           (used when the product has no extra pack
+        //                           sizes, scan-adds-directly path)
+        //   • depositPerBaseUnit  — per-base-unit $ (one single bottle's CRV).
+        //                           Cashier-app multiplies this by the picked
+        //                           pack's `unitCount` so Double/Quartars/etc.
+        //                           get the right deposit. Fixes the Session-F
+        //                           cart-deposit-zero bug.
+        ...(() => {
+          const masterUnitPack =
             pp.unitPack     != null && Number(pp.unitPack)     > 0 ? Number(pp.unitPack)     :
             p.sellUnitSize != null && Number(p.sellUnitSize) > 0 ? Number(p.sellUnitSize) :
             1;
@@ -209,35 +217,92 @@ export const getCatalogSnapshot = async (req: Request, res: Response): Promise<v
             p.casePacks  != null && Number(p.casePacks)  > 0 ? Number(p.casePacks)  :
             null;
 
+          // Per-base-unit canonical value. Tries the most authoritative source
+          // first, falls through. Null when nothing is configured.
+          let perBase: number | null = null;
           if (pp.depositPerUnit != null) {
-            return Number(pp.depositPerUnit) * sellPackUnits;
+            perBase = Number(pp.depositPerUnit);
+          } else if (pp.caseDeposit != null && packsPerCase) {
+            // base-units-in-case = packsPerCase × masterUnitPack. Divide
+            // case deposit by that to get per-single-bottle deposit.
+            perBase = Number(pp.caseDeposit) / (packsPerCase * masterUnitPack);
+          } else if (pp.depositRule) {
+            perBase = Number(pp.depositRule.depositAmount);
           }
 
-          if (pp.caseDeposit != null && packsPerCase) {
-            return Number(pp.caseDeposit) / packsPerCase;
-          }
+          // Per-master-pack value (back-compat with single-pack-scan path).
+          const masterDeposit = perBase != null
+            ? Math.round(perBase * masterUnitPack * 10000) / 10000
+            : null;
 
-          if (pp.depositRule) {
-            return Number(pp.depositRule.depositAmount) * sellPackUnits;
-          }
-
-          return null;
+          return {
+            depositAmount:      masterDeposit,
+            depositPerBaseUnit: perBase != null
+              ? Math.round(perBase * 10000) / 10000
+              : null,
+          };
         })(),
         depositRuleId:  pp.depositRuleId,
         departmentId:   p.departmentId,
         departmentName: p.department?.name || null,
         active:         sp ? sp.active : p.active,
         inStock:        sp ? sp.inStock : true,
-        // Pack sizes for the cashier picker
-        packSizes: (pp.packSizes || []).map((ps: PackSizeRow) => ({
-          id:           ps.id,
-          label:        ps.label,
-          unitCount:    ps.unitCount,
-          packsPerCase: ps.packsPerCase,
-          retailPrice:  Number(ps.retailPrice),
-          isDefault:    ps.isDefault,
-          sortOrder:    ps.sortOrder,
-        })),
+        // Pack sizes for the cashier picker.
+        //
+        // Session F: a synthetic "primary" entry is prepended so the master
+        // product appears in the picker alongside additional ProductPackSize
+        // rows. Without this, the picker only listed extras (Double, Quartars,
+        // …) and the cashier had no way to pick the base "Single" — that came
+        // from the silent-add path which never reached the picker.
+        //
+        //   • 0 additional packs    → packSizes = [primary]    → length=1 → picker skipped, primary used silently (matches today)
+        //   • 2+ additional packs   → packSizes = [primary, double, quartars] → picker shows all three
+        //
+        // The synthetic entry uses `id: 'primary:<productId>'` so the cashier-
+        // app can detect it (no real ProductPackSize row has that prefix).
+        packSizes: (() => {
+          const masterRetail = sp?.retailPrice != null ? Number(sp.retailPrice)
+            : p.defaultRetailPrice != null ? Number(p.defaultRetailPrice) : null;
+          const masterUnitPack =
+            pp.unitPack != null && Number(pp.unitPack) > 0 ? Number(pp.unitPack) : 1;
+          const masterPacksPerCase =
+            pp.packInCase != null && Number(pp.packInCase) > 0 ? Number(pp.packInCase)
+            : p.casePacks != null && Number(p.casePacks) > 0 ? Number(p.casePacks)
+            : null;
+
+          const extras = (pp.packSizes || []).map((ps: PackSizeRow) => ({
+            id:           ps.id,
+            label:        ps.label,
+            unitCount:    ps.unitCount,
+            packsPerCase: ps.packsPerCase,
+            retailPrice:  Number(ps.retailPrice),
+            isDefault:    ps.isDefault,
+            sortOrder:    ps.sortOrder,
+            isPrimary:    false,
+          }));
+
+          // The primary becomes the cashier-default ONLY when no extra row
+          // claims that flag — keeps existing default-pack behaviour when
+          // a store explicitly tagged "Double" as default.
+          const anyExtraDefault = extras.some((e: { isDefault: boolean }) => e.isDefault);
+          return [
+            {
+              id:           `primary:${p.id}`,
+              // No explicit label on master — cashier picker shows the product
+              // name as the row's primary label, so giving it a redundant
+              // "Single" string here would be noise. Stays null; client renders
+              // "Primary" badge from `isPrimary`.
+              label:        null,
+              unitCount:    masterUnitPack,
+              packsPerCase: masterPacksPerCase,
+              retailPrice:  masterRetail,
+              isDefault:    !anyExtraDefault,
+              sortOrder:    -1,         // sorts above any real row (sortOrder >= 0)
+              isPrimary:    true,
+            },
+            ...extras,
+          ];
+        })(),
         // Flat array of alternate UPC strings only.
         upcs: (pp.upcs || []).map((u: { upc: string | null }) => u.upc).filter(Boolean),
         orgId,

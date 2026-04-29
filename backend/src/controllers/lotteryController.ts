@@ -26,6 +26,7 @@ import {
   bestEffortDailySales,
   rangeSales,
 } from '../services/lottery/reporting/index.js';
+import { reconcileShift } from '../services/reconciliation/shift/index.js';
 import { errMsg } from '../utils/typeHelpers.js';
 
 const getOrgId = (req: Request): string | undefined =>
@@ -889,6 +890,13 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
       boxScans,
       notes,
       closedById,
+      // Apr 2026 — cumulative-day readings from the lottery terminal at shift close
+      grossSalesReading,
+      cancelsReading,
+      machineCashingReading,
+      couponCashReading,
+      discountsReading,
+      instantCashingReading,
     } = req.body;
     if (!shiftId) {
       res.status(400).json({ success: false, error: 'shiftId required' });
@@ -910,6 +918,8 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
     const digNum = digitalAmount != null ? Number(digitalAmount) : null;
     const variance = machNum != null ? machNum + (digNum || 0) - netAmount : null;
 
+    const toDec = (v: unknown): number | null => (v != null && v !== '' ? Number(v) : null);
+
     const report = await prisma.lotteryShiftReport.upsert({
       where: { shiftId },
       update: {
@@ -925,6 +935,14 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
         notes: notes || null,
         closedById: closedById || null,
         closedAt: new Date(),
+        // Cumulative-day readings (only update when supplied so EoD wizard
+        // can persist them while back-office edits don't clobber them)
+        ...(grossSalesReading     !== undefined && { grossSalesReading:     toDec(grossSalesReading) }),
+        ...(cancelsReading        !== undefined && { cancelsReading:        toDec(cancelsReading) }),
+        ...(machineCashingReading !== undefined && { machineCashingReading: toDec(machineCashingReading) }),
+        ...(couponCashReading     !== undefined && { couponCashReading:     toDec(couponCashReading) }),
+        ...(discountsReading      !== undefined && { discountsReading:      toDec(discountsReading) }),
+        ...(instantCashingReading !== undefined && { instantCashingReading: toDec(instantCashingReading) }),
       },
       create: {
         orgId,
@@ -942,6 +960,12 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
         notes: notes || null,
         closedById: closedById || null,
         closedAt: new Date(),
+        grossSalesReading:     toDec(grossSalesReading),
+        cancelsReading:        toDec(cancelsReading),
+        machineCashingReading: toDec(machineCashingReading),
+        couponCashReading:     toDec(couponCashReading),
+        discountsReading:      toDec(discountsReading),
+        instantCashingReading: toDec(instantCashingReading),
       },
     });
 
@@ -1325,6 +1349,268 @@ export const getShiftReports = async (req: Request, res: Response): Promise<void
   }
 };
 
+/**
+ * GET /api/lottery/shift-audit?date=YYYY-MM-DD
+ *
+ * Per-day owner audit view. Returns every closed shift on the date in
+ * chronological order along with:
+ *   - cumulative-day readings off the lottery terminal (snapshotted at
+ *     each shift close on LotteryShiftReport)
+ *   - per-shift DELTAS computed as `this.reading − previous.reading`
+ *     (the lottery terminal shows running daily totals — so cashier 2's
+ *     activity = cashier 2's reading − cashier 1's reading)
+ *   - full reconcileShift() drawer math per shift (expected vs counted
+ *     vs variance, including ticket-math un-rung-cash)
+ *   - day-level rollup (last-shift's reading IS the day total for any
+ *     cumulative field; per-shift instant scans sum to day total)
+ *
+ * Powers the back-office Shift Reports drill-down view (Phase D).
+ */
+export const getShiftAudit = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const orgId = getOrgId(req);
+    const storeId = getStore(req);
+    if (!orgId || !storeId) {
+      res.status(400).json({ success: false, error: 'orgId + storeId required' });
+      return;
+    }
+    const dateStr = (req.query?.date as string | undefined) || new Date().toISOString().slice(0, 10);
+    const date = parseDate(dateStr);
+    if (!date) {
+      res.status(400).json({ success: false, error: 'date required (YYYY-MM-DD)' });
+      return;
+    }
+
+    // Local-day boundary (matches listShifts pattern)
+    const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+
+    // 1. Closed shifts opened on this day, chronologically ascending
+    interface ShiftLite {
+      id: string; cashierId: string; stationId: string | null;
+      openedAt: Date; closedAt: Date | null; status: string;
+      closingAmount: Prisma.Decimal | null;
+    }
+    const shifts = (await prisma.shift.findMany({
+      where: { orgId, storeId, openedAt: { gte: dayStart, lte: dayEnd } },
+      orderBy: { openedAt: 'asc' },
+      select: {
+        id: true, cashierId: true, stationId: true,
+        openedAt: true, closedAt: true, status: true, closingAmount: true,
+      },
+    })) as ShiftLite[];
+
+    // 2. LotteryShiftReports for those shifts (cumulative readings + box scans)
+    const shiftIds = shifts.map((s) => s.id);
+    const reports = shiftIds.length
+      ? await prisma.lotteryShiftReport.findMany({ where: { shiftId: { in: shiftIds } } })
+      : ([] as Awaited<ReturnType<typeof prisma.lotteryShiftReport.findMany>>);
+    type LotShiftReport = (typeof reports)[number];
+    const reportByShiftId: Record<string, LotShiftReport> = Object.fromEntries(
+      reports.map((r: LotShiftReport) => [r.shiftId, r]),
+    );
+
+    // 3. Cashier + station name lookups
+    const cashierIds = [...new Set(shifts.map((s) => s.cashierId).filter(Boolean))];
+    const stationIds = [...new Set(shifts.map((s) => s.stationId).filter((x): x is string => !!x))];
+    const [users, stations] = await Promise.all([
+      cashierIds.length
+        ? prisma.user.findMany({ where: { id: { in: cashierIds } }, select: { id: true, name: true } })
+        : [],
+      stationIds.length
+        ? prisma.station.findMany({ where: { id: { in: stationIds } }, select: { id: true, name: true } })
+        : [],
+    ]);
+    interface NameRow { id: string; name: string }
+    const userMap: Record<string, string> = Object.fromEntries(
+      (users as NameRow[]).map((u) => [u.id, u.name]),
+    );
+    const stationMap: Record<string, string> = Object.fromEntries(
+      (stations as NameRow[]).map((s) => [s.id, s.name]),
+    );
+
+    // 4. Per-shift audit row builder
+    const r2 = (n: number): number => Math.round(n * 100) / 100;
+    const toNum = (v: unknown): number => {
+      if (v == null) return 0;
+      const n = typeof v === 'string' || typeof v === 'number' ? Number(v) : Number(String(v));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    interface Reading {
+      grossSales: number; cancels: number; machineCashing: number;
+      couponCash: number; discounts: number; instantCashing: number;
+    }
+    let prev: Reading = {
+      grossSales: 0, cancels: 0, machineCashing: 0,
+      couponCash: 0, discounts: 0, instantCashing: 0,
+    };
+    const auditShifts = [] as Array<Record<string, unknown>>;
+
+    for (const s of shifts) {
+      const report = reportByShiftId[s.id];
+      const readings: Reading = {
+        grossSales:     toNum(report?.grossSalesReading),
+        cancels:        toNum(report?.cancelsReading),
+        machineCashing: toNum(report?.machineCashingReading),
+        couponCash:     toNum(report?.couponCashReading),
+        discounts:      toNum(report?.discountsReading),
+        instantCashing: toNum(report?.instantCashingReading),
+      };
+      const hasReadings =
+        readings.grossSales > 0 || readings.machineCashing > 0 ||
+        readings.cancels > 0 || readings.couponCash > 0 ||
+        readings.discounts > 0 || readings.instantCashing > 0;
+
+      // Per-shift deltas (this − previous). For the very first shift of the
+      // day, prev is all zeros (matches user's "Yes, zero each morning").
+      // For shifts where the cashier didn't enter readings, delta is
+      // computed from prev = prev (i.e. no movement attributed) — see Q4
+      // "missing baseline" handling below.
+      const deltas: Reading = {
+        grossSales:     hasReadings ? readings.grossSales     - prev.grossSales     : 0,
+        cancels:        hasReadings ? readings.cancels        - prev.cancels        : 0,
+        machineCashing: hasReadings ? readings.machineCashing - prev.machineCashing : 0,
+        couponCash:     hasReadings ? readings.couponCash     - prev.couponCash     : 0,
+        discounts:      hasReadings ? readings.discounts      - prev.discounts      : 0,
+        instantCashing: hasReadings ? readings.instantCashing - prev.instantCashing : 0,
+      };
+      const onlineSalesNetShift =
+        deltas.grossSales - deltas.cancels - deltas.machineCashing -
+        deltas.couponCash - deltas.discounts;
+
+      // Per-shift drawer reconciliation via the unified service.
+      // Failures are non-fatal — show an empty reconciliation block instead
+      // of failing the whole audit response.
+      let reconciliation: Awaited<ReturnType<typeof reconcileShift>> | null = null;
+      try {
+        reconciliation = await reconcileShift({
+          shiftId: s.id,
+          closingAmount: s.closingAmount != null ? Number(s.closingAmount) : undefined,
+        });
+      } catch (e) {
+        console.warn('[getShiftAudit] reconcileShift failed for', s.id, errMsg(e));
+      }
+
+      // Per-shift instant sales (sum of box scan amounts)
+      interface BoxScan { amount?: number | string | null }
+      const boxScans = (Array.isArray(report?.boxScans) ? (report?.boxScans as unknown as BoxScan[]) : []) ?? [];
+      const instantSalesScan = boxScans.reduce(
+        (sum: number, bs) => sum + toNum(bs?.amount),
+        0,
+      );
+      const posRangSales = toNum(report?.totalSales);
+      const posRangPayouts = toNum(report?.totalPayouts);
+
+      auditShifts.push({
+        shiftId:      s.id,
+        cashierId:    s.cashierId,
+        cashierName:  userMap[s.cashierId] || 'Unknown',
+        stationId:    s.stationId,
+        stationName:  s.stationId ? (stationMap[s.stationId] || s.stationId) : 'Unassigned',
+        openedAt:     s.openedAt,
+        closedAt:     s.closedAt,
+        status:       s.status,
+        hasReadings,
+        readings: {
+          grossSales:     r2(readings.grossSales),
+          cancels:        r2(readings.cancels),
+          machineCashing: r2(readings.machineCashing),
+          couponCash:     r2(readings.couponCash),
+          discounts:      r2(readings.discounts),
+          instantCashing: r2(readings.instantCashing),
+        },
+        deltas: {
+          grossSales:     r2(deltas.grossSales),
+          cancels:        r2(deltas.cancels),
+          machineCashing: r2(deltas.machineCashing),
+          couponCash:     r2(deltas.couponCash),
+          discounts:      r2(deltas.discounts),
+          instantCashing: r2(deltas.instantCashing),
+        },
+        onlineSalesNet:    r2(onlineSalesNetShift),
+        instantSalesScan:  r2(instantSalesScan),
+        posRangSales:      r2(posRangSales),
+        posRangPayouts:    r2(posRangPayouts),
+        reconciliation,
+      });
+
+      // Only roll the prev-readings forward when this shift actually
+      // recorded readings — preserves the chain for shifts that skipped
+      // entry (their delta becomes 0, next shift's delta picks up from
+      // the last-known reading).
+      if (hasReadings) prev = readings;
+    }
+
+    // 5. Day-level rollup
+    const lastWithReadings = [...auditShifts].reverse().find((a) => a.hasReadings);
+    const lastReadings = (lastWithReadings?.readings || {
+      grossSales: 0, cancels: 0, machineCashing: 0,
+      couponCash: 0, discounts: 0, instantCashing: 0,
+    }) as Reading;
+
+    const dayInstantSalesTotal = auditShifts.reduce(
+      (s: number, a) => s + Number(a.instantSalesScan || 0),
+      0,
+    );
+    const dayOnlineSalesNet =
+      lastReadings.grossSales - lastReadings.cancels - lastReadings.machineCashing -
+      lastReadings.couponCash - lastReadings.discounts;
+    const dailyDue =
+      (dayInstantSalesTotal - lastReadings.instantCashing) + dayOnlineSalesNet;
+
+    const expectedDrawerSum = auditShifts.reduce(
+      (s: number, a) => s + Number((a.reconciliation as { expectedDrawer?: number } | null)?.expectedDrawer || 0),
+      0,
+    );
+    const countedSum = auditShifts.reduce(
+      (s: number, a) => s + Number((a.reconciliation as { closingAmount?: number } | null)?.closingAmount || 0),
+      0,
+    );
+    const varianceSum = auditShifts.reduce(
+      (s: number, a) => s + Number((a.reconciliation as { variance?: number } | null)?.variance || 0),
+      0,
+    );
+    const posSalesTotal = auditShifts.reduce(
+      (s: number, a) => s + Number(a.posRangSales || 0),
+      0,
+    );
+    const unreportedCashTotal = Math.max(0, dayInstantSalesTotal - posSalesTotal);
+
+    // 6. Lottery settings (variance display preference for the front-end)
+    const settings = await prisma.lotterySettings
+      .findUnique({ where: { storeId } })
+      .catch(() => null);
+
+    res.json({
+      date: dateStr,
+      shifts: auditShifts,
+      day: {
+        instantSalesTotal:   r2(dayInstantSalesTotal),
+        onlineSalesNet:      r2(dayOnlineSalesNet),
+        instantCashingTotal: r2(lastReadings.instantCashing),
+        machineCashingTotal: r2(lastReadings.machineCashing),
+        grossSalesTotal:     r2(lastReadings.grossSales),
+        cancelsTotal:        r2(lastReadings.cancels),
+        couponCashTotal:     r2(lastReadings.couponCash),
+        discountsTotal:      r2(lastReadings.discounts),
+        dailyDue:            r2(dailyDue),
+        expectedDrawerSum:   r2(expectedDrawerSum),
+        countedSum:          r2(countedSum),
+        varianceSum:         r2(varianceSum),
+        posSalesTotal:       r2(posSalesTotal),
+        unreportedCashTotal: r2(unreportedCashTotal),
+      },
+      settings: {
+        shiftVarianceDisplay:   settings?.shiftVarianceDisplay   || 'always',
+        shiftVarianceThreshold: Number(settings?.shiftVarianceThreshold || 0),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: errMsg(err) });
+  }
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 // LOTTERY SETTINGS (store-level)
 // ══════════════════════════════════════════════════════════════════════════
@@ -1619,10 +1905,19 @@ export const updateLotterySettings = async (req: Request, res: Response): Promis
       weekStartDay,
       settlementPctThreshold,
       settlementMaxDaysActive,
+      // Apr 2026 — per-shift variance display preference
+      shiftVarianceDisplay,
+      shiftVarianceThreshold,
     } = req.body;
 
     const normalizedDirection =
       sellDirection === 'asc' || sellDirection === 'desc' ? sellDirection : undefined;
+
+    const ALLOWED_VARIANCE_DISPLAY = new Set(['always', 'threshold', 'hidden']);
+    const normalizedVarianceDisplay =
+      typeof shiftVarianceDisplay === 'string' && ALLOWED_VARIANCE_DISPLAY.has(shiftVarianceDisplay)
+        ? shiftVarianceDisplay
+        : undefined;
 
     const settings = await prisma.lotterySettings.upsert({
       where: { storeId },
@@ -1645,6 +1940,10 @@ export const updateLotterySettings = async (req: Request, res: Response): Promis
         ...(settlementMaxDaysActive != null && {
           settlementMaxDaysActive: Number(settlementMaxDaysActive),
         }),
+        ...(normalizedVarianceDisplay && { shiftVarianceDisplay: normalizedVarianceDisplay }),
+        ...(shiftVarianceThreshold != null && {
+          shiftVarianceThreshold: Number(shiftVarianceThreshold),
+        }),
       },
       create: {
         orgId,
@@ -1663,6 +1962,9 @@ export const updateLotterySettings = async (req: Request, res: Response): Promis
           settlementPctThreshold != null ? Number(settlementPctThreshold) : null,
         settlementMaxDaysActive:
           settlementMaxDaysActive != null ? Number(settlementMaxDaysActive) : null,
+        shiftVarianceDisplay: normalizedVarianceDisplay || 'always',
+        shiftVarianceThreshold:
+          shiftVarianceThreshold != null ? Number(shiftVarianceThreshold) : 0,
       },
     });
     res.json({ success: true, data: settings });
@@ -2040,6 +2342,148 @@ export const markBoxSoldout = async (req: Request, res: Response): Promise<void>
         },
       })
       .catch((e: Error) => console.warn('[markBoxSoldout] snapshot insert failed', boxId, e.message));
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: errMsg(err) });
+  }
+};
+
+/**
+ * POST /api/lottery/boxes/:id/restore-to-counter
+ * Body: { reason?: string }
+ *
+ * Undo a soldout that was hit in error.
+ *
+ * Restores the book to status='active' and walks back to the position it
+ * was in BEFORE the soldout. The "before" position is read from the most-
+ * recent close_day_snapshot for this box prior to the soldout snapshot.
+ * If no prior snapshot exists, falls back to box.startTicket, then to
+ * the sellDirection-based fresh-pack opening.
+ *
+ * Also writes a NEW close_day_snapshot (1 ms later than the original
+ * soldout one) for the soldout's day with the restored position, so
+ * snapshotSales' "latest event of the day wins" rule overrides the
+ * inflated soldout snapshot — that day's ticket-math sale goes back to
+ * the correct value (typically 0 for "soldout was wrong, no sales today")
+ * instead of "all remaining tickets were sold".
+ *
+ * Audit trail intentionally NOT deleted — both the soldout and the
+ * restoration events stay in lottery_scan_events for forensics.
+ */
+export const restoreBoxToCounter = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const orgId = getOrgId(req);
+    const storeId = getStore(req);
+    const boxId = req.params.id;
+    const { reason = 'manual_restore' } = (req.body || {}) as { reason?: string };
+
+    const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
+    if (!box) {
+      res.status(404).json({ success: false, error: 'Box not found' });
+      return;
+    }
+    if (box.status !== 'depleted') {
+      res
+        .status(400)
+        .json({ success: false, error: `Cannot restore to counter from status ${box.status} — only depleted books can be restored` });
+      return;
+    }
+
+    // Find the prior close_day_snapshot for this box (the one BEFORE the
+    // soldout's snapshot). The soldout's createdAt is `box.depletedAt`,
+    // so we look for the latest snapshot with createdAt < depletedAt.
+    const cutoff = box.depletedAt || new Date();
+    const priorSnap = await prisma.lotteryScanEvent.findFirst({
+      where: {
+        orgId, storeId,
+        action: 'close_day_snapshot',
+        boxId,
+        createdAt: { lt: cutoff },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { parsed: true, createdAt: true },
+    });
+
+    // Resolve the restored currentTicket:
+    //   1. priorSnap.parsed.currentTicket  (most accurate — pre-soldout position)
+    //   2. box.startTicket                 (book opened at this position)
+    //   3. fresh-pack opening              (149 desc / 0 asc)
+    let restoredTicket: string | null = null;
+    if (priorSnap) {
+      const parsed = priorSnap.parsed as Record<string, unknown> | null;
+      const cur = parsed?.currentTicket;
+      if (cur != null) restoredTicket = String(cur);
+    }
+    if (restoredTicket == null) restoredTicket = box.startTicket;
+    if (restoredTicket == null) {
+      const settings = await prisma.lotterySettings
+        .findUnique({ where: { storeId }, select: { sellDirection: true } })
+        .catch(() => null);
+      const sellDir = settings?.sellDirection || 'desc';
+      const total = Number(box.totalTickets || 0);
+      if (total > 0) {
+        restoredTicket = sellDir === 'asc' ? '0' : String(total - 1);
+      } else {
+        restoredTicket = '0';   // last resort
+      }
+    }
+
+    // Recompute ticketsSold from the restored position. ticketsSold =
+    // |startTicket - currentTicket| or, if startTicket is null, |fresh - current|.
+    const total = Number(box.totalTickets || 0);
+    const restoredTicketNum = Number(restoredTicket);
+    const startNum = box.startTicket != null
+      ? Number(box.startTicket)
+      : (total > 0 ? total - 1 : 0);   // assume desc default; adjusted above
+    const ticketsSold = Number.isFinite(restoredTicketNum) && Number.isFinite(startNum)
+      ? Math.max(0, Math.abs(startNum - restoredTicketNum))
+      : 0;
+    const ticketPriceNum = Number(box.ticketPrice || 0);
+    const salesAmount = Math.round(ticketsSold * ticketPriceNum * 100) / 100;
+
+    const updated = await prisma.lotteryBox.update({
+      where: { id: boxId },
+      data: {
+        status: 'active',
+        depletedAt: null,
+        autoSoldoutReason: null,
+        currentTicket: restoredTicket,
+        ticketsSold,
+        salesAmount,
+        updatedAt: new Date(),
+      },
+      include: { game: true },
+    });
+
+    // Write a correction close_day_snapshot for the soldout day. createdAt
+    // is `box.depletedAt + 1 ms` so it sorts AFTER the original soldout
+    // event — snapshotSales picks this one as the "latest event of the day"
+    // and reverts that day's inflated sale back to reality.
+    const correctionAt = new Date((box.depletedAt || new Date()).getTime() + 1);
+    await prisma.lotteryScanEvent
+      .create({
+        data: {
+          orgId: orgId as string,
+          storeId: storeId as string,
+          boxId,
+          scannedBy: req.user?.id || null,
+          raw: `restore-to-counter:${boxId}:${correctionAt.toISOString().slice(0, 10)}`,
+          parsed: {
+            gameNumber: updated.game?.gameNumber ?? null,
+            gameName: updated.game?.name ?? null,
+            currentTicket: restoredTicket,
+            ticketsSold,
+            soldout: false,
+            source: 'manual-restore',
+            reason,
+          } as Prisma.InputJsonValue,
+          action: 'close_day_snapshot',
+          context: 'eod',
+          createdAt: correctionAt,
+        },
+      })
+      .catch((e: Error) => console.warn('[restoreBoxToCounter] correction snapshot insert failed', boxId, e.message));
 
     res.json({ success: true, data: updated });
   } catch (err) {

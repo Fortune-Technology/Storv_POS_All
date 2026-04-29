@@ -1935,6 +1935,17 @@ model LotteryShiftReport {
   // Per-box scan data — [{boxId, gameId, gameName, slotNumber, startTicket, endTicket, ticketsSold, amount}]
   boxScans Json?
 
+  // Apr 2026 — cumulative-day readings from the lottery terminal at shift close.
+  // All values are day-to-date totals (NOT per-shift) because the machine shows
+  // running daily totals that reset at midnight. Per-shift activity is computed
+  // by delta-ing chronologically-ordered shifts in the same day.
+  grossSalesReading     Decimal? @db.Decimal(10, 2) // gross machine sales cumulative
+  cancelsReading        Decimal? @db.Decimal(10, 2) // cancels/voids cumulative
+  machineCashingReading Decimal? @db.Decimal(10, 2) // "Pays/Cashes" cumulative
+  couponCashReading     Decimal? @db.Decimal(10, 2) // coupon redemptions cumulative
+  discountsReading      Decimal? @db.Decimal(10, 2) // discounts cumulative
+  instantCashingReading Decimal? @db.Decimal(10, 2) // "Instant Pays/Cashes" cumulative
+
   // Computed from LotteryTransactions
   totalSales   Decimal? @db.Decimal(10, 2)
   totalPayouts Decimal? @db.Decimal(10, 2)
@@ -1987,6 +1998,13 @@ model LotterySettings {
   weekStartDay            Int? // 0-6, Sunday=0
   settlementPctThreshold  Int? // e.g. 80 = 80% sold qualifies
   settlementMaxDaysActive Int? // e.g. 180 = settle after 180 days regardless of % sold
+
+  // Apr 2026 — per-shift variance display preference for the Shift Reports
+  // audit view. Stores can choose to always show variance per shift, only
+  // flag shifts whose variance exceeds a $ threshold, or hide per-shift
+  // variance entirely (only show day-level rollup).
+  shiftVarianceDisplay   String   @default("always") // "always" | "threshold" | "hidden"
+  shiftVarianceThreshold Decimal  @default(0) @db.Decimal(10, 2) // only used when display="threshold"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

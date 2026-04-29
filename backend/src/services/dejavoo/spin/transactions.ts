@@ -191,22 +191,54 @@ export async function tipAdjust(
 /**
  * EBT balance inquiry. PaymentType must be 'EBT_Food' or 'EBT_Cash'.
  * Returns the customer's available balance — no money moves.
+ *
+ * Verbose logging mirrors the sale() pattern so when EBT click fails we
+ * can see exactly what TPN / PaymentType / referenceId went out and what
+ * StatusCode / Message came back. Was previously silent — diagnosing live
+ * errors required adding logs ad-hoc, which slowed down the cert loop.
  */
 export async function balance(
   merchant: DejavooSpinMerchant,
   opts: SpinOpts,
 ): Promise<Record<string, unknown>> {
   const client = createClient(merchant);
-  const body = {
+  // Defensive normalization — the factory already maps via PAYMENT_TYPE_MAP
+  // so opts.paymentType arrives as 'EBT_Food' / 'EBT_Cash' (proper case).
+  // But accept lowercase here too so the function works standalone.
+  const rawPt = opts.paymentType || 'EBT_Food';
+  const lc = String(rawPt).toLowerCase();
+  const paymentType =
+    lc === 'ebt_food' || lc === 'ebt' || lc === 'snap' || lc === 'food_stamp' ? 'EBT_Food' :
+    lc === 'ebt_cash' ? 'EBT_Cash' :
+    rawPt;
+  const body: Record<string, unknown> = {
     ...buildBasePayload(merchant, opts),
-    PaymentType: opts.paymentType || 'EBT_Food',
+    PaymentType: paymentType,
     ReferenceId: opts.referenceId,
   };
+
+  const redacted = { ...body, Authkey: body.Authkey ? '••••' : '(missing)' };
+  console.warn(
+    '[dejavooSpin.balance] →',
+    getBaseUrl(merchant), '/v2/Payment/Balance body:',
+    JSON.stringify(redacted),
+  );
+
   try {
-    const { data } = await client.post('/v2/Payment/Balance', body);
+    const { data, status: httpStatus } = await client.post('/v2/Payment/Balance', body);
+    const respGen = ((data as Record<string, unknown>)?.GeneralResponse as Record<string, unknown>) || {};
+    console.warn(
+      '[dejavooSpin.balance] ← HTTP', httpStatus,
+      'ResultCode:', respGen.ResultCode,
+      'StatusCode:', respGen.StatusCode,
+      'Message:',    respGen.Message,
+      'DetailedMessage:', respGen.DetailedMessage,
+    );
     return normalizeResponse(data, 'balance');
   } catch (err) {
-    return handleError(err, 'balance');
+    const result = handleError(err, 'balance');
+    console.warn('[dejavooSpin.balance] ✗', JSON.stringify(result).slice(0, 400));
+    return result;
   }
 }
 
