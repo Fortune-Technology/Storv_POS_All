@@ -132,11 +132,36 @@ export async function createCheckoutSession(
   }
 
   const baseURL = resolveBaseUrl(merchant);
+  const url = `${baseURL}${HPP_API_SPEC.paths.createSession}`;
+
+  // Debug logging — temporary, remove after diagnosing the 401.
+  // Mask the JWT: print first 12 + last 6 chars only so we can verify which
+  // token is being sent without leaking the full secret to logs.
+  const tokenMasked = merchant.hppAuthKey
+    ? `${merchant.hppAuthKey.slice(0, 12)}...${merchant.hppAuthKey.slice(-6)} (len=${merchant.hppAuthKey.length})`
+    : '(empty)';
+  console.log('\n[HPP-DEBUG] ─── createCheckoutSession ───');
+  console.log('[HPP-DEBUG] env=', merchant.environment, 'url=', url);
+  console.log('[HPP-DEBUG] merchantId=', merchant.hppMerchantId);
+  console.log('[HPP-DEBUG] token=', tokenMasked);
+  console.log('[HPP-DEBUG] amount=', opts.amount, 'ref=', opts.transactionReferenceId);
+  console.log('[HPP-DEBUG] notifyUrl=', opts.notifyUrl);
+  console.log('[HPP-DEBUG] returnUrl=', opts.returnUrl);
+  // Send a redacted copy of the body so we can see the exact shape iPOSpays sees
+  const bodyDebug = JSON.parse(JSON.stringify(body));
+  if (typeof bodyDebug.token === 'string') {
+    bodyDebug.token = `${bodyDebug.token.slice(0, 12)}...${bodyDebug.token.slice(-6)}`;
+  }
+  console.log('[HPP-DEBUG] body=', JSON.stringify(bodyDebug, null, 2));
+
   try {
-    const { data } = await axios.post(`${baseURL}${HPP_API_SPEC.paths.createSession}`, body, {
+    const { data, status, headers: respHeaders } = await axios.post(url, body, {
       timeout: 30 * 1000,
       headers: { 'Content-Type': 'application/json' },
     });
+    console.log('[HPP-DEBUG] iPOSpays status=', status);
+    console.log('[HPP-DEBUG] iPOSpays content-type=', respHeaders['content-type']);
+    console.log('[HPP-DEBUG] iPOSpays response=', JSON.stringify(data, null, 2));
     // Successful response shape: { message: "Url generated successfully", information: "<url>" }
     const paymentUrl = data?.information || null;
     return {
@@ -148,6 +173,10 @@ export async function createCheckoutSession(
     };
   } catch (err) {
     const ax = err as AxiosError<{ message?: string; error?: string }>;
+    console.log('[HPP-DEBUG] iPOSpays ERROR status=', ax.response?.status);
+    console.log('[HPP-DEBUG] iPOSpays ERROR headers=', ax.response?.headers);
+    console.log('[HPP-DEBUG] iPOSpays ERROR body=', JSON.stringify(ax.response?.data, null, 2));
+    console.log('[HPP-DEBUG] iPOSpays ERROR message=', errMsg(err));
     return {
       approved:               false,
       paymentUrl:             null,
