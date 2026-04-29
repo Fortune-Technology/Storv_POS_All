@@ -239,7 +239,7 @@ export default function ProductAnalytics({ embedded }) {
             <div className="upc-search-row">
               <input
                 className="form-input"
-                placeholder="Enter UPC code…"
+                placeholder="Enter UPC or product name…"
                 value={upcInput}
                 onChange={(e) => setUpcInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && setUpcSearch(upcInput)}

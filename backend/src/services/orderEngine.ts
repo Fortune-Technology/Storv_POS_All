@@ -184,6 +184,10 @@ type VendorWithDelivery = {
   orderCutoffDaysBefore: number | null;
   autoOrderEnabled: boolean;
   preferredServiceLevel: string | null;
+  // Operator preference: keep N days of supply on hand for this vendor's
+  // products. Drives forecastDemand sizing in generateSuggestions. Null
+  // means "use the engine's default review period".
+  targetCoverageDays: number | null;
   _delivery?: DeliverySchedule;
 };
 
@@ -231,6 +235,7 @@ export async function generateOrderSuggestions(
     select: {
       id: true, name: true, code: true, leadTimeDays: true,
       minOrderAmount: true, orderFrequency: true, deliveryDays: true, terms: true,
+      targetCoverageDays: true,
       orderCutoffTime: true, orderCutoffDaysBefore: true,
       autoOrderEnabled: true, preferredServiceLevel: true,
     },
@@ -405,7 +410,14 @@ export async function generateOrderSuggestions(
     const safetyStock = Math.ceil(z * stdDev * Math.sqrt(leadTime));
 
     // ── Factor 8: Lead time coverage ─────────────────────────────────
-    const coverageDays = leadTime + reviewPeriod;
+    // Vendor.targetCoverageDays (when set) is the operator's explicit
+    // "keep N days of supply" preference — overrides the default review
+    // period. Common values: 7 (weekly delivery), 14 (biweekly), 30
+    // (monthly bulk vendor). When null, fall back to DEFAULT_REVIEW_PERIOD.
+    const reviewWindow = vendor.targetCoverageDays && vendor.targetCoverageDays > 0
+      ? vendor.targetCoverageDays
+      : reviewPeriod;
+    const coverageDays = leadTime + reviewWindow;
     const forecastDemand = forecastValues.slice(0, coverageDays).reduce((a, b) => a + b, 0);
 
     // ── Factor 12: Shelf life constraint ─────────────────────────────

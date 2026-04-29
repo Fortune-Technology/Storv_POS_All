@@ -128,7 +128,10 @@ const calcMargin = (cost, retail) => {
 const marginColor = (m) =>
   m === null ? '#94a3b8' : m >= 30 ? '#10b981' : m >= 20 ? '#f59e0b' : '#ef4444';
 
-const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
+// 2-14 numeric digits. Short codes like `299` are valid identifiers stores
+// type on the keypad for non-scan items. Cashier scan path treats short
+// codes as exact-match only (see utils/upc.js).
+const isValidUPC = (v) => !v || /^\d{2,14}$/.test(v.replace(/\s/g, ''));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline Dept Manager
@@ -1068,7 +1071,7 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
 
   const margin       = calcMargin(unitCostVal, retailVal);
   const mColor       = marginColor(margin);
-  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
+  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC must be 2–14 numeric digits' : null;
   const priceWarning = unitCostVal && retailVal && retailVal < unitCostVal ? 'Retail price is below cost' : null;
 
   // ── Dept auto-fill ───────────────────────────────────────────────────────────

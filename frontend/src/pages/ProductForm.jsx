@@ -111,7 +111,12 @@ const calcMargin = (cost, retail) => {
 const marginColor = (m) =>
   m === null ? '#94a3b8' : m >= 30 ? '#10b981' : m >= 20 ? '#f59e0b' : '#ef4444';
 
-const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
+// 2-14 numeric digits. The 2-character floor is intentional — stores use
+// short codes like `299` as keypad-typed product identifiers for non-scan
+// items. The cashier scan path treats short codes as exact-match only
+// (see upcVariants in utils/upc.js), so the validation just makes sure the
+// value is numeric and within a sane upper bound.
+const isValidUPC = (v) => !v || /^\d{2,14}$/.test(v.replace(/\s/g, ''));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline Dept Manager
@@ -803,7 +808,11 @@ export default function ProductForm() {
   // itemCode are kept as mirrors from the primary for legacy readers.
   const [vendorMappings, setVendorMappings] = useState([]);
   const [addingVendor,   setAddingVendor]   = useState(false);  // toggles inline add-row
-  const [newVendor,      setNewVendor]      = useState({ vendorId: '', vendorItemCode: '', priceCost: '' });
+  // Mirror the primary vendor card's field set so additional vendors capture
+  // the same details (vendor + item code + case cost). Earlier this row only
+  // had a per-each priceCost which was inconsistent with the primary card and
+  // the auto-order engine's case-based math.
+  const [newVendor,      setNewVendor]      = useState({ vendorId: '', vendorItemCode: '', caseCost: '' });
   const [editingMapId,   setEditingMapId]   = useState(null);   // id of mapping currently being edited
   const [editMap,        setEditMap]        = useState({});
   const [mapSaving,      setMapSaving]      = useState(false);
@@ -1146,7 +1155,7 @@ export default function ProductForm() {
 
   const margin       = calcMargin(unitCostVal, retailVal);
   const mColor       = marginColor(margin);
-  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
+  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC must be 2–14 numeric digits' : null;
   const priceWarning = unitCostVal && retailVal && retailVal < unitCostVal ? 'Retail price is below cost' : null;
 
   // ── Dept auto-fill ───────────────────────────────────────────────────────────
@@ -1272,7 +1281,7 @@ export default function ProductForm() {
       const r = await createProductVendor(id, {
         vendorId:       parseInt(newVendor.vendorId),
         vendorItemCode: newVendor.vendorItemCode.trim() || null,
-        priceCost:      newVendor.priceCost !== '' ? parseFloat(newVendor.priceCost) : null,
+        caseCost:       newVendor.caseCost !== '' ? parseFloat(newVendor.caseCost) : null,
       });
       const row = r?.data || r;
       setVendorMappings(list => {
@@ -1283,7 +1292,7 @@ export default function ProductForm() {
           (new Date(b.lastReceivedAt || b.createdAt) - new Date(a.lastReceivedAt || a.createdAt))
         );
       });
-      setNewVendor({ vendorId: '', vendorItemCode: '', priceCost: '' });
+      setNewVendor({ vendorId: '', vendorItemCode: '', caseCost: '' });
       setAddingVendor(false);
       toast.success('Vendor mapping added');
     } catch (e) {
@@ -1297,7 +1306,7 @@ export default function ProductForm() {
     try {
       const r = await updateProductVendor(id, editingMapId, {
         vendorItemCode: editMap.vendorItemCode || null,
-        priceCost:      editMap.priceCost !== '' ? parseFloat(editMap.priceCost) : null,
+        caseCost:       editMap.caseCost !== '' ? parseFloat(editMap.caseCost) : null,
       });
       const row = r?.data || r;
       setVendorMappings(list => list.map(m => m.id === editingMapId ? row : m));
@@ -2718,10 +2727,13 @@ export default function ProductForm() {
                                 value={editMap.vendorItemCode ?? ''}
                                 placeholder="Item #"
                                 onChange={e => setEditMap(f => ({ ...f, vendorItemCode: e.target.value }))} />
-                              <PriceInput className="form-input" style={{ fontSize:'0.75rem' }}
-                                value={editMap.priceCost ?? ''}
-                                placeholder="0.00"
-                                onChange={(v) => setEditMap(f => ({ ...f, priceCost: v }))} />
+                              <div className="pf-dollar-wrap" style={{ width:'100%' }}>
+                                <span className="pf-dollar-sign" style={{ fontSize:'0.75rem' }}>$</span>
+                                <PriceInput className="form-input pf-dollar-input" style={{ fontSize:'0.75rem' }}
+                                  value={editMap.caseCost ?? ''}
+                                  placeholder="0.00"
+                                  onChange={(v) => setEditMap(f => ({ ...f, caseCost: v }))} />
+                              </div>
                             </div>
                           ) : (
                             <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', minWidth:0 }}>
@@ -2733,11 +2745,18 @@ export default function ProductForm() {
                                   {m.vendorItemCode}
                                 </span>
                               )}
-                              {m.priceCost != null && (
+                              {/* Show case cost first (matches primary vendor card). Fall
+                                  back to legacy per-each priceCost if only that is set
+                                  on existing rows. */}
+                              {m.caseCost != null ? (
+                                <span style={{ marginLeft:'auto', fontSize:'0.7rem', color:'var(--text-muted)' }}>
+                                  {fmt$(m.caseCost)}/case
+                                </span>
+                              ) : m.priceCost != null ? (
                                 <span style={{ marginLeft:'auto', fontSize:'0.7rem', color:'var(--text-muted)' }}>
                                   {fmt$(m.priceCost)}/ea
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           )}
                           {/* Action buttons */}
@@ -2758,7 +2777,11 @@ export default function ProductForm() {
                                 setEditingMapId(m.id);
                                 setEditMap({
                                   vendorItemCode: m.vendorItemCode || '',
-                                  priceCost: m.priceCost != null ? String(m.priceCost) : '',
+                                  // Prefer caseCost (matches primary card) — fall back to
+                                  // legacy per-each priceCost so old data is editable.
+                                  caseCost: m.caseCost != null
+                                    ? String(m.caseCost)
+                                    : (m.priceCost != null ? String(m.priceCost) : ''),
                                 });
                               }}
                                 title="Edit"
@@ -2804,10 +2827,13 @@ export default function ProductForm() {
                               placeholder="Item #"
                               value={newVendor.vendorItemCode}
                               onChange={e => setNewVendor(v => ({ ...v, vendorItemCode: e.target.value }))} />
-                            <PriceInput className="form-input" style={{ fontSize:'0.72rem' }}
-                              placeholder="$/ea"
-                              value={newVendor.priceCost}
-                              onChange={(v) => setNewVendor(val => ({ ...val, priceCost: v }))} />
+                            <div className="pf-dollar-wrap">
+                              <span className="pf-dollar-sign" style={{ fontSize:'0.72rem' }}>$</span>
+                              <PriceInput className="form-input pf-dollar-input" style={{ fontSize:'0.72rem' }}
+                                placeholder="Case cost"
+                                value={newVendor.caseCost}
+                                onChange={(v) => setNewVendor(val => ({ ...val, caseCost: v }))} />
+                            </div>
                           </div>
                           <button type="button" onClick={handleAddVendorMapping}
                             disabled={mapSaving || !newVendor.vendorId}

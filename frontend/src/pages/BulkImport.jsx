@@ -848,7 +848,7 @@ function MappingTable({ importType, allHeaders, mapping, autoDetected, onChange,
 
 // ─── Validate & Import panel (Step 3) ────────────────────────────────────────
 
-function ValidateAndImport({ preview, onImport, committing, progress, result, onReset, onViewCatalog, onDownloadErrors }) {
+function ValidateAndImport({ preview, onImport, committing, progress, result, onReset, onViewCatalog, onDownloadErrors, onDownloadResultErrors }) {
   const { validCount = 0, invalidCount = 0, warningCount = 0, errors = [], warnings = [] } = preview || {};
 
   if (result) {
@@ -893,6 +893,15 @@ function ValidateAndImport({ preview, onImport, committing, progress, result, on
             <div className="bi-error-header bi-error-header--red">
               <AlertCircle size={13} color="#dc2626" />
               <span className="bi-error-title" style={{ color: '#dc2626' }}>FAILED ROWS</span>
+              {onDownloadResultErrors && (
+                <button
+                  onClick={onDownloadResultErrors}
+                  className="bi-btn bi-btn--ghost bi-btn--sm"
+                  title="Download a CSV with the failed rows + a _failure_reason column — fix and re-upload"
+                >
+                  <Download size={11} /> Download Failed Rows
+                </button>
+              )}
             </div>
             <div className="bi-error-list--short">
               {result.errors.filter(e => e.type === 'error').slice(0, 30).map((e, i) => (
@@ -1166,15 +1175,65 @@ export default function BulkImport() {
     } catch { toast.error('Failed to download template'); }
   };
 
-  const handleDownloadErrors = () => {
-    if (!preview?.errors?.length) return;
-    const rows = preview.errors.map(e => `${e.row},"${(e.errors || []).map(x => `${x.field || ''}: ${(x.message || '').replace(/"/g, "'")}`).join('; ')}"`);
-    const csv  = ['Row,Errors', ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+  // Build a downloadable CSV of just the failed rows, in the same column
+  // shape the user uploaded, plus a final _failure_reason column so they can
+  // open it in Excel, fix the issues, and re-upload directly. `source` is
+  // either the pre-import preview (validation-stage failures) or the
+  // post-commit result (validation + runtime failures).
+  const downloadFailedRowsCsv = (source) => {
+    const failures = (source?.errors || []).filter(e => (e.type || 'error') === 'error' && e.raw);
+    if (!failures.length) return false;
+
+    // CSV-escape: wrap in quotes, escape inner quotes by doubling them.
+    const esc = (val) => {
+      if (val == null) return '';
+      const s = String(val);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    // Reason text: prefer structured per-field errors; fall back to a flat
+    // message from runtime failures.
+    const reasonOf = (e) => {
+      if (e.errors?.length) return e.errors.map(x => `${x.field || ''}${x.field ? ': ' : ''}${x.message || ''}`).join('; ');
+      return e.message || 'Unknown error';
+    };
+
+    // Discover the union of column names from every failed row's raw object.
+    // Keep insertion order stable (Set preserves it) so the output matches
+    // the upload order as closely as possible.
+    const colSet = new Set();
+    for (const f of failures) {
+      for (const k of Object.keys(f.raw || {})) colSet.add(k);
+    }
+    const cols = Array.from(colSet);
+
+    const header = [...cols, '_failure_reason'].map(esc).join(',');
+    const lines  = failures.map(f => [
+      ...cols.map(c => esc(f.raw?.[c])),
+      esc(reasonOf(f)),
+    ].join(','));
+    // BOM lets Excel auto-detect UTF-8 so accented vendor names don't garble.
+    const csv = '﻿' + [header, ...lines].join('\r\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a'); a.href = url;
-    a.download = `import_errors_${importType}.csv`; a.click();
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `import_failures_${importType}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
     URL.revokeObjectURL(url);
+    return true;
+  };
+
+  const handleDownloadErrors = () => {
+    if (!downloadFailedRowsCsv(preview)) {
+      toast.error('No failed rows with original data to download');
+    }
+  };
+
+  const handleDownloadResultErrors = () => {
+    if (!downloadFailedRowsCsv(result)) {
+      toast.error('No failed rows with original data to download');
+    }
   };
 
   const runPreview = async (f, type, strategy, currentMapping, currentPinned) => {
@@ -1576,6 +1635,7 @@ export default function BulkImport() {
                   onReset={handleReset}
                   onViewCatalog={VIEW_CATALOG[importType] ? () => navigate(VIEW_CATALOG[importType]) : null}
                   onDownloadErrors={preview?.errors?.length ? handleDownloadErrors : null}
+                  onDownloadResultErrors={result?.errors?.some(e => e.raw) ? handleDownloadResultErrors : null}
                 />
               </div>
             )}

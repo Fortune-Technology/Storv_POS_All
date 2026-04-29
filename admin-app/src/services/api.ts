@@ -110,6 +110,22 @@ export const impersonateUser     = (id: string | number):                    Pro
 export type AdminOrgsListResponse = PaginatedResponse<Organization> & { organizations?: Organization[] };
 export const getAdminOrganizations     = (params?: Params):                         Promise<AdminOrgsListResponse> => api.get('/admin/organizations', { params }).then(r => r.data);
 export const createAdminOrganization   = (data: unknown):                           Promise<{ organization: Organization }> => api.post('/admin/organizations', data).then(r => r.data);
+// Wipe a target org's product catalog. Uses the X-Tenant-Id superadmin
+// override so the call hits the right tenant via scopeToTenant. The
+// confirmation literal must equal "DELETE ALL" — backend rejects anything
+// else with 400. `permanent: true` deletes rows hard; the default soft
+// delete just sets `deleted: true` so the catalog can be restored by
+// re-importing or via the Prisma console.
+export const deleteAllOrgProducts = (
+  orgId: string | number,
+  confirmation: string,
+  permanent: boolean,
+): Promise<{ success: boolean; deleted: number; type: 'soft' | 'permanent'; message?: string }> =>
+  api.post(
+    '/catalog/products/delete-all',
+    { confirmation, permanent },
+    { headers: { 'X-Tenant-Id': String(orgId) } },
+  ).then(r => r.data);
 export const updateAdminOrganization   = (id: string | number, data: unknown):       Promise<{ organization: Organization }> => api.put(`/admin/organizations/${id}`, data).then(r => r.data);
 export const deleteAdminOrganization   = (id: string | number):                     Promise<SuccessResponse> => api.delete(`/admin/organizations/${id}`).then(r => r.data);
 

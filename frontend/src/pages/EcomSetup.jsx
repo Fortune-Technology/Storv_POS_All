@@ -69,6 +69,22 @@ function needsStoreId(method, path) {
   return true;
 }
 
+// Mirror the global axios 401 interceptor in services/api.js: when the JWT
+// expires the user gets bounced to /login with a returnTo so they land back
+// here after re-auth. Without this, a stale token surfaces a confusing
+// "invalid token" toast (the ecom-backend's verbatim response) and the user
+// stays stranded on the page.
+function handleAuthFailureAndRedirect() {
+  try {
+    localStorage.removeItem('user');
+    localStorage.removeItem('storv:il:locked');
+    localStorage.removeItem('storv:il:lastActive');
+    localStorage.removeItem('storv:il:lockedFor');
+  } catch { /* ignore */ }
+  const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `/login?session=expired&returnTo=${returnTo}`;
+}
+
 async function api(method, path, body) {
   if (needsStoreId(method, path) && !resolveStoreId()) {
     throw new NoActiveStoreError();
@@ -78,6 +94,10 @@ async function api(method, path, body) {
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (r.status === 401) {
+    handleAuthFailureAndRedirect();
+    throw new Error('Session expired — redirecting to sign in.');
+  }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || 'Request failed');
   return data;
@@ -92,6 +112,10 @@ async function uploadImage(file) {
     headers: getHeaders(false),
     body: fd,
   });
+  if (r.status === 401) {
+    handleAuthFailureAndRedirect();
+    throw new Error('Session expired — redirecting to sign in.');
+  }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || 'Upload failed');
   return data.url;

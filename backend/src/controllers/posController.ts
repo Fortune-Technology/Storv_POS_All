@@ -91,13 +91,20 @@ export const getLocalProducts: Handler = async (req, res, next) => {
     };
 
     if (search) {
-      const digitsOnly = search.replace(/[\s\-\.]/g, '').replace(/\D/g, '');
-      const isUpcLike  = digitsOnly.length >= 6 && digitsOnly.length <= 14;
+      const digitsOnly  = search.replace(/[\s\-\.]/g, '').replace(/\D/g, '');
+      const isLongUpc   = digitsOnly.length >= 6 && digitsOnly.length <= 14;
+      // Short numeric input (1-5 digits) — likely a keypad-typed short code
+      // like `299`. Match upc EXACTLY against the digits (no contains-match,
+      // which would false-positive against any longer UPC containing those
+      // digits as a substring).
+      const isShortCode = digitsOnly.length >= 1 && digitsOnly.length < 6;
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
-        ...(isUpcLike
+        ...(isLongUpc
           ? [{ upc: { in: upcVariants(digitsOnly) } }]
-          : [{ upc: { contains: search } }]
+          : isShortCode
+            ? [{ upc: digitsOnly }]
+            : [{ upc: { contains: search } }]
         ),
         { sku: { contains: search, mode: 'insensitive' } },
       ];

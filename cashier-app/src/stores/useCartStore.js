@@ -270,6 +270,43 @@ export const useCartStore = create((set, get) => ({
     set(s => ({ items: [...s.items, item] }));
   },
 
+  // Add a single product as a refund line — qty defaults to 1, lineTotal
+  // is forced negative. Mirrors the bottle-return pattern but uses real
+  // product attributes (productId, taxable, ebt) so refund analytics +
+  // inventory sync see them correctly.
+  //
+  // Tax + deposit fields are set to NEGATIVE values so the cart subtotal /
+  // tax / deposit aggregators return the right signed amounts. Existing
+  // negative-grand-total handling in TenderModal (Session 19 — bottle
+  // returns) routes net-negative carts through the "REFUND DUE TO
+  // CUSTOMER" path, which works for refund lines too.
+  addRefundItem: (product, qty = 1) => {
+    if (!product) return;
+    const unitPrice = Number(product.retailPrice) || 0;
+    const q         = Math.max(1, qty);
+    const lineTotal = -(unitPrice * q);
+    const item = {
+      lineId:           nanoid(8),
+      isRefundItem:     true,
+      productId:        product.id,
+      upc:              product.upc || null,
+      name:             `↩ Refund – ${product.name || 'Item'}`,
+      qty:              -q,                       // negative qty so reports see it as a return
+      unitPrice:        unitPrice,
+      effectivePrice:   unitPrice,
+      lineTotal,
+      taxable:          !!product.taxable,
+      ebtEligible:      !!product.ebtEligible,
+      depositAmount:    null,
+      depositTotal:     0,
+      discountEligible: false,
+      discountType:     null,
+      discountValue:    null,
+      promoAdjustment:  null,
+    };
+    set(s => ({ items: [...s.items, item] }));
+  },
+
   addBottleReturnItems: (lines) => {
     // lines: [{ rule: {id, name, depositAmount}, qty: number, lineTotal: number }]
     const items = lines.map(l => ({

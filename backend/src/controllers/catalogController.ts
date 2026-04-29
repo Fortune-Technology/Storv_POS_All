@@ -1068,11 +1068,25 @@ export const createVendor = async (req: Request, res: Response): Promise<void> =
       accountNo,
       aliases,
       autoSyncCostFromInvoice,
+      targetCoverageDays,
     } = req.body;
 
     if (!name) {
       res.status(400).json({ success: false, error: 'name is required' });
       return;
+    }
+
+    // Sanity-bound the coverage window: 1-180 days. The orderEngine multiplies
+    // this by avg daily demand to size the order — outside that range users
+    // are almost certainly typing wrong (zero or year-plus stockpile).
+    let cov: number | null = null;
+    if (targetCoverageDays != null && targetCoverageDays !== '') {
+      const n = parseInt(String(targetCoverageDays), 10);
+      if (!Number.isFinite(n) || n < 1 || n > 180) {
+        res.status(400).json({ success: false, error: 'targetCoverageDays must be 1-180' });
+        return;
+      }
+      cov = n;
     }
 
     const vendor = await prisma.vendor.create({
@@ -1089,6 +1103,7 @@ export const createVendor = async (req: Request, res: Response): Promise<void> =
         accountNo: accountNo || null,
         aliases: Array.isArray(aliases) ? aliases : [],
         autoSyncCostFromInvoice: autoSyncCostFromInvoice === false ? false : true,
+        targetCoverageDays: cov,
       },
     });
 
@@ -1123,6 +1138,21 @@ export const updateVendor = async (req: Request, res: Response): Promise<void> =
     if (body.active !== undefined) updates.active = Boolean(body.active);
     if (body.autoSyncCostFromInvoice !== undefined)
       updates.autoSyncCostFromInvoice = Boolean(body.autoSyncCostFromInvoice);
+    if (body.targetCoverageDays !== undefined) {
+      // null / '' / 0 → clear back to "use review-period default". 1-180 → set.
+      // Anything else is a typo and gets bounced.
+      const raw = body.targetCoverageDays;
+      if (raw == null || raw === '') {
+        updates.targetCoverageDays = null;
+      } else {
+        const n = parseInt(String(raw), 10);
+        if (!Number.isFinite(n) || n < 1 || n > 180) {
+          res.status(400).json({ success: false, error: 'targetCoverageDays must be 1-180' });
+          return;
+        }
+        updates.targetCoverageDays = n;
+      }
+    }
 
     const vendor = await prisma.vendor.update({
       where: { id, orgId },
@@ -2274,7 +2304,11 @@ export const searchMasterProducts = async (req: Request, res: Response): Promise
     }
 
     const digitsOnlyQuery = rawQuery.replace(/[\s\-\.]/g, '').replace(/\D/g, '');
-    const isUpcLike = digitsOnlyQuery.length >= 6 && digitsOnlyQuery.length <= 14;
+    const isUpcLike   = digitsOnlyQuery.length >= 6 && digitsOnlyQuery.length <= 14;
+    // Short codes (1-5 digits) — store-assigned product identifiers like
+    // `299`. Treated as exact-match on `upc`, NOT contains-match — typing
+    // `299` should never surface a product whose UPC is `1299` or `2993...`.
+    const isShortCode = digitsOnlyQuery.length >= 1 && digitsOnlyQuery.length < 6;
 
     const storeProductsInclude = storeId
       ? {
@@ -2338,7 +2372,9 @@ export const searchMasterProducts = async (req: Request, res: Response): Promise
         { name: { contains: query, mode: 'insensitive' as const } },
         ...(isUpcLike && digitVariants
           ? [{ upc: { in: digitVariants } }]
-          : [{ upc: { contains: query } }]),
+          : isShortCode
+            ? [{ upc: digitsOnlyQuery }]
+            : [{ upc: { contains: query } }]),
         { sku: { contains: query, mode: 'insensitive' as const } },
         { itemCode: { contains: query, mode: 'insensitive' as const } },
         { brand: { contains: query, mode: 'insensitive' as const } },
@@ -3407,7 +3443,10 @@ export const upsertStoreProduct = async (req: Request, res: Response): Promise<v
 
     const existingSP = await prisma.storeProduct.findFirst({
       where: { masterProductId: parseInt(masterProductId), storeId },
-      select: { retailPrice: true, salePrice: true },
+      // quantityOnHand is needed downstream to write an InventoryAdjustment row
+      // when the manual qty changes — without that snapshot the Adjustments &
+      // Shrinkage report stays empty even after edits.
+      select: { retailPrice: true, salePrice: true, quantityOnHand: true },
     });
 
     let saleStartParsed: Date | null | undefined;
@@ -3465,6 +3504,32 @@ export const upsertStoreProduct = async (req: Request, res: Response): Promise<v
       retailPrice: storeProduct.retailPrice,
       salePrice: storeProduct.salePrice,
     });
+
+    // When the manual qty edit moves the count, record an InventoryAdjustment
+    // so the Adjustments & Shrinkage report reflects every off-system change.
+    // Marked as `count_correction` (already a recognised reason). Failures are
+    // best-effort — a logging gap shouldn't block the inventory write.
+    if (quantityOnHand != null && req.user?.id) {
+      const previousQty = Math.round(Number(existingSP?.quantityOnHand ?? 0));
+      const newQty      = Math.round(Number(storeProduct.quantityOnHand ?? 0));
+      if (previousQty !== newQty) {
+        try {
+          await prisma.inventoryAdjustment.create({
+            data: {
+              orgId,
+              storeId,
+              masterProductId: parseInt(masterProductId),
+              adjustmentQty: newQty - previousQty,
+              previousQty,
+              newQty,
+              reason: 'count_correction',
+              notes: 'Manual quantity edit',
+              createdById: req.user.id,
+            },
+          });
+        } catch { /* best-effort */ }
+      }
+    }
 
     try {
       const pid = String(parseInt(masterProductId));
