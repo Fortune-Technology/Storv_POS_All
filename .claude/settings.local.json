@@ -67,7 +67,8 @@
       "Bash(grep -n \"tm-header\\\\|tm-backdrop\\\\|fmt\\\\$\\(totals.grandTotal\\)\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/cashier-app/src/components/tender/TenderModal.jsx\")",
       "Bash(grep -n \"screen === 'entry'\\\\|tm-modal\\\\|return \\\\\\(\\\\s*$\\\\|return \\(\\\\s*$\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/cashier-app/src/components/tender/TenderModal.jsx\")",
       "Bash(grep -n \"^    </>$\\\\|^  \\);$\" \"/c/Users/nishn/Desktop/Future Foods/Portal/Storv_POS_All/Storv_POS_All/frontend/src/pages/DualPricingReport.jsx\")",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(tasklist)"
     ]
   }
 }

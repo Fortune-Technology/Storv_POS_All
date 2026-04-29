@@ -80,9 +80,16 @@ export function useStoreModules() {
     const intervalId = setInterval(load, POLL_INTERVAL_MS);
     const onVis = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVis);
+    // Cross-component instant refresh — when StoreSettings (or any other
+    // module-flipping page) saves, it fires `storv:modules-changed`. Every
+    // mounted hook instance refetches in place so the sidebar shows/hides
+    // module-gated items immediately, no page reload required.
+    const onModulesChanged = () => { load(); };
+    window.addEventListener('storv:modules-changed', onModulesChanged);
     return () => {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('storv:modules-changed', onModulesChanged);
     };
   }, [activeStoreId, load]);
 

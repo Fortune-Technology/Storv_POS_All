@@ -85,27 +85,43 @@ Fortune_POS_Platform/
 │   │   ├── seed.js              # Tax/deposit/product seeder
 │   │   └── seedLottery.js       # Ontario OLGC lottery game seeder (20 games)
 │   ├── src/
-│   │   ├── server.js            # Express app, middleware, route mounts
+│   │   ├── server.ts            # Express app, middleware, route mounts
 │   │   ├── config/
-│   │   │   └── postgres.js      # Prisma client singleton
-│   │   ├── controllers/
-│   │   │   ├── authController.js
-│   │   │   ├── catalogController.js      # Native POS catalog CRUD (depts, tax, vendors, deposits, rebates)
-│   │   │   ├── customerController.js
-│   │   │   ├── employeeReportsController.js # Employee shift/clock summaries
-│   │   │   ├── feeMappingController.js   # Service fees and delivery charges
-│   │   │   ├── importController.js       # Bulk CSV/Excel import pipeline
-│   │   │   ├── invoiceController.js      # Azure OCR + GPT matching
-│   │   │   ├── lotteryController.js      # Full lottery module (games/boxes/txns/reports/settings)
-│   │   │   ├── paymentController.js      # PAX terminal integration (sale/refund/void/test)
-│   │   │   ├── posController.js          # IT Retail proxy
-│   │   │   ├── posTerminalController.js  # Cashier terminal API + lottery + receipt printing
-│   │   │   ├── productController.js      # Master/store products, promotions
-│   │   │   ├── salesController.js        # Analytics + Holt-Winters predictions
-│   │   │   ├── shiftController.js        # Shift open/close, cash drops, payouts
-│   │   │   ├── stationController.js      # Station registration, PIN login, hardware config
-│   │   │   ├── storeController.js        # Store CRUD, branding, billing
-│   │   │   └── userManagementController.js # Tenant users, invites, roles
+│   │   │   └── postgres.ts      # Prisma client singleton
+│   │   ├── controllers/         # All TypeScript. Large controllers are split into
+│   │   │   │                    # per-concern folders + a 1-line shim at the original
+│   │   │   │                    # path so legacy imports keep working.
+│   │   │   ├── authController.ts
+│   │   │   ├── catalogController.ts      # Native POS catalog CRUD
+│   │   │   ├── customerController.ts
+│   │   │   ├── employeeReportsController.ts
+│   │   │   ├── feeMappingController.ts   # Service fees & delivery charges
+│   │   │   ├── importController.ts       # Bulk CSV/Excel import
+│   │   │   ├── invoiceController.ts      # Azure OCR + GPT matching
+│   │   │   ├── lotteryController.ts      # Full lottery module
+│   │   │   ├── posTerminalController.ts  # Cashier API + receipt printing
+│   │   │   ├── stationController.ts      # Station registration, PIN login
+│   │   │   ├── storeController.ts        # Store CRUD, branding
+│   │   │   ├── userManagementController.ts
+│   │   │   ├── salesController.ts        # 1-line shim → ./sales/
+│   │   │   ├── sales/                    # Split (Session 53):
+│   │   │   │   ├── helpers.ts            #   shared types + date math
+│   │   │   │   ├── aggregations.ts       #   daily/weekly/monthly/dept/products
+│   │   │   │   ├── predictions.ts        #   Holt-Winters + factor breakdowns
+│   │   │   │   ├── weather.ts            #   sales × weather joined endpoints
+│   │   │   │   ├── realtime.ts           #   Live Dashboard mega-endpoint
+│   │   │   │   └── vendorOrders.ts       #   legacy reorder suggestions
+│   │   │   ├── shiftController.ts        # 1-line shim → ./shift/
+│   │   │   ├── shift/                    # Split (Session 53):
+│   │   │   │   ├── lifecycle.ts          #   open/close/active/balance-adjust
+│   │   │   │   ├── movements.ts          #   drops + payouts (POST + GET reports)
+│   │   │   │   └── reports.ts            #   single-shift detail + multi-shift list
+│   │   │   ├── payment/                  # Split (per existing pattern):
+│   │   │   │   ├── adminMerchant/        #   provider config + lifecycle + audit
+│   │   │   │   ├── adminTerminal/        #   terminal CRUD + ping
+│   │   │   │   ├── hpp/                  #   online checkout (Hosted Payment Page)
+│   │   │   │   └── posSpin/              #   in-person card-present (SPIn)
+│   │   │   └── ... (and others)
 │   │   ├── middleware/
 │   │   │   ├── auth.js                   # JWT protect + authorize(roles)
 │   │   │   └── scopeToTenant.js          # Injects req.orgId / req.storeId
@@ -283,9 +299,16 @@ Fortune_POS_Platform/
 # 1. Install all dependencies
 npm run install:all   # installs root + backend + frontend + cashier-app + admin-app + ecom-backend + storefront
 
-# 2. Set up environment files
-cp backend/.env.example backend/.env
-# Fill in: DATABASE_URL, JWT_SECRET, AZURE_API_KEY, AZURE_ENDPOINT, OPENAI_API_KEY
+# 2. Set up environment files (copy each .env.example → .env)
+cp backend/.env.example       backend/.env
+cp ecom-backend/.env.example  ecom-backend/.env
+cp frontend/.env.example      frontend/.env
+cp admin-app/.env.example     admin-app/.env
+cp cashier-app/.env.example   cashier-app/.env
+cp storefront/.env.example    storefront/.env.local
+# Backend at minimum needs: DATABASE_URL, JWT_SECRET, INTERNAL_API_KEY, OPENAI_API_KEY,
+# ANTHROPIC_API_KEY (AI Assistant), AZURE_DOCUMENT_INTELLIGENCE_* (invoice OCR),
+# DEJAVOO_VAULT_KEY (credential encryption — generate via crypto.randomBytes(32).toString('hex'))
 
 # 3. Push database schema
 cd backend
@@ -306,40 +329,73 @@ npm run dev          # starts backend (5000) + frontend (5173) + cashier-app (51
 
 ## 4. Environment Variables
 
+> The complete, authoritative reference for every variable lives in each
+> app's `.env.example`. The summary below covers the most important ones —
+> see the example files for the full set with explanatory comments.
+
 ### Backend (`backend/.env`)
 ```env
 # Core
 PORT=5000
-DATABASE_URL="postgresql://user:pass@localhost:5432/storv_pos"
+NODE_ENV=development
+DATABASE_URL="postgresql://user:pass@localhost:5432/storeveu_pos"
+ECOM_DATABASE_URL="postgresql://user:pass@localhost:5432/storeveu_ecom"  # admin backup feature
 CORS_ORIGIN="http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5005"
 
-# Auth (Session 18 hardening)
+# Auth
 JWT_SECRET="your-secret-key"           # must match ecom-backend JWT_SECRET
-JWT_ACCESS_TTL="8h"                    # access token expiry (default 8h)
-APP_SECRET="your-app-secret-key"       # CardPointe credential encryption
+JWT_ACCESS_TTL="8h"                    # access-token TTL (default 8h)
 
-# Internal service-to-service (C-1 fix — required)
+# Service-to-service (REQUIRED — see C-1 in CLAUDE.md Session 18)
 INTERNAL_API_KEY="your_internal_api_key"   # generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
-# External services
+# Backend's own public URL (image re-hosting + backup downloads)
+BACKEND_URL="http://localhost:5000"
+
+# AI / external
+OPENAI_API_KEY="sk-..."
+ANTHROPIC_API_KEY="sk-ant-api03-..."   # AI Support Assistant — without this, POST /messages → 503
+# ANTHROPIC_MODEL="claude-sonnet-4-5"  # optional override
+
+# Invoice OCR
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://your-resource.cognitiveservices.azure.com/"
 AZURE_DOCUMENT_INTELLIGENCE_KEY="..."
-OPENAI_API_KEY="sk-..."
 
-# Frontend URLs (email reset links)
+# Frontend URLs (email reset / invitation links)
 FRONTEND_URL="http://localhost:5173"
 ADMIN_URL="http://localhost:5175"
 
-# Email / SMTP (password reset, ticket notifications)
+# Email / SMTP
 SMTP_HOST="smtp.gmail.com"
 SMTP_PORT=587
 SMTP_USER="you@example.com"
 SMTP_PASS="your_app_password"
 SMTP_FROM="noreply@storeveu.com"
+SUPPORT_EMAIL="support@storeveu.com"
+
+# SMS — leave blank to disable. To activate: npm i twilio + fill these in.
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
 
 # E-commerce sync
 ECOM_BACKEND_URL="http://localhost:5005"
-REDIS_URL="redis://127.0.0.1:6379"    # optional — enables BullMQ async sync
+REDIS_URL="redis://127.0.0.1:6379"     # optional — enables BullMQ async sync
+
+# Billing
+STOREVEU_ORG_ID="your_storeveu_org_id"
+
+# Credential vault (REQUIRED for payment-merchant credentials)
+DEJAVOO_VAULT_KEY=                     # 32-byte random hex — see backend/.env.example
+# VAULT_PROVIDER=env                   # 'env' (default) | 'kms'
+
+# Dejavoo SPIn
+DEJAVOO_SPIN_BASE_UAT="https://test.spinpos.net/spin"
+DEJAVOO_TEST_REGISTER_ID=837601        # dev fallback
+
+# Misc
+DISABLE_RATE_LIMIT=false                # auto-disabled in NODE_ENV=development
+# PG_DUMP_PATH=...                     # Windows-only fallback when pg_dump auto-discovery fails
 ```
 
 ### Ecom Backend (`ecom-backend/.env`)
@@ -364,10 +420,11 @@ VITE_PORTAL_URL="http://localhost:5173"      # admin-app only (impersonation)
 
 ### Storefront (`storefront/.env.local`)
 ```env
-ECOM_API_URL="http://localhost:5005/api"
-NEXT_PUBLIC_ECOM_API_URL="http://localhost:5005/api"
-NEXT_PUBLIC_ECOM_URL="http://localhost:5005"
-REVALIDATE_SECRET="any_random_secret_string"    # must match ecom-backend
+ECOM_API_URL="http://localhost:5005/api"          # server-side (getServerSideProps)
+NEXT_PUBLIC_ECOM_API_URL="http://localhost:5005/api"  # client-side fetch
+NEXT_PUBLIC_ECOM_URL="http://localhost:5005"      # base for image/upload URLs
+REVALIDATE_SECRET="any_random_secret_string"      # must match ecom-backend
+# DEFAULT_STORE_SLUG=my-store                     # optional — fallback store when no ?store= or hostname match
 ```
 
 > ⚠️ **`INTERNAL_API_KEY` is REQUIRED** in both `backend/.env` and `ecom-backend/.env` and **must match exactly**, otherwise the ecom-backend → POS stock-check call at online checkout returns `401 Unauthorized`. This was added in Session 18 to fix the C-1 unauthenticated inventory leak.
@@ -744,20 +801,39 @@ Analytics with weather correlation, predictions.
 
 ## 9. Key Services & Utilities
 
-### Backend
-| File | Purpose |
-|------|---------|
-| `services/marktPOSService.js` | IT Retail API client (auth + product/transaction calls) |
-| `services/importService.js` | CSV/Excel bulk import validator & executor |
-| `services/salesService.js` | Sales data aggregation and formatting |
-| `services/weatherService.js` | Open-Meteo fetch + cache pipeline |
-| `services/matchingService.js` | Invoice line item ↔ POS product fuzzy matching |
-| `services/gptService.js` | OpenAI GPT-4o-mini for invoice field enrichment |
-| `utils/predictions.js` | Holt-Winters Triple Exponential Smoothing |
-| `utils/fileProcessor.js` | CSV/Excel parsing + vendor-specific transforms |
-| `utils/posScheduler.js` | Auto-refreshes MarktPOS auth tokens |
-| `utils/transformer.js` | CSV column mapping orchestrator |
-| `utils/transformers/` | Vendor-specific transforms (Agne Foods, Pine State Spirits) |
+### Backend (TypeScript)
+
+Services are organised into domain folders (Session 55 service-layer
+refactor). Every legacy import path still works via shim files at the
+original locations.
+
+| Domain | Files | Purpose |
+|---|---|---|
+| `services/notifications/` | `email.ts`, `sms.ts` | Branded HTML email (nodemailer) + Twilio-ready SMS stub |
+| `services/sales/` | `sales.ts`, `dailySale.ts` | Aggregation queries (daily/weekly/monthly/dept/products) + back-office daily-sale entry |
+| `services/inventory/` | `orderEngine.ts`, `matching.ts`, `import.ts` | 14-factor reorder algorithm; 7-tier invoice-line matcher; CSV/Excel bulk-import pipeline |
+| `services/fuel/` | `inventory.ts` | FIFO cost layers + tank topology resolver (independent / manifolded / sequential / blend) |
+| `services/ai/` | `gpt.ts` | OpenAI client (OCR enrichment + KB embeddings + AI Assistant tools) |
+| `services/weather/` | `weather.ts` | Open-Meteo fetch + PG cache + WMO code mapping |
+| `services/lottery/` | `engine/`, `adapters/` | State-specific scratch ticket parsers + EOD reconciliation engine |
+| `services/scanData/` | `formatters/`, `ackParsers/` | Tobacco scan-data submission (Altria/RJR/ITG) + ack reconciliation |
+| `services/dejavoo/` | `spin/`, `hpp/` | Card-present (SPIn) + online (HPP) payment integrations |
+| `services/payment/...` (controllers) | `adminMerchant/`, `adminTerminal/`, `hpp/`, `posSpin/` | Admin payment-provider config + transaction recording (split per Session 8) |
+| `services/reconciliation/shift/` | shift cash-flow math | Single source of truth for drawer expectation incl. lottery cash flow |
+
+Other top-level services kept untouched: `auditService`, `auditDiff`,
+`billingService`, `billingScheduler`, `chargeAccountService`, `loyaltyService`,
+`loyaltyScheduler`, `globalImageService`, `imageRehostService`,
+`inventorySyncService`, `kbService`, `labelQueueService`, `marktPOSService`,
+`paymentMerchantAudit`, `paymentProviderFactory`, `poInvoiceMatchService`,
+`shiftScheduler`, `vendorPerformanceService`, `vendorTemplateEngine`.
+
+Utilities (`backend/src/utils/`):
+- `predictions.ts` — Holt-Winters Triple Exponential Smoothing + DOW/holiday factors
+- `validators.ts` — `parsePrice`/`parseFuel`/`parseCount`/`validateAlphanumeric` + format helpers
+- `transformer.ts` + `transformers/` — vendor-specific CSV column mappings
+- `cryptoVault.ts` — AES-256-GCM credential vault (KMS-upgrade ready)
+- `upc.ts` — UPC-A/E variants, GS1 prefix parsing, normalisation
 
 ### Cashier App
 | File | Purpose |

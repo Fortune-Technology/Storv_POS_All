@@ -65,6 +65,7 @@ import { startShiftScheduler }  from './services/shiftScheduler.js';
 import { startLoyaltyScheduler } from './services/loyaltyScheduler.js';
 import { startPendingMoveScheduler } from './services/lottery/index.js';
 import { startScanDataScheduler } from './services/scanData/scanDataScheduler.js';
+import { startSyntheticDataScheduler } from './services/syntheticDataScheduler.js';
 import { startAckPoller } from './services/scanData/ackPoller.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
@@ -224,6 +225,10 @@ const startServer = async () => {
   startPendingMoveScheduler();
   startScanDataScheduler();
   startAckPoller();
+  // Test-only: synthetic transaction generator. Fires daily after the
+  // configured UTC hour, gated by ENABLE_SYNTHETIC_DATA=true. Idempotent
+  // per (org, UTC day) — safe across server restarts.
+  startSyntheticDataScheduler();
 
   // Recurring task spawner — checks every 15 minutes for tasks due
   setInterval(() => spawnRecurringTasks().catch(() => {}), 15 * 60 * 1000);
