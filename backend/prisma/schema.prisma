@@ -473,9 +473,13 @@ model MasterProduct {
   active  Boolean @default(true)
   deleted Boolean @default(false)
 
-  // Simplified pack config (v2)
-  unitPack   Int? // individual units in one sell unit (1=single, 6=6-pk, 12=12-pk)
-  packInCase Int? // sell units per vendor case (e.g. 4 means "4 × 6-packs per case")
+  // Simplified pack config (v2). Both fields default to 1 because every real
+  // product is at least one unit / one pack-per-case — null was the source of
+  // the silent-zero-deposit bug (snapshot's caseDeposit ÷ packsPerCase math
+  // returned null when either field was null). Backfill migration ran in
+  // Session F sets every existing null to 1 before the constraint takes effect.
+  unitPack   Int @default(1) // individual units in one sell unit (1=single, 6=6-pk, 12=12-pk)
+  packInCase Int @default(1) // sell units per vendor case (e.g. 4 means "4 × 6-packs per case")
 
   // Simplified deposit (v2)
   depositPerUnit Decimal? @db.Decimal(10, 4) // flat per-unit deposit

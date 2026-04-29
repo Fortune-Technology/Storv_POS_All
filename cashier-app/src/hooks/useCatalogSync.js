@@ -94,6 +94,41 @@ export function useCatalogSync() {
       const now = new Date().toISOString();
       await setLastSync('productsLastSync', now);
       setCatalogSyncedAt(now);
+
+      // ── Post-sync diagnostic ──────────────────────────────────────────
+      // One-line summary of the cache so anyone with DevTools open can see
+      // whether deposit / age / EBT data is reaching the register. Most
+      // useful debugging "why is the cart deposit zero?" — if `withDeposit`
+      // is far below what the back office expects, the snapshot didn't
+      // populate the field (DB nulls or backend not redeployed). If it's
+      // healthy here but the cart still shows zero, the bug is in the
+      // cart store, not the data layer. Counts are cheap (Dexie filter pass
+      // over ~10-100K rows takes ms) so we log on every sync.
+      try {
+        const allProducts = await db.products.where('storeId').equals(storeId).toArray();
+        const withDeposit  = allProducts.filter(p => Number(p.depositAmount) > 0).length;
+        const withPerBase  = allProducts.filter(p => Number(p.depositPerBaseUnit) > 0).length;
+        const withPacks    = allProducts.filter(p => Array.isArray(p.packSizes) && p.packSizes.length > 0).length;
+        const withAge      = allProducts.filter(p => Number(p.ageRequired) > 0).length;
+        const withEbt      = allProducts.filter(p => p.ebtEligible).length;
+        // eslint-disable-next-line no-console
+        console.info(
+          `[CatalogSync] Cache OK — ${allProducts.length} products | ` +
+          `${withDeposit} deposit | ${withPerBase} per-base-unit | ${withPacks} multi-pack | ` +
+          `${withAge} age-restricted | ${withEbt} EBT`,
+        );
+        // Backend health: depositPerBaseUnit only emitted by Session F+ snapshot.
+        // Zero on a non-empty catalog = backend is running pre-Session-F code.
+        if (allProducts.length > 0 && withPerBase === 0 && withDeposit > 0) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[CatalogSync] ⚠ depositPerBaseUnit not set on any product — ' +
+            'backend may be running pre-Session-F code. Multi-pack picks will ' +
+            'show the master deposit instead of pack-scaled deposit. ' +
+            'Verify backend git ref + pm2 restart.',
+          );
+        }
+      } catch { /* diagnostic, never blocks sync */ }
     } catch (err) {
       console.warn('Catalog sync failed:', err.message);
     } finally {

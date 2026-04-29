@@ -308,6 +308,14 @@ export const upsertLotteryOnlineTotal = (data) =>
 export const getLotteryOnlineTotal = (date) =>
   api.get('/lottery/online-total', { params: { date } }).then(r => r.data);
 
+// Per-box yesterday-close map for the EoD wizard's YESTERDAY column.
+// Returns { closes: { [boxId]: { ticket, ticketsSold, closedAt } } }
+// keyed off the most recent close_day_snapshot before the given date's
+// local midnight. Mirrors the back-office Counter snapshot data so the
+// wizard's "Yesterday" column matches what the owner sees.
+export const getLotteryYesterdayCloses = (params) =>
+  api.get('/lottery/yesterday-closes', { params }).then(r => r.data?.closes ?? r.data);
+
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>
   api.get('/fuel/types', { params: { storeId } })

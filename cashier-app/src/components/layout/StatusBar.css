@@ -13,6 +13,39 @@
   font-weight: 600;
   color: var(--text-muted);
   user-select: none;
+
+  /* Allow horizontal scroll when chips + buttons exceed viewport width
+     (typical on 1366×768 POS terminals once the catalog/age/refresh/AI/
+     hard-reset/logout group is visible). Without this, the rightmost
+     items — Sign Out especially — get clipped off-screen and become
+     unreachable. Touch drag works natively, mouse-wheel users get a
+     thin visible scrollbar. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  /* Touch / trackpad — momentum scroll feels less janky on the bar. */
+  -webkit-overflow-scrolling: touch;
+  /* When the bar is scrolled to a non-zero offset, scrolled items keep
+     a comfortable inset from the edge so they're readable, not flush. */
+  scroll-padding-inline: 1rem;
+}
+
+/* WebKit (Chrome/Edge/Safari/Electron) — thin, subtle scrollbar that only
+   appears on hover/scroll. Always-visible scrollbar at 3px is fine because
+   the bar itself is 44px tall, so 3px is barely visible at rest. */
+.sb-bar::-webkit-scrollbar {
+  height: 4px;
+}
+.sb-bar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sb-bar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+.sb-bar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .sb-brand {
@@ -90,6 +123,37 @@
   background: rgba(122, 193, 67, 0.12);
   border-color: rgba(122, 193, 67, 0.3);
   color: var(--green);
+  cursor: not-allowed;
+}
+
+/* Hard Reset button — visually distinct from Refresh so the cashier doesn't
+   click it by accident. Amber accent matches the destructive-action palette
+   used elsewhere (manager-PIN required actions). */
+.sb-hardreset-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: rgba(245, 158, 11, 0.95);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sb-hardreset-btn:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+}
+
+.sb-hardreset-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -295,6 +359,7 @@
   }
 
   .sb-refresh-btn,
+  .sb-hardreset-btn,
   .sb-logout-btn {
     height: 24px;
     font-size: 0.6rem;
