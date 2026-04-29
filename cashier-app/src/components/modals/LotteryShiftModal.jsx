@@ -2,7 +2,9 @@
  * LotteryShiftModal — End-of-shift lottery reconciliation wizard (Phase 3g).
  *
  * 3-step flow per user spec:
- *   1. Counter Scan — active books sorted by ticket value high → low.
+ *   1. Counter Scan — active books sorted by slot number ascending
+ *      (matches the physical dispenser order so cashiers can scan
+ *      left-to-right across the counter without hunting).
  *      Yesterday-end column (prev shift's end or start). Scan input at top
  *      auto-fills the matching book's today-end OR auto-activates a
  *      new-book scan. Each row also has a Soldout button.
@@ -26,12 +28,27 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2 } from 'lucide-react';
-import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox } from '../../api/pos';
+import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses } from '../../api/pos';
 import './LotteryShiftModal.css';
 
 const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
 const numInput = (v) => String(v || '').replace(/[^0-9]/g, '');
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// Slot-number comparator used for the EoD wizard's counter list. Books
+// without a slot number fall to the end. Tiebreak by gameNumber + bookNumber
+// so the order is stable when two books share a slot or both lack one.
+function byslot(a, b) {
+  const sa = a?.slotNumber == null ? Number.MAX_SAFE_INTEGER : Number(a.slotNumber);
+  const sb = b?.slotNumber == null ? Number.MAX_SAFE_INTEGER : Number(b.slotNumber);
+  if (sa !== sb) return sa - sb;
+  const ga = String(a?.game?.gameNumber || a?.gameNumber || '');
+  const gb = String(b?.game?.gameNumber || b?.gameNumber || '');
+  if (ga !== gb) return ga.localeCompare(gb);
+  const ba = String(a?.boxNumber || '');
+  const bb = String(b?.boxNumber || '');
+  return ba.localeCompare(bb);
+}
 
 const STEPS = ['Counter Scan', 'Online Sales', 'Confirm & Save'];
 
@@ -64,17 +81,28 @@ export default function LotteryShiftModal({
   });
   const [saving, setSaving]         = useState(false);
   const [err, setErr]               = useState('');
+  // Per-box yesterday-close map (boxId → { ticket, ticketsSold, closedAt }).
+  // Fetched from /lottery/yesterday-closes on open so the YESTERDAY column
+  // shows the SAME value the back-office Counter view shows. The legacy
+  // fallback (lastShiftEndTicket → startTicket → '—') runs when a box
+  // has no prior close_day_snapshot (fresh activation today).
+  const [yesterdayCloses, setYesterdayCloses] = useState({});
   const scanInputRef = useRef(null);
 
-  // Load active boxes + sort by ticket value desc when the modal opens
+  // Load active boxes + sort by slot number when the modal opens.
+  // (Apr 2026 — switched from ticket-value-desc to slot ascending so the
+  // wizard list matches the physical dispenser order, making scan flow
+  // natural for cashiers reading left-to-right across the counter.)
   useEffect(() => {
     if (!open) return;
-    const sorted = [...(activeBoxes || [])].sort((a, b) => {
-      const va = Number(a.totalValue || (a.totalTickets || 0) * (a.game?.ticketPrice || a.ticketPrice || 0));
-      const vb = Number(b.totalValue || (b.totalTickets || 0) * (b.game?.ticketPrice || b.ticketPrice || 0));
-      return vb - va;
-    });
+    const sorted = [...(activeBoxes || [])].sort(byslot);
     setBoxes(sorted);
+    // Fetch yesterday-close snapshots so the YESTERDAY column has data
+    // even for boxes whose lastShiftEndTicket / startTicket are missing
+    // (legacy data, auto-activated books, etc.). Mirrors back-office.
+    getLotteryYesterdayCloses({ date: todayISO() })
+      .then((closes) => setYesterdayCloses(closes || {}))
+      .catch(() => setYesterdayCloses({}));
     // Reset wizard state each open
     setStep(0);
     setEndTickets({});
@@ -107,11 +135,8 @@ export default function LotteryShiftModal({
       if (res?.box) {
         const boxId = res.box.id;
         if (res.action === 'activate') {
-          // New book from safe — add to the list
-          setBoxes(prev => prev.some(b => b.id === boxId) ? prev : [...prev, res.box].sort((a, b) => {
-            const va = Number(a.totalValue || 0), vb = Number(b.totalValue || 0);
-            return vb - va;
-          }));
+          // New book from safe — add to the list (sorted by slot)
+          setBoxes(prev => prev.some(b => b.id === boxId) ? prev : [...prev, res.box].sort(byslot));
           // Auto-fill its today-end = scanned ticket (next-to-sell)
           if (res.parsed?.ticketNumber != null) {
             setEndTickets(prev => ({ ...prev, [boxId]: String(res.parsed.ticketNumber) }));
@@ -147,7 +172,19 @@ export default function LotteryShiftModal({
   // ── Per-box computed data ───────────────────────────────────────────────
   const boxData = useMemo(() => boxes.map(box => {
     const startNum = parseInt(box.startTicket || box.lastShiftEndTicket || '0', 10);
-    const yesterdayEnd = box.lastShiftEndTicket || box.startTicket || '—';
+    // Yesterday-end resolution priority (most authoritative first):
+    //   1. close_day_snapshot from /yesterday-closes (matches back-office)
+    //   2. lastShiftEndTicket on the box (legacy, set by saveLotteryShiftReport)
+    //   3. startTicket (fresh book activated today, no prior close)
+    //   4. currentTicket (last-resort fallback for legacy data missing the above)
+    //   5. '—' (truly no data)
+    const snapTicket = yesterdayCloses[box.id]?.ticket;
+    const yesterdayEnd =
+      (snapTicket != null && snapTicket !== '' ? String(snapTicket) : null) ||
+      box.lastShiftEndTicket ||
+      box.startTicket ||
+      (box.currentTicket != null && box.currentTicket !== '' ? String(box.currentTicket) : null) ||
+      '—';
     const endRaw = endTickets[box.id] || '';
     const endNum = endRaw ? parseInt(endRaw, 10) : null;
     const isSoldout = !!soldout[box.id];
@@ -166,7 +203,7 @@ export default function LotteryShiftModal({
       startNum, yesterdayEnd, endNum, isSoldout, price,
       ticketsSold, calcAmount, soldoutAmount, rowComplete,
     };
-  }), [boxes, endTickets, soldout]);
+  }), [boxes, endTickets, soldout, yesterdayCloses]);
 
   const allComplete = boxData.every(b => b.rowComplete);
   const scannedTotal = boxData.reduce((s, b) => s + (b.isSoldout ? (b.soldoutAmount || 0) : (b.calcAmount || 0)), 0);
@@ -387,7 +424,7 @@ export default function LotteryShiftModal({
               ) : (
                 <>
                   <div className="lsm-sort-hint">
-                    Sorted by ticket value (highest first) · {boxData.filter(b => b.rowComplete).length} / {boxData.length} complete
+                    Sorted by slot number · {boxData.filter(b => b.rowComplete).length} / {boxData.length} complete
                   </div>
 
                   <div className="lsm-book-table">

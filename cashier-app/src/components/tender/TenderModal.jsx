@@ -1900,6 +1900,38 @@ export default function TenderModal({
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             padding: '2rem', textAlign: 'center',
           }}>
+            {/* Always-visible close button on the overlay so the cashier
+                isn't stuck — clicking it dismisses the overlay AND closes
+                the entire TenderModal back to the cart. They can edit the
+                cart, swap items, or pick a different tender from scratch.
+                Hidden during the in-flight 'waiting' state because killing
+                the overlay mid-charge would leave the terminal in an
+                inconsistent state — the existing Cancel button there
+                properly aborts via Dejavoo's /AbortTransaction endpoint. */}
+            {payStatus !== 'waiting' && (
+              <button
+                onClick={() => {
+                  // Reset payment state, then close the modal entirely.
+                  // handleRetry resets state but doesn't close — wrap with onClose.
+                  setPayStatus(null);
+                  setPayResult(null);
+                  cardAutoFireRef.current = null;
+                  if (typeof onClose === 'function') onClose();
+                }}
+                title="Close"
+                style={{
+                  position: 'absolute', top: 12, right: 12, zIndex: 101,
+                  width: 32, height: 32, borderRadius: 16,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#e8eaf0', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <X size={16} />
+              </button>
+            )}
+
             {payStatus === 'waiting' && (
               <>
                 <div style={{ fontSize: '4rem', marginBottom: '1rem', animation: 'pulse 1.5s ease-in-out infinite' }}>💳</div>
@@ -1932,36 +1964,69 @@ export default function TenderModal({
               </>
             )}
 
-            {payStatus === 'declined' && (
-              <>
-                <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>❌</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Payment Declined</div>
-                <div style={{ color: '#6b7280', fontSize: '0.87rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-                  {payResult?.message || 'The card was declined. Please try another card or payment method.'}
-                </div>
-                <button onClick={handleRetry} style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}>
-                  Try Again
-                </button>
-              </>
-            )}
+            {payStatus === 'declined' && (() => {
+              // Some Dejavoo responses send Message: 'Error' (literally the
+              // word "Error") with no further detail — that's noise, not
+              // information. Fall back to the cashier-friendly default in
+              // that case. Same fallback for empty / 1-2 char messages.
+              const rawMsg = payResult?.message || '';
+              const detail = payResult?.detailedMessage || '';
+              const useless = !rawMsg || rawMsg.length < 4 || /^error$/i.test(rawMsg.trim());
+              const displayMsg = useless
+                ? 'The card was declined or the transaction could not complete. Please try a different card or payment method.'
+                : (detail && detail !== rawMsg ? `${rawMsg} — ${detail}` : rawMsg);
+              return (
+                <>
+                  <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>❌</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Payment Declined</div>
+                  <div style={{ color: '#6b7280', fontSize: '0.87rem', marginBottom: '1.5rem', lineHeight: 1.6, maxWidth: 360 }}>
+                    {displayMsg}
+                  </div>
+                  {/* Two-button row matches the error state — cashier always
+                      has both "retry on same method" and "switch to cash"
+                      paths. Closes the loop on the "stuck on declined" UX bug. */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => { handleRetry(); switchMethod('cash'); }}
+                      style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)', background: 'transparent', color: '#cbd5e1', fontSize: '0.87rem', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Use a Different Method
+                    </button>
+                    <button
+                      onClick={handleRetry}
+                      style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer' }}
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
 
-            {payStatus === 'error' && (
-              <>
-                <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>⚠️</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Terminal Error</div>
-                <div style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-                  {payResult?.message || 'Could not reach the payment terminal. Check network connection.'}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { handleRetry(); switchMethod('cash'); }} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', background: 'transparent', color: '#94a3b8', fontSize: '0.87rem', cursor: 'pointer' }}>
-                    Use Cash Instead
-                  </button>
-                  <button onClick={handleRetry} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>
-                    Retry
-                  </button>
-                </div>
-              </>
-            )}
+            {payStatus === 'error' && (() => {
+              const rawMsg = payResult?.message || '';
+              const useless = !rawMsg || rawMsg.length < 4 || /^error$/i.test(rawMsg.trim());
+              const displayMsg = useless
+                ? 'Could not reach the payment terminal. Check the device is powered on and connected to the internet, then retry.'
+                : rawMsg;
+              return (
+                <>
+                  <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>⚠️</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f87171', marginBottom: 8 }}>Terminal Error</div>
+                  <div style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.6, maxWidth: 360 }}>
+                    {displayMsg}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => { handleRetry(); switchMethod('cash'); }} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)', background: 'transparent', color: '#cbd5e1', fontSize: '0.87rem', cursor: 'pointer', fontWeight: 600 }}>
+                      Use Cash Instead
+                    </button>
+                    <button onClick={handleRetry} style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: '#3d56b5', color: '#fff', fontWeight: 700, fontSize: '0.87rem', cursor: 'pointer' }}>
+                      Retry
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
