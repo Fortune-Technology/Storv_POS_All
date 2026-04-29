@@ -171,7 +171,6 @@ export default function LotteryShiftModal({
 
   // ── Per-box computed data ───────────────────────────────────────────────
   const boxData = useMemo(() => boxes.map(box => {
-    const startNum = parseInt(box.startTicket || box.lastShiftEndTicket || '0', 10);
     // Yesterday-end resolution priority (most authoritative first):
     //   1. close_day_snapshot from /yesterday-closes (matches back-office)
     //   2. lastShiftEndTicket on the box (legacy, set by saveLotteryShiftReport)
@@ -185,6 +184,17 @@ export default function LotteryShiftModal({
       box.startTicket ||
       (box.currentTicket != null && box.currentTicket !== '' ? String(box.currentTicket) : null) ||
       '—';
+
+    // CRITICAL: startNum must track yesterdayEnd, NOT box.startTicket. The
+    // ticketsSold delta (|start − end|) needs to base off the SAME number
+    // shown in the YESTERDAY column. If we used box.startTicket here, a
+    // 50-pack with yesterday=11 and today=11 (no sales) would compute as
+    // |49 − 11| = 38 sold (49 being the fresh-pack start). Matching the
+    // displayed yesterday makes the math reflect what the user sees.
+    const yEndForCalc = yesterdayEnd === '—' ? null : parseInt(yesterdayEnd, 10);
+    const startNum = (yEndForCalc != null && !Number.isNaN(yEndForCalc))
+      ? yEndForCalc
+      : parseInt(box.startTicket || box.lastShiftEndTicket || '0', 10);
     const endRaw = endTickets[box.id] || '';
     const endNum = endRaw ? parseInt(endRaw, 10) : null;
     const isSoldout = !!soldout[box.id];
