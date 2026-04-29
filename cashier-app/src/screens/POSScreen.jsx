@@ -110,6 +110,15 @@ export default function POSScreen() {
   const applyCouponAction = useCartStore(s => s.applyCoupon);
   const removeCouponAction = useCartStore(s => s.removeCoupon);
 
+  // Refund Mode (Session D) — when true, the next product scan adds a
+  // negative-qty refund line instead of a sale line. Auto-clears after one
+  // scan. Manager-PIN gated when toggling on. Mirrored into a ref so the
+  // useCallback handleScan can read the latest value without re-creating.
+  const addRefundItem  = useCartStore(s => s.addRefundItem);
+  const [refundMode, setRefundMode] = useState(false);
+  const refundModeRef  = useRef(false);
+  useEffect(() => { refundModeRef.current = refundMode; }, [refundMode]);
+
   // Watch catalog sync timestamp so promos reload after every sync
   const catalogSyncedAt   = useSyncStore(s => s.catalogSyncedAt);
   const isOnline          = useSyncStore(s => s.isOnline);
@@ -784,6 +793,18 @@ export default function POSScreen() {
       showScanError(raw);
       return;
     }
+
+    // Refund Mode (Session D) — when active, the scan adds a negative-qty
+    // refund line and the flag auto-clears so the very next scan goes back
+    // to normal sale. Skips the by-weight + pack-size pickers since refunds
+    // assume "I'm returning the same thing the customer scanned in".
+    if (refundModeRef.current) {
+      addRefundItem(product, 1);
+      setRefundMode(false);
+      flash('hit');
+      return;
+    }
+
     // By-weight branch lives only on the scanner path because it needs the
     // physical scale reading. Tile / search clicks fall through to the
     // shared addProductFromCatalog (which honors pack sizes).
@@ -801,7 +822,7 @@ export default function POSScreen() {
       return;
     }
     addProductFromCatalog(product);
-  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale, addProductFromCatalog]);
+  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale, addProductFromCatalog, addRefundItem]);
 
   useBarcodeScanner(handleScan, scanMode === 'normal');
 
@@ -1298,6 +1319,27 @@ export default function POSScreen() {
       {shift?._crossedMidnight && (
         <div className="pos-midnight-warn">
           \u26A0 This shift was opened before midnight — please close it and open a new shift for today.
+        </div>
+      )}
+
+      {/* Refund Mode banner (Session D) — bright red strip so the cashier
+          can't miss that the next scan will be a refund, not a sale. Click
+          to cancel without needing to hunt for the action-bar button. */}
+      {refundMode && (
+        <div
+          className="pos-refund-mode-banner"
+          onClick={() => setRefundMode(false)}
+          style={{
+            background: '#ef4444', color: '#fff',
+            padding: '10px 16px', fontWeight: 800,
+            fontSize: '0.85rem', letterSpacing: '0.04em',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer', textTransform: 'uppercase',
+          }}
+          title="Click to cancel refund mode"
+        >
+          <span>Refund Mode — next scan will be recorded as a refund</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>Click to cancel</span>
         </div>
       )}
 
@@ -2190,6 +2232,8 @@ export default function POSScreen() {
         fuelEnabled={fuel.settings?.enabled === true}
         fuelRefundsEnabled={fuel.settings?.allowRefunds !== false}
         onCoupon={() => setShowCoupon(true)}
+        onRefundMode={() => setRefundMode(m => !m)}
+        refundModeActive={refundMode}
         onBottleReturn={() => setShowBottleReturn(true)}
         onHardwareSettings={() => setShowHardwareSettings(true)}
         onAdminPortal={() => {

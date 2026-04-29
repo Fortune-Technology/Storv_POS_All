@@ -112,6 +112,10 @@ interface PreviewBody {
 
 interface ValidationRow {
   rowNum: number;
+  // Original row from the uploaded CSV/XLSX, keyed by column name. Surfaces
+  // back to the client so the failed-rows download can rebuild the user's
+  // file with a `_failure_reason` column appended.
+  raw?: Record<string, unknown>;
   errors?: unknown[];
   warnings?: unknown[];
   cleaned?: Record<string, unknown>;
@@ -334,18 +338,23 @@ export const commitImport = [
         opts,
       );
 
-      // 7 — Compile all errors (validation + runtime)
+      // 7 — Compile all errors (validation + runtime). `raw` carries the
+      // original row's column data so the frontend can let the user download
+      // failed rows + reason in the SAME shape they uploaded — fix-and-retry
+      // without manually reconciling row numbers against the source file.
       const allErrors = [
         ...(invalid as unknown as ValidationRow[]).map((r: ValidationRow) => ({
-          row:     r.rowNum,
-          type:    'error',
-          errors:  r.errors,
-          warnings:r.warnings,
+          row:      r.rowNum,
+          type:     'error',
+          raw:      r.raw,
+          errors:   r.errors,
+          warnings: r.warnings,
         })),
         ...(result.errors as Record<string, unknown>[]).map((e: Record<string, unknown>) => ({ type: 'error', ...e })),
         ...(warnings as unknown as ValidationRow[]).map((r: ValidationRow) => ({
           row:      r.rowNum,
           type:     'warning',
+          raw:      r.raw,
           warnings: r.warnings,
         })),
       ];

@@ -82,7 +82,15 @@ export function upcVariants(raw: UpcInput): string[] {
   if (raw == null || raw === '') return [];
 
   const digits = String(raw).replace(/[\s\-\.]/g, '').replace(/\D/g, '');
-  if (!digits || digits.length < 6) return [];
+  if (!digits) return [];
+
+  // Short codes (2-5 digits) are exact-match only — they're typically used
+  // by stores as manually-assigned product identifiers (e.g. `299` for a
+  // non-scan item the cashier types on the keypad). Don't expand them via
+  // GTIN-14 padding / leading-zero stripping — those operations would either
+  // explode the lookup space or match unrelated long UPCs that happen to
+  // share the trailing digits.
+  if (digits.length < 6) return [digits];
 
   const set = new Set<string>();
 
@@ -146,7 +154,7 @@ export function upcVariants(raw: UpcInput): string[] {
     set.add(digits.slice(-8));  // last 8
   }
 
-  return [...set].filter(v => v.length >= 5);
+  return [...set].filter(v => v.length >= 2);
 }
 
 /**

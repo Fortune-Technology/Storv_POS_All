@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, FormEvent } from 'react';
-import { Plus, Edit3, Trash2, Building2, Search, RefreshCw, Loader, X } from 'lucide-react';
+import { Plus, Edit3, Trash2, Building2, Search, RefreshCw, Loader, X, Skull } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 import {
@@ -7,6 +7,7 @@ import {
   createAdminOrganization,
   updateAdminOrganization,
   deleteAdminOrganization,
+  deleteAllOrgProducts,
 } from '../services/api';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
@@ -307,6 +308,39 @@ const AdminOrganizations = () => {
     }
   };
 
+  // ── Wipe Catalog (relocated from portal Products page) ──────────────────
+  // This is the destructive "delete all products" op that previously lived
+  // in the org's own portal. Moved here so only superadmins can fire it,
+  // and so the action is scoped to a specific org by id (instead of the
+  // operator's currently-active session). The backend honours X-Tenant-Id
+  // on this route — see scopeToTenant.ts.
+  const [wipeOrg, setWipeOrg] = useState<Organization | null>(null);
+  const [wipeConfirm, setWipeConfirm] = useState('');
+  const [wipePermanent, setWipePermanent] = useState(false);
+  const [wipeSaving, setWipeSaving] = useState(false);
+  const closeWipe = () => {
+    setWipeOrg(null);
+    setWipeConfirm('');
+    setWipePermanent(false);
+    setWipeSaving(false);
+  };
+  const handleWipe = async () => {
+    if (!wipeOrg) return;
+    if (wipeConfirm !== 'DELETE ALL') {
+      toast.error('Type DELETE ALL exactly to confirm');
+      return;
+    }
+    setWipeSaving(true);
+    try {
+      const res = await deleteAllOrgProducts(wipeOrg.id, 'DELETE ALL', wipePermanent);
+      toast.success(`${res.deleted} product(s) ${wipePermanent ? 'permanently deleted' : 'soft-deleted'} in ${wipeOrg.name}`);
+      closeWipe();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Failed to wipe catalog');
+      setWipeSaving(false);
+    }
+  };
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -396,6 +430,13 @@ const AdminOrganizations = () => {
                         </button>
                         <button
                           className="admin-btn-icon danger"
+                          onClick={() => setWipeOrg(o)}
+                          title="Wipe product catalog (delete every product in this org)"
+                        >
+                          <Skull size={14} />
+                        </button>
+                        <button
+                          className="admin-btn-icon danger"
                           onClick={() => handleDelete(o)}
                           title="Deactivate"
                         >
@@ -430,6 +471,107 @@ const AdminOrganizations = () => {
           onSaved={fetchOrgs}
           editOrg={editOrg}
         />
+
+        {/* Wipe Catalog confirmation — relocated from portal Products page.
+            Shows product count guard via the typed-DELETE-ALL string. */}
+        {wipeOrg && (
+          <div className="admin-modal-overlay" onClick={() => !wipeSaving && closeWipe()}>
+            <div className="admin-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+              <div className="admin-modal-header" style={{ borderBottom: '2px solid rgba(239,68,68,0.4)' }}>
+                <h2 className="admin-modal-title" style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Skull size={20} /> Wipe Catalog
+                </h2>
+                <button className="admin-modal-close" onClick={closeWipe}><X size={18} /></button>
+              </div>
+              <div style={{ padding: '1.25rem 1.5rem' }}>
+                <p style={{ marginTop: 0, fontSize: '0.9rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                  This will delete <strong>every product</strong> in <strong>{wipeOrg.name}</strong> across
+                  all of its stores.
+                  {wipePermanent
+                    ? <> This action <strong style={{ color: '#ef4444' }}>cannot be undone</strong> — all
+                        product records, inventory levels, UPCs, pack sizes, vendor mappings, and label
+                        queue entries will be permanently erased. Soft-deleted products would be
+                        recoverable; this is not.</>
+                    : <> Products will be marked as inactive and hidden, but recoverable via re-import or
+                        DB console.</>}
+                </p>
+
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '0.5rem 0.75rem',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  margin: '1rem 0',
+                  fontSize: '0.82rem',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={wipePermanent}
+                    onChange={(e) => setWipePermanent(e.target.checked)}
+                    disabled={wipeSaving}
+                  />
+                  <span><strong>Permanently delete</strong> (blocked if any products are referenced by purchase orders)</span>
+                </label>
+
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{
+                    fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)',
+                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                    display: 'block', marginBottom: 4,
+                  }}>
+                    Type <span style={{ color: '#ef4444', fontFamily: 'monospace' }}>DELETE ALL</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={wipeConfirm}
+                    onChange={(e) => setWipeConfirm(e.target.value)}
+                    placeholder="DELETE ALL"
+                    disabled={wipeSaving}
+                    autoFocus
+                    style={{
+                      width: '100%', padding: '0.6rem 0.85rem',
+                      background: 'var(--bg-tertiary)',
+                      border: `1px solid ${wipeConfirm === 'DELETE ALL' ? '#ef4444' : 'var(--border-color)'}`,
+                      borderRadius: 6,
+                      color: 'var(--text-primary)',
+                      fontSize: '0.9rem',
+                      fontFamily: 'monospace',
+                      letterSpacing: '0.05em',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div className="admin-modal-footer">
+                  <button type="button" className="admin-modal-cancel" onClick={closeWipe} disabled={wipeSaving}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleWipe}
+                    disabled={wipeSaving || wipeConfirm !== 'DELETE ALL'}
+                    style={{
+                      padding: '0.6rem 1.25rem',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: wipeConfirm === 'DELETE ALL' && !wipeSaving ? '#ef4444' : 'rgba(239,68,68,0.3)',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: wipeConfirm === 'DELETE ALL' && !wipeSaving ? 'pointer' : 'not-allowed',
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                    }}
+                  >
+                    {wipeSaving ? <Loader size={13} className="admin-spin" /> : <Skull size={13} />}
+                    {wipeSaving ? 'Wiping...' : 'Wipe Catalog'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
     </>
   );
 };

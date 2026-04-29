@@ -131,6 +131,10 @@ function OverviewTab({ vendor, onVendorUpdate }) {
       zip:         addr.zip || '',
       aliases:     Array.isArray(vendor.aliases) ? vendor.aliases.join(', ') : '',
       active:      vendor.active ?? true,
+      // Operator preference: how many days of supply to keep on hand for
+      // this vendor's products. Drives the auto-order engine's reorder qty.
+      // null/empty = "use engine default review period".
+      targetCoverageDays: vendor.targetCoverageDays != null ? String(vendor.targetCoverageDays) : '',
     });
     setEditing(true);
   };
@@ -159,6 +163,9 @@ function OverviewTab({ vendor, onVendorUpdate }) {
           ? form.aliases.split(',').map(a => a.trim()).filter(Boolean)
           : [],
         active: form.active,
+        // Empty string → null (server defaults to engine review period).
+        // Numeric value passes through to the orderEngine forecast window.
+        targetCoverageDays: form.targetCoverageDays === '' ? null : parseInt(form.targetCoverageDays, 10),
       };
       await updateCatalogVendor(vendor.id, payload);
       toast.success('Vendor updated');
@@ -210,6 +217,27 @@ function OverviewTab({ vendor, onVendorUpdate }) {
         <div style={{ marginBottom: '1rem' }}>
           <label style={labelStyle}>ALIASES (comma separated)</label>
           <input value={form.aliases} onChange={e => set('aliases', e.target.value)} style={inputStyle} />
+        </div>
+
+        {/* Inventory coverage — drives the auto-order engine's reorder
+            quantities. The engine forecasts demand across (lead time +
+            this many days) and orders enough to land at that target.
+            Common values: 7 (weekly delivery), 14 (biweekly), 30 (monthly
+            bulk vendor). Leave empty to use the engine's default. */}
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={labelStyle}>INVENTORY COVERAGE (DAYS)</label>
+          <input
+            type="number"
+            min={1}
+            max={180}
+            value={form.targetCoverageDays}
+            onChange={e => set('targetCoverageDays', e.target.value.replace(/[^\d]/g, ''))}
+            placeholder="e.g. 14 — leave empty for engine default"
+            style={inputStyle}
+          />
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            How many days of stock to keep on hand for this vendor's products. Used by the smart auto-order engine to size reorder quantities.
+          </div>
         </div>
 
         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: '0.75rem', paddingBottom: '0.4rem', borderBottom: '1px solid var(--border-color, #2a2a3a)' }}>

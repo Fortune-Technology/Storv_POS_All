@@ -775,11 +775,26 @@ export async function getProductMovement(
     select: { lineItems: true, createdAt: true },
   });
 
+  // Normalize the search term + line UPC for tolerant matching:
+  //   • strip leading zeros so "034000123456" matches "34000123456"
+  //   • exact match on full string still wins (handles the no-leading-zero case)
+  // Name match is case-insensitive partial — typing "Coke" finds "Coca-Cola Classic".
+  // Note: this is a Session-A quick fix. Full UPC canonicalization (GTIN-14
+  // pad / check-digit handling / EAN/PLU) is queued for Session B.
+  const term     = (upc || '').trim();
+  const termNorm = term.replace(/^0+/, '').toLowerCase();
+  const termLow  = term.toLowerCase();
+
   const buckets: Record<string, ProductMovementBucket> = {};
   for (const tx of txns) {
     const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as PosLineItem[];
     for (const li of items) {
-      if ((li.upc || li.name) !== upc) continue;
+      const liUpcRaw  = (li.upc || '').trim();
+      const liUpcNorm = liUpcRaw.replace(/^0+/, '').toLowerCase();
+      const liName    = (li.name || '').toLowerCase();
+      const upcHit    = liUpcRaw && (liUpcRaw === term || liUpcNorm === termNorm);
+      const nameHit   = liName && termLow && liName.includes(termLow);
+      if (!upcHit && !nameHit) continue;
       const d = new Date(tx.createdAt);
       const key = weekly ? getWeekStart(d) : toDateStr(d);
       if (!buckets[key]) buckets[key] = { Date: key, Revenue: 0, Units: 0 };

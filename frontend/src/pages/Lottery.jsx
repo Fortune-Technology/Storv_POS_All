@@ -1849,9 +1849,17 @@ function LotteryBody({ urlTab } = {}) {
     } catch { }
   }, [reportPeriod]);
 
-  const loadCommission = useCallback(async () => {
-    try { const r = await getLotteryCommissionReport({ period: reportPeriod }); setCommission(r); } catch { }
-  }, [reportPeriod]);
+  const loadCommission = useCallback(async (from, to) => {
+    try {
+      const params = {};
+      if (from) params.from = from;
+      if (to)   params.to   = to;
+      // No date range supplied → backend falls back to month-to-date so the
+      // first paint isn't empty (existing behaviour preserved).
+      const r = await getLotteryCommissionReport(params);
+      setCommission(r);
+    } catch { }
+  }, []);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -1885,7 +1893,7 @@ function LotteryBody({ urlTab } = {}) {
     if (TAB_STATUS[tab]) loadBoxes(TAB_STATUS[tab]);
     if (tab === 'Shift Reports') loadShiftReports();
     if (tab === 'Reports') loadReport(dateFrom, dateTo);
-    if (tab === 'Commission') loadCommission();
+    if (tab === 'Commission') loadCommission(dateFrom, dateTo);
     if (tab === 'Settings') loadSettings();
     if (tab === 'Ticket Catalog') loadPendingCount();
   }, [tab, reportPeriod]); // eslint-disable-line
@@ -1907,18 +1915,27 @@ function LotteryBody({ urlTab } = {}) {
       to = toDateStr(new Date(today.getFullYear(), today.getMonth(), 0));
     } else { return; }
     setDateFrom(from); setDateTo(to);
-    loadReport(from, to);
+    // Refresh whichever tab is showing — Reports + Commission share the date
+    // range so a preset click updates the visible chart immediately.
+    if (tab === 'Commission') loadCommission(from, to);
+    else loadReport(from, to);
   };
 
   /* ── Settings save ────────────────────────────────────────────────────── */
   const handleSaveSettings = async () => {
     setSettingsSaving(true); setSettingsMsg('');
     try {
-      // Don't write through state + commissionRate — those are read-only
-      // mirrors of values managed elsewhere (Store Settings + State catalog).
-      // Sending them would clobber the inherited values and accidentally
-      // override the per-stream rates picked up by the settlement engine.
-      const { state: _ignoredState, commissionRate: _ignoredCommission, ...editable } = settingsForm;
+      // Don't write through state + commissionRate (managed elsewhere — Store
+      // Settings + State catalog respectively) or `enabled` (canonical source
+      // is store.pos.lottery.enabled, written from Store Settings only).
+      // Sending any of these would create drift between the two sources of
+      // truth or clobber the inherited values picked up by the settlement engine.
+      const {
+        state: _ignoredState,
+        commissionRate: _ignoredCommission,
+        enabled: _ignoredEnabled,
+        ...editable
+      } = settingsForm;
       const updated = await updateLotterySettings(localStorage.getItem('activeStoreId'), editable);
       setLotterySettings(updated || editable);
       setSettingsMsg('Settings saved successfully.');
@@ -2421,11 +2438,23 @@ function LotteryBody({ urlTab } = {}) {
               <div className="lt-commission-hint">Store-level rate · Adjust in the Settings tab</div>
             </div>
           </div>
-          <div className="lt-period-bar">
-            <span className="lt-period-label">Period:</span>
-            {['day', 'week', 'month'].map(p => (
-              <button key={p} className={`lt-period-btn ${reportPeriod === p ? 'active' : ''}`} onClick={() => setReportPeriod(p)}>{p}</button>
-            ))}
+          <div className="lt-card" style={{ marginBottom: '1.25rem' }}>
+            <div className="lt-date-controls">
+              <div className="lt-field">
+                <label className="lt-field-label">From</label>
+                <input type="date" className="lt-input" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setDatePreset('Custom'); }} style={{ maxWidth: 160 }} />
+              </div>
+              <div className="lt-field">
+                <label className="lt-field-label">To</label>
+                <input type="date" className="lt-input" value={dateTo} onChange={e => { setDateTo(e.target.value); setDatePreset('Custom'); }} style={{ maxWidth: 160 }} />
+              </div>
+              <button className="lt-btn lt-btn-primary" onClick={() => loadCommission(dateFrom, dateTo)}>Apply</button>
+            </div>
+            <div className="lt-filter-bar" style={{ marginBottom: 0 }}>
+              {['Today', 'This Week', 'This Month', 'Last Month', 'Custom'].map(p => (
+                <button key={p} className={`lt-filter-chip ${datePreset === p ? 'active' : ''}`} onClick={() => applyPreset(p)}>{p}</button>
+              ))}
+            </div>
           </div>
           {commission ? (
             <>
@@ -2471,37 +2500,15 @@ function LotteryBody({ urlTab } = {}) {
             {settingsMsg && (
               <div className={settingsMsg.startsWith('Error') ? 'lt-error' : 'lt-success-msg'}>{settingsMsg}</div>
             )}
-            {/* State + commission rate are inherited from elsewhere — DO NOT
-                duplicate the inputs here:
-                  • State comes from Account → Store Settings (per-store)
-                  • Per-stream commission rates come from the State catalog
-                    (set by superadmin in Admin → States)
-                  • Per-store commission override (legacy) is preserved in
-                    the DB for back-compat but no longer editable here.
-                Showing the resolved values read-only so the manager can
-                verify what's in effect, with a hint pointing at where to
-                change them. */}
-            <div className="lt-field lt-field--readonly">
-              <label className="lt-field-label">State (from Store Settings)</label>
-              <div className="lt-field-readonly">{settingsForm.state || '— not set —'}</div>
-              <span className="lt-field-hint">
-                Pick this in Account → Store Settings. Determines which games
-                appear in your catalog and which state-level commission rates apply.
-              </span>
-            </div>
-            <div className="lt-field lt-field--readonly">
-              <label className="lt-field-label">Commission Rate (from State catalog)</label>
-              <div className="lt-field-readonly">
-                {settingsForm.commissionRate
-                  ? `${settingsForm.commissionRate}%`
-                  : '— set by superadmin per state —'}
-              </div>
-              <span className="lt-field-hint">
-                Per-stream rates (instant sales / instant cashing / machine sales /
-                machine cashing) are managed by superadmin in Admin → States. The
-                settlement engine picks the correct rate per revenue stream automatically.
-              </span>
-            </div>
+            {/* State + commission rate previously rendered as read-only mirrors here.
+                Removed in Session C — they're already managed authoritatively at:
+                  • State → Account → Store Settings (per-store, manager-editable)
+                  • Per-stream commission rates → Admin → States (superadmin only)
+                The settlement engine picks them up automatically.
+                The master enable/disable toggle was also moved out — it now lives
+                ONLY in Store Settings (single source of truth for the runtime
+                gate), and the entire Lottery sidebar group is hidden when off,
+                so there's nothing to render here for that case. */}
 
             {/* Sell direction — how this store opens books. Drives the default
                 startTicket when a book is activated, and the EoD wizard's
@@ -2546,8 +2553,11 @@ function LotteryBody({ urlTab } = {}) {
             </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
+              {/* `enabled` toggle removed — single source of truth lives in
+                  Account → Store Settings. The Lottery sidebar group + cashier
+                  modals + this whole page hide entirely when that's off via
+                  useStoreModules, so there's nothing to gate from here. */}
               {[
-                ['enabled', 'Enable Lottery', 'Allow lottery sales and payouts in POS'],
                 ['cashOnly', 'Cash Only', 'Restrict lottery payments to cash transactions only'],
                 ['scanRequiredAtShiftEnd', 'Require Ticket Scan at Shift End', 'Cashiers must scan each active box before closing a shift'],
               ].map(([key, label, hint]) => (

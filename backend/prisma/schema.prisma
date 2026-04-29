@@ -275,6 +275,12 @@ model Vendor {
   deliveryDays   String[]  @default([]) // ["Monday","Thursday"]
   lastOrderedAt  DateTime?
 
+  // Target days of supply to keep on hand for products from this vendor.
+  // Drives orderEngine.generateSuggestions sizing — orderQty aims to cover
+  // (leadTimeDays + targetCoverageDays) of forecast demand. When null,
+  // engine falls back to its existing review-period heuristic.
+  targetCoverageDays Int?
+
   // ── Delivery scheduling ──
   orderCutoffTime       String? // "14:00" — must order by this time for next delivery
   orderCutoffDaysBefore Int     @default(1) // order N days before delivery day
@@ -347,7 +353,9 @@ model MasterProduct {
   orgId String
 
   // Identifiers
-  upc      String? // 7–14 digit barcode (primary scan key)
+  upc      String? // 2–14 digit identifier (primary scan key). Long codes
+                   // (6+) are real barcodes; short codes (2-5) are typically
+                   // store-assigned keypad shortcuts like "299".
   plu      String? // Price Look-Up (produce, bulk)
   sku      String? // internal SKU / item code
   itemCode String? // vendor item code (e.g. Hershey's code)

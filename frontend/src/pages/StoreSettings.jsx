@@ -10,7 +10,9 @@ import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   getStores, getPOSConfig, updatePOSConfig, getFuelSettings, updateFuelSettings,
   listStatesPublic, setStoreStateCode, applyStoreStateDefaults,
-  getLotterySettings, updateLotterySettings,
+  // Session C: lottery sellDirection + cashOnly + scanRequired moved to
+  // Lottery > Settings tab. Master enable/disable lives in store.pos JSON
+  // and is written via updatePOSConfig — no direct LotterySettings RPC here.
 } from '../services/api.js';
 import { MoneyInput, CountInput } from '../components/NumericInputs';
 
@@ -77,12 +79,9 @@ export default function StoreSettings({ embedded }) {
   const [stateDirty,   setStateDirty]   = useState(false);
   const [applying,     setApplying]     = useState(false);
 
-  // ── Lottery — sellDirection (descending = 150-pack starts at 149,
-  // counts down. ascending = starts at 0, counts up). Used by EoD
-  // reconciliation math + ticket-math sales aggregation.
-  const [lotterySellDirection, setLotterySellDirection] = useState('desc');
-  const [lotteryDirty,         setLotteryDirty]         = useState(false);
-  const [lotteryCommissionRate, setLotteryCommissionRate] = useState(null);   // for display only
+  // Lottery sellDirection + cashOnly + scanRequired moved to Lottery > Settings
+  // tab in Session C. The master enable toggle below still writes to
+  // store.pos.lottery.enabled via updatePOSConfig (single source of truth).
 
   // Load stores + state catalog
   useEffect(() => {
@@ -104,27 +103,7 @@ export default function StoreSettings({ embedded }) {
     setStateDirty(false);
   }, [storeId, stores]);
 
-  // Load LotterySettings.sellDirection + commissionRate whenever storeId changes
-  useEffect(() => {
-    if (!storeId) return;
-    getLotterySettings(storeId).then(r => {
-      const dir = r?.sellDirection === 'asc' ? 'asc' : 'desc';
-      setLotterySellDirection(dir);
-      setLotteryDirty(false);
-      setLotteryCommissionRate(r?.commissionRate != null ? Number(r.commissionRate) : null);
-    }).catch(() => {});
-  }, [storeId]);
-
-  const saveLotterySettings = async () => {
-    if (!storeId) return;
-    try {
-      await updateLotterySettings(storeId, { sellDirection: lotterySellDirection });
-      toast.success('Book opening direction saved');
-      setLotteryDirty(false);
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Failed to save lottery setting');
-    }
-  };
+  // (LotterySettings load + save moved to Lottery > Settings tab — Session C.)
 
   const saveStateCode = async () => {
     if (!storeId) return;
@@ -350,101 +329,13 @@ export default function StoreSettings({ embedded }) {
             })()}
           </div>
 
-          {/* ── Section: Lottery (sellDirection toggle) ── */}
-          <div className="ss-section">
-            <div className="ss-section-title">
-              <Ticket size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              Lottery
-            </div>
-            <div className="ss-section-desc">
-              Lottery state and commission rate are inherited from the
-              State you selected above and the platform State Catalog
-              (managed by superadmin). Below is the only store-level
-              setting — pick the direction tickets count when sold.
-            </div>
-
-            {/* Read-only state + commission display */}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-              <div style={{ flex: 1, minWidth: 180, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>State</div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 2 }}>{stateCode || '— not set —'}</div>
-              </div>
-              <div style={{ flex: 1, minWidth: 180, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>Commission Rate</div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 2 }}>
-                  {lotteryCommissionRate != null ? `${(lotteryCommissionRate * 100).toFixed(2)}%` : '— inherits from state —'}
-                </div>
-              </div>
-            </div>
-
-            {/* sellDirection — actually editable */}
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Book Opening Direction
-            </div>
-            <div className="ss-state-row" style={{ marginBottom: 10 }}>
-              <label
-                style={{
-                  flex: 1, padding: '12px 14px', borderRadius: 10,
-                  border: `2px solid ${lotterySellDirection === 'desc' ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                  background: lotterySellDirection === 'desc' ? 'rgba(61, 86, 181, 0.05)' : 'var(--bg-secondary)',
-                  cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'flex-start',
-                }}
-              >
-                <input
-                  type="radio"
-                  checked={lotterySellDirection === 'desc'}
-                  onChange={() => { setLotterySellDirection('desc'); setLotteryDirty(true); }}
-                  style={{ marginTop: 3 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                    Descending <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>(MOST COMMON)</span>
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'monospace' }}>
-                    150-pack starts at <strong>149</strong> and counts <strong>DOWN</strong> as tickets sell
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    Books open from the highest ticket number. Typical for MA / most US states.
-                  </div>
-                </div>
-              </label>
-              <label
-                style={{
-                  flex: 1, padding: '12px 14px', borderRadius: 10,
-                  border: `2px solid ${lotterySellDirection === 'asc' ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                  background: lotterySellDirection === 'asc' ? 'rgba(61, 86, 181, 0.05)' : 'var(--bg-secondary)',
-                  cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'flex-start',
-                }}
-              >
-                <input
-                  type="radio"
-                  checked={lotterySellDirection === 'asc'}
-                  onChange={() => { setLotterySellDirection('asc'); setLotteryDirty(true); }}
-                  style={{ marginTop: 3 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Ascending</div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'monospace' }}>
-                    150-pack starts at <strong>0</strong> and counts <strong>UP</strong> as tickets sell
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    Books open from ticket 0. Used by some stores and a few states.
-                  </div>
-                </div>
-              </label>
-            </div>
-            <button
-              className="ss-btn-primary"
-              onClick={saveLotterySettings}
-              disabled={!lotteryDirty || !storeId}
-              title={lotteryDirty ? 'Save book opening direction' : 'No change'}
-            >
-              <Save size={13} /> Save
-            </button>
-            <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              This setting pre-fills the Starting Ticket # when you activate a book and drives the EoD reconciliation math. Applies to every game uniformly — change it once here, not per book.
-            </div>
-          </div>
+          {/* Lottery section moved to Lottery > Settings tab in Session C.
+              The master enable/disable toggle for the Lottery module remains
+              in the "Modules" row below (writes to store.pos.lottery.enabled).
+              Per-store lottery configs (sellDirection, cashOnly, scanRequired)
+              are managed in the Lottery page's Settings tab. State + commission
+              rate are inherited automatically from Account → State + the
+              platform State catalog. */}
 
           {/* ── Session 52 — Payment Pricing Model (read-only mirror) ── */}
           {/* Always rendered so the manager can see the active config; the

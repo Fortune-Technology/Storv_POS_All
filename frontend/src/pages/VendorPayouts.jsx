@@ -7,6 +7,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpCircle, Plus, DollarSign, ShoppingCart, RefreshCw, Check, AlertCircle, X } from 'lucide-react';
 import { getVendorPayments, createVendorPaymentEntry, getCatalogVendors, getPOSConfig } from '../services/api';
+import PriceInput from '../components/PriceInput';
 
 import { fmt$, todayStr, firstOfMonthStr, fmtDate } from '../utils/formatters';
 import './VendorPayouts.css';
