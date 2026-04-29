@@ -426,11 +426,17 @@
   font-style: italic;
 }
 
-/* Counter row: [pill][slot][book][tickets][sold][amount][action] */
+/* Counter row: [pill][slot][book][tickets][sold][amount][action]
+   Widths tuned for the action column to fit ALL combinations of:
+     • Save ✓ (dirty)
+     • HIST pill (past date)
+     • SO / RET status chip (book has moved)
+     • Action-menu kebab
+   side-by-side without overflowing into the amount cell. */
 .lbo-cnt-row {
   display: grid;
-  grid-template-columns: 36px 28px minmax(0, 1fr) 120px 36px 68px 28px;
-  gap: 6px;
+  grid-template-columns: 36px 28px minmax(0, 1fr) 120px 32px 78px 86px;
+  gap: 5px;
   align-items: center;
   padding: 5px 7px;
   border: 1px solid var(--border-color, #e5e7eb);
@@ -487,13 +493,35 @@
  * state visually obvious so users don't try to edit history. */
 .lbo-cnt-histpill {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: 4px;
   background: #eef2ff;
   color: #4338ca;
-  font-size: 0.58rem;
+  font-size: 0.55rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+}
+
+/* Status chip in the Counter HISTORICAL view when the book has since
+   moved out of "active" state (e.g. depleted or returned this same day).
+   The historical row still shows the book — but the chip tells the user
+   not to act on it (Session 46 sold-out fix). */
+.lbo-cnt-statuspill {
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: 3px;
+}
+.lbo-cnt-statuspill--depleted {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.lbo-cnt-statuspill--returned {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .lbo-cnt-slot {
@@ -604,7 +632,13 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.lbo-cnt-act { text-align: center; display: flex; align-items: center; justify-content: center; }
+.lbo-cnt-act {
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
 
 /* ── Right column — Safe/Soldout/Returned/Receive/Return ─────────── */
 .lbo-col-right { padding: 0; }
