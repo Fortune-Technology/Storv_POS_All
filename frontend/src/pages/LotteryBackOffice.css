@@ -177,7 +177,11 @@
 /* ── Grid ─────────────────────────────────────────────────────────── */
 .lbo-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 300px) 1.5fr minmax(280px, 1fr);
+  /* Right rail: bumped from 280→340 minimum so the per-book row
+     (PackPill + Game# + "Book XXXX" + Date + Amount + Action menu)
+     no longer overflows past the rail edge. The row needs ~340-360px
+     to render fully without truncation. */
+  grid-template-columns: minmax(260px, 300px) 1.5fr minmax(340px, 1fr);
   gap: 0.75rem;
   min-height: 0;
   flex: 1;
@@ -1023,12 +1027,11 @@
 .lbo-right-row {
   display: grid;
   /* PackPill | Game# badge | Book + name | Date | Amount | Action menu */
-  /* Book column has a 95px floor so "Book {boxNumber}" stays fully
-     visible on a single line, while still letting `1fr` claim extra
-     room when the rail is wide. Earlier attempt at `max-content`
-     made the column expand to fit the full game-name `<small>` and
-     pushed the rail past the viewport edge. */
-  grid-template-columns: 36px 56px minmax(95px, 1fr) 54px 62px 24px;
+  /* Book column has a 75px floor (fits "Book BXXX" at ~67px in 0.78rem
+     mono). Combined with the rail's 340px minimum width, the row no
+     longer overflows the rail. Earlier 95px floor + 280px rail caused
+     the date + amount cells to spill outside the rail edge. */
+  grid-template-columns: 36px 56px minmax(75px, 1fr) 54px 62px 24px;
   gap: 6px;
   align-items: center;
   padding: 5px 7px;
@@ -1575,7 +1578,9 @@
 /* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .lbo-grid {
-    grid-template-columns: minmax(240px, 260px) 1.4fr minmax(260px, 1fr);
+    /* Same rail-floor bump as the desktop layout (340px) so the per-book
+       row keeps fitting in tighter viewports too. */
+    grid-template-columns: minmax(240px, 260px) 1.4fr minmax(340px, 1fr);
   }
 }
 
