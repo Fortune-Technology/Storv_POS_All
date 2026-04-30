@@ -130,6 +130,13 @@ export default function CustomerDisplayScreen() {
             <div key={item.lineId || idx} className="cds-line-item">
               <div className="cds-line-left">
                 <span className="cds-line-name">{item.name}</span>
+                {/* Pack-size chip — large enough for the customer to read
+                    across the counter so they can confirm "yes, the cashier
+                    rang up the Double / Quatars / single pack I asked for"
+                    when the cart has multiple packs of the same product. */}
+                {item.packSizeLabel && (
+                  <span className="cds-line-pack">{item.packSizeLabel}</span>
+                )}
                 {item.qty > 1 && <span className="cds-line-qty">{item.qty} × {fmt$(item.unitPrice)}</span>}
                 {item.promoAdjustment && (
                   <span className="cds-line-promo">

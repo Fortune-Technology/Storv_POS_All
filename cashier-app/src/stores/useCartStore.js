@@ -113,15 +113,26 @@ export const useCartStore = create((set, get) => ({
   // ── Item management ─────────────────────────────────────────────────────
   addProduct: (product) => {
     const { items, promotions } = get();
-    const idx = items.findIndex(i => i.productId === (product.id ?? product.productId));
+    // Dedup key is (productId, packSizeId) — same product picked at the SAME
+    // pack size stacks qty (correct: scanning Single twice = qty 2). Same
+    // product picked at a DIFFERENT pack must be its own line because price /
+    // unit count / deposit-per-unit all differ per pack. Prior to this fix
+    // the dedup was productId-only, which silently collapsed multi-pack picks
+    // into the first-picked pack's line and inherited its price + deposit.
+    const incomingProductId = product.id ?? product.productId;
+    const incomingPackId    = product.packSizeId ?? null;
+    const idx = items.findIndex(i =>
+      i.productId === incomingProductId &&
+      (i.packSizeId ?? null) === incomingPackId
+    );
     let nextItems;
     if (idx >= 0) {
       nextItems = items.map((item, i) => i === idx ? calcLine({ ...item, qty: item.qty + 1 }) : item);
-      db.scanFrequency.put({ productId: product.id ?? product.productId }).catch(() => {});
+      db.scanFrequency.put({ productId: incomingProductId }).catch(() => {});
     } else {
       const newItem = calcLine({
         lineId:           nanoid(8),
-        productId:        product.id ?? product.productId,
+        productId:        incomingProductId,
         upc:              product.upc,
         name:             product.name,
         brand:            product.brand,
@@ -140,15 +151,22 @@ export const useCartStore = create((set, get) => ({
         departmentId:     product.departmentId || null,
         discountEligible: product.discountEligible !== false,
         quantityOnHand:   product.quantityOnHand != null ? Number(product.quantityOnHand) : null,
+        // Pack-size metadata — required for the dedup key above to work on
+        // subsequent adds (otherwise both lines compare null === null and
+        // collide). Also surfaces in the cart UI as a small chip so the
+        // cashier sees which pack was picked.
+        packSizeId:       incomingPackId,
+        packSizeLabel:    product.packSizeLabel || null,
+        unitCount:        product.unitCount != null ? Number(product.unitCount) : null,
         priceOverridden:  false,
         discountType:     null,
         discountValue:    null,
         promoAdjustment:  null,
       });
       nextItems = [...items, newItem];
-      db.scanFrequency.get(product.id).then(row => {
-        if (row) db.scanFrequency.update(product.id, { count: (row.count || 0) + 1, lastAt: Date.now() });
-        else     db.scanFrequency.put({ productId: product.id, count: 1, lastAt: Date.now() });
+      db.scanFrequency.get(incomingProductId).then(row => {
+        if (row) db.scanFrequency.update(incomingProductId, { count: (row.count || 0) + 1, lastAt: Date.now() });
+        else     db.scanFrequency.put({ productId: incomingProductId, count: 1, lastAt: Date.now() });
       }).catch(() => {});
     }
     const { items: promoItems, promoResults } = withPromos(nextItems, promotions);

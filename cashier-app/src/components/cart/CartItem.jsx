@@ -129,6 +129,14 @@ export default function CartItem({ item, selected, onSelect, onEdit }) {
           <div className="ci-name-badges">
             <span className="ci-name">{item.name}</span>
 
+            {/* Pack-size chip — visible only when a non-primary pack was
+                picked in PackSizePickerModal. Lets the cashier confirm which
+                pack stacked into this line vs an adjacent line for the same
+                product at a different pack size. */}
+            {item.packSizeLabel && (
+              <span className="ci-badge ci-badge--pack">{item.packSizeLabel}</span>
+            )}
+
             {hasDiscount && (
               <span className="ci-badge ci-badge--discount">
                 <Tag size={8} /> {discountLabel}

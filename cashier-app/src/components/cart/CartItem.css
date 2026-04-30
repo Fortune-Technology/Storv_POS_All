@@ -208,6 +208,16 @@
   letter-spacing: 0.03em;
 }
 
+/* Pack-size label (e.g. "Single", "Double", "Quatars"). Slate so it sits
+   quietly next to the product name and doesn't compete with EBT / Age / OVRD
+   badges that carry stronger semantic meaning. */
+.ci-badge--pack {
+  background: rgba(100, 116, 139, 0.18);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  font-weight: 700;
+}
+
 /* Price sub-line */
 .ci-price-line {
   font-size: 0.7rem;
