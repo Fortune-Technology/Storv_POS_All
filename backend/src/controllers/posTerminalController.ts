@@ -617,18 +617,26 @@ export const createTransaction = async (req: Request, res: Response): Promise<vo
     }
 
     // ── Deduct stock for each sold line item (fire-and-forget) ────────────
+    // QOH tracks BASE units (singles). When a cashier sells 1 × Double pack
+    // (qty=1, unitCount=2), inventory should drop by 2 base units, not 1 —
+    // otherwise every multi-pack sale drifts the catalog. unitCount comes
+    // from ProductPackSize.unitCount via the cashier-app pack picker; legacy
+    // line items without the field default to 1 so non-pack products keep
+    // their pre-fix behaviour.
     if (Array.isArray(lineItems) && lineItems.length) {
       const stockUpdates = lineItems
         .filter((li) => li.productId && !li.isLottery && !li.isFuel && !li.isBottleReturn && Number(li.qty) > 0)
-        .map((li) =>
-          prisma.storeProduct.updateMany({
+        .map((li) => {
+          const unitCount = Number(li.unitCount) > 0 ? Number(li.unitCount) : 1;
+          const baseUnits = Number(li.qty) * unitCount;
+          return prisma.storeProduct.updateMany({
             where: { storeId, masterProductId: Number(li.productId), orgId: orgId ?? undefined },
             data:  {
-              quantityOnHand: { decrement: Number(li.qty) },
+              quantityOnHand: { decrement: baseUnits },
               lastStockUpdate: new Date(),
             },
-          }),
-        );
+          });
+        });
       // Non-blocking — don't hold up the response if stock update fails
       Promise.all(stockUpdates).catch((err: Error) =>
         console.error('[createTransaction] stock deduction error:', err.message),
@@ -837,15 +845,20 @@ export const batchCreateTransactions = async (req: Request, res: Response): Prom
         }
 
         // Deduct stock for this offline transaction
+        // Mirrors the createTransaction path — multiplies cart qty by the
+        // pack's unitCount so a 1 × Double pack sale deducts 2 base units,
+        // not 1. Defaults to unitCount=1 for legacy/non-pack lines.
         if (Array.isArray(tx.lineItems) && tx.lineItems.length) {
           const updates = tx.lineItems
             .filter((li) => li.productId && !li.isLottery && !li.isFuel && !li.isBottleReturn && Number(li.qty) > 0)
-            .map((li) =>
-              prisma.storeProduct.updateMany({
+            .map((li) => {
+              const unitCount = Number(li.unitCount) > 0 ? Number(li.unitCount) : 1;
+              const baseUnits = Number(li.qty) * unitCount;
+              return prisma.storeProduct.updateMany({
                 where: { storeId: tx.storeId, masterProductId: Number(li.productId), orgId: orgId ?? undefined },
-                data:  { quantityOnHand: { decrement: Number(li.qty) }, lastStockUpdate: new Date() },
-              }),
-            );
+                data:  { quantityOnHand: { decrement: baseUnits }, lastStockUpdate: new Date() },
+              });
+            });
           Promise.all(updates).catch(() => {});
         }
 

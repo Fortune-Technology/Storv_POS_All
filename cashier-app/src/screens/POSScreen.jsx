@@ -174,7 +174,11 @@ export default function POSScreen() {
     if (!hasReceiptPrinter || !tx) return;
     const allItems = [
       ...(tx.lineItems || []).map(i => ({
-        name:           i.name,
+        // Append pack label to the printed name (e.g. "$2 ITEM NT (Double)")
+        // so the customer's receipt makes it clear which pack was rung up
+        // when the cart had multiple packs of the same product. Falls back
+        // to plain name for non-pack items + legacy txs without the field.
+        name:           i.packSizeLabel ? `${i.name} (${i.packSizeLabel})` : i.name,
         qty:            i.qty,
         unitPrice:      i.unitPrice,
         lineTotal:      i.lineTotal,

@@ -270,6 +270,18 @@ const TABLE = {
     setup:    false,
     retry:    true,
   },
+
+  // ── 22xx — request validation errors (not in the original Theneo doc
+  // table but observed in live UAT testing). Dejavoo returns these when
+  // a structurally-correct request fails per-field validation (missing
+  // required fields, wrong types, etc.). Almost always a code bug on our
+  // side rather than an operational issue.
+  '2201': {
+    headline: 'Request Validation Failed',
+    hint:     'Dejavoo rejected the request payload (a required field was missing or had an invalid value). This is a software bug — the cashier-app is sending the wrong shape. Capture the StatusCode and DetailedMessage and report it to support; in the meantime, use a different payment method.',
+    setup:    true,
+    retry:    false,
+  },
 };
 
 /**

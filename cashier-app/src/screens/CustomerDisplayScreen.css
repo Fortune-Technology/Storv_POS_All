@@ -216,6 +216,23 @@
   flex-shrink: 0;
 }
 
+/* Pack-size chip on the customer-facing display. Sized for legibility
+   across the counter so the customer can confirm at a glance which pack
+   the cashier rang up when the cart has multiple packs of the same
+   product (e.g. "$2 ITEM NT [DOUBLE]" alongside "$2 ITEM NT [SINGLE]"). */
+.cds-line-pack {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(100, 116, 139, 0.18);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
 .cds-line-promo {
   font-size: 0.9rem;
   color: var(--green);
