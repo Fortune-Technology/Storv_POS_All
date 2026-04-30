@@ -197,7 +197,7 @@ function WithReceipt({ onClose, onRefunded, storeId, dualPricing }) {
         }
       }
 
-      await apiRefund(selected.id, { lineItems, tenderLines, grandTotal: refundTotal, subtotal: refundTotal, taxTotal: 0, refundMethod: method, note: note || `Refund for ${selected.txNumber}` });
+      await apiRefund(selected.id, { lineItems, tenderLines, grandTotal: refundTotal, subtotal: refundTotal, taxTotal: 0, refundMethod: method, note: note || `Refund for ${selected.txNumber}`, shiftId: shiftId || null });
       setStep('done');
       setTimeout(() => { onRefunded?.(); onClose(); }, 1600);
     } catch (e) {
@@ -414,7 +414,7 @@ function NoReceipt({ onClose, onRefunded, storeId }) {
         lineId: `nr-${i}`, name: r.product.name, upc: r.product.upc, productId: r.product.id,
         qty: r.qty, unitPrice: r.unitPrice, lineTotal: r.unitPrice * r.qty, ebtEligible: r.product.ebtEligible || false,
       }));
-      await createOpenRefund({ storeId, lineItems, tenderLines: [{ method: 'cash', amount: refundTotal }], grandTotal: refundTotal, subtotal: refundTotal, taxTotal: 0, note: note || 'No-receipt return' });
+      await createOpenRefund({ storeId, lineItems, tenderLines: [{ method: 'cash', amount: refundTotal }], grandTotal: refundTotal, subtotal: refundTotal, taxTotal: 0, note: note || 'No-receipt return', shiftId: shiftId || null });
       setStep('done');
       setTimeout(() => { onRefunded?.(); onClose(); }, 1600);
     } catch (e) {
@@ -518,7 +518,7 @@ function NoReceipt({ onClose, onRefunded, storeId }) {
 // Session 52 — `dualPricing` is the resolved store config from usePOSConfig.
 // Used by WithReceipt to surface the refund-surcharge policy to the cashier
 // so they explain the right amount to the customer.
-export default function RefundModal({ onClose, onRefunded, storeId: storeIdProp, dualPricing }) {
+export default function RefundModal({ onClose, onRefunded, storeId: storeIdProp, shiftId, dualPricing }) {
   const cashier = useAuthStore(s => s.cashier);
   const station = useStationStore(s => s.station);
   const storeId = storeIdProp || cashier?.storeId || station?.storeId;

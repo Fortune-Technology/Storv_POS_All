@@ -451,8 +451,7 @@ export const createTransaction = async (req: Request, res: Response): Promise<vo
         storeId,
         cashierId:       req.user!.id,
         stationId:       stationId || null,
-        // shiftId intentionally not stored — Transaction model has no shiftId
-        // column. Shift reports query by `createdAt >= shift.openedAt` instead.
+        shiftId:         shiftId || null,
         txNumber,
         // Force 'complete' — the cashier-app's offline txQueue marks rows as
         // 'pending' (a LOCAL sync flag, not a real tx state). Honoring it
@@ -693,6 +692,7 @@ export const batchCreateTransactions = async (req: Request, res: Response): Prom
             storeId:          tx.storeId as string,
             cashierId:        req.user!.id,
             stationId:        tx.stationId || null,
+            shiftId:          tx.shiftId || null,
             txNumber,
             // Force 'complete' — see comment in createTransaction.
             status:           'complete',
@@ -1408,6 +1408,7 @@ interface RefundBody {
   subtotal?: number | string;
   taxTotal?: number | string;
   depositTotal?: number | string;
+  shiftId?: string | null;
 }
 
 export const createRefund = async (req: Request, res: Response): Promise<void> => {
@@ -1415,7 +1416,7 @@ export const createRefund = async (req: Request, res: Response): Promise<void> =
     const orgId = getOrgId(req);
     const { id }  = req.params;
     const body = (req.body || {}) as RefundBody;
-    const { lineItems, tenderLines, note, grandTotal, subtotal, taxTotal, depositTotal } = body;
+    const { lineItems, tenderLines, note, grandTotal, subtotal, taxTotal, depositTotal, shiftId } = body;
 
     const orig = await prisma.transaction.findFirst({ where: { id, orgId: orgId ?? undefined } });
     if (!orig) { res.status(404).json({ error: 'Original transaction not found' }); return; }
@@ -1467,6 +1468,7 @@ export const createRefund = async (req: Request, res: Response): Promise<void> =
         storeId:      orig.storeId,
         cashierId:    req.user!.id,
         stationId:    orig.stationId,
+        shiftId:      shiftId || null,
         txNumber,
         status:       'refund',
         refundOf:     id,
@@ -1519,13 +1521,14 @@ interface OpenRefundBody {
   grandTotal?: number | string;
   subtotal?: number | string;
   taxTotal?: number | string;
+  shiftId?: string | null;
 }
 
 export const createOpenRefund = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const body = (req.body || {}) as OpenRefundBody;
-    const { storeId, lineItems, tenderLines, note, grandTotal, subtotal, taxTotal } = body;
+    const { storeId, lineItems, tenderLines, note, grandTotal, subtotal, taxTotal, shiftId } = body;
 
     if (!storeId)            { res.status(400).json({ error: 'storeId required' }); return; }
     if (!lineItems?.length)  { res.status(400).json({ error: 'lineItems required' }); return; }
@@ -1541,6 +1544,7 @@ export const createOpenRefund = async (req: Request, res: Response): Promise<voi
         orgId: orgId as string,
         storeId,
         cashierId:    req.user!.id,
+        shiftId:      shiftId || null,
         txNumber,
         status:       'refund',
         lineItems:    (lineItems || []) as unknown as Prisma.InputJsonValue,

@@ -40,6 +40,13 @@ interface BoxSnapshotRow {
   startTicket: string | null;
   totalTickets: number | null;
   currentTicket?: string | null;
+  // Apr 2026 — needed for the snapshot fallback chain. When a book has no
+  // prior close_day_snapshot but DOES have a recorded prior shift end
+  // (lastShiftEndTicket from saveLotteryShiftReport), that's a far better
+  // "yesterday" approximation than freshOpeningPosition (which assumes the
+  // book is brand-new). Prevents catastrophic over-attribution when a SO
+  // button is clicked on a book that's been selling for days without EoD.
+  lastShiftEndTicket?: string | null;
   gameId?: string | null;
 }
 
@@ -93,11 +100,18 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     }
   }
 
-  // Need ticketPrice + startTicket per box (for first-day sales where prev
-  // close doesn't exist). startTicket carries the book's opening position.
+  // Need ticketPrice + startTicket + lastShiftEndTicket per box. The fallback
+  // chain (when no prior close_day_snapshot exists) is documented in
+  // priorPosition() below.
   const boxes = (await prisma.lotteryBox.findMany({
     where: { id: { in: [...todayMap.keys()] } },
-    select: { id: true, ticketPrice: true, startTicket: true, totalTickets: true },
+    select: {
+      id: true,
+      ticketPrice: true,
+      startTicket: true,
+      totalTickets: true,
+      lastShiftEndTicket: true,
+    },
   })) as BoxSnapshotRow[];
   const boxMap = new Map<string, BoxSnapshotRow>(boxes.map((b) => [b.id, b]));
 
@@ -107,7 +121,31 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     .catch(() => null);
   const sellDirection = settings?.sellDirection || 'desc';
 
-  function freshOpeningPosition(box: BoxSnapshotRow): string | null {
+  /**
+   * Resolve the "prior position" for a book when no close_day_snapshot
+   * exists before today. Priority chain:
+   *
+   *   1. lastShiftEndTicket — the most recent recorded shift-end position
+   *      (saveLotteryShiftReport sets this). Best approximation of where
+   *      the book ACTUALLY was at the start of today, even if no daily
+   *      snapshot was written.
+   *   2. startTicket — the book's opening position (used when the book is
+   *      truly fresh / activated today and never closed).
+   *   3. Direction-derived position — for books with no startTicket either
+   *      (legacy data); falls back to totalTickets-1 (desc) or 0 (asc).
+   *
+   * The previous implementation skipped step 1, which caused the SO button
+   * to over-attribute the FULL pack as today's sales whenever a book had
+   * been selling for days without EoD scans. Example: 100-pack at $10,
+   * pre-SO position 50 (lastShiftEndTicket=50), SO clicked today (snapshot
+   * writes -1). With the old chain: prev=99 (startTicket), today=-1,
+   * sold=100 → $1000. With the new chain: prev=50, today=-1, sold=51 →
+   * $510. Still over-attributes by a bit (SO writes -1 even when not all
+   * remaining tickets sold today), but no longer catastrophically.
+   */
+  function priorPosition(box: BoxSnapshotRow): string | null {
+    if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '')
+      return box.lastShiftEndTicket;
     if (box.startTicket != null) return box.startTicket;
     const total = Number(box.totalTickets || 0);
     if (!total) return null;
@@ -123,7 +161,7 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     const box = boxMap.get(boxId);
     if (!box) continue;
 
-    const prevTicketStr = prevMap.get(boxId) ?? freshOpeningPosition(box);
+    const prevTicketStr = prevMap.get(boxId) ?? priorPosition(box);
     const prevTicket = prevTicketStr != null ? parseInt(prevTicketStr, 10) : NaN;
     if (!Number.isFinite(prevTicket)) continue;
 
@@ -158,6 +196,7 @@ export async function liveSalesFromCurrentTickets(args: {
       totalTickets: true,
       currentTicket: true,
       startTicket: true,
+      lastShiftEndTicket: true,
       gameId: true,
     },
   })) as BoxSnapshotRow[];
@@ -194,7 +233,15 @@ export async function liveSalesFromCurrentTickets(args: {
     const cur = b.currentTicket != null ? Number(b.currentTicket) : null;
     if (cur == null || !Number.isFinite(cur)) continue;
 
+    // Same priority chain as snapshotSales.priorPosition — see that
+    // function's docblock for rationale. lastShiftEndTicket beats
+    // startTicket when both exist; startTicket beats direction-derived
+    // fallback. Without this, a SO click on a long-active book would
+    // attribute its full pack as "sold today".
     let prev: number | null | undefined = priorByBox.get(b.id);
+    if (prev == null && b.lastShiftEndTicket != null && b.lastShiftEndTicket !== '') {
+      prev = Number(b.lastShiftEndTicket);
+    }
     if (prev == null && b.startTicket != null) prev = Number(b.startTicket);
     if (prev == null) {
       const total = Number(b.totalTickets || 0);

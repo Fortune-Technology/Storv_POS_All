@@ -2867,6 +2867,51 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
     // Begin = End + Sold + Returns − Received
     const begin = end + sold + returnPart + returnFull - received;
 
+    // Per-box sales breakdown — enables back-office audit "which book sold
+    // what today" without needing a separate query. Front-end uses this to
+    // reconcile the aggregate total against per-row deltas (Apr 2026 — they
+    // diverged because cashier-app and back-office historically used
+    // different formulas; per-box exposure makes the divergence diagnosable).
+    const boxBreakdown: Array<{
+      boxId: string;
+      gameNumber?: string | null;
+      gameName?: string | null;
+      boxNumber?: string | null;
+      slotNumber?: number | null;
+      sold: number;
+      price: number;
+      amount: number;
+    }> = [];
+    if (real.byBox && real.byBox.size > 0) {
+      const boxIds = Array.from(real.byBox.keys());
+      interface BreakdownBoxRow {
+        id: string;
+        boxNumber: string | null;
+        slotNumber: number | null;
+        game: { gameNumber: string | null; name: string } | null;
+      }
+      const boxRows = (await prisma.lotteryBox.findMany({
+        where: { id: { in: boxIds } },
+        select: { id: true, boxNumber: true, slotNumber: true, game: { select: { gameNumber: true, name: true } } },
+      })) as BreakdownBoxRow[];
+      const boxRowMap = Object.fromEntries(boxRows.map((b: BreakdownBoxRow) => [b.id, b]));
+      for (const [boxId, sale] of real.byBox.entries()) {
+        const box = boxRowMap[boxId];
+        boxBreakdown.push({
+          boxId,
+          gameNumber: box?.game?.gameNumber ?? null,
+          gameName:   box?.game?.name ?? null,
+          boxNumber:  box?.boxNumber ?? null,
+          slotNumber: box?.slotNumber ?? null,
+          sold:   sale.sold,
+          price:  Number(sale.price) || 0,
+          amount: Math.round(Number(sale.amount) * 100) / 100,
+        });
+      }
+      // Sort by amount desc — biggest contributors first (audit-friendly).
+      boxBreakdown.sort((a, b) => b.amount - a.amount);
+    }
+
     res.json({
       success: true,
       data: {
@@ -2880,6 +2925,7 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
         returnPart: Math.round(returnPart * 100) / 100,
         returnFull: Math.round(returnFull * 100) / 100,
         end: Math.round(end * 100) / 100,
+        boxBreakdown, // per-book contribution to today's sales (audit aid)
         counts: {
           active: activeCnt,
           safe: safeCnt,

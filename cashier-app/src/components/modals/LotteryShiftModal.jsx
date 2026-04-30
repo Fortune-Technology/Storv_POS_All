@@ -28,8 +28,17 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2 } from 'lucide-react';
-import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses } from '../../api/pos';
+import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory } from '../../api/pos';
+import useConfirm from '../../hooks/useConfirmDialog.jsx';
 import './LotteryShiftModal.css';
+
+const fmtL = (n) => {
+  const num = Number(n || 0);
+  const r = Math.round(num * 100) / 100;
+  return Math.abs(r - Math.round(r)) < 0.005
+    ? `$${Math.round(r).toLocaleString()}`
+    : `$${r.toFixed(2)}`;
+};
 
 const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
 const numInput = (v) => String(v || '').replace(/[^0-9]/g, '');
@@ -64,6 +73,7 @@ export default function LotteryShiftModal({
   onClose,
   storeId,
 }) {
+  const confirm = useConfirm();
   const [step, setStep]     = useState(0);
   const [boxes, setBoxes]   = useState([]);                   // mutable local copy (supports new-book activation mid-flow)
   const [endTickets, setEndTickets] = useState({});           // {boxId: "079"}
@@ -87,6 +97,14 @@ export default function LotteryShiftModal({
   // fallback (lastShiftEndTicket → startTicket → '—') runs when a box
   // has no prior close_day_snapshot (fresh activation today).
   const [yesterdayCloses, setYesterdayCloses] = useState({});
+  // Store sellDirection — drives the SO sentinel value (-1 for desc,
+  // totalTickets for asc). Fetched on open; defaults to 'desc' (the most
+  // common). Matches backend's snapshotSales.priorPosition default.
+  const [sellDirection, setSellDirection] = useState('desc');
+  // After save, the backend's authoritative daily sales number — shown on
+  // the success screen so the cashier sees what got recorded (which is
+  // the same number the back-office Daily page will show).
+  const [authoritativeTotal, setAuthoritativeTotal] = useState(null);
   const scanInputRef = useRef(null);
 
   // Load active boxes + sort by slot number when the modal opens.
@@ -103,6 +121,16 @@ export default function LotteryShiftModal({
     getLotteryYesterdayCloses({ date: todayISO() })
       .then((closes) => setYesterdayCloses(closes || {}))
       .catch(() => setYesterdayCloses({}));
+    // Fetch sellDirection so the soldout-amount math uses the SAME
+    // sentinel as the backend (-1 for desc, totalTickets for asc).
+    // Without this, the wizard's per-row soldout total can drift from
+    // the back-office aggregate by hundreds of dollars per book.
+    if (storeId) {
+      getLotterySettings(storeId)
+        .then((s) => setSellDirection(s?.sellDirection === 'asc' ? 'asc' : 'desc'))
+        .catch(() => setSellDirection('desc'));
+    }
+    setAuthoritativeTotal(null);
     // Reset wizard state each open
     setStep(0);
     setEndTickets({});
@@ -165,8 +193,28 @@ export default function LotteryShiftModal({
     setTimeout(() => scanInputRef.current?.focus(), 10);
   };
 
-  const toggleSoldout = (boxId) => {
-    setSoldout(prev => ({ ...prev, [boxId]: !prev[boxId] }));
+  const toggleSoldout = async (boxId) => {
+    // Toggling OFF (un-marking) — no confirm needed.
+    if (soldout[boxId]) {
+      setSoldout(prev => ({ ...prev, [boxId]: false }));
+      return;
+    }
+    // Toggling ON — confirm with the dollar impact so an accidental click
+    // doesn't silently inflate the day's sales when the wizard saves.
+    // (The actual DB write doesn't happen until the cashier clicks "Save"
+    // at Step 3, but it's easier to catch the mistake here than there.)
+    const box = boxes.find(b => b.id === boxId);
+    if (!box) return;
+    const remainingValue = Number(box.totalValue || 0) -
+      Number(box.ticketsSold || 0) * Number(box.ticketPrice || 0);
+    const ok = await confirm({
+      title: 'Mark book sold out?',
+      message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?\n\nThis will count the remaining ${fmtL(Math.max(0, remainingValue))} as sold today. Cannot be undone after the shift saves.`,
+      confirmLabel: 'Mark Sold Out',
+      danger: true,
+    });
+    if (!ok) return;
+    setSoldout(prev => ({ ...prev, [boxId]: true }));
   };
 
   // ── Per-box computed data ───────────────────────────────────────────────
@@ -205,15 +253,28 @@ export default function LotteryShiftModal({
       ? Math.abs(startNum - endNum)
       : null;
     const calcAmount = ticketsSold !== null ? ticketsSold * price : null;
-    // If soldout, assume 100% sold for accounting.
-    const soldoutAmount = isSoldout ? Number(box.totalValue || 0) : null;
+    // Soldout amount — must match the backend's snapshotSales math so
+    // wizard total and back-office total can never diverge:
+    //   sold = |yesterdayEnd − sentinel| × price
+    //   sentinel = -1 (desc) or totalTickets (asc)
+    // (Previously this was box.totalValue (full pack), which over-counted
+    // by hundreds of dollars per soldout-with-prior-history book. See
+    // Phase 2 doc for the full rationale.)
+    const totalT = Number(box.totalTickets || 0);
+    const sentinel = sellDirection === 'asc' ? totalT : -1;
+    const soldoutTickets = isSoldout && !Number.isNaN(startNum)
+      ? Math.abs(startNum - sentinel)
+      : null;
+    const soldoutAmount = isSoldout && soldoutTickets != null
+      ? soldoutTickets * price
+      : null;
     const rowComplete = isSoldout || (endNum !== null && !Number.isNaN(endNum));
     return {
       ...box,
       startNum, yesterdayEnd, endNum, isSoldout, price,
-      ticketsSold, calcAmount, soldoutAmount, rowComplete,
+      ticketsSold, calcAmount, soldoutTickets, soldoutAmount, rowComplete,
     };
-  }), [boxes, endTickets, soldout, yesterdayCloses]);
+  }), [boxes, endTickets, soldout, yesterdayCloses, sellDirection]);
 
   const allComplete = boxData.every(b => b.rowComplete);
   const scannedTotal = boxData.reduce((s, b) => s + (b.isSoldout ? (b.soldoutAmount || 0) : (b.calcAmount || 0)), 0);
@@ -324,7 +385,12 @@ export default function LotteryShiftModal({
         slotNumber:  b.slotNumber,
         startTicket: b.startTicket,
         endTicket:   b.isSoldout ? 'SO' : (endTickets[b.id] || null),
-        ticketsSold: b.isSoldout ? (Number(b.totalTickets) - (b.ticketsSold || 0)) : b.ticketsSold,
+        // Apr 2026 — for soldouts, ticketsSold is the delta from yesterday's
+        // close to the SO sentinel (matches backend's snapshotSales math).
+        // For non-soldouts, the per-row delta as the user entered it.
+        // (Was incorrectly `totalTickets − ticketsSold` previously, which
+        // double-counted prior-day sales whenever a book had history.)
+        ticketsSold: b.isSoldout ? (b.soldoutTickets ?? 0) : b.ticketsSold,
         amount:      b.isSoldout ? b.soldoutAmount : b.calcAmount,
         soldout:     b.isSoldout,
       }));
@@ -346,6 +412,19 @@ export default function LotteryShiftModal({
         discountsReading:      onlineNums.discounts,
         instantCashingReading: onlineNums.instantCashing,
       });
+
+      // 4. Fetch the backend's authoritative daily total — same number
+      // the back-office Daily page will show. Lets the cashier see
+      // immediately whether their entries match the recorded number.
+      // (Apr 2026 — Phase 2 architectural fix: ONE source of truth for
+      // the daily total. Wizard's local sum is an estimate; this fetch
+      // is canonical.)
+      try {
+        const inv = await getDailyLotteryInventory({ date: todayISO() });
+        setAuthoritativeTotal(inv?.sold ?? null);
+      } catch (e) {
+        console.warn('[LotteryShiftModal] could not fetch authoritative total', e?.message);
+      }
     } catch (e) {
       setErr(e?.response?.data?.error || e.message || 'Save failed');
     } finally {
@@ -466,7 +545,7 @@ export default function LotteryShiftModal({
                           />
                         </span>
                         <span className="lsm-book-sold">{b.isSoldout ? 'ALL' : (b.ticketsSold ?? '—')}</span>
-                        <span className="lsm-book-amt">{b.isSoldout ? fmt(b.soldoutAmount) : (b.calcAmount !== null ? fmt(b.calcAmount) : '—')}</span>
+                        <span className="lsm-book-amt">{b.isSoldout ? fmtL(b.soldoutAmount) : (b.calcAmount !== null ? fmtL(b.calcAmount) : '—')}</span>
                         <span className="lsm-book-actions">
                           <button
                             type="button"
@@ -483,7 +562,7 @@ export default function LotteryShiftModal({
 
                   <div className="lsm-total-strip">
                     <span>Instant Sales Total (from counter scans)</span>
-                    <strong>{fmt(scannedTotal)}</strong>
+                    <strong>{fmtL(scannedTotal)}</strong>
                   </div>
                 </>
               )}
@@ -542,7 +621,7 @@ export default function LotteryShiftModal({
               <div className="lsm-online-preview">
                 <div>
                   <span>Online Sales (net)</span>
-                  <strong>{fmt(report.onlineSalesNet)}</strong>
+                  <strong>{fmtL(report.onlineSalesNet)}</strong>
                 </div>
                 <div className="lsm-online-formula-hint">
                   Gross − Cancels − Pays/Cashes − Coupon − Discounts
@@ -551,7 +630,7 @@ export default function LotteryShiftModal({
               <div className="lsm-online-preview">
                 <div>
                   <span>Daily Due Running Total</span>
-                  <strong>{fmt(report.dailyDue)}</strong>
+                  <strong>{fmtL(report.dailyDue)}</strong>
                 </div>
                 <div className="lsm-online-formula-hint">
                   (Instant sales − Instant cashings) + Online sales (net)
@@ -566,14 +645,14 @@ export default function LotteryShiftModal({
               <div className="lsm-confirm-head">Final Report</div>
 
               <div className="lsm-confirm-grid">
-                <ReportRow label="Instant Sales (scanned)"   value={fmt(report.instantSales)}    good />
-                <ReportRow label="Instant Pays / Cashes"     value={fmt(report.instantCashings)} warn />
-                <ReportRow label="Gross Sales"               value={fmt(report.grossSales)}     good />
-                <ReportRow label="Cancels"                   value={fmt(report.cancels)}        warn />
-                <ReportRow label="Pays / Cashes"             value={fmt(report.machineCashing)} warn />
-                <ReportRow label="Coupon Cash"               value={fmt(report.couponCash)}     warn />
-                <ReportRow label="Discounts"                 value={fmt(report.discounts)}      warn />
-                <ReportRow label="Online Sales (net)"        value={fmt(report.onlineSalesNet)} good />
+                <ReportRow label="Instant Sales (scanned)"   value={fmtL(report.instantSales)}    good />
+                <ReportRow label="Instant Pays / Cashes"     value={fmtL(report.instantCashings)} warn />
+                <ReportRow label="Gross Sales"               value={fmtL(report.grossSales)}     good />
+                <ReportRow label="Cancels"                   value={fmtL(report.cancels)}        warn />
+                <ReportRow label="Pays / Cashes"             value={fmtL(report.machineCashing)} warn />
+                <ReportRow label="Coupon Cash"               value={fmtL(report.couponCash)}     warn />
+                <ReportRow label="Discounts"                 value={fmtL(report.discounts)}      warn />
+                <ReportRow label="Online Sales (net)"        value={fmtL(report.onlineSalesNet)} good />
               </div>
 
               <div className="lsm-formula">
@@ -583,9 +662,35 @@ export default function LotteryShiftModal({
               <div className="lsm-grand-due">
                 <span>Total Due to Lottery</span>
                 <strong className={report.dailyDue >= 0 ? '' : 'lsm-grand-due--neg'}>
-                  {fmt(report.dailyDue)}
+                  {fmtL(report.dailyDue)}
                 </strong>
               </div>
+
+              {/* Post-save reconciliation strip (Apr 2026 — Phase 2).
+                  Shows the AUTHORITATIVE daily total fetched from the
+                  backend after save, so the cashier can verify their
+                  entries match the recorded number that will appear in
+                  the back-office Daily page tomorrow. If wizard total
+                  and authoritative differ, surfaces the variance. */}
+              {authoritativeTotal != null && (
+                <div className={`lsm-auth-total ${
+                  Math.abs(Number(authoritativeTotal) - report.instantSales) > 0.01
+                    ? 'lsm-auth-total--diff'
+                    : 'lsm-auth-total--match'
+                }`}>
+                  <div className="lsm-auth-total-row">
+                    <span>Recorded by system (Instant Sales)</span>
+                    <strong>{fmtL(authoritativeTotal)}</strong>
+                  </div>
+                  {Math.abs(Number(authoritativeTotal) - report.instantSales) > 0.01 && (
+                    <div className="lsm-auth-total-hint">
+                      Differs from your scan total ({fmtL(report.instantSales)}) by{' '}
+                      {fmtL(Math.abs(Number(authoritativeTotal) - report.instantSales))}.
+                      The recorded number is what appears in back-office reports.
+                    </div>
+                  )}
+                </div>
+              )}
 
               <input
                 type="text"

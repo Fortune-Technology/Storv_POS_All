@@ -9448,6 +9448,88 @@ B2 moved from Bugs section to "Recently Completed". Suggested-order list left in
 
 *Last updated: April 2026 — Session 57 (B2 — EBT Chooser + Themed Balance Overlay): replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + `useChooser()` hook (mirrors `useConfirmDialog` API), rebuilt the inline-styled EBT balance overlay as themed `<EbtBalanceOverlay>` with loading / success / error states + Check-Other-Account + Try-Again paths. 5 new files in `cashier-app/`, 2 modified files. Vite compile clean, all modules serve cleanly. First B-item closed from the new BACKLOG.md.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 58 — B5 Transaction.shiftId column)
+
+Second item closed from [BACKLOG.md](BACKLOG.md). The cashier-app already sent `shiftId` end-to-end on every transaction payload (per Session 20 wiring), and the backend already destructured it from request body — but the `Transaction` Prisma model had no column for it, so the field was thrown away on every save. An explicit comment in [`posTerminalController.ts:454`](backend/src/controllers/posTerminalController.ts) admitted this and fell back to "shift reports query by `createdAt >= shift.openedAt` instead." That timestamp-based fallback breaks when two shifts overlap, e.g. cashier handover at 2:30 PM where shift A (open 7am-3pm) and shift B (open 2:30pm-11pm) both contain a 2:45pm sale → that sale shows up in both per-cashier reports.
+
+#### Why this fix is risk-free for existing reports
+
+User explicit ask: "make sure no calculation is messed up." The change is **strictly additive**:
+- New column `Transaction.shiftId String?` (nullable on purpose — legacy rows stay NULL)
+- New transactions populate it from the request body
+- **Zero read paths changed** — every existing report continues to use its existing `createdAt window` logic
+- **No automatic backfill** — past 3,999 transactions in dev DB stay with `shiftId = NULL`
+- Future sessions (B4 multi-cashier handover, etc.) can opt-in per-report when they're ready to migrate read paths
+
+`grep` of `backend/src` confirmed zero existing read paths filter `Transaction` by `shiftId` (the column didn't exist before, so it was impossible to query against). Before/after numbers on every report are identical by construction.
+
+#### Schema change (additive, `npx prisma db push` clean)
+
+[`backend/prisma/schema.prisma`](backend/prisma/schema.prisma) — `Transaction` model:
+```prisma
+shiftId String?         // populated from cashier-app payload going forward; NULL on legacy rows
+@@index([shiftId])
+```
+
+In-line comment documents the intent so future contributors don't try to backfill or change reads without thinking about it first.
+
+#### Backend — 4 create paths now persist shiftId
+
+[`posTerminalController.ts`](backend/src/controllers/posTerminalController.ts):
+
+| Handler | Change |
+|---|---|
+| `createTransaction` | Removed the now-stale "intentionally not stored" comment, added `shiftId: shiftId \|\| null,` to the create. The body destructure already pulled `shiftId` for downstream related-table inserts (CashPayout, CashDrop, etc.) — no source change needed. |
+| `batchCreateTransactions` | Added `shiftId: tx.shiftId \|\| null,` to the create. The offline-queue replay path now persists the shift the cashier was on when the original transaction was rung up offline. |
+| `createRefund` | Extended `RefundBody` interface with `shiftId?: string \| null`, added to body destructure, added to create. |
+| `createOpenRefund` | Same as `createRefund` — extended `OpenRefundBody`, destructure, create. |
+
+#### Cashier-app — RefundModal now sends shiftId
+
+POSScreen was already passing `shiftId={shift?.id}` as a prop to `<RefundModal>`, but the modal's signature didn't destructure it and it was being silently dropped. Three-line fix in [`RefundModal.jsx`](cashier-app/src/components/modals/RefundModal.jsx):
+
+| Change | Line(s) |
+|---|---|
+| Added `shiftId` to component prop destructure | 521 |
+| Added `shiftId: shiftId \|\| null` to `apiRefund(...)` body | 200 |
+| Added `shiftId: shiftId \|\| null` to `createOpenRefund(...)` body | 417 |
+
+POSScreen and TenderModal were already sending `shiftId` correctly per Session 20 — no changes needed there.
+
+#### Verified end-to-end
+
+| Check | Result |
+|---|---|
+| `npx prisma db push` | ✓ clean, 766ms, schema in sync |
+| `npx prisma generate` | ✓ client regen — 219 references to `shiftId` in generated types |
+| `npx tsc --noEmit` (backend) | ✓ EXIT=0, zero errors, zero warnings |
+| Postgres column verify (`information_schema`) | ✓ `shiftId text NULLABLE` present, `transactions_shiftId_idx` index present |
+| Postgres row count verify | ✓ 3,999 existing rows, 0 with shiftId, 3,999 NULL — confirmed no automatic backfill |
+| Vite HMR (cashier-app) for RefundModal change | ✓ 200, 156,655 bytes, no console errors, no Vite warnings |
+| `grep` for any `Transaction` read filtering by `shiftId` | ✓ zero matches — calculations 100% identical to before |
+
+#### Files Modified (Session 58)
+
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`Transaction.shiftId String?` + `@@index([shiftId])` + intent comment |
+| `backend/src/controllers/posTerminalController.ts` | +`shiftId` persisted in 4 create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund); `RefundBody` and `OpenRefundBody` interfaces extended with optional `shiftId` |
+| `cashier-app/src/components/modals/RefundModal.jsx` | Destructure `shiftId` prop; pass to `apiRefund` + `createOpenRefund` body |
+
+#### Why this matters going forward
+
+- **B4 (multi-cashier same-day handover)** — was blocked on per-shift transaction accountability. Now unblocked: every new transaction is correctly tagged.
+- **Per-shift analytics** — any future report or dashboard surface that wants per-shift granularity can now filter by `shiftId` directly instead of timestamp-guessing.
+- **Multi-register stores** — currently rare at production but increasingly common; correct shift attribution is a prerequisite.
+
+Old transactions remaining NULL is the right tradeoff — backfilling them with timestamp guesses would either be ambiguous (overlapping shifts) or pointlessly slow (single-cashier stores), and any future read path that needs `shiftId` can either skip NULL rows for those windows or run a one-off backfill at that point with full context.
+
+---
+
+*Last updated: April 2026 — Session 58 (B5 — Transaction.shiftId): added nullable `shiftId` column to `Transaction` model + index, populated from existing cashier-app payload across 4 backend create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund) and 1 cashier-app callsite (RefundModal). Strictly additive — zero read-path changes, no backfill, all 3,999 legacy rows stay NULL. tsc clean, Vite HMR clean, zero recalc risk verified by grep. Unblocks B4 multi-cashier handover work.*
+
 
 
 
