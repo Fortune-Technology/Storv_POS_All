@@ -49,6 +49,20 @@ import {
 import './LotteryBackOffice.css';
 
 const fmtMoney = (n) => n == null ? '$0.00' : `$${Number(n).toFixed(2)}`;
+// Lottery-specific money formatter — tickets are whole-dollar prices
+// ($1/$2/$5/$10/$20/$30/$50), so sums are always whole. Strip the .00
+// trailing zeros for cleaner display ($769 instead of $769.00). Only
+// shows decimals when an actual cent value exists (e.g. $1113.82 from
+// mixed cart with tax — that keeps its full precision).
+const fmtLottery = (n) => {
+  if (n == null) return '$0';
+  const num = Number(n);
+  const rounded = Math.round(num * 100) / 100;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.005) {
+    return `$${Math.round(rounded).toLocaleString()}`;
+  }
+  return `$${rounded.toFixed(2)}`;
+};
 const fmtInt   = (n) => n == null ? '0' : Number(n).toLocaleString();
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const pad2     = (n) => String(n).padStart(2, '0');
@@ -295,10 +309,17 @@ export default function LotteryBackOffice() {
         await updateLotteryBox(box.id, { slotNumber: extra.slotNumber });
         showToast(extra.slotNumber == null ? 'Slot cleared' : `Moved to slot ${extra.slotNumber}`);
       } else if (kind === 'soldout') {
+        // Show the financial impact in the confirm so accidental clicks
+        // don't silently inflate the day's sales. Estimate the remaining
+        // ticket value: total face value − tickets already sold × price.
+        const total = Number(box.totalValue || 0);
+        const alreadySold = Number(box.ticketsSold || 0) * Number(box.ticketPrice || 0);
+        const remaining = Math.max(0, total - alreadySold);
         if (!await confirm({
           title: 'Mark book sold out?',
-          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out on ${date}? All remaining tickets will be counted as sold on that day.`,
+          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out on ${date}?\n\nThis will count the remaining ${fmtLottery(remaining)} as sold on that day. Cannot be undone without "Restore to Counter".`,
           confirmLabel: 'Mark Sold Out',
+          danger: true,
         })) return;
         // Pass the SELECTED calendar date so the soldout is dated correctly
         // (Session 46) — backend bumps currentTicket to the fully-sold
@@ -543,7 +564,7 @@ export default function LotteryBackOffice() {
                     Dropped legacy `+ online.machineSales` term — it was orphan
                     code from before Session 44b's `gross` rename and risked
                     double-counting if both fields ever held a value. */}
-                <Section title="Online Sales" total={fmtMoney(onlineSalesNet)}>
+                <Section title="Online Sales" total={fmtLottery(onlineSalesNet)}>
                   <EditableField label="Gross Sales"     value={manualSales.gross}    onChange={v => setManualSales({...manualSales, gross: v})} />
                   <EditableField label="Cancels"         value={manualSales.cancels}  onChange={v => setManualSales({...manualSales, cancels: v})} />
                   <EditableField label="Pays/Cashes"     value={online.machineCashing} onChange={v => setOnline({...online, machineCashing: v})} />
@@ -554,18 +575,21 @@ export default function LotteryBackOffice() {
                 {/* Instant Sales section header — NET cash from instant tickets
                     (Today Sold gross − Pays/Cashes). Today Sold sub-row still
                     shows the gross so the user can see both numbers. Reverts
-                    Session 45's L7 per Session 46 user direction. */}
-                <Section title="Instant Sales" total={fmtMoney(instantSalesNet)} totalAccent="green">
-                  <ReadonlyField label="Today Sold" value={fmtMoney(instantSalesAuto)} note="Auto — total instant tickets sold" />
+                    Session 45's L7 per Session 46 user direction.
+                    Display uses fmtLottery — strips trailing .00 because instant
+                    sales are always whole-dollar (whole tickets × whole-dollar
+                    prices). */}
+                <Section title="Instant Sales" total={fmtLottery(instantSalesNet)} totalAccent="green">
+                  <ReadonlyField label="Today Sold" value={fmtLottery(instantSalesAuto)} note="Auto — total instant tickets sold" />
                   <EditableField label="Pays/Cashes" value={online.instantCashing} onChange={v => setOnline({...online, instantCashing: v})} />
                 </Section>
 
                 <Section title="Scratchoff Counts">
-                  <ReadonlyField label="Received"     value={fmtMoney(inventory?.received || 0)} />
+                  <ReadonlyField label="Received"     value={fmtLottery(inventory?.received || 0)} />
                   <ReadonlyField label="Activated"    value={fmtInt(inventory?.activated || 0)} units="books" />
-                  <ReadonlyField label="Partial Rtn"  value={fmtMoney(inventory?.returnPart || 0)} />
-                  <ReadonlyField label="Full Rtn"     value={fmtMoney(inventory?.returnFull || 0)} />
-                  <ReadonlyField label="End Inv."     value={fmtMoney(inventory?.end || 0)} accent="green" />
+                  <ReadonlyField label="Partial Rtn"  value={fmtLottery(inventory?.returnPart || 0)} />
+                  <ReadonlyField label="Full Rtn"     value={fmtLottery(inventory?.returnFull || 0)} />
+                  <ReadonlyField label="End Inv."     value={fmtLottery(inventory?.end || 0)} accent="green" />
                 </Section>
 
                 {/* Receive / Return moved to top of right column — Session 46.
@@ -989,7 +1013,7 @@ function CounterRow({
         />
       </span>
       <span className="lbo-cnt-sold">{sold || ''}</span>
-      <span className="lbo-cnt-amt">{amt > 0 ? fmtMoney(amt) : ''}</span>
+      <span className="lbo-cnt-amt">{amt > 0 ? fmtLottery(amt) : ''}</span>
       {/* Action column — always show the menu (Session 45 / L8). Previous
           version hid the menu while the row was `dirty` or historical, so
           the cashier couldn't mark a book sold-out mid-edit. The Save tick
@@ -1094,7 +1118,7 @@ function BookList({ books, emptyMsg, variant, onAction }) {
       ) : (
         <>
           <div className="lbo-right-total">
-            Total <strong>{fmtMoney(total)}</strong>
+            Total <strong>{fmtLottery(total)}</strong>
           </div>
           {sorted.map(b => {
             const menu = menuFor(b);
@@ -1111,7 +1135,7 @@ function BookList({ books, emptyMsg, variant, onAction }) {
                   <small>{b.game?.name || '—'}</small>
                 </span>
                 <span className="lbo-right-date">{fmtDateShort(b.createdAt)}</span>
-                <span className="lbo-right-amt">{fmtMoney(b.totalValue)}</span>
+                <span className="lbo-right-amt">{fmtLottery(b.totalValue)}</span>
                 {menu.length > 0 ? <ActionMenu items={menu} /> : <span />}
               </div>
             );

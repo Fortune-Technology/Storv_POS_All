@@ -753,6 +753,13 @@ model Transaction {
   storeId   String
   cashierId String
   stationId String?
+  // Session 57 — shiftId is nullable on purpose:
+  //  • new transactions populate it from the cashier-app payload (already wired)
+  //  • legacy rows stay NULL (no automatic backfill)
+  //  • no existing read path uses it yet — every report still queries by
+  //    `createdAt >= shift.openedAt` (zero recalc risk). Future sessions can
+  //    opt-in per-report when they're ready.
+  shiftId   String?
 
   txNumber String // human-readable: "TXN-20240301-001423"
   status   String @default("complete") // "complete"|"voided"|"suspended"
@@ -795,6 +802,7 @@ model Transaction {
   @@index([orgId, storeId, createdAt])
   @@index([orgId, cashierId])
   @@index([txNumber])
+  @@index([shiftId])
   @@map("transactions")
 }
 

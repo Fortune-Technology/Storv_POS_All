@@ -34,7 +34,6 @@
 | B1 | `[ ]` | **Reports number sanity** — cross-check Daily / Weekly / Monthly / Live Dashboard / EoD / Commission / Predictions reconcile across stores + multi-day windows | M | Prompt + S20 |
 | B3 | `[ ]` | Cashier-app close-shift drawer math — pull lottery `instantSales` from snapshot ticket-math, not `LotteryTransaction` totals | S | S44 follow-up |
 | B4 | `[ ]` | Multi-cashier same-day handover — per-shift accountability gap (snapshots only capture daily delta) | M | S44 follow-up |
-| B5 | `[ ]` | `Transaction.shiftId` column missing — analytics filter unreliable when 2 shifts overlap | S | S20 Open Bug A |
 | B6 | `[ ]` | `CashPayout` vs `VendorPayment` not reconciled — POS payouts invisible in back-office vendor table | M | S20 Open Bug B |
 
 ---
@@ -153,6 +152,7 @@
 | ID | Shipped | Item | Effort | Where to read more |
 |---|---|---|---|---|
 | B2 | 2026-04-30 | EBT chooser dialog — replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + themed `<EbtBalanceOverlay>` (loading / success / error states + Check-Other-Account + Try-Again paths) | S | CLAUDE.md S57 |
+| B5 | 2026-04-30 | `Transaction.shiftId` column added + populated on all 4 create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund) + RefundModal now passes shiftId. Strictly additive — no read path changes, no backfill, zero recalc risk. Unblocks B4. | S | CLAUDE.md S58 |
 
 ---
 

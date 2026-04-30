@@ -893,6 +893,58 @@
   color: #fef3c7;
 }
 
+/* ── Post-save authoritative-total strip (Apr 2026 — Phase 2) ──────── */
+/* Shows the backend's recorded "Instant Sales" number after the wizard
+   saves, so the cashier can verify their entries match the number that
+   will appear in the back-office Daily page. If they differ, the strip
+   turns amber and explains the variance. */
+.lsm-auth-total {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #bbf7d0;
+  background: #f0fdf4;
+}
+
+.lsm-auth-total--diff {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.lsm-auth-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.lsm-auth-total-row > span {
+  color: #166534;
+  font-weight: 600;
+}
+
+.lsm-auth-total--diff .lsm-auth-total-row > span {
+  color: #92400e;
+}
+
+.lsm-auth-total-row > strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #16a34a;
+}
+
+.lsm-auth-total--diff .lsm-auth-total-row > strong {
+  color: #d97706;
+}
+
+.lsm-auth-total-hint {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #92400e;
+  line-height: 1.4;
+}
+
 /* ── Wizard navigation ─────────────────────────────────────────────── */
 .lsm-wizard-nav {
   display: flex;

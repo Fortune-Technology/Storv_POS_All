@@ -316,6 +316,20 @@ export const getLotteryOnlineTotal = (date) =>
 export const getLotteryYesterdayCloses = (params) =>
   api.get('/lottery/yesterday-closes', { params }).then(r => r.data?.closes ?? r.data);
 
+// Store-level lottery settings (sellDirection, commissionRate, etc.).
+// Used by the EoD wizard so its soldout-math can match the backend's
+// (sentinel = -1 for desc, totalTickets for asc).
+export const getLotterySettings = (storeId) =>
+  api.get('/lottery/settings', { params: { storeId } })
+    .then(r => r.data?.data ?? r.data);
+
+// Aggregate sales for a single date — same number the back-office shows
+// in the Daily page's "Instant Sales" / "Today Sold" fields. The EoD
+// wizard's confirm screen reads this AFTER save so the cashier sees the
+// authoritative recorded number, eliminating wizard-vs-back-office drift.
+export const getDailyLotteryInventory = (params) =>
+  api.get('/lottery/daily-inventory', { params }).then(r => r.data?.data ?? r.data);
+
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>
   api.get('/fuel/types', { params: { storeId } })
