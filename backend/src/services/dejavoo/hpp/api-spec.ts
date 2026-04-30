@@ -24,8 +24,13 @@ export const HPP_API_SPEC = {
   },
 
   // Endpoint paths (relative to base URLs above).
+  // The HPP create-session endpoint per
+  //   https://docs.ipospays.com/hosted-payment-page/apidocs
+  // is the bare path — no `/getHostedPaymentPage` suffix. The earlier
+  // suffix variant returned HTTP 401 with an empty body because iPOSpays'
+  // auth filter routed it to a different / non-existent handler.
   paths: {
-    createSession: '/api/v1/external-payment-transaction/getHostedPaymentPage',
+    createSession: '/api/v1/external-payment-transaction',
     queryStatus:   '/v1/queryPaymentStatus',
   },
 

@@ -56,11 +56,17 @@ export function buildAuthHeaderValue(secret: string): string {
 
 /**
  * Generate a unique transactionReferenceId for one HPP session.
- * iPOSpays echoes this back in both the redirect query and the webhook,
- * which is how we correlate the payment to our PaymentTransaction row.
+ *
+ * iPOSpays caps this field at 20 characters
+ * (https://docs.ipospays.com/hosted-payment-page/apidocs). UUIDv4 in its
+ * canonical 36-char form exceeds the cap and was being silently truncated
+ * by iPOSpays — leaving our PaymentTransaction row keyed on the full UUID
+ * unable to correlate the webhook callback (which echoes the truncated
+ * value).  We now emit 20 hex chars (≈80 bits of entropy), which iPOSpays
+ * accepts verbatim and echoes back unchanged.
  */
 export function generateReferenceId(): string {
-  return crypto.randomUUID();
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 20);
 }
 
 /** Tiny error → string helper. */
