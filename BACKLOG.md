@@ -32,7 +32,6 @@
 | ID | Status | Item | Effort | Source |
 |---|---|---|---|---|
 | B1 | `[ ]` | **Reports number sanity** — cross-check Daily / Weekly / Monthly / Live Dashboard / EoD / Commission / Predictions reconcile across stores + multi-day windows | M | Prompt + S20 |
-| B2 | `[ ]` | EBT chooser dialog — POSScreen still uses `window.confirm` for SNAP/Cash split; needs themed 2-button modal | S | S54 deferred |
 | B3 | `[ ]` | Cashier-app close-shift drawer math — pull lottery `instantSales` from snapshot ticket-math, not `LotteryTransaction` totals | S | S44 follow-up |
 | B4 | `[ ]` | Multi-cashier same-day handover — per-shift accountability gap (snapshots only capture daily delta) | M | S44 follow-up |
 | B5 | `[ ]` | `Transaction.shiftId` column missing — analytics filter unreliable when 2 shifts overlap | S | S20 Open Bug A |
@@ -151,7 +150,9 @@
 
 > Items move here when shipped. For the historical record before 2026-04-29 see [CLAUDE.md](CLAUDE.md) "Recent Feature Additions" sections (Sessions 1–56).
 
-_(empty — flip the first finished item from above into this section)_
+| ID | Shipped | Item | Effort | Where to read more |
+|---|---|---|---|---|
+| B2 | 2026-04-30 | EBT chooser dialog — replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + themed `<EbtBalanceOverlay>` (loading / success / error states + Check-Other-Account + Try-Again paths) | S | CLAUDE.md S57 |
 
 ---
 

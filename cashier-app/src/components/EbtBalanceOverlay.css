@@ -1,0 +1,180 @@
+/* EbtBalanceOverlay — themed loading / success / error display for the
+   EBT balance check flow.
+   Prefix: .ebt-balance-
+
+   z-index 1500 — sits above ConfirmModal/ChooserModal (1100) so the
+   Dejavoo round-trip card takes over the screen after the cashier picks
+   which account to check. */
+
+.ebt-balance-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+  padding: 16px;
+  animation: ebt-balance-fade-in 0.15s ease-out;
+}
+
+@keyframes ebt-balance-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ebt-balance-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  padding: 32px 28px 24px;
+  text-align: center;
+  animation: ebt-balance-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ebt-balance-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.ebt-balance-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.ebt-balance-close:hover { background: rgba(15, 23, 42, 0.08); color: #0f172a; }
+
+/* Icon circle */
+.ebt-balance-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+}
+.ebt-balance-icon--success { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+.ebt-balance-icon--danger  { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+
+.ebt-balance-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ebt-balance-hint {
+  margin: 0 0 20px;
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ── Loading spinner ── */
+.ebt-balance-spinner {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border: 3px solid rgba(22, 163, 74, 0.18);
+  border-top-color: #16a34a;
+  border-radius: 50%;
+  animation: ebt-balance-spin 0.85s linear infinite;
+}
+@keyframes ebt-balance-spin { to { transform: rotate(360deg); } }
+
+/* ── Success display ── */
+.ebt-balance-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #64748b;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.ebt-balance-amount {
+  font-size: 3.2rem;
+  font-weight: 900;
+  color: #16a34a;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0 0 14px;
+}
+.ebt-balance-amount--zero { color: #94a3b8; }
+
+.ebt-balance-account-type {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.1);
+  color: #166534;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.ebt-balance-card-last4 {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
+  margin-bottom: 22px;
+}
+
+/* ── Action buttons ── */
+.ebt-balance-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ebt-balance-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
+}
+.ebt-balance-btn:active { transform: translateY(1px); }
+
+.ebt-balance-btn--primary {
+  background: #3d56b5;
+  color: #ffffff;
+}
+.ebt-balance-btn--primary:hover { background: #324793; }
+.ebt-balance-btn--primary:focus-visible {
+  outline: 3px solid rgba(61, 86, 181, 0.4);
+  outline-offset: 2px;
+}
+
+.ebt-balance-btn--secondary {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+.ebt-balance-btn--secondary:hover { background: #f1f5f9; border-color: #94a3b8; }
+
+@media (max-width: 480px) {
+  .ebt-balance-card { padding: 24px 18px 18px; }
+  .ebt-balance-amount { font-size: 2.6rem; }
+  .ebt-balance-actions { flex-direction: column; }
+  .ebt-balance-btn { width: 100%; }
+}

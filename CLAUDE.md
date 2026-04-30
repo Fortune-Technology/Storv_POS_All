@@ -9352,7 +9352,101 @@ Audited every `LHS=` entry in the 6 `.env.example` files against `process.env.X`
 
 ---
 
-*Last updated: April 2026 — Session 56 (Docs + Env-Vars Cleanup): 10 unused environment variables removed across `backend/`, `ecom-backend/`, `frontend/`, and `storefront/` `.env.example` files (`APP_SECRET`, `POS_WRITE_DISABLED`, 3× `DEJAVOO_TEST_*`, 2× `CLOUDFLARE_*`, 3× `POS_DATABASE_URL` + seed placeholders, `VITE_POS_DOWNLOAD_URL`, 2× `NEXT_PUBLIC_CP_*`). Every kept variable verified live in source via `process.env.X` / `import.meta.env.X` grep. Top-level docs (`README.md`, `backend/README.md`, `cashier-app/README.md`, `ECOMMERCE_GUIDE.md`, `Invoice-Processing-Architecture.md`, `docs/multipack-import.md`) updated to reflect Sessions 51-55 refactors — TypeScript backend, controller splits (Session 53), service domain folders (Session 55). Backend `tsc --noEmit` EXIT=0; admin/cashier/portal/storefront builds unaffected (doc-only changes).*
+## 📦 Recent Feature Additions (April 2026 — Session 57 — B2 EBT Chooser + Themed Balance Overlay)
+
+First item closed from the new [BACKLOG.md](BACKLOG.md) (B2). Replaces the `window.confirm('OK = SNAP / Cancel = Cash Benefit')` chooser left in [POSScreen.jsx](cashier-app/src/screens/POSScreen.jsx) by Session 54's themed-modal sweep, and rebuilds the inline-styled EBT balance overlay that escaped Session 15's CSS-extraction pass.
+
+#### Why the original was wrong
+
+Two real problems with the old `window.confirm` flow, not just cosmetic:
+- **No abort path.** Cancel/Esc/click-outside silently ran a Cash Benefit lookup instead of aborting. Cashier had no way to back out once they tapped the EBT button.
+- **OK/Cancel framing was wrong.** Both choices were equally affirmative — neither was a "default" or "destructive" action — but `window.confirm` forced the binary affirm/cancel pattern.
+
+The themed `<ConfirmModal>` from S54 is built for affirm/cancel and would have needed awkward re-purposing. Built a small parallel component instead.
+
+#### Generic chooser infrastructure
+
+| File | Purpose | Lines |
+|---|---|---|
+| [`cashier-app/src/components/ChooserModal.jsx`](cashier-app/src/components/ChooserModal.jsx) | Themed modal with N labeled option buttons + optional Cancel link. Mirrors `ConfirmModal` API surface — same backdrop, card, animations, focus management, Esc-cancels behaviour. | 130 |
+| [`cashier-app/src/components/ChooserModal.css`](cashier-app/src/components/ChooserModal.css) | Prefix `.chooser-modal-`. 8 button accents (`primary-blue/success/warn/danger` + `secondary-blue/success/warn/danger`) so future chooser flows can theme appropriately without component changes. 480px responsive. | 175 |
+| [`cashier-app/src/hooks/useChooserDialog.jsx`](cashier-app/src/hooks/useChooserDialog.jsx) | `useChooser()` hook returning `Promise<value \| null>`. Mirrors `useConfirmDialog` exactly — single-instance dialog, concurrent-call dedup, graceful fallback when provider missing. | 85 |
+| [`cashier-app/src/App.jsx`](cashier-app/src/App.jsx) (mod) | Wrapped with `<ChooserDialogProvider>` as a sibling to the existing `<ConfirmDialogProvider>` — both wrap the screen so any component in the tree can call either hook. | +5 |
+
+API:
+
+```jsx
+const choose = useChooser();
+const value = await choose({
+  title: 'EBT Balance Check',
+  message: 'Which account would you like to check?',
+  icon: <Leaf size={28} />,
+  iconAccent: 'success',
+  options: [
+    { label: 'Food Stamp (SNAP)', value: 'ebt_food', accent: 'primary-success', icon: <Leaf size={18} /> },
+    { label: 'Cash Benefit',      value: 'ebt_cash', accent: 'secondary-success', icon: <DollarSign size={18} /> },
+  ],
+  // showCancel defaults to true → returns null on cancel
+});
+if (!value) return; // user cancelled
+```
+
+#### EBT balance overlay rebuild
+
+| File | Purpose | Lines |
+|---|---|---|
+| [`cashier-app/src/components/EbtBalanceOverlay.jsx`](cashier-app/src/components/EbtBalanceOverlay.jsx) | Themed loading / success / error display for the EBT balance check. State machine inside one component — `state` prop switches between spinner+hint, big-amount card, error+retry. | 130 |
+| [`cashier-app/src/components/EbtBalanceOverlay.css`](cashier-app/src/components/EbtBalanceOverlay.css) | Prefix `.ebt-balance-`. z-index 1500 so it sits above the chooser. Card matches ConfirmModal/ChooserModal language. Big `$XXX.XX` in `3.2rem` weight 900 green (muted grey when zero). | 165 |
+
+States covered (verified end-to-end via the design mockup at [`chooser-mock.html`](chooser-mock.html), now deleted):
+
+1. **Loading** — spinner + "Please ask the customer to swipe their EBT card on the terminal." Close button hidden during this state — can't dismiss while waiting on Dejavoo.
+2. **Success** — Available Balance label, big amount in green, account-type pill, card last-4. Two actions: "Check Other Account" (re-runs chooser) + "Done" (closes, autoFocus → Enter dismisses).
+3. **Error** — Red icon, friendly error message, two actions: Cancel + Try Again (re-runs chooser).
+
+#### POSScreen wiring
+
+[`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx):
+- Added imports: `useChooser` + `EbtBalanceOverlay` (Leaf + DollarSign already imported)
+- Replaced single `ebtBalanceResult` state with state machine: `ebtBalanceState` (`'idle' | 'loading' | 'success' | 'error'`) + `ebtBalanceResult` (`{type, amount, last4} | null`) + `ebtBalanceError` (string | null)
+- Rewrote `handleEbtBalance` callback — chooser → loading → Dejavoo `dejavooEbtBalance` round-trip → success/error transitions inside the same overlay (no more StatusBar toast for errors)
+- Replaced 38-line inline-styled overlay JSX with `<EbtBalanceOverlay>` mount that handles all three states. `onCheckOther` and `onRetry` both reset state and re-call `handleEbtBalance` after a 50ms tick so the overlay teardown commits before the chooser opens.
+
+#### Verified end-to-end
+
+| Check | Result |
+|---|---|
+| Vite dev server compile | ✓ ready in 2307ms, no errors |
+| 5 new modules served via Vite transformer | ✓ all 200, all `text/javascript` content type |
+| Modified `App.jsx` (26941 bytes) loadable | ✓ |
+| Modified `POSScreen.jsx` (452930 bytes) loadable | ✓ |
+| Browser console errors at boot | ✓ none |
+| Page renders normally (StationSetup screen — no station paired in fresh dev) | ✓ |
+
+Full UX (chooser opens on EBT button click, balance overlay shows result) was validated visually via the [`chooser-mock.html`](chooser-mock.html) standalone HTML mockup the user reviewed and approved before code was written; the mockup was deleted after this session.
+
+#### Files Added (Session 57)
+
+| File | Purpose |
+|---|---|
+| `cashier-app/src/components/ChooserModal.jsx` + `.css` | Generic themed multi-option chooser (prefix `chooser-modal-`) |
+| `cashier-app/src/hooks/useChooserDialog.jsx` | `useChooser()` hook + `<ChooserDialogProvider>` |
+| `cashier-app/src/components/EbtBalanceOverlay.jsx` + `.css` | Themed loading/success/error display (prefix `ebt-balance-`) |
+
+#### Files Modified (Session 57)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/App.jsx` | Wrapped with `<ChooserDialogProvider>` as sibling to existing `<ConfirmDialogProvider>` |
+| `cashier-app/src/screens/POSScreen.jsx` | Imports + state-machine refactor + `handleEbtBalance` rewrite + replaced inline overlay with `<EbtBalanceOverlay>` mount |
+
+#### BACKLOG.md update
+
+B2 moved from Bugs section to "Recently Completed". Suggested-order list left intact (B1 + T1 reports sanity audit still recommended next).
+
+---
+
+*Last updated: April 2026 — Session 57 (B2 — EBT Chooser + Themed Balance Overlay): replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + `useChooser()` hook (mirrors `useConfirmDialog` API), rebuilt the inline-styled EBT balance overlay as themed `<EbtBalanceOverlay>` with loading / success / error states + Check-Other-Account + Try-Again paths. 5 new files in `cashier-app/`, 2 modified files. Vite compile clean, all modules serve cleanly. First B-item closed from the new BACKLOG.md.*
 
 
 
