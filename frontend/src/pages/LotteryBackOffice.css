@@ -671,9 +671,10 @@
      reduction to the action column (86px → 80px) and tighter gap (5 → 4)
      to claw back the space without expanding the row.  Earlier rendered
      as "$500.0 HIST" because the cell clipped the trailing zero. */
-  /* Book/name column uses `max-content` as min so the full
-     "GAMENO-BOOKNO" identifier never gets truncated (Session — UI fix). */
-  grid-template-columns: 36px 28px minmax(max-content, 1fr) 120px 32px 86px 80px;
+  /* Book/name column has a 95px floor so the "GAMENO-BOOKNO" identifier
+     (~10-12 mono chars at 0.78rem) never gets truncated, while still
+     letting `1fr` claim extra room when the row is wide. */
+  grid-template-columns: 36px 28px minmax(95px, 1fr) 120px 32px 86px 80px;
   gap: 4px;
   align-items: center;
   padding: 5px 6px;
@@ -832,11 +833,7 @@
 .lbo-cnt-book {
   display: flex;
   flex-direction: column;
-  /* Let the cell grow to fit the full "GAMENO-BOOKNO" identifier
-     (paired with the `.lbo-cnt-bookno` nowrap + the `minmax(max-content, 1fr)`
-     book column in `.lbo-cnt-row`). The previous `min-width: 0` was forcing
-     truncation on long identifiers. */
-  min-width: max-content;
+  min-width: 0;
 }
 
 .lbo-cnt-book strong {
@@ -1026,9 +1023,12 @@
 .lbo-right-row {
   display: grid;
   /* PackPill | Game# badge | Book + name | Date | Amount | Action menu */
-  /* Book column min-width tracks content so "Book {boxNumber}" stays
-     visible in a single line without truncation (Session — UI fix). */
-  grid-template-columns: 36px 56px minmax(max-content, 1fr) 54px 62px 24px;
+  /* Book column has a 95px floor so "Book {boxNumber}" stays fully
+     visible on a single line, while still letting `1fr` claim extra
+     room when the rail is wide. Earlier attempt at `max-content`
+     made the column expand to fit the full game-name `<small>` and
+     pushed the rail past the viewport edge. */
+  grid-template-columns: 36px 56px minmax(95px, 1fr) 54px 62px 24px;
   gap: 6px;
   align-items: center;
   padding: 5px 7px;
@@ -1058,10 +1058,7 @@
 .lbo-right-book {
   display: flex;
   flex-direction: column;
-  /* Let the cell grow to fit "Book {boxNumber}" fully — paired with
-     `white-space: nowrap` on the inner strong + `minmax(max-content, 1fr)`
-     on the book column in `.lbo-right-row`. */
-  min-width: max-content;
+  min-width: 0;
 }
 
 .lbo-right-book strong {
