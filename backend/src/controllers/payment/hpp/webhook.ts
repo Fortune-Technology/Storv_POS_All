@@ -42,9 +42,20 @@ interface ParsedHppResponse {
 }
 
 export const dejavooHppWebhook = async (req: Request, res: Response): Promise<void> => {
+  // Temporary debug logs — landing-pad confirmation that iPOSpays' POST
+  // actually arrived. Remove after the full HPP round-trip is verified.
+  console.log('\n[HPP-WEBHOOK] ─── POST received ───');
+  console.log('[HPP-WEBHOOK] secret-fragment=', req.params?.secret?.slice(0, 8) + '...');
+  console.log('[HPP-WEBHOOK] auth-header=', (req.get('authorization') || req.get('Authorization') || '(none)').slice(0, 30) + '...');
+  console.log('[HPP-WEBHOOK] body=', JSON.stringify(req.body, null, 2));
+
   try {
     const { secret } = req.params;
-    if (!secret) { res.status(400).json({ ok: false, error: 'Missing secret in URL' }); return; }
+    if (!secret) {
+      console.log('[HPP-WEBHOOK] REJECT 400 — secret missing in URL');
+      res.status(400).json({ ok: false, error: 'Missing secret in URL' });
+      return;
+    }
 
     // Find the merchant whose webhook secret decrypts to this URL value.
     // (We can't index by ciphertext, so this is a small linear scan over
@@ -63,19 +74,23 @@ export const dejavooHppWebhook = async (req: Request, res: Response): Promise<vo
       (m: MerchantRow) => m.hppWebhookSecret && decrypt(m.hppWebhookSecret) === secret,
     );
     if (!merchant) {
-      console.warn('[hppWebhook] Unknown webhook secret — possible probe or rotated secret');
+      console.warn('[HPP-WEBHOOK] REJECT 401 — Unknown webhook secret. Tried secret prefix:', secret.slice(0, 8));
+      console.warn('[HPP-WEBHOOK] Number of HPP-enabled merchants scanned:', merchants.length);
       res.status(401).json({ ok: false, error: 'Unknown webhook secret' });
       return;
     }
+    console.log('[HPP-WEBHOOK] secret OK — matched merchant', merchant.id);
 
     // Verify Authorization header matches what we set as `authHeader` when
     // creating the session.
     const incoming = req.get('authorization') || req.get('Authorization') || '';
     if (!verifyWebhookAuthHeader(incoming, secret)) {
-      console.warn(`[hppWebhook] Authorization mismatch for merchant ${merchant.id} — rejecting`);
+      console.warn(`[HPP-WEBHOOK] REJECT 401 — Authorization header mismatch for merchant ${merchant.id}`);
+      console.warn('[HPP-WEBHOOK] expected: Bearer <secret>, got:', incoming.slice(0, 30));
       res.status(401).json({ ok: false, error: 'Invalid Authorization' });
       return;
     }
+    console.log('[HPP-WEBHOOK] auth header OK');
 
     // Parse the iposHPResponse envelope
     const payload = parseHppResponse(req.body) as ParsedHppResponse;

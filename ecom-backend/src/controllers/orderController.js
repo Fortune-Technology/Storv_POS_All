@@ -253,7 +253,31 @@ export const listOrders = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(l) || 20));
     const skip = (page - 1) * limit;
 
-    const where = { storeId: req.storeId };
+    // Admin-list visibility rule:
+    //   • Cash-on-pickup orders → always visible (no online payment to wait for)
+    //   • Card orders → only visible once paymentStatus === 'paid'
+    //
+    // This keeps the back-office list clean of pending/declined/cancelled
+    // card attempts. Per spec from
+    // https://docs.ipospays.com/hosted-payment-page/apidocs the iPOSpays
+    // webhook lifecycle goes:
+    //   pending → approved (200) → paid here
+    //           → declined (400) → failed here
+    //           → cancelled (401, by customer) → failed here
+    //           → rejected (402, by customer) → failed here
+    // Anything that isn't 'paid' on a card order represents an attempt that
+    // didn't complete — admins shouldn't see those clogging the order list.
+    const where = {
+      storeId: req.storeId,
+      OR: [
+        // Non-card orders (cash on pickup, future cash on delivery, etc.)
+        { paymentMethod: { not: 'card' } },
+        // Legacy orders without a paymentMethod set — still show
+        { paymentMethod: null },
+        // Card orders that completed successfully
+        { AND: [{ paymentMethod: 'card' }, { paymentStatus: 'paid' }] },
+      ],
+    };
     if (status) where.status = status;
     if (from || to) {
       where.createdAt = {};

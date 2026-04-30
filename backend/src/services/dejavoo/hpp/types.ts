@@ -7,7 +7,14 @@
  */
 
 export interface DejavooHppMerchant {
+  /** iPOSpays internal account UUID — encoded inside the JWT, NOT what
+   *  goes into the body's `merchantAuthentication.merchantId` field.
+   *  We keep it on the merchant row for audit / debug purposes only. */
   hppMerchantId: string;
+  /** TPN (Terminal Profile Number) — the value iPOSpays expects in the
+   *  body's `merchantAuthentication.merchantId` field as a number.
+   *  Stored as a string to preserve leading zeros, converted at send time. */
+  spinTpn: string;
   hppAuthKey: string;          // iPOSpays HPP token (JWT) — DECRYPTED
   hppBaseUrl?: string | null;
   hppWebhookSecret: string;    // per-store opaque token — DECRYPTED

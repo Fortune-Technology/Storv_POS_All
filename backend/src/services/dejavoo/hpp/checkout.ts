@@ -48,20 +48,38 @@ export async function createCheckoutSession(
   const cancelUrl  = opts.cancelUrl  || opts.returnUrl;
   const expiry     = Math.max(1, Math.min(60, opts.expiryMinutes || 5));
 
-  // Build the iPOSpays HPP request body. Field names + structure match the
-  // iPOSpays HPP API doc. The `token` here is iPOSpays' API auth token (the
-  // JWT from the merchant's iPOSpays portal), passed in the BODY (not header).
-  // Loose record-typed so the conditional property additions below compile.
+  // Per iPOSpays HPP docs (https://docs.ipospays.com/hosted-payment-page/apidocs):
+  //   - `token` is sent as an HTTP HEADER (not in body)
+  //   - `merchantAuthentication.merchantId` is the TPN as a NUMBER (not the
+  //     internal merchant UUID — that one is encoded inside the JWT itself)
+  //   - `transactionReferenceId` is capped at 20 characters
+  //
+  // The merchant row's `spinTpn` field holds the TPN; `hppMerchantId` holds
+  // the iPOSpays-internal account UUID (which the JWT signs against). We
+  // historically conflated the two in the body, which is why iPOSpays
+  // returned HTTP 401 with an empty body even with a valid token — the
+  // auth filter rejected before the request reached business logic.
+  const tpnNumber = Number(merchant.spinTpn);
+  if (!merchant.spinTpn || Number.isNaN(tpnNumber)) {
+    throw new Error('TPN (spinTpn) is required on merchant for HPP — used as merchantAuthentication.merchantId');
+  }
+
+  // iPOSpays caps transactionReferenceId at 20 chars. Our generator emits
+  // UUIDv4 (36 chars). Strip dashes + take the first 20 hex chars — still
+  // collision-resistant for our session lifetime + echoed back verbatim
+  // in the redirect query and webhook so we can correlate.
+  const trimmedReferenceId = opts.transactionReferenceId.replace(/-/g, '').slice(0, 20);
+
+  // Build the iPOSpays HPP request body per the published spec. Loose
+  // record-typed so the conditional property additions below compile.
   const body: Record<string, unknown> & {
     transactionRequest: Record<string, unknown>;
     preferences: Record<string, unknown>;
     personalization?: Record<string, unknown>;
   } = {
-    token: merchant.hppAuthKey,
-
     merchantAuthentication: {
-      merchantId:             merchant.hppMerchantId,                   // TPN
-      transactionReferenceId: opts.transactionReferenceId,
+      merchantId:             tpnNumber,                                // TPN as number
+      transactionReferenceId: trimmedReferenceId,                       // <=20 chars
     },
 
     transactionRequest: {
@@ -122,11 +140,22 @@ export async function createCheckoutSession(
     body.transactionRequest.gTaxLabel  = opts.taxes.gTax.label || 'State Tax';
   }
 
-  // Optional storefront branding (merchantName/logo show up on hosted page)
-  if (opts.merchantName || opts.logoUrl || opts.themeColor || opts.description) {
+  // Optional storefront branding (merchantName/logo show up on hosted page).
+  //
+  // iPOSpays validates `personalization.logoUrl` and rejects relative paths
+  // with HTTP 400 ("Invalid logo URL"). Their servers fetch the image from
+  // their network, so they need a publicly-resolvable absolute URL. Drop
+  // anything that isn't http:// or https:// — the hosted page renders fine
+  // without a logo, but a 400 here would block the entire payment flow.
+  const safeLogoUrl =
+    typeof opts.logoUrl === 'string' && /^https?:\/\//i.test(opts.logoUrl.trim())
+      ? opts.logoUrl.trim()
+      : null;
+
+  if (opts.merchantName || safeLogoUrl || opts.themeColor || opts.description) {
     body.personalization = {};
     if (opts.merchantName) body.personalization.merchantName = opts.merchantName;
-    if (opts.logoUrl)      body.personalization.logoUrl      = opts.logoUrl;
+    if (safeLogoUrl)       body.personalization.logoUrl      = safeLogoUrl;
     if (opts.themeColor)   body.personalization.themeColor   = opts.themeColor;
     if (opts.description)  body.personalization.description  = opts.description;
   }
@@ -142,22 +171,25 @@ export async function createCheckoutSession(
     : '(empty)';
   console.log('\n[HPP-DEBUG] ─── createCheckoutSession ───');
   console.log('[HPP-DEBUG] env=', merchant.environment, 'url=', url);
-  console.log('[HPP-DEBUG] merchantId=', merchant.hppMerchantId);
-  console.log('[HPP-DEBUG] token=', tokenMasked);
-  console.log('[HPP-DEBUG] amount=', opts.amount, 'ref=', opts.transactionReferenceId);
+  console.log('[HPP-DEBUG] body merchantId (TPN as number)=', tpnNumber);
+  console.log('[HPP-DEBUG] (informational) merchant UUID=', merchant.hppMerchantId);
+  console.log('[HPP-DEBUG] header token=', tokenMasked);
+  console.log('[HPP-DEBUG] amount=', opts.amount, 'ref=', trimmedReferenceId, '(len=', trimmedReferenceId.length, ')');
   console.log('[HPP-DEBUG] notifyUrl=', opts.notifyUrl);
   console.log('[HPP-DEBUG] returnUrl=', opts.returnUrl);
-  // Send a redacted copy of the body so we can see the exact shape iPOSpays sees
-  const bodyDebug = JSON.parse(JSON.stringify(body));
-  if (typeof bodyDebug.token === 'string') {
-    bodyDebug.token = `${bodyDebug.token.slice(0, 12)}...${bodyDebug.token.slice(-6)}`;
-  }
-  console.log('[HPP-DEBUG] body=', JSON.stringify(bodyDebug, null, 2));
+  console.log('[HPP-DEBUG] body=', JSON.stringify(body, null, 2));
 
   try {
+    // Per iPOSpays HPP docs: auth token goes in the `token` HTTP header,
+    // NOT in the JSON body. iPOSpays' auth filter inspects this header
+    // before any business logic runs. Missing/wrong header = 401 with an
+    // empty body (the exact symptom that drove this fix).
     const { data, status, headers: respHeaders } = await axios.post(url, body, {
       timeout: 30 * 1000,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        token:          merchant.hppAuthKey,
+      },
     });
     console.log('[HPP-DEBUG] iPOSpays status=', status);
     console.log('[HPP-DEBUG] iPOSpays content-type=', respHeaders['content-type']);
