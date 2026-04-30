@@ -45,6 +45,19 @@ const TX_HIGH     = Number(process.env.SYNTHETIC_TX_HIGH     ?? 80);
 const TARGET_HOUR_UTC = Number(process.env.SYNTHETIC_DATA_HOUR_UTC ?? 6);
 const ENABLED = process.env.ENABLE_SYNTHETIC_DATA === 'true';
 
+/**
+ * Production safety gate: when running on real merchant data, only seed
+ * the explicit sandbox store ("Jaivik Store" at "Gulmahor"). Local/dev
+ * keeps the broad behaviour (every active org's first store).
+ *
+ * Override the production target via env if the sandbox store ever moves:
+ *   SYNTHETIC_PROD_STORE_NAME=Jaivik Store
+ *   SYNTHETIC_PROD_STORE_ADDRESS=Gulmahor   (matched as a substring, case-insensitive)
+ */
+const IS_PROD                = process.env.NODE_ENV === 'production';
+const PROD_STORE_NAME         = (process.env.SYNTHETIC_PROD_STORE_NAME    ?? 'Jaivik Store').trim();
+const PROD_STORE_ADDRESS_FRAG = (process.env.SYNTHETIC_PROD_STORE_ADDRESS ?? 'Gulmahor').trim().toLowerCase();
+
 const pick = <T>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
 const rand = (lo: number, hi: number): number => Math.floor(Math.random() * (hi - lo + 1)) + lo;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -76,9 +89,21 @@ function customerLabel(c: CustomerRow): string {
   return [fn, ln].filter(Boolean).join(' ') || 'Member';
 }
 
-interface OrgGenResult { txCount: number; total: number; skipped?: 'no-stores' | 'no-products' | 'no-cashiers' | 'already-done' }
+interface OrgGenResult { txCount: number; total: number; skipped?: 'no-stores' | 'no-products' | 'no-cashiers' | 'already-done' | 'not-prod-target' }
 
-async function generateForOrg(orgId: string, dateStr: string): Promise<OrgGenResult> {
+/**
+ * @param orgId       The org to scope queries to.
+ * @param dateStr     YYYY-MM-DD UTC date string used in `SYN-` txNumber prefix.
+ * @param storeFilter Optional filter applied to the store lookup. Used in
+ *                    production to constrain seeding to ONE specific store
+ *                    (Jaivik Store / Gulmahor) so we never pollute real
+ *                    merchant data.
+ */
+async function generateForOrg(
+  orgId: string,
+  dateStr: string,
+  storeFilter?: { name?: string; addressContains?: string },
+): Promise<OrgGenResult> {
   const todayPrefix = `SYN-${dateStr}-`;
 
   // Idempotency — already seeded today?
@@ -88,9 +113,17 @@ async function generateForOrg(orgId: string, dateStr: string): Promise<OrgGenRes
   });
   if (existing) return { txCount: 0, total: 0, skipped: 'already-done' };
 
+  const storesWhere: Prisma.StoreWhereInput = { orgId, isActive: true };
+  if (storeFilter?.name) {
+    storesWhere.name = { equals: storeFilter.name, mode: 'insensitive' };
+  }
+  if (storeFilter?.addressContains) {
+    storesWhere.address = { contains: storeFilter.addressContains, mode: 'insensitive' };
+  }
+
   const [stores, products, cashiers, customers] = await Promise.all([
     prisma.store.findMany({
-      where:  { orgId, isActive: true },
+      where:  storesWhere,
       select: { id: true, name: true },
     }) as Promise<StoreRow[]>,
     prisma.masterProduct.findMany({
@@ -274,6 +307,52 @@ export async function runSyntheticSweep(): Promise<void> {
 
   const dateStr = todayDateString();
 
+  // ── Production safety gate ───────────────────────────────────────────────
+  // In production, refuse to seed across every org. Resolve the single
+  // explicit sandbox store (Jaivik Store @ Gulmahor) and only seed THAT
+  // one — everything else stays untouched. The store lookup is anchored
+  // to an exact name match + a substring address match so a renamed real
+  // store could never accidentally match.
+  if (IS_PROD) {
+    const sandboxStore = await prisma.store.findFirst({
+      where: {
+        isActive: true,
+        name:     { equals: PROD_STORE_NAME, mode: 'insensitive' },
+        address:  { contains: PROD_STORE_ADDRESS_FRAG, mode: 'insensitive' },
+      },
+      select: { id: true, name: true, orgId: true, address: true },
+    });
+    if (!sandboxStore) {
+      console.warn(
+        `[SyntheticData] PROD sandbox store not found `
+        + `(name="${PROD_STORE_NAME}", address contains "${PROD_STORE_ADDRESS_FRAG}") — skipping sweep.`,
+      );
+      return;
+    }
+    try {
+      const result = await generateForOrg(sandboxStore.orgId, dateStr, {
+        name:            PROD_STORE_NAME,
+        addressContains: PROD_STORE_ADDRESS_FRAG,
+      });
+      if (result.skipped === 'already-done') return;
+      if (result.skipped) {
+        console.log(`[SyntheticData][PROD] sandbox store ${sandboxStore.name} skipped (${result.skipped})`);
+        return;
+      }
+      if (result.txCount > 0) {
+        console.log(
+          `[SyntheticData][PROD] sandbox=${sandboxStore.name} (store=${sandboxStore.id}) — `
+          + `generated ${result.txCount} txs totaling $${result.total.toFixed(2)} for ${dateStr}`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[SyntheticData][PROD] failed for sandbox store ${sandboxStore.id}:`, message);
+    }
+    return; // PROD path always exits here — never falls through to the broad loop
+  }
+
+  // ── Dev / local — broad sweep across every active org ────────────────────
   const orgs = await prisma.organization.findMany({
     where:  { isActive: true, slug: { not: 'system' } },
     select: { id: true, name: true },
@@ -306,10 +385,20 @@ export function startSyntheticDataScheduler(): void {
     console.log('  • Synthetic data scheduler: DISABLED (set ENABLE_SYNTHETIC_DATA=true to enable)');
     return;
   }
-  console.log(
-    `✓ Synthetic data scheduler started — target $${TARGET_LOW}-$${TARGET_HIGH}/org/day, `
-    + `${TX_LOW}-${TX_HIGH} txs, fires after ${TARGET_HOUR_UTC}:00 UTC, idempotent per UTC day`,
-  );
+  if (IS_PROD) {
+    console.log(
+      `✓ Synthetic data scheduler started — PROD MODE: scoped to "${PROD_STORE_NAME}" `
+      + `(address contains "${PROD_STORE_ADDRESS_FRAG}") only. `
+      + `Target $${TARGET_LOW}-$${TARGET_HIGH}/day, ${TX_LOW}-${TX_HIGH} txs, `
+      + `fires after ${TARGET_HOUR_UTC}:00 UTC, idempotent per UTC day.`,
+    );
+  } else {
+    console.log(
+      `✓ Synthetic data scheduler started — DEV MODE: every active org. `
+      + `Target $${TARGET_LOW}-$${TARGET_HIGH}/org/day, ${TX_LOW}-${TX_HIGH} txs, `
+      + `fires after ${TARGET_HOUR_UTC}:00 UTC, idempotent per UTC day.`,
+    );
+  }
   const onError = (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[SyntheticData] sweep error:', message);

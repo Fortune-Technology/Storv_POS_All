@@ -21,6 +21,7 @@ import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
 import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
 import LabelPrintIndicator from './components/LabelPrintIndicator.jsx';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
+import { ChooserDialogProvider } from './hooks/useChooserDialog.jsx';
 import './App.css';
 
 export default function App() {
@@ -180,5 +181,9 @@ export default function App() {
       </>
     );
   })();
-  return <ConfirmDialogProvider>{screen}</ConfirmDialogProvider>;
+  return (
+    <ConfirmDialogProvider>
+      <ChooserDialogProvider>{screen}</ChooserDialogProvider>
+    </ConfirmDialogProvider>
+  );
 }
