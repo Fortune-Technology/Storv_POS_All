@@ -64,6 +64,8 @@ import api from '../api/client.js';
 import { nanoid } from 'nanoid';
 import { playErrorBeep } from '../utils/sound.js';
 import ChangeDueOverlay from '../components/pos/ChangeDueOverlay.jsx';
+import EbtBalanceOverlay from '../components/EbtBalanceOverlay.jsx';
+import { useChooser } from '../hooks/useChooserDialog.jsx';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -167,7 +169,10 @@ export default function POSScreen() {
   // print). Distinct from `dejavooEbtEnabled` because we want Cart push even
   // when the merchant is credit-only.
   const [hasDejavooConfigured, setHasDejavooConfigured] = useState(false);
-  const [ebtBalanceResult, setEbtBalanceResult]     = useState(null); // { amount, type } or null
+  // EBT balance flow — state machine: 'idle' → 'loading' → 'success' | 'error'
+  const [ebtBalanceState, setEbtBalanceState]       = useState('idle');
+  const [ebtBalanceResult, setEbtBalanceResult]     = useState(null); // { type, amount, last4 }
+  const [ebtBalanceError, setEbtBalanceError]       = useState(null); // string
 
   // ── Shared receipt print helper — used by auto-print, ask-prompt, reprint, history ──
   const handlePrintTx = useCallback((tx) => {
@@ -354,6 +359,11 @@ export default function POSScreen() {
   }, [storeId]);
 
   // ── EBT Balance check — prompts customer on terminal to swipe EBT card ───
+  // Flow: ChooserModal (SNAP vs Cash Benefit) → EbtBalanceOverlay (loading →
+  // success | error). Errors render in the same overlay (not a StatusBar
+  // toast) so the cashier can hit Try Again without re-tapping the EBT button.
+  const choose = useChooser();
+
   const handleEbtBalance = useCallback(async () => {
     if (!station?.id) {
       setScanError({ upc: 'No station — cannot check EBT balance', ts: Date.now() });
@@ -361,33 +371,45 @@ export default function POSScreen() {
       scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
       return;
     }
-    // Ask which account to check.
-    // Intentionally left as window.confirm — this is a two-option chooser
-    // (SNAP vs Cash Benefit), not a delete confirmation. The themed
-    // ConfirmModal would need a third button or a dedicated chooser UI to
-    // do this cleanly. Tracked for a future follow-up.
-    const choice = window.confirm('EBT Balance Check:\n\nOK = Food Stamp (SNAP)\nCancel = Cash Benefit');
-    const paymentType = choice ? 'ebt_food' : 'ebt_cash';
+
+    // Ask which account to check via the themed chooser modal. SNAP gets
+    // visual prominence (filled green, autoFocus → Enter triggers); Cash
+    // Benefit is the outlined secondary; explicit Cancel returns null.
+    const account = await choose({
+      title: 'EBT Balance Check',
+      message: 'Which account would you like to check?',
+      icon: <Leaf size={28} />,
+      iconAccent: 'success',
+      options: [
+        { label: 'Food Stamp (SNAP)', value: 'ebt_food', accent: 'primary-success', icon: <Leaf size={18} /> },
+        { label: 'Cash Benefit',      value: 'ebt_cash', accent: 'secondary-success', icon: <DollarSign size={18} /> },
+      ],
+    });
+    if (!account) return; // cashier cancelled
+
+    setEbtBalanceState('loading');
+    setEbtBalanceResult(null);
+    setEbtBalanceError(null);
+
     try {
-      const r = await posApi.dejavooEbtBalance({ stationId: station.id, paymentType });
+      const r = await posApi.dejavooEbtBalance({ stationId: station.id, paymentType: account });
       const amt = r?.result?.totalAmount ?? r?.result?.amount;
       if (r?.success && amt != null) {
+        setEbtBalanceState('success');
         setEbtBalanceResult({
-          type: paymentType === 'ebt_food' ? 'SNAP / Food Stamp' : 'Cash Benefit',
+          type: account === 'ebt_food' ? 'Food Stamp (SNAP)' : 'Cash Benefit',
           amount: amt,
           last4: r.result?.last4,
         });
       } else {
-        setScanError({ upc: r?.result?.message || 'Could not read EBT balance', ts: Date.now() });
-        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
-        scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+        setEbtBalanceState('error');
+        setEbtBalanceError(r?.result?.message || 'Could not read EBT balance');
       }
     } catch (err) {
-      setScanError({ upc: err?.response?.data?.error || err.message || 'EBT balance failed', ts: Date.now() });
-      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
-      scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+      setEbtBalanceState('error');
+      setEbtBalanceError(err?.response?.data?.error || err.message || 'EBT balance failed');
     }
-  }, [station]);
+  }, [station, choose]);
 
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
@@ -2323,44 +2345,33 @@ export default function POSScreen() {
       {/* Manager PIN (always mounted, renders when pendingAction is set) */}
       <ManagerPinModal />
 
-      {/* EBT Balance result overlay (auto-dismiss on click) */}
-      {ebtBalanceResult && (
-        <div
-          onClick={() => setEbtBalanceResult(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1500,
-            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
+      {/* EBT Balance overlay — themed loading / success / error display */}
+      {/* sits above ChooserModal (z 1500 vs 1100) so the Dejavoo round-trip */}
+      {/* takes over the screen after the cashier picks an account. */}
+      {ebtBalanceState !== 'idle' && (
+        <EbtBalanceOverlay
+          state={ebtBalanceState}
+          result={ebtBalanceResult}
+          error={ebtBalanceError}
+          onCheckOther={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceResult(null);
+            setEbtBalanceError(null);
+            // Re-run the chooser by re-calling the handler. Defer one tick
+            // so the overlay teardown commits before the chooser opens.
+            setTimeout(() => handleEbtBalance(), 50);
           }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: 14, padding: '2rem 2.5rem',
-              textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,.3)',
-              minWidth: 320,
-            }}
-          >
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 8 }}>
-              EBT Balance
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#475569', marginBottom: 4 }}>
-              {ebtBalanceResult.type}
-            </div>
-            {ebtBalanceResult.last4 && (
-              <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 12 }}>
-                Card •••• {ebtBalanceResult.last4}
-              </div>
-            )}
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#16a34a', letterSpacing: '-0.02em' }}>
-              ${Number(ebtBalanceResult.amount).toFixed(2)}
-            </div>
-            <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 16 }}>
-              Tap anywhere to close
-            </div>
-          </div>
-        </div>
+          onRetry={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceError(null);
+            setTimeout(() => handleEbtBalance(), 50);
+          }}
+          onClose={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceResult(null);
+            setEbtBalanceError(null);
+          }}
+        />
       )}
 
       {showHardwareSettings && (

@@ -13,7 +13,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem 1rem 1.25rem;
+  padding: 0.75rem 0rem 1.25rem;
   min-height: 0;
 }
 
@@ -199,13 +199,11 @@
 }
 
 .lbo-col-title {
-  font-size: 0.82rem;
+  font-size: 0.70rem;
   font-weight: 800;
   color: var(--text-primary, #111827);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border-color, #f3f4f6);
 }
 
 .lbo-col-title-bar {
@@ -233,7 +231,6 @@
 
 /* ── Left column — Report ─────────────────────────────────────────── */
 /* Flows with column height; no internal scroll, no clipping. */
-.lbo-col-report {}
 
 .lbo-metric {
   display: flex;
@@ -420,14 +417,17 @@
   gap: 6px;
   margin-bottom: 4px;
 }
+
 .lbo-right-actions .lbo-btn {
   width: 100%;
   justify-content: center;
 }
+
 @media (max-width: 720px) {
   .lbo-right-actions {
     grid-template-columns: 1fr 1fr;
   }
+
   .lbo-right-actions .lbo-btn:nth-child(3) {
     grid-column: 1 / -1;
   }
@@ -452,9 +452,10 @@
   max-width: 240px;
   flex-shrink: 0;
 }
+
 .lbo-col-title-bar .lbo-mode button {
   padding: 4px 8px;
-  font-size: 0.72rem;
+  font-size: 0.70rem;
 }
 
 .lbo-mode button {
@@ -670,7 +671,9 @@
      reduction to the action column (86px → 80px) and tighter gap (5 → 4)
      to claw back the space without expanding the row.  Earlier rendered
      as "$500.0 HIST" because the cell clipped the trailing zero. */
-  grid-template-columns: 36px 28px minmax(0, 1fr) 120px 32px 86px 80px;
+  /* Book/name column uses `max-content` as min so the full
+     "GAMENO-BOOKNO" identifier never gets truncated (Session — UI fix). */
+  grid-template-columns: 36px 28px minmax(max-content, 1fr) 120px 32px 86px 80px;
   gap: 4px;
   align-items: center;
   padding: 5px 6px;
@@ -696,6 +699,11 @@
   border-radius: 3px;
   padding: 0 3px;
   transition: background 0.12s;
+  /* Keep "GAMENO-BOOKNO" on a single line — never wrap or truncate.
+     Pair with `min-width: max-content` on `.lbo-cnt-book` parent +
+     `minmax(max-content, 1fr)` on the book grid column in `.lbo-cnt-row`
+     so the cell expands to accommodate the full identifier. */
+  white-space: nowrap;
 }
 
 .lbo-cnt-bookno:hover {
@@ -824,7 +832,11 @@
 .lbo-cnt-book {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  /* Let the cell grow to fit the full "GAMENO-BOOKNO" identifier
+     (paired with the `.lbo-cnt-bookno` nowrap + the `minmax(max-content, 1fr)`
+     book column in `.lbo-cnt-row`). The previous `min-width: 0` was forcing
+     truncation on long identifiers. */
+  min-width: max-content;
 }
 
 .lbo-cnt-book strong {
@@ -1014,7 +1026,9 @@
 .lbo-right-row {
   display: grid;
   /* PackPill | Game# badge | Book + name | Date | Amount | Action menu */
-  grid-template-columns: 36px 56px minmax(0, 1fr) 54px 62px 24px;
+  /* Book column min-width tracks content so "Book {boxNumber}" stays
+     visible in a single line without truncation (Session — UI fix). */
+  grid-template-columns: 36px 56px minmax(max-content, 1fr) 54px 62px 24px;
   gap: 6px;
   align-items: center;
   padding: 5px 7px;
@@ -1044,15 +1058,17 @@
 .lbo-right-book {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  /* Let the cell grow to fit "Book {boxNumber}" fully — paired with
+     `white-space: nowrap` on the inner strong + `minmax(max-content, 1fr)`
+     on the book column in `.lbo-right-row`. */
+  min-width: max-content;
 }
 
 .lbo-right-book strong {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.78rem;
-  /* overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap; */
+  /* Keep the book label on a single line — never wrap, never truncate. */
+  white-space: nowrap;
 }
 
 .lbo-right-book small {
@@ -1718,7 +1734,7 @@
 
 .lbo-settings-input:focus {
   border-color: var(--brand-primary, #3d56b5);
-  box-shadow: 0 0 0 3px var(--brand-08, rgba(61,86,181,0.08));
+  box-shadow: 0 0 0 3px var(--brand-08, rgba(61, 86, 181, 0.08));
 }
 
 /* Toggle switch */
@@ -1748,7 +1764,7 @@
   background: #ffffff;
   border-radius: 50%;
   transition: transform 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .lbo-settings-toggle.on .lbo-settings-toggle-knob {

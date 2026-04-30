@@ -1,0 +1,194 @@
+/* ChooserModal — themed multi-option chooser.
+   Prefix: .chooser-modal-
+
+   Sibling component to ConfirmModal — same visual language (white card,
+   brand backdrop, pop+fade animation) but renders N option buttons instead
+   of a binary confirm/cancel.
+
+   z-index 1100 — same as ConfirmModal so a confirm-on-chooser stack reads
+   correctly. Sits above app content (1000) and below EbtBalanceOverlay (1500). */
+
+.chooser-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay, rgba(15, 23, 42, 0.55));
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 16px;
+  animation: chooser-modal-fade-in 0.15s ease-out;
+}
+
+@keyframes chooser-modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chooser-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  padding: 28px 28px 22px;
+  text-align: center;
+  animation: chooser-modal-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chooser-modal-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.chooser-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.chooser-modal-close:hover { background: rgba(15, 23, 42, 0.08); color: #0f172a; }
+.chooser-modal-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Icon circle — colour follows iconAccent prop */
+.chooser-modal-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+}
+.chooser-modal-icon--primary { background: rgba(99, 102, 241, 0.12); color: #6366f1; }
+.chooser-modal-icon--success { background: rgba(22, 163, 74, 0.12);  color: #16a34a; }
+.chooser-modal-icon--warn    { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+.chooser-modal-icon--danger  { background: rgba(220, 38, 38, 0.12);  color: #dc2626; }
+
+.chooser-modal-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.chooser-modal-message {
+  margin: 0 0 20px;
+  color: #475569;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.chooser-modal-message p { margin: 0; }
+.chooser-modal-message p + p { margin-top: 8px; }
+
+.chooser-modal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.chooser-modal-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
+  border: 1px solid transparent;
+  width: 100%;
+}
+.chooser-modal-option:active { transform: translateY(1px); }
+.chooser-modal-option:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.chooser-modal-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Filled (primary) variants — high visual prominence */
+.chooser-modal-option--primary-blue          { background: #3d56b5; color: #ffffff; }
+.chooser-modal-option--primary-blue:hover    { background: #324793; }
+.chooser-modal-option--primary-blue:focus-visible {
+  outline: 3px solid rgba(61, 86, 181, 0.4); outline-offset: 2px;
+}
+
+.chooser-modal-option--primary-success       { background: #16a34a; color: #ffffff; }
+.chooser-modal-option--primary-success:hover { background: #15803d; }
+.chooser-modal-option--primary-success:focus-visible {
+  outline: 3px solid rgba(22, 163, 74, 0.4); outline-offset: 2px;
+}
+
+.chooser-modal-option--primary-warn          { background: #f59e0b; color: #ffffff; }
+.chooser-modal-option--primary-warn:hover    { background: #d97706; }
+.chooser-modal-option--primary-warn:focus-visible {
+  outline: 3px solid rgba(245, 158, 11, 0.4); outline-offset: 2px;
+}
+
+.chooser-modal-option--primary-danger        { background: #dc2626; color: #ffffff; }
+.chooser-modal-option--primary-danger:hover  { background: #b91c1c; }
+.chooser-modal-option--primary-danger:focus-visible {
+  outline: 3px solid rgba(220, 38, 38, 0.4); outline-offset: 2px;
+}
+
+/* Outlined (secondary) variants — same colour family, lower visual weight */
+.chooser-modal-option--secondary-blue        { background: #ffffff; border-color: #3d56b5; color: #1e3a8a; }
+.chooser-modal-option--secondary-blue:hover  { background: rgba(61, 86, 181, 0.08); }
+.chooser-modal-option--secondary-blue:focus-visible {
+  outline: 3px solid rgba(61, 86, 181, 0.35); outline-offset: 2px;
+}
+
+.chooser-modal-option--secondary-success     { background: #ffffff; border-color: #16a34a; color: #166534; }
+.chooser-modal-option--secondary-success:hover { background: rgba(22, 163, 74, 0.08); }
+.chooser-modal-option--secondary-success:focus-visible {
+  outline: 3px solid rgba(22, 163, 74, 0.35); outline-offset: 2px;
+}
+
+.chooser-modal-option--secondary-warn        { background: #ffffff; border-color: #f59e0b; color: #92400e; }
+.chooser-modal-option--secondary-warn:hover  { background: rgba(245, 158, 11, 0.08); }
+.chooser-modal-option--secondary-warn:focus-visible {
+  outline: 3px solid rgba(245, 158, 11, 0.35); outline-offset: 2px;
+}
+
+.chooser-modal-option--secondary-danger      { background: #ffffff; border-color: #dc2626; color: #991b1b; }
+.chooser-modal-option--secondary-danger:hover { background: rgba(220, 38, 38, 0.08); }
+.chooser-modal-option--secondary-danger:focus-visible {
+  outline: 3px solid rgba(220, 38, 38, 0.35); outline-offset: 2px;
+}
+
+.chooser-modal-cancel {
+  display: block;
+  margin: 4px auto 0;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.12s, background 0.12s;
+}
+.chooser-modal-cancel:hover  { color: #334155; background: rgba(15, 23, 42, 0.04); }
+.chooser-modal-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (max-width: 480px) {
+  .chooser-modal-card { padding: 22px 18px 18px; }
+}
