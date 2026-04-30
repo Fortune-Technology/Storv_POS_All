@@ -60,14 +60,14 @@
 
 .lm-header-sub {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .lm-close-btn {
   background: none;
   border: none;
   cursor: pointer;
-  color: #9ca3af;
+  color: #6b7280;
   padding: 4px;
   display: flex;
 }
@@ -91,7 +91,7 @@
   text-align: center;
   border: 2px solid #e5e7eb;
   background: #f9fafb;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .lm-tab--active-sale {
@@ -124,7 +124,7 @@
 .lm-section-label {
   font-size: 0.68rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #4b5563;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 7px;
@@ -164,7 +164,7 @@
 /* ── Qty selector (sale with game) ── */
 .lm-qty-info {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 4px;
 }
 
@@ -196,7 +196,7 @@
 
 .lm-qty-label {
   font-size: 0.72rem;
-  color: #6b7280;
+  color: #4b5563;
   text-align: center;
 }
 
@@ -211,7 +211,7 @@
 
 .lm-qty-total-label {
   font-size: 0.8rem;
-  color: #6b7280;
+  color: #4b5563;
 }
 
 .lm-qty-total-value {
@@ -382,7 +382,7 @@
 
 .lm-add-btn--disabled {
   background: #f3f4f6;
-  color: #9ca3af;
+  color: #6b7280;
   cursor: not-allowed;
 }
 
@@ -398,7 +398,7 @@
 .lm-session-label {
   font-size: 0.67rem;
   font-weight: 700;
-  color: #6b7280;
+  color: #4b5563;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 8px;
@@ -458,7 +458,7 @@
   cursor: pointer;
   transition: all 0.12s;
   border: 2px solid #e5e7eb;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .lm-done-btn--has-items {
