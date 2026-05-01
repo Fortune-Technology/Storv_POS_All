@@ -59,6 +59,11 @@ export interface ImportContext {
   taxByRate: Map<string, TaxRuleLookupRow>;
   taxByClassName: Map<string, TaxRuleLookupRow>;
   taxByRuleName: Map<string, TaxRuleLookupRow>;
+  // ProductGroup lookup — populated lazily from existing groups in the org.
+  // Used by Sante's `Other:`-tag-driven productGroup column to link products
+  // to existing groups by name and (with strategy='create') to flag missing
+  // ones for auto-creation in the write phase.
+  productGroupByName: Map<string, NamedRecord>;
 }
 
 /** Per-row validation result. */
@@ -104,7 +109,7 @@ export interface ImportRowsOpts {
 
 // Marker so you can tell from logs which version of the mapping code is loaded.
 // Bump IMPORT_SERVICE_VERSION whenever you change ALIASES or detectColumns.
-export const IMPORT_SERVICE_VERSION = '2026-04-20-v4-additional-upcs-and-pack-options';
+export const IMPORT_SERVICE_VERSION = '2026-04-24-v5-product-group-auto-create';
 console.log('[importService] loaded version:', IMPORT_SERVICE_VERSION);
 
 // ─── Column alias maps ───────────────────────────────────────────────────────
@@ -143,6 +148,12 @@ const ALIASES: Record<string, string[]> = {
   // Classification
   departmentId:       ['dept','department','deptid','deptno','departmentid','category','deptcode','deptnumber','dept_no'],
   vendorId:           ['vendor','supplier','vendorid','vendorno','supplierid','distributor','vendorname','vendor_name','importer'],
+  // ProductGroup — single column, value is the group's display name. Multiple
+  // groups can be encoded pipe-separated (only the first wins for productGroupId
+  // since the schema is single-belongs-to). Auto-created when missing if the
+  // import is run with unknownProductGroupStrategy='create' (default).
+  // Sante's `Other:` tag values land here via the Sante transformer.
+  productGroupName:   ['productgroup','productgroupname','group','groupname','product_group','product_group_name'],
   // Session 40 Phase 1 (strict FK migration): `taxRuleName` is the preferred
   // field — resolved to MasterProduct.taxRuleId by name lookup against the
   // org's TaxRule table. `taxClass` is the legacy free-text column kept for
@@ -443,7 +454,7 @@ export function detectColumns(headers: string[]): ImportMapping {
  * Pre-load lookup data from DB to resolve dept/vendor references during validation.
  */
 export async function buildContext(orgId: string): Promise<ImportContext> {
-  const [departments, vendors, depositRules, taxRules] = await Promise.all([
+  const [departments, vendors, depositRules, taxRules, productGroups] = await Promise.all([
     prisma.department.findMany({
       where: { orgId, active: true },
       select: { id: true, name: true, code: true },
@@ -460,6 +471,13 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
       where: { orgId, active: true },
       select: { id: true, name: true, rate: true, appliesTo: true },
     }) as Promise<TaxRuleLookupRow[]>,
+    // ProductGroups — used for `productGroup` column resolution. Includes all
+    // groups (no `active` filter; the schema doesn't have one). Match is
+    // case-insensitive name lookup, same pattern as Department / Vendor.
+    prisma.productGroup.findMany({
+      where: { orgId },
+      select: { id: true, name: true },
+    }),
   ]);
 
   // Build a lookup map for tax rules by rounded rate so imports can match
@@ -508,6 +526,9 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
     taxByRate,
     taxByClassName,
     taxByRuleName,
+    productGroupByName: new Map<string, NamedRecord>(
+      productGroups.map((g: { id: number; name: string }) => [g.name.toLowerCase().trim(), g as NamedRecord]),
+    ),
   };
 }
 
@@ -608,11 +629,62 @@ function resolveVendor(value: unknown, ctx: ImportContext, strategy: ResolverStr
   return { id: null, warn: `Vendor "${value}" not found — no vendor assigned`, err: null, createName: null };
 }
 
+/**
+ * Resolve a productGroup name to a ProductGroup id.
+ *
+ * Input shapes:
+ *   "12 OZ CAN BEER"             — single group, looked up by name
+ *   "Variant A|Variant B"        — pipe-separated; only the FIRST is honoured
+ *                                  (schema is single-valued). Caller decides
+ *                                  whether the trailing names warrant a warning.
+ *
+ * Strategy:
+ *   • 'create' (default): auto-create the group if it doesn't exist.
+ *   • 'skip':             leave the product without a group + emit warning.
+ *   • 'error':            fail validation.
+ *
+ * The resolver doesn't actually create the group — it returns `createName`
+ * so the write phase (importProductRows) can do the create + cache the new
+ * row in ctx for subsequent rows that reference the same group name.
+ */
+function resolveProductGroup(value: unknown, ctx: ImportContext, strategy: ResolverStrategy = 'create'): ResolverResult {
+  if (!value || String(value).trim() === '') return { id: null, warn: null, err: null, createName: null };
+
+  // Multi-value: split on pipe, take the first non-empty segment.
+  const segments = String(value).split('|').map((s) => s.trim()).filter((s) => s.length > 0);
+  if (segments.length === 0) return { id: null, warn: null, err: null, createName: null };
+  const primary = segments[0];
+
+  const norm = primary.toLowerCase().trim();
+  const hit = ctx.productGroupByName.get(norm);
+  if (hit) {
+    // Numeric ids only (ProductGroup.id is Int) — defensive cast guards against
+    // a stray non-numeric value sneaking in via NamedRecord.
+    const idNum = typeof hit.id === 'number' ? hit.id : parseInt(String(hit.id), 10);
+    return { id: Number.isFinite(idNum) ? idNum : null, warn: null, err: null, createName: null };
+  }
+
+  if (strategy === 'error') {
+    return { id: null, warn: null, err: `ProductGroup "${primary}" not found`, createName: null };
+  }
+  if (strategy === 'create') {
+    return {
+      id: null,
+      warn: `ProductGroup "${primary}" not found — will be auto-created`,
+      err: null,
+      createName: primary,
+    };
+  }
+  // skip
+  return { id: null, warn: `ProductGroup "${primary}" not found — no group assigned`, err: null, createName: null };
+}
+
 // ─── Row Validators ───────────────────────────────────────────────────────────
 
 interface ValidateProductOpts {
   unknownDeptStrategy?: ResolverStrategy;
   unknownVendorStrategy?: ResolverStrategy;
+  unknownProductGroupStrategy?: ResolverStrategy;
   unknownUpcStrategy?: 'skip' | 'reject';
   [key: string]: unknown;
 }
@@ -715,6 +787,28 @@ function validateProductRow(
   if (vendorRes.err)  errors.push({ field: 'vendorId',     message: vendorRes.err });
   if (deptRes.warn)   warnings.push({ field: 'departmentId', message: deptRes.warn });
   if (vendorRes.warn) warnings.push({ field: 'vendorId',     message: vendorRes.warn });
+
+  // ProductGroup — same resolution pattern as vendor/dept. Default strategy
+  // is 'create' so Sante imports auto-build groups from `Other:` tag values.
+  // The CSV column may be pipe-separated to encode multiple group memberships
+  // (e.g. "RED BULL 12 OZ CN|RED BULL 8 OZ CN") — schema currently supports
+  // only one group per product, so the first segment wins. The resolver emits
+  // a warning when the full string includes additional segments.
+  const productGroupStrategy: ResolverStrategy = (opts.unknownProductGroupStrategy || 'create') as ResolverStrategy;
+  const productGroupRaw = get('productGroupName');
+  const productGroupRes = resolveProductGroup(productGroupRaw, ctx, productGroupStrategy);
+  if (productGroupRes.err)  errors.push({ field: 'productGroupName', message: productGroupRes.err });
+  if (productGroupRes.warn) warnings.push({ field: 'productGroupName', message: productGroupRes.warn });
+  // Pipe-separated multi-value warning — emit once per row when there's >1 segment.
+  if (productGroupRaw && productGroupRaw.includes('|')) {
+    const segs = productGroupRaw.split('|').map((s) => s.trim()).filter(Boolean);
+    if (segs.length > 1) {
+      warnings.push({
+        field: 'productGroupName',
+        message: `Multiple product groups (${segs.length}) — only "${segs[0]}" will be assigned (schema is single-belongs-to).`,
+      });
+    }
+  }
 
   // Tax class — priority order:
   //   1. Try to match against the store's REAL TaxRule table (by rate, class
@@ -848,9 +942,14 @@ function validateProductRow(
       unitPack:           unitPack,
       departmentId:       deptRes.id,
       vendorId:           vendorRes.id,
+      // ProductGroup — single-valued FK on MasterProduct. When the lookup hit
+      // an existing group we set the id directly; otherwise importProductRows
+      // creates the group from `_createProductGroupName` and back-fills the id.
+      productGroupId:     productGroupRes.id,
       // Internal fields stripped before DB write — used by importProductRows for auto-create
-      _createDeptName:    deptRes.createName   || null,
-      _createVendorName:  vendorRes.createName || null,
+      _createDeptName:           deptRes.createName         || null,
+      _createVendorName:         vendorRes.createName       || null,
+      _createProductGroupName:   productGroupRes.createName || null,
       defaultCostPrice:   cost,
       defaultRetailPrice: retail,
       defaultCasePrice:   caseP,
@@ -1308,12 +1407,41 @@ async function importProductRows(
     }
   }
 
+  // ── Step 0c: Auto-create missing product groups ─────────────────────────────
+  // Same pattern as departments/vendors. ProductGroup has no compound-unique
+  // constraint on (orgId, name), so we findFirst-then-create. Errors are
+  // collected per-row but never fail the whole import.
+  const pendingProductGroupNames: string[] = [...new Set(
+    validRows
+      .map((r) => (r.cleaned as Record<string, unknown> | null)?._createProductGroupName as string | undefined)
+      .filter((v): v is string => Boolean(v))
+  )];
+  const newProductGroupIdByName = new Map<string, number>();
+  if (pendingProductGroupNames.length > 0) {
+    for (const name of pendingProductGroupNames) {
+      try {
+        const existing = await prisma.productGroup.findFirst({ where: { orgId, name } });
+        if (existing) {
+          newProductGroupIdByName.set(name.toLowerCase(), existing.id);
+        } else {
+          const grp = await prisma.productGroup.create({ data: { orgId, name } });
+          newProductGroupIdByName.set(name.toLowerCase(), grp.id);
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        errors.push({ message: `Could not auto-create product group "${name}": ${message}` });
+      }
+    }
+  }
+
   // Loose type for cleaned row — index access via [key] works generically;
   // named `_internal` fields used during the import-only pipeline are read
   // through this same shape.
   type CleanedRow = Record<string, unknown> & {
     upc?: string; departmentId?: number | null; vendorId?: number | null;
+    productGroupId?: number | null;
     _existingId?: unknown; _createDeptName?: string; _createVendorName?: string;
+    _createProductGroupName?: string;
     _specialPrice?: unknown; _specialCost?: unknown; _priceMethod?: unknown;
     _groupPrice?: unknown; _groupQty?: unknown; _saleMultiple?: unknown;
     _startDate?: unknown; _endDate?: unknown; _regMultiple?: unknown;
@@ -1351,7 +1479,7 @@ async function importProductRows(
     // Strip internal tracking fields before DB write
     // (_linkedUpc removed — legacy alias values now route into _additionalUpcs.)
     const {
-      _existingId, _createDeptName, _createVendorName,
+      _existingId, _createDeptName, _createVendorName, _createProductGroupName,
       _specialPrice, _specialCost, _priceMethod, _groupPrice, _groupQty,
       _saleMultiple, _startDate, _endDate, _regMultiple,
       _tprRetail, _tprCost, _tprMultiple, _tprStartDate, _tprEndDate,
@@ -1368,12 +1496,15 @@ async function importProductRows(
     void _quantityOnHand; void _sectionName;
     void _hasAdditionalUpcs; void _additionalUpcs; void _hasPackOptions; void _packOptions;
 
-    // Re-resolve auto-created dept/vendor IDs
+    // Re-resolve auto-created dept/vendor/group IDs
     if (_createDeptName && !data.departmentId) {
       data.departmentId = newDeptIdByName.get(String(_createDeptName).toLowerCase()) || null;
     }
     if (_createVendorName && !data.vendorId) {
       data.vendorId = newVendorIdByName.get(String(_createVendorName).toLowerCase()) || null;
+    }
+    if (_createProductGroupName && !data.productGroupId) {
+      data.productGroupId = newProductGroupIdByName.get(String(_createProductGroupName).toLowerCase()) || null;
     }
 
     const upc = (data.upc as string | undefined) || '';
