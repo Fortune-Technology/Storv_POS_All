@@ -17,7 +17,7 @@ import {
   getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
   getLotteryBoxes, receiveBoxOrder, activateBox, updateBox, deleteBox, adjustBoxTickets,
   getLotteryTransactions, createLotteryTransaction, bulkCreateLotteryTransactions,
-  getLotteryShiftReport, saveLotteryShiftReport, getShiftReports, getShiftAudit,
+  getLotteryShiftReport, saveLotteryShiftReport, getShiftReports, getShiftAudit, getPreviousShiftReadings,
   getLotteryDashboard, getLotteryReport, getLotteryCommissionReport,
   getLotterySettings, updateLotterySettings,
   getCatalogTickets, getAllCatalogTickets, createCatalogTicket, updateCatalogTicket, deleteCatalogTicket,
@@ -59,6 +59,7 @@ router.post('/transactions/bulk',  requirePermission('lottery.create'), bulkCrea
 // Shift reports
 router.get( '/shift-reports',          requirePermission('lottery.manage'), getShiftReports);
 router.get( '/shift-audit',            requirePermission('lottery.manage'), getShiftAudit);
+router.get( '/previous-shift-readings', requirePermission('lottery.view'),  getPreviousShiftReadings);
 router.get( '/shift-reports/:shiftId', requirePermission('lottery.view'),   getLotteryShiftReport);
 router.post('/shift-reports',          requirePermission('lottery.manage'), saveLotteryShiftReport);
 

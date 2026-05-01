@@ -310,14 +310,31 @@ export default function LotteryBackOffice() {
         showToast(extra.slotNumber == null ? 'Slot cleared' : `Moved to slot ${extra.slotNumber}`);
       } else if (kind === 'soldout') {
         // Show the financial impact in the confirm so accidental clicks
-        // don't silently inflate the day's sales. Estimate the remaining
-        // ticket value: total face value − tickets already sold × price.
-        const total = Number(box.totalValue || 0);
-        const alreadySold = Number(box.ticketsSold || 0) * Number(box.ticketPrice || 0);
-        const remaining = Math.max(0, total - alreadySold);
+        // don't silently inflate the day's sales.
+        // (Apr 2026 — Fix #2: compute remaining from box.currentTicket
+        // direction-aware, NOT from box.ticketsSold which is often stale
+        // when EoD wizard hasn't run regularly. The previous formula
+        // `totalValue − ticketsSold × price` showed $400 remaining on a
+        // book with 2 actual tickets left, scaring admins away from a
+        // valid SO click.)
+        const ct = Number(box.currentTicket);
+        const total = Number(box.totalTickets || 0);
+        const price = Number(box.ticketPrice || 0);
+        let remainingTickets;
+        if (Number.isFinite(ct) && total > 0) {
+          remainingTickets = sellDirection === 'asc'
+            ? Math.max(0, total - ct)              // asc: tickets ct..total-1 still available
+            : Math.max(0, ct + 1);                 // desc: tickets 0..ct still available
+        } else {
+          // Fallback: legacy calc when currentTicket is unset (rare —
+          // legacy data only).
+          const alreadySold = Number(box.ticketsSold || 0);
+          remainingTickets = Math.max(0, total - alreadySold);
+        }
+        const remaining = remainingTickets * price;
         if (!await confirm({
           title: 'Mark book sold out?',
-          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out on ${date}?\n\nThis will count the remaining ${fmtLottery(remaining)} as sold on that day. Cannot be undone without "Restore to Counter".`,
+          message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out on ${date}?\n\nThis will count the remaining ${remainingTickets} ticket${remainingTickets === 1 ? '' : 's'} (${fmtLottery(remaining)}) as sold on that day. Cannot be undone without "Restore to Counter".`,
           confirmLabel: 'Mark Sold Out',
           danger: true,
         })) return;
@@ -495,24 +512,23 @@ export default function LotteryBackOffice() {
   // gross visible as a sub-row. Reverts L7 from Session 45.
   const instantSalesNet = instantSalesAuto - Number(online.instantCashing || 0);
 
-  // Cash Balance = combined cash position for the selected date.
-  // Pulls from EVERY source (POS-rung, ticket-math un-rung, manual back-
-  // office entries) so it reconciles regardless of how the day was closed
-  // (cashier shift close vs back-office "Close the Day").
+  // Cash Balance = Instant Sales (net) + Online Sales (net).
   //
-  // Same formula whether data came from POS Transaction tenders, the EoD
-  // wizard's LotteryOnlineTotal write, or a back-office admin manually
-  // typing into the form here. One math, multiple input paths.
+  // This is the lottery cash that needs to be in the drawer at end of day,
+  // payable to the lottery commission. Per user direction (Apr 2026):
+  //   - POS cashBalance is irrelevant here (that's general POS cash, not
+  //     specifically lottery; mixing it confuses the audit number)
+  //   - lotteryUnreportedCash is irrelevant here (the audit-signal lives
+  //     in its own "POS-rang vs ticket-math" reconciliation row, not in
+  //     this top-line Cash Balance)
   //
-  // No double-counting: `onlineSalesNet` already nets machineCashing,
-  // cancels, coupons, discounts. We add `lotteryUnreportedCash` (un-rung
-  // instant only — POS-rung is already in `cashBalance`) and deduct
-  // instant cashings on top.
-  const computedCashBalance =
-    cashBalance                                 // POS-rung cash from closed shifts (lottery + non-lottery)
-    + lotteryUnreportedCash                     // un-rung instant tickets (drawer has cash, no Transaction)
-    + onlineSalesNet                             // machine net (gross − cancels − machineCashing − coupon − discounts)
-    - Number(online.instantCashing || 0);       // instant cashings paid via the lottery machine
+  // Single, simple formula:
+  //   Cash Balance = (Today Sold − Instant Pays/Cashes)
+  //                + (Gross − Cancels − Pays/Cashes − Coupon − Discounts)
+  //
+  // No double-counting because `instantSalesNet` already nets instant
+  // cashings, and `onlineSalesNet` already nets online cashings/cancels/etc.
+  const computedCashBalance = instantSalesNet + onlineSalesNet;
 
   const rightBooks = rightPane === 'safe'     ? safe
                    : rightPane === 'soldout'  ? soldout

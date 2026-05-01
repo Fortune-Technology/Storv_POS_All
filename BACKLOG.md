@@ -31,10 +31,6 @@
 
 | ID | Status | Item | Effort | Source |
 |---|---|---|---|---|
-| B1 | `[ ]` | **Reports number sanity** — cross-check Daily / Weekly / Monthly / Live Dashboard / EoD / Commission / Predictions reconcile across stores + multi-day windows | M | Prompt + S20 |
-| B3 | `[ ]` | Cashier-app close-shift drawer math — pull lottery `instantSales` from snapshot ticket-math, not `LotteryTransaction` totals | S | S44 follow-up |
-| B4 | `[ ]` | Multi-cashier same-day handover — per-shift accountability gap (snapshots only capture daily delta) | M | S44 follow-up |
-| B6 | `[ ]` | `CashPayout` vs `VendorPayment` not reconciled — POS payouts invisible in back-office vendor table | M | S20 Open Bug B |
 
 ---
 
@@ -153,6 +149,13 @@
 |---|---|---|---|---|
 | B2 | 2026-04-30 | EBT chooser dialog — replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + themed `<EbtBalanceOverlay>` (loading / success / error states + Check-Other-Account + Try-Again paths) | S | CLAUDE.md S57 |
 | B5 | 2026-04-30 | `Transaction.shiftId` column added + populated on all 4 create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund) + RefundModal now passes shiftId. Strictly additive — no read path changes, no backfill, zero recalc risk. Unblocks B4. | S | CLAUDE.md S58 |
+| B1 | 2026-04-30 | **Reports number sanity** — built reusable 3-stage audit harness (`seedAuditStore.mjs` + `seedAuditTransactions.mjs` + `seedAuditAudit.mjs`) that creates an isolated Audit Org/Store, seeds 20 transactions + lottery + fuel + cash movements with known totals, then HTTP-audits 8 critical reports. Final state: **43/43 checks pass**. Spawned + fixed B7, B8, B9. | M | CLAUDE.md S59 |
+| B9 | 2026-04-30 | `/lottery/report` + `/lottery/dashboard` + `/lottery/commission` now use store-local IANA timezone for day-bucket boundaries (was UTC, which placed local-22:00 snapshots into the wrong UTC day). New `localDayStartUTC` / `localDayEndUTC` / `formatLocalDate` helpers in `realSales.ts`; `rangeSales` accepts optional `timezone` param (UTC default for backward compat). | S | CLAUDE.md S59 |
+| B7 | 2026-04-30 | `/sales/departments` Name field now resolves real department name from DB by `departmentId` (was falling through to `li.taxClass` for both Grocery + Beverages → both rows labeled "grocery"). | M | CLAUDE.md S59 |
+| B8 | 2026-04-30 | `/sales/departments` per-dept tax attribution rewritten — pro-rates `tx.taxTotal` across notional per-line tax (handles EBT exemption automatically). Was incorrectly skipping all `ebtEligible` lines, zeroing tax for whole grocery + alcohol dept aggregations. | M | CLAUDE.md S59 |
+| B3 | 2026-04-30 | Cashier-app close-shift drawer math — ticket-math truth was already wired in S44 reconciliation service. Remaining piece (per user spec): explicit `LotterySettings.enabled=false` gating in `readLotteryShiftRaw` so lottery rows + cash math disappear entirely when module disabled. Verified: enabled→4 lottery rows + $140 contribution; disabled→0 rows + $0 contribution. | S | CLAUDE.md S61 |
+| B4 | 2026-04-30 | Multi-cashier same-day handover — `openShift` now writes `shift_boundary` LotteryScanEvent per active box (closeShift already writes `close_day_snapshot` from S44b). New `shiftSales()` in realSales.ts uses bracketing snapshots for per-shift ticket-math; reconciliation service uses it instead of day-by-day `windowSales` for shift-scoped queries. Verified: Day -1 with Alice $10 + Bob $30 split correctly (was attributing whole $40 to one cashier before). | M | CLAUDE.md S62 |
+| B6 | 2026-04-30 | `CashPayout` vs `VendorPayment` reconciliation — `readPayoutBuckets` now also queries `VendorPayment WHERE tenderMethod='cash' AND paymentDate IN [shift.openedAt, shift.closedAt]` and subtracts from `expectedDrawer`. New "Back-Office Vendor Cash Payments" line item in EoD recon. Verified: today's open shift correctly subtracts the seeded $60 cash vendor payment ($209.20 expected drawer); older shifts with no cash VPs unaffected. | M | CLAUDE.md S63 |
 
 ---
 

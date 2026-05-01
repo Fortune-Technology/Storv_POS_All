@@ -28,7 +28,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2 } from 'lucide-react';
-import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory } from '../../api/pos';
+import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory, getPreviousShiftReadings } from '../../api/pos';
 import useConfirm from '../../hooks/useConfirmDialog.jsx';
 import './LotteryShiftModal.css';
 
@@ -105,6 +105,16 @@ export default function LotteryShiftModal({
   // the success screen so the cashier sees what got recorded (which is
   // the same number the back-office Daily page will show).
   const [authoritativeTotal, setAuthoritativeTotal] = useState(null);
+  // Apr 2026 — Fix #3: previous shift's saved cumulative readings (today),
+  // used to compute Shift 2+'s incremental contribution. For Shift 1 of
+  // the day, all zeros (no prior shift). The wizard subtracts these from
+  // the cashier's typed cumulative readings so the Daily Due reflects ONLY
+  // this shift's drawer contribution, not the whole day.
+  const [prevShiftReadings, setPrevShiftReadings] = useState({
+    grossSales: 0, cancels: 0, machineCashing: 0,
+    couponCash: 0, discounts: 0, instantCashing: 0,
+  });
+  const [hasPreviousShift, setHasPreviousShift] = useState(false);
   const scanInputRef = useRef(null);
 
   // Load active boxes + sort by slot number when the modal opens.
@@ -129,6 +139,25 @@ export default function LotteryShiftModal({
       getLotterySettings(storeId)
         .then((s) => setSellDirection(s?.sellDirection === 'asc' ? 'asc' : 'desc'))
         .catch(() => setSellDirection('desc'));
+    }
+    // Fetch prior shift's saved readings (today) for per-shift online delta
+    // math. For Shift 1 of the day this returns all-zeros (no hasPrevious).
+    if (shiftId) {
+      getPreviousShiftReadings({ excludeShiftId: shiftId })
+        .then((r) => {
+          setHasPreviousShift(!!r?.hasPrevious);
+          setPrevShiftReadings(r?.readings || {
+            grossSales: 0, cancels: 0, machineCashing: 0,
+            couponCash: 0, discounts: 0, instantCashing: 0,
+          });
+        })
+        .catch(() => {
+          setHasPreviousShift(false);
+          setPrevShiftReadings({
+            grossSales: 0, cancels: 0, machineCashing: 0,
+            couponCash: 0, discounts: 0, instantCashing: 0,
+          });
+        });
     }
     setAuthoritativeTotal(null);
     // Reset wizard state each open
@@ -205,11 +234,24 @@ export default function LotteryShiftModal({
     // at Step 3, but it's easier to catch the mistake here than there.)
     const box = boxes.find(b => b.id === boxId);
     if (!box) return;
-    const remainingValue = Number(box.totalValue || 0) -
-      Number(box.ticketsSold || 0) * Number(box.ticketPrice || 0);
+    // Apr 2026 — Fix #2: compute remaining from currentTicket direction-aware,
+    // not from stale box.ticketsSold. See LotteryBackOffice.jsx for the same
+    // fix on the back-office SO confirm.
+    const ct = Number(box.currentTicket);
+    const total = Number(box.totalTickets || 0);
+    const price = Number(box.ticketPrice || box.game?.ticketPrice || 0);
+    let remainingTickets;
+    if (Number.isFinite(ct) && total > 0) {
+      remainingTickets = sellDirection === 'asc'
+        ? Math.max(0, total - ct)        // asc: ct..total-1 remaining
+        : Math.max(0, ct + 1);            // desc: 0..ct remaining
+    } else {
+      remainingTickets = Math.max(0, total - Number(box.ticketsSold || 0));
+    }
+    const remainingValue = remainingTickets * price;
     const ok = await confirm({
       title: 'Mark book sold out?',
-      message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?\n\nThis will count the remaining ${fmtL(Math.max(0, remainingValue))} as sold today. Cannot be undone after the shift saves.`,
+      message: `Mark ${box.game?.name || 'book'} ${box.boxNumber} as sold out?\n\nThis will count the remaining ${remainingTickets} ticket${remainingTickets === 1 ? '' : 's'} (${fmtL(remainingValue)}) as sold today. Cannot be undone after the shift saves.`,
       confirmLabel: 'Mark Sold Out',
       danger: true,
     });
@@ -219,16 +261,25 @@ export default function LotteryShiftModal({
 
   // ── Per-box computed data ───────────────────────────────────────────────
   const boxData = useMemo(() => boxes.map(box => {
-    // Yesterday-end resolution priority (most authoritative first):
-    //   1. close_day_snapshot from /yesterday-closes (matches back-office)
-    //   2. lastShiftEndTicket on the box (legacy, set by saveLotteryShiftReport)
-    //   3. startTicket (fresh book activated today, no prior close)
-    //   4. currentTicket (last-resort fallback for legacy data missing the above)
+    // Yesterday-end resolution priority (most authoritative first).
+    // (Apr 2026 — Fix #1: lastShiftEndTicket promoted to FIRST so Shift 2's
+    // wizard correctly starts from Shift 1's same-day close. Previously
+    // /yesterday-closes won and Shift 2 saw actual prior-day's close as its
+    // baseline, double-counting Shift 1's sales into Shift 2's drawer.)
+    //
+    //   1. box.lastShiftEndTicket — set by saveLotteryShiftReport on prior
+    //      shift close. For Shift 2 of the day this is Shift 1's end. For
+    //      Shift 1 this falls through to step 2 (the actual prior day).
+    //   2. close_day_snapshot before today (yesterday's actual close)
+    //   3. startTicket (fresh book activated today, never closed)
+    //   4. currentTicket (last-resort live fallback)
     //   5. '—' (truly no data)
     const snapTicket = yesterdayCloses[box.id]?.ticket;
     const yesterdayEnd =
+      (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== ''
+        ? String(box.lastShiftEndTicket)
+        : null) ||
       (snapTicket != null && snapTicket !== '' ? String(snapTicket) : null) ||
-      box.lastShiftEndTicket ||
       box.startTicket ||
       (box.currentTicket != null && box.currentTicket !== '' ? String(box.currentTicket) : null) ||
       '—';
@@ -290,33 +341,59 @@ export default function LotteryShiftModal({
   };
 
   // ── Step 3 → final report totals ────────────────────────────────────────
+  // Apr 2026 — Fix #3: per-shift online deltas. The cashier reads CUMULATIVE-
+  // DAY totals off the lottery terminal. For Shift 2+, the terminal shows the
+  // FULL DAY's running totals — not just this shift's. To compute this
+  // shift's drawer contribution correctly, we subtract the previous shift's
+  // saved cumulative readings.
+  //
+  //   Shift 1 of day:  prev = (0, 0, 0, 0, 0, 0)  — no prior shift
+  //                    → shift delta = full reading entered by cashier
+  //   Shift 2 of day:  prev = Shift 1's saved readings
+  //                    → shift delta = current reading − Shift 1's reading
+  //
+  // The DB still stores the cumulative reading (LotteryOnlineTotal records
+  // last-write-wins → end-of-day cumulative = last shift's reading). Only
+  // the WIZARD'S DAILY DUE display uses the delta — the cashier sees how
+  // much THEIR shift contributed to the drawer.
   const report = useMemo(() => {
-    const instantSales    = scannedTotal;
-    const instantCashings = onlineNums.instantCashing;
-    // Online sales (net) = gross − cancels − pays/cashes − coupon − discounts
-    // Matches the back-office Online Sales formula.
-    const onlineSalesNet =
-      onlineNums.grossSales -
-      onlineNums.cancels -
-      onlineNums.machineCashing -
-      onlineNums.couponCash -
-      onlineNums.discounts;
-    // Daily Due = (Instant sales − Instant cashings) + Online sales (net)
+    const instantSales = scannedTotal;
+    // Per-shift instant cashings = current reading − prev shift's reading
+    const instantCashings =
+      Math.max(0, onlineNums.instantCashing - (prevShiftReadings.instantCashing || 0));
+    // Per-shift online deltas (against prev shift's saved cumulative reading)
+    const shiftGross    = Math.max(0, onlineNums.grossSales     - (prevShiftReadings.grossSales || 0));
+    const shiftCancels  = Math.max(0, onlineNums.cancels        - (prevShiftReadings.cancels || 0));
+    const shiftPays     = Math.max(0, onlineNums.machineCashing - (prevShiftReadings.machineCashing || 0));
+    const shiftCoupon   = Math.max(0, onlineNums.couponCash     - (prevShiftReadings.couponCash || 0));
+    const shiftDiscount = Math.max(0, onlineNums.discounts      - (prevShiftReadings.discounts || 0));
+    // Online sales (net) for THIS shift only = shift gross − shift deductions
+    const onlineSalesNet = shiftGross - shiftCancels - shiftPays - shiftCoupon - shiftDiscount;
+    // Daily Due = (this shift's instant sales − this shift's instant cashings)
+    //           + (this shift's online net)
     const dailyDue = (instantSales - instantCashings) + onlineSalesNet;
     return {
       instantSales,
       instantCashings,
-      // Per-field cumulative readings (snapshotted at this shift close)
+      // Per-field cumulative readings (the raw numbers entered, used for
+      // the Step 3 line-item display so cashier sees what they entered)
       grossSales:     onlineNums.grossSales,
       cancels:        onlineNums.cancels,
       machineCashing: onlineNums.machineCashing,
       couponCash:     onlineNums.couponCash,
       discounts:      onlineNums.discounts,
-      // Net machine sales (post-deductions, used for top-line summary)
+      // Per-shift deltas (used for the Daily Due math)
+      shiftGross:    Math.round(shiftGross * 100) / 100,
+      shiftCancels:  Math.round(shiftCancels * 100) / 100,
+      shiftPays:     Math.round(shiftPays * 100) / 100,
+      shiftCoupon:   Math.round(shiftCoupon * 100) / 100,
+      shiftDiscount: Math.round(shiftDiscount * 100) / 100,
+      // Net machine sales (post-deductions, used for top-line summary).
+      // For Shift 1 = full day's online net. For Shift 2 = Shift 2's contribution.
       onlineSalesNet: Math.round(onlineSalesNet * 100) / 100,
       dailyDue:       Math.round(dailyDue * 100) / 100,
     };
-  }, [scannedTotal, onlineNums.grossSales, onlineNums.cancels, onlineNums.machineCashing, onlineNums.couponCash, onlineNums.discounts, onlineNums.instantCashing]);
+  }, [scannedTotal, onlineNums.grossSales, onlineNums.cancels, onlineNums.machineCashing, onlineNums.couponCash, onlineNums.discounts, onlineNums.instantCashing, prevShiftReadings]);
 
   // ── Step navigation ─────────────────────────────────────────────────────
   const canNext = () => {
@@ -580,6 +657,13 @@ export default function LotteryShiftModal({
                 Enter the cumulative day totals exactly as shown on the lottery terminal printout.
                 These are <strong>running totals for today</strong>, not just your shift.
               </div>
+              {hasPreviousShift && (
+                <div className="lsm-online-shift2-hint">
+                  ⓘ A previous shift already closed today (gross&nbsp;{fmtL(prevShiftReadings.grossSales)},
+                  pays&nbsp;{fmtL(prevShiftReadings.machineCashing)}). Your shift's contribution
+                  is auto-computed as the delta — your Daily Due reflects YOUR shift only.
+                </div>
+              )}
 
               <OnlineField
                 label="Gross Sales"

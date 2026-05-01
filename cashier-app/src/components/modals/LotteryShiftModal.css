@@ -702,6 +702,20 @@
   font-weight: 800;
 }
 
+/* Shift 2+ hint — shown when a prior shift already closed today.
+   Distinct from the section-hint (amber) so it reads as informational
+   rather than a warning. Apr 2026 — Fix #3. */
+.lsm-online-shift2-hint {
+  grid-column: 1 / -1;
+  background: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  color: #1e40af;
+  line-height: 1.5;
+}
+
 .lsm-online-formula-hint {
   font-size: 0.72rem;
   color: #6b7280;

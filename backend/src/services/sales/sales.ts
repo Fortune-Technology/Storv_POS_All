@@ -6,6 +6,7 @@
 
 import type { Prisma } from '@prisma/client';
 import prisma from '../../config/postgres.js';
+import { formatLocalDate, addOneDay } from '../../utils/dateTz.js';
 
 // ── Domain shapes ──────────────────────────────────────────────────────────
 
@@ -137,7 +138,14 @@ function buildWhere(
 }
 
 // ─── Helper: format date string ─────────────────────────────────────────────
-function toDateStr(d: Date): string {
+// When `tz` is provided, formats the date in that IANA timezone (correct for
+// any server tz). When omitted, falls back to server-local time — kept for
+// callers that don't have a single store context (e.g. multi-store reports).
+//
+// Production deployments where the server tz != store tz MUST always pass tz,
+// otherwise daily-bucketed reports will silently drift around UTC midnight.
+function toDateStr(d: Date, tz?: string): string {
+  if (tz) return formatLocalDate(d, tz);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
@@ -158,6 +166,14 @@ export async function getDailySales(
   from?: string | null,
   to?: string | null,
 ): Promise<SalesEnvelope<SalesBucket>> {
+  // Session 60 — tz-aware bucketing. When a single store is in scope, use its
+  // IANA timezone for day boundaries. Without this, `toDateStr` falls back to
+  // server-local time which silently drifts around UTC midnight whenever the
+  // server tz != store tz (typical for production: server in UTC, store in EDT).
+  const tz = storeId
+    ? (await prisma.store.findUnique({ where: { id: storeId }, select: { timezone: true } }))?.timezone || undefined
+    : undefined;
+
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
     select: { grandTotal: true, subtotal: true, taxTotal: true, depositTotal: true, ebtTotal: true, tenderLines: true, lineItems: true, status: true, createdAt: true },
@@ -166,7 +182,7 @@ export async function getDailySales(
 
   const days: Record<string, SalesBucket> = {};
   for (const tx of txns) {
-    const ds = toDateStr(new Date(tx.createdAt));
+    const ds = toDateStr(new Date(tx.createdAt), tz);
     if (!days[ds]) days[ds] = emptyBucket(ds);
     const d = days[ds];
     // Sign convention (matches EoD aggregateTransactions):
@@ -208,15 +224,26 @@ export async function getDailySales(
     }
   }
 
-  // Fill missing dates with zeros
+  // Fill missing dates with zeros. When tz is set, walk via addOneDay on the
+  // string key so the loop respects the store's local-day cadence (handles
+  // DST transitions correctly). Without tz, fall back to server-local Date
+  // arithmetic for back-compat.
   const result: SalesBucket[] = [];
   if (from && to) {
-    const cur = new Date(`${from}T00:00:00`);
-    const end = new Date(`${to}T00:00:00`);
-    while (cur <= end) {
-      const ds = toDateStr(cur);
-      result.push(days[ds] || emptyBucket(ds));
-      cur.setDate(cur.getDate() + 1);
+    if (tz) {
+      let cur = from;
+      while (cur <= to) {
+        result.push(days[cur] || emptyBucket(cur));
+        cur = addOneDay(cur);
+      }
+    } else {
+      const curD = new Date(`${from}T00:00:00`);
+      const end = new Date(`${to}T00:00:00`);
+      while (curD <= end) {
+        const ds = toDateStr(curD);
+        result.push(days[ds] || emptyBucket(ds));
+        curD.setDate(curD.getDate() + 1);
+      }
     }
   } else {
     result.push(...Object.values(days));
@@ -411,28 +438,60 @@ export async function getDepartmentSales(
   const taxRulesPromise: Promise<TaxRuleRow[]> = orgId
     ? prisma.taxRule.findMany({ where: { orgId, active: true }, select: { appliesTo: true, rate: true, departmentIds: true } })
     : Promise.resolve([]);
-  const [txns, taxRules] = await Promise.all([txnsPromise, taxRulesPromise]);
+  // B7 — fetch real Department names so the response Name field shows the
+  // actual department label (e.g. "Beverages") rather than the line item's
+  // taxClass fallback ("grocery"). Without this, two depts that share a
+  // taxClass (e.g. Grocery + Beverages both 'grocery'-taxed) render with
+  // duplicate Name="grocery" labels even though they have distinct rows.
+  type DeptNameRow = Prisma.DepartmentGetPayload<{ select: { id: true; name: true } }>;
+  const deptNamesPromise: Promise<DeptNameRow[]> = orgId
+    ? prisma.department.findMany({ where: { orgId, active: true }, select: { id: true, name: true } })
+    : Promise.resolve([]);
+  const [txns, taxRules, deptRows] = await Promise.all([txnsPromise, taxRulesPromise, deptNamesPromise]);
+  const deptNameById = new Map<number, string>(deptRows.map((d) => [d.id, d.name]));
 
   // Bug B1 fix: Track distinct transaction IDs per department so
   // TotalTransactionsCount reflects unique baskets, not line-item count.
   // Bug B2 fix applied here too: gross = line total BEFORE discount (unit × qty),
   // net = line total AFTER discount (li.lineTotal).
   //
-  // Session 20 enhancement — per-department tax attribution:
-  // Tax is NOT stored per line, so we recompute it at report time by matching
-  // each line's taxClass against the store's active tax rules (same matchTax
-  // logic the cashier uses). When rules haven't changed between save-time and
-  // report-time, the aggregate tax matches tx.taxTotal exactly. If rules HAVE
-  // changed since sales were recorded, numbers may drift — to avoid that we'd
-  // need per-line taxAmount stored at save-time (not done yet).
+  // B8 (Session 59) — per-department tax attribution rewrite:
+  //   Previous approach recomputed tax per line via taxRules and SKIPPED any
+  //   `ebtEligible` line, which incorrectly zeroed tax for grocery / beverage
+  //   departments whose products are EBT-eligible but were paid by cash/card.
+  //
+  //   New approach: compute each line's notional tax via the matching rule
+  //   (without EBT skip), then PRO-RATE the tx's actual `taxTotal` across
+  //   those notional amounts. This guarantees per-dept tax sums to exactly
+  //   tx.taxTotal — correct for cash, card, EBT, mixed, and any future tender.
+  //   Falls back to even distribution by lineTotal when no rule matches any
+  //   line (preserves visibility for legacy data).
   const depts: Record<string, DepartmentSalesAccumulator> = {};
   for (const tx of txns) {
     const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as PosLineItem[];
     const isRefund = tx.status === 'refund';
     const seenInThisTx = new Set<string>();
+
+    // First pass: aggregate non-tax fields and compute notional per-line tax.
+    interface LineAcc {
+      deptId: string;
+      deptName: string;
+      deptIdRaw: string | number;
+      lineTotal: number;     // signed (negative for refund)
+      grossLine: number;     // signed
+      qty: number;           // signed
+      notionalTax: number;   // unsigned, pre-scaling
+    }
+    const lineAccs: LineAcc[] = [];
+    let notionalTaxTotal = 0;
+
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
-      const deptName = li.departmentName || li.taxClass || 'Other';
+      // B7 — prefer Name from Department table when departmentId is set;
+      // fall back to li.departmentName, then li.taxClass, then 'Other'.
+      const lineDeptId = li.departmentId ? Number(li.departmentId) : null;
+      const lookedUpName = lineDeptId != null ? deptNameById.get(lineDeptId) : null;
+      const deptName = lookedUpName || li.departmentName || li.taxClass || 'Other';
       const deptIdRaw = li.departmentId || deptName;
       const deptId = String(deptIdRaw);
       if (!depts[deptId]) {
@@ -465,10 +524,10 @@ export async function getDepartmentSales(
       d.TotalItems      += qty;
       d.ItemsSold       += qty;
 
-      // Per-line tax match — Option B (dept-linked rules win, class matcher
-      // is the legacy fallback). Skip EBT-eligible / non-taxable lines.
-      if (li.taxable && !li.ebtEligible) {
-        const lineDeptId = li.departmentId ? Number(li.departmentId) : null;
+      // Notional tax — match rule by departmentId (Option B) then taxClass.
+      // Pro-ration scales these to the tx's actual taxTotal in pass 2.
+      let notionalTax = 0;
+      if (li.taxable) {
         const deptRule = lineDeptId
           ? taxRules.find((r) => Array.isArray(r.departmentIds) && r.departmentIds.includes(lineDeptId))
           : null;
@@ -476,12 +535,37 @@ export async function getDepartmentSales(
           (r) => (!r.departmentIds || r.departmentIds.length === 0) && matchTaxRule(r.appliesTo, li.taxClass),
         );
         const rate = rule ? parseFloat(String(rule.rate)) : 0;
-        d.TotalTaxCollected += lineTotal * rate;
+        notionalTax = Math.abs(rawLineTotal) * rate;
       }
+      notionalTaxTotal += notionalTax;
+
+      lineAccs.push({ deptId, deptName, deptIdRaw, lineTotal, grossLine, qty, notionalTax });
 
       if (!isRefund && !seenInThisTx.has(deptId)) {
         d._txSet.add(tx.id);
         seenInThisTx.add(deptId);
+      }
+    }
+
+    // Second pass: pro-rate this tx's actual taxTotal across its lines by
+    // notional-tax share. Refund txs have negative tax; preserve sign.
+    const actualTax = Math.abs(Number(tx.taxTotal) || 0);
+    const taxSign = isRefund ? -1 : 1;
+    if (actualTax > 0 && notionalTaxTotal > 0) {
+      for (const la of lineAccs) {
+        if (la.notionalTax === 0) continue;
+        const share = la.notionalTax / notionalTaxTotal;
+        depts[la.deptId].TotalTaxCollected += taxSign * actualTax * share;
+      }
+    } else if (actualTax > 0 && notionalTaxTotal === 0) {
+      // No rules matched any line — fall back to even distribution by
+      // |lineTotal| share so tax still surfaces somewhere (better than 0).
+      const taxableSubtotal = lineAccs.reduce((s, la) => s + Math.abs(la.lineTotal), 0);
+      if (taxableSubtotal > 0) {
+        for (const la of lineAccs) {
+          const share = Math.abs(la.lineTotal) / taxableSubtotal;
+          depts[la.deptId].TotalTaxCollected += taxSign * actualTax * share;
+        }
       }
     }
   }

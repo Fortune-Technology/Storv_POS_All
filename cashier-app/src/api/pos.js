@@ -330,6 +330,14 @@ export const getLotterySettings = (storeId) =>
 export const getDailyLotteryInventory = (params) =>
   api.get('/lottery/daily-inventory', { params }).then(r => r.data?.data ?? r.data);
 
+// Latest LotteryShiftReport closed today excluding this shift. Used by
+// the EoD wizard to compute Shift 2+'s INCREMENTAL online deltas (Shift
+// 2's Daily Due = (this shift's online readings − previous shift's saved
+// readings) + this shift's instant scan delta). Without this, Shift 2
+// double-counts Shift 1's online activity into its drawer reconciliation.
+export const getPreviousShiftReadings = (params) =>
+  api.get('/lottery/previous-shift-readings', { params }).then(r => r.data);
+
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>
   api.get('/fuel/types', { params: { storeId } })
