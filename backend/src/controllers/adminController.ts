@@ -15,6 +15,7 @@ import { sendUserApproved, sendUserRejected, sendUserSuspended } from '../servic
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { logAudit } from '../services/auditService.js';
 import { computeDiff, hasChanges } from '../services/auditDiff.js';
+import { validatePassword } from '../utils/validators.js';
 
 // ─────────────────────────────────────────────────────────────
 // DASHBOARD
@@ -109,22 +110,44 @@ export const getDashboardStats = async (_req: Request, res: Response, next: Next
 // USER MANAGEMENT (cross-org)
 // ─────────────────────────────────────────────────────────────
 
-/* GET /api/admin/users?status=pending&search=john&page=1&limit=25 */
+/* GET /api/admin/users?status=pending&search=john&page=1&limit=25
+ *
+ * Optional `orgId` filter narrows to users in that org (via UserOrg or
+ * legacy User.orgId). Optional `storeId` narrows to users bound to that
+ * store via UserStore. Both are used by the unified Org→Store→User page
+ * to render nested user lists.
+ */
 export const getAllUsers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const q = req.query as { status?: string; search?: string; page?: string; limit?: string };
-    const { status, search } = q;
+    const q = req.query as { status?: string; search?: string; page?: string; limit?: string; orgId?: string; storeId?: string };
+    const { status, search, orgId, storeId } = q;
     const page = q.page || '1';
     const limit = q.limit || '25';
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where: Prisma.UserWhereInput = {};
     if (status) where.status = status;
-    if (search) {
+    if (orgId) {
       where.OR = [
+        { orgId },
+        { orgs: { some: { orgId } } },
+      ];
+    }
+    if (storeId) {
+      where.stores = { some: { storeId } };
+    }
+    if (search) {
+      const searchOR: Prisma.UserWhereInput[] = [
         { name:  { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
       ];
+      // If we already used OR for orgId scoping, AND the search OR onto it.
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchOR }];
+        delete where.OR;
+      } else {
+        where.OR = searchOR;
+      }
     }
 
     const [users, total] = await Promise.all([
@@ -257,16 +280,26 @@ interface CreateUserBody {
 
 export const createUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const body = (req.body || {}) as CreateUserBody;
-    const { name, email, phone, role, orgId, status } = body;
+    const body = (req.body || {}) as CreateUserBody & { password?: string; storeId?: string };
+    const { name, email, phone, role, orgId, status, password, storeId } = body;
     if (!name || !email || !orgId) { res.status(400).json({ error: 'Name, email, and organization are required' }); return; }
 
     const existing = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (existing) { res.status(400).json({ error: 'A user with this email already exists' }); return; }
 
-    // Generate a fresh random password per user. Plaintext returned ONCE.
-    const plainTemp = generateTempPassword();
-    const hashed = await bcrypt.hash(plainTemp, 12);
+    // If admin supplied a password, validate against the policy and use it.
+    // Otherwise generate a random one and return it once for out-of-band delivery.
+    let plainTemp: string | null = null;
+    let chosen: string;
+    if (password && password.length > 0) {
+      const pwErr = validatePassword(password);
+      if (pwErr) { res.status(400).json({ error: pwErr }); return; }
+      chosen = password;
+    } else {
+      plainTemp = generateTempPassword();
+      chosen = plainTemp;
+    }
+    const hashed = await bcrypt.hash(chosen, 12);
     const user = await prisma.user.create({
       data: {
         name:   name.trim(),
@@ -290,6 +323,16 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
       select: { id: true, name: true, email: true, role: true, status: true, orgId: true, createdAt: true },
     });
 
+    // Optional: bind to a specific store. Used by the unified Org→Store→User
+    // page when creating a user inside a particular store. Best-effort.
+    if (storeId) {
+      try {
+        await prisma.userStore.create({ data: { userId: user.id, storeId } });
+      } catch (err) {
+        console.warn('createUser: failed to bind UserStore:', (err as Error).message);
+      }
+    }
+
     await syncUserDefaultRole(user.id).catch((err: Error) => console.warn('syncUserDefaultRole:', err.message));
 
     logAudit(req, 'create', 'user', user.id, {
@@ -297,15 +340,20 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
       email: user.email,
       role: user.role,
       orgId: user.orgId,
+      storeId: storeId ?? null,
       adminCreated: true,
+      passwordSetByAdmin: !plainTemp,
     });
 
-    // Return the temp password exactly once. Admin must deliver it out-of-band.
+    // If admin set the password explicitly, don't echo it back. If we
+    // generated one, return it ONCE for out-of-band delivery.
     res.status(201).json({
       success: true,
       data: user,
       tempPassword: plainTemp,
-      notice: 'Deliver this temporary password to the user securely. It will not be shown again.',
+      notice: plainTemp
+        ? 'Deliver this temporary password to the user securely. It will not be shown again.'
+        : 'User created with the password you supplied.',
     });
   } catch (error) {
     next(error);
@@ -551,12 +599,35 @@ export const updateOrganization = async (req: Request, res: Response, next: Next
   }
 };
 
-/* POST /api/admin/organizations — create org */
+/* POST /api/admin/organizations — create org
+ *
+ * Optionally creates an owner user atomically when ownerEmail + ownerPassword
+ * + ownerName are supplied (used by the unified Org→Store→User admin page so
+ * a brand-new org has someone who can log in immediately).
+ */
 export const createOrganization = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const body = (req.body || {}) as { name?: string; slug?: string; plan?: string; billingEmail?: string; maxStores?: number | string; maxUsers?: number | string };
-    const { name, slug, plan, billingEmail, maxStores, maxUsers } = body;
+    const body = (req.body || {}) as {
+      name?: string; slug?: string; plan?: string; billingEmail?: string;
+      maxStores?: number | string; maxUsers?: number | string;
+      ownerName?: string; ownerEmail?: string; ownerPassword?: string;
+    };
+    const { name, slug, plan, billingEmail, maxStores, maxUsers, ownerName, ownerEmail, ownerPassword } = body;
     if (!name || !slug) { res.status(400).json({ error: 'Name and slug are required' }); return; }
+
+    // If owner credentials are supplied, validate up-front before creating
+    // the org so we don't end up with an orphan org if the owner save fails.
+    let ownerHashed: string | null = null;
+    if (ownerEmail || ownerPassword || ownerName) {
+      if (!ownerEmail || !ownerPassword || !ownerName) {
+        res.status(400).json({ error: 'Owner name, email, and password must all be provided together' }); return;
+      }
+      const pwErr = validatePassword(ownerPassword);
+      if (pwErr) { res.status(400).json({ error: pwErr }); return; }
+      const existing = await prisma.user.findUnique({ where: { email: ownerEmail.trim().toLowerCase() } });
+      if (existing) { res.status(400).json({ error: 'A user with the owner email already exists' }); return; }
+      ownerHashed = await bcrypt.hash(ownerPassword, 12);
+    }
 
     const org = await prisma.organization.create({
       data: {
@@ -568,13 +639,31 @@ export const createOrganization = async (req: Request, res: Response, next: Next
       },
     });
 
+    let owner = null;
+    if (ownerHashed && ownerEmail && ownerName) {
+      owner = await prisma.user.create({
+        data: {
+          name:     ownerName.trim(),
+          email:    ownerEmail.trim().toLowerCase(),
+          password: ownerHashed,
+          role:     'owner',
+          status:   'active',
+          orgId:    org.id,
+          orgs: { create: { orgId: org.id, role: 'owner', isPrimary: true, invitedById: req.user?.id ?? null } },
+        },
+        select: { id: true, name: true, email: true, role: true, status: true },
+      });
+      await syncUserDefaultRole(owner.id).catch((err: Error) => console.warn('syncUserDefaultRole:', err.message));
+    }
+
     logAudit(req, 'create', 'organization', org.id, {
       name: org.name,
       slug: org.slug,
       plan: org.plan,
+      ownerCreated: !!owner,
     });
 
-    res.status(201).json({ success: true, data: org });
+    res.status(201).json({ success: true, data: org, owner });
   } catch (error) {
     const e = error as { code?: string };
     if (e.code === 'P2002') { res.status(400).json({ error: 'An organization with this slug already exists' }); return; }
@@ -606,12 +695,13 @@ export const softDeleteOrganization = async (req: Request, res: Response, next: 
 /* GET /api/admin/stores?search=main&page=1&limit=25 */
 export const getAllStores = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const q = req.query as { search?: string; page?: string; limit?: string };
-    const { search } = q;
+    const q = req.query as { search?: string; page?: string; limit?: string; orgId?: string };
+    const { search, orgId } = q;
     const page = q.page || '1';
     const limit = q.limit || '25';
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const where: Prisma.StoreWhereInput = {};
+    if (orgId) where.orgId = orgId;
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -639,25 +729,64 @@ export const getAllStores = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-/* POST /api/admin/stores — create store */
+/* POST /api/admin/stores — create store
+ *
+ * Optionally creates a manager user atomically when managerEmail +
+ * managerPassword + managerName are supplied. The new user is bound to
+ * this specific store via UserStore.
+ */
 export const createStore = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const body = (req.body || {}) as { name?: string; orgId?: string; address?: string; stationCount?: number | string };
-    const { name, orgId, address, stationCount } = body;
+    const body = (req.body || {}) as {
+      name?: string; orgId?: string; address?: string; stationCount?: number | string;
+      managerName?: string; managerEmail?: string; managerPassword?: string;
+    };
+    const { name, orgId, address, stationCount, managerName, managerEmail, managerPassword } = body;
     if (!name || !orgId) { res.status(400).json({ error: 'Name and organization are required' }); return; }
+
+    let managerHashed: string | null = null;
+    if (managerEmail || managerPassword || managerName) {
+      if (!managerEmail || !managerPassword || !managerName) {
+        res.status(400).json({ error: 'Manager name, email, and password must all be provided together' }); return;
+      }
+      const pwErr = validatePassword(managerPassword);
+      if (pwErr) { res.status(400).json({ error: pwErr }); return; }
+      const existing = await prisma.user.findUnique({ where: { email: managerEmail.trim().toLowerCase() } });
+      if (existing) { res.status(400).json({ error: 'A user with the manager email already exists' }); return; }
+      managerHashed = await bcrypt.hash(managerPassword, 12);
+    }
 
     const store = await prisma.store.create({
       data: { name, orgId, address: address || null, stationCount: stationCount ? parseInt(String(stationCount)) : 1 },
     });
+
+    let manager = null;
+    if (managerHashed && managerEmail && managerName) {
+      manager = await prisma.user.create({
+        data: {
+          name:     managerName.trim(),
+          email:    managerEmail.trim().toLowerCase(),
+          password: managerHashed,
+          role:     'manager',
+          status:   'active',
+          orgId,
+          orgs:   { create: { orgId, role: 'manager', isPrimary: true, invitedById: req.user?.id ?? null } },
+          stores: { create: { storeId: store.id } },
+        },
+        select: { id: true, name: true, email: true, role: true, status: true },
+      });
+      await syncUserDefaultRole(manager.id).catch((err: Error) => console.warn('syncUserDefaultRole:', err.message));
+    }
 
     logAudit(req, 'create', 'store', store.id, {
       name: store.name,
       orgId: store.orgId,
       address: store.address ?? null,
       adminCreated: true,
+      managerCreated: !!manager,
     });
 
-    res.status(201).json({ success: true, data: store });
+    res.status(201).json({ success: true, data: store, manager });
   } catch (error) {
     next(error);
   }

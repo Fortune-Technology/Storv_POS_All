@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, ChevronRight, Loader, Eye, EyeOff } from 'lucide-react';
 import { login } from '../services/api';
 import { toast } from 'react-toastify';
@@ -74,7 +74,10 @@ const Login = () => {
           </div>
 
           <div className="al-field">
-            <label className="al-label">Password</label>
+            <div className="al-label-row">
+              <label className="al-label">Password</label>
+              <Link to="/forgot-password" className="al-forgot-link">Forgot password?</Link>
+            </div>
             <div className="al-input-wrap">
               <span className="al-input-icon"><Lock size={18} /></span>
               <input

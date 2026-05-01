@@ -56,6 +56,23 @@
   margin-bottom: 0.375rem;
 }
 
+.al-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.al-forgot-link {
+  font-size: 0.75rem;
+  color: #3d56b5;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.al-forgot-link:hover {
+  text-decoration: underline;
+}
+
 .al-input-wrap {
   position: relative;
 }

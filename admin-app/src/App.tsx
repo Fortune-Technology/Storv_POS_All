@@ -9,9 +9,11 @@ import AdminLayout from './components/AdminLayout';
 
 // Pages
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import AdminProfile from './pages/AdminProfile';
 import AdminDashboard from './pages/AdminDashboard';
-import AdminUsers from './pages/AdminUsers';
-import AdminOrganizations from './pages/AdminOrganizations';
+import AdminOrgStoreUser from './pages/AdminOrgStoreUser';
 import AdminCmsPages from './pages/AdminCmsPages';
 import AdminCareers from './pages/AdminCareers';
 import AdminCareerApplications from './pages/AdminCareerApplications';
@@ -21,7 +23,6 @@ import AdminAnalytics from './pages/AdminAnalytics';
 import AdminOrgAnalytics from './pages/AdminOrgAnalytics';
 import AdminStorePerformance from './pages/AdminStorePerformance';
 import AdminUserActivity from './pages/AdminUserActivity';
-import AdminStores from './pages/AdminStores';
 import AdminMerchants       from './pages/AdminMerchants';
 import AdminBilling         from './pages/AdminBilling';
 import AdminChat            from './pages/AdminChat';
@@ -56,16 +57,17 @@ function App() {
       <Routes>
         {/* Public */}
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Protected admin routes */}
         <Route path="/dashboard" element={<ProtectedRoute><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><AdminLayout><AdminProfile /></AdminLayout></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><AdminLayout><AdminAnalytics /></AdminLayout></ProtectedRoute>} />
         <Route path="/analytics/organizations" element={<ProtectedRoute><AdminLayout><AdminOrgAnalytics /></AdminLayout></ProtectedRoute>} />
         <Route path="/analytics/stores" element={<ProtectedRoute><AdminLayout><AdminStorePerformance /></AdminLayout></ProtectedRoute>} />
         <Route path="/analytics/users" element={<ProtectedRoute><AdminLayout><AdminUserActivity /></AdminLayout></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute><AdminLayout><AdminUsers /></AdminLayout></ProtectedRoute>} />
-        <Route path="/organizations" element={<ProtectedRoute><AdminLayout><AdminOrganizations /></AdminLayout></ProtectedRoute>} />
-        <Route path="/stores" element={<ProtectedRoute><AdminLayout><AdminStores /></AdminLayout></ProtectedRoute>} />
+        <Route path="/org-store" element={<ProtectedRoute><AdminLayout><AdminOrgStoreUser /></AdminLayout></ProtectedRoute>} />
         <Route path="/cms" element={<ProtectedRoute><AdminLayout><AdminCmsPages /></AdminLayout></ProtectedRoute>} />
         <Route path="/careers" element={<ProtectedRoute><AdminLayout><AdminCareers /></AdminLayout></ProtectedRoute>} />
         <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminLayout><AdminCareerApplications /></AdminLayout></ProtectedRoute>} />

@@ -199,6 +199,23 @@ const TEMPLATES = {
       { key: 'info', label: 'Contact Details', fields: [{ name: 'phone', type: 'text', default: '(555) 123-4567' }, { name: 'email', type: 'text', default: 'hello@mystore.com' }, { name: 'address', type: 'text', default: '123 Main Street, Anytown, USA' }, { name: 'hours', type: 'text', default: 'Mon-Sat 7AM-10PM, Sun 8AM-9PM' }] },
     ]},
   ],
+  product: [
+    { id: 'product-classic-split', name: 'Classic Split', Icon: SplitSquareHorizontal, desc: 'Image left, info + add-to-cart right', sections: [
+      { key: 'meta', label: 'Page Meta', fields: [{ name: 'sectionTitle', type: 'text', default: 'Product Details' }] },
+    ]},
+    { id: 'product-modern-stacked', name: 'Modern Stacked', Icon: PanelTop, desc: 'Full-width hero image, info card overlapping below', sections: [
+      { key: 'meta', label: 'Page Meta', fields: [{ name: 'sectionTitle', type: 'text', default: 'Product Details' }] },
+    ]},
+    { id: 'product-minimal-centered', name: 'Minimal Centered', Icon: Minus, desc: 'Single column, generous whitespace, editorial feel', sections: [
+      { key: 'meta', label: 'Page Meta', fields: [{ name: 'sectionTitle', type: 'text', default: 'Product Details' }] },
+    ]},
+    { id: 'product-floating-card', name: 'Floating Card', Icon: LayoutGrid, desc: 'Background image with floating white info card', sections: [
+      { key: 'meta', label: 'Page Meta', fields: [{ name: 'sectionTitle', type: 'text', default: 'Product Details' }] },
+    ]},
+    { id: 'product-gallery-focus', name: 'Gallery Focus', Icon: Columns, desc: 'Large image left, sticky info column right with thumbnails', sections: [
+      { key: 'meta', label: 'Page Meta', fields: [{ name: 'sectionTitle', type: 'text', default: 'Product Details' }] },
+    ]},
+  ],
 };
 
 /* ── SVG Template Previews ────────────────────────────────────────── */
@@ -223,6 +240,12 @@ function TemplatePreview({ templateId }) {
     'contact-minimal': S(<><rect x="30" y="20" width="140" height="100" rx="8" fill="#f8fafc" stroke="#e2e8f0"/><rect x="60" y="30" width="80" height="8" rx="2" fill="#94a3b8"/><rect x="50" y="42" width="100" height="4" rx="1" fill="#e2e8f0"/><rect x="45" y="54" width="110" height="8" rx="3" fill="#e2e8f0"/><rect x="45" y="68" width="110" height="8" rx="3" fill="#e2e8f0"/><rect x="45" y="82" width="110" height="18" rx="3" fill="#e2e8f0"/><rect x="65" y="106" width="70" height="10" rx="4" fill="#3d56b5"/></>),
     'contact-map': S(<><rect x="0" y="0" width="200" height="50" fill="#e2e8f0"/><circle cx="100" cy="22" r="8" fill="#94a3b8"/><rect x="60" y="36" width="80" height="5" rx="1" fill="#cbd5e1"/><rect x="10" y="58" width="85" height="4" rx="1" fill="#94a3b8"/><rect x="10" y="68" width="70" height="4" rx="1" fill="#e2e8f0"/><rect x="10" y="78" width="75" height="4" rx="1" fill="#e2e8f0"/><rect x="10" y="88" width="60" height="4" rx="1" fill="#e2e8f0"/><rect x="105" y="58" width="85" height="10" rx="3" fill="#e2e8f0"/><rect x="105" y="74" width="85" height="10" rx="3" fill="#e2e8f0"/><rect x="105" y="90" width="85" height="28" rx="3" fill="#e2e8f0"/><rect x="105" y="124" width="50" height="10" rx="4" fill="#3d56b5"/></>),
     'contact-floating': S(<><rect x="0" y="0" width="200" height="140" rx="0" fill="#1e293b"/><rect x="30" y="15" width="140" height="110" rx="8" fill="#fff"/><rect x="60" y="25" width="80" height="8" rx="2" fill="#94a3b8"/><rect x="50" y="38" width="100" height="4" rx="1" fill="#e2e8f0"/><rect x="45" y="50" width="110" height="8" rx="3" fill="#f1f5f9"/><rect x="45" y="64" width="110" height="8" rx="3" fill="#f1f5f9"/><rect x="45" y="78" width="110" height="18" rx="3" fill="#f1f5f9"/><rect x="65" y="102" width="70" height="10" rx="4" fill="#3d56b5"/></>),
+    // Product Detail
+    'product-classic-split': S(<><rect x="10" y="15" width="80" height="110" rx="4" fill="#f1f5f9" stroke="#e2e8f0"/><rect x="100" y="20" width="40" height="5" rx="1" fill="#cbd5e1"/><rect x="100" y="32" width="80" height="10" rx="2" fill="#94a3b8"/><rect x="100" y="48" width="50" height="4" rx="1" fill="#e2e8f0"/><rect x="100" y="60" width="35" height="14" rx="2" fill="#3d56b5" opacity=".7"/><rect x="100" y="82" width="80" height="3" rx="1" fill="#e2e8f0"/><rect x="100" y="90" width="80" height="3" rx="1" fill="#e2e8f0"/><rect x="100" y="98" width="60" height="3" rx="1" fill="#e2e8f0"/><rect x="100" y="112" width="80" height="14" rx="3" fill="#3d56b5"/></>),
+    'product-modern-stacked': S(<><rect x="0" y="0" width="200" height="60" fill="#cbd5e1"/><rect x="20" y="50" width="160" height="80" rx="6" fill="#fff" stroke="#e2e8f0"/><rect x="30" y="60" width="40" height="4" rx="1" fill="#cbd5e1"/><rect x="30" y="70" width="100" height="8" rx="2" fill="#94a3b8"/><rect x="30" y="84" width="40" height="10" rx="2" fill="#3d56b5" opacity=".7"/><rect x="30" y="100" width="140" height="3" rx="1" fill="#e2e8f0"/><rect x="30" y="108" width="120" height="3" rx="1" fill="#e2e8f0"/><rect x="30" y="118" width="100" height="10" rx="3" fill="#3d56b5"/></>),
+    'product-minimal-centered': S(<><rect x="50" y="15" width="100" height="55" rx="4" fill="#f8fafc" stroke="#e2e8f0"/><rect x="80" y="78" width="40" height="3" rx="1" fill="#cbd5e1"/><rect x="60" y="86" width="80" height="9" rx="2" fill="#94a3b8"/><rect x="80" y="100" width="40" height="9" rx="2" fill="#3d56b5" opacity=".7"/><rect x="55" y="115" width="90" height="10" rx="3" fill="#3d56b5"/><rect x="40" y="130" width="120" height="2" rx="1" fill="#e2e8f0"/></>),
+    'product-floating-card': S(<><rect x="0" y="0" width="200" height="140" fill="#1e293b"/><rect x="0" y="0" width="200" height="140" fill="rgba(0,0,0,0.4)"/><rect x="20" y="25" width="100" height="90" rx="8" fill="#fff"/><rect x="30" y="35" width="40" height="4" rx="1" fill="#cbd5e1"/><rect x="30" y="45" width="80" height="8" rx="2" fill="#94a3b8"/><rect x="30" y="60" width="35" height="9" rx="2" fill="#3d56b5" opacity=".7"/><rect x="30" y="78" width="80" height="3" rx="1" fill="#e2e8f0"/><rect x="30" y="86" width="70" height="3" rx="1" fill="#e2e8f0"/><rect x="30" y="98" width="80" height="10" rx="3" fill="#3d56b5"/></>),
+    'product-gallery-focus': S(<><rect x="10" y="10" width="100" height="100" rx="4" fill="#f1f5f9" stroke="#e2e8f0"/><rect x="10" y="116" width="20" height="14" rx="2" fill="#0f172a"/><rect x="34" y="116" width="20" height="14" rx="2" fill="#f1f5f9" stroke="#e2e8f0"/><rect x="58" y="116" width="20" height="14" rx="2" fill="#f1f5f9" stroke="#e2e8f0"/><rect x="120" y="14" width="35" height="4" rx="1" fill="#cbd5e1"/><rect x="120" y="24" width="70" height="9" rx="2" fill="#94a3b8"/><rect x="120" y="42" width="40" height="11" rx="2" fill="#3d56b5" opacity=".7"/><rect x="120" y="60" width="70" height="3" rx="1" fill="#e2e8f0"/><rect x="120" y="68" width="60" height="3" rx="1" fill="#e2e8f0"/><rect x="120" y="82" width="70" height="11" rx="3" fill="#3d56b5"/><rect x="120" y="100" width="50" height="3" rx="1" fill="#e2e8f0"/><rect x="120" y="108" width="60" height="3" rx="1" fill="#e2e8f0"/></>),
   };
   return previewMap[templateId] || null;
 }
@@ -779,14 +802,15 @@ export default function EcomSetup() {
           <div className="es-section-title">Website Pages</div>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>Choose a template for each page, then edit the content.</p>
 
-          {['home', 'about', 'contact'].map(pageType => {
+          {['home', 'about', 'contact', 'product'].map(pageType => {
             const existing = pages.find(p => p.pageType === pageType);
             const templates = TEMPLATES[pageType] || [];
+            const labelMap = { home: 'Home', about: 'About', contact: 'Contact', product: 'Product Detail' };
             return (
               <div key={pageType} className="es-page-type-section">
                 <div className="es-page-type-header">
                   <div>
-                    <span className="es-page-type-name">{pageType.charAt(0).toUpperCase() + pageType.slice(1)} Page</span>
+                    <span className="es-page-type-name">{labelMap[pageType]} Page</span>
                     {existing ? <span className="es-page-type-status es-page-type-status--created">Created</span> : <span className="es-page-type-status es-page-type-status--missing">Not created</span>}
                   </div>
                   {existing && (
