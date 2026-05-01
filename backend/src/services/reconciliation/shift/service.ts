@@ -49,7 +49,13 @@ export async function reconcileShift(args: ReconcileShiftArgs): Promise<ShiftRec
       windowStart: start,
       windowEnd: end,
     }),
-    readPayoutBuckets(shiftId),
+    readPayoutBuckets({
+      shiftId,
+      orgId: shift.orgId,
+      storeId: shift.storeId,
+      windowStart: start,
+      windowEnd: end,
+    }),
     readLotteryShiftRaw({
       orgId: shift.orgId,
       storeId: shift.storeId,

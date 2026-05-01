@@ -32,6 +32,19 @@ import type {
   SalesSource,
 } from './types.js';
 
+// Timezone-aware day-boundary helpers were inlined here when first introduced
+// (B9 — Session 59). Extracted to `utils/dateTz.ts` (Session 60) so other
+// reporting surfaces (sales/daily, sales/departments, EoD) can share them
+// without depending on the lottery module. Re-exported below for backward
+// compat with callers that import from `services/lottery/reporting/index.js`.
+import {
+  formatLocalDate,
+  localDayStartUTC,
+  localDayEndUTC,
+  addOneDay,
+} from '../../../utils/dateTz.js';
+export { formatLocalDate, localDayStartUTC, localDayEndUTC };
+
 type ScanEventParsed = Record<string, unknown>;
 
 interface BoxSnapshotRow {
@@ -328,14 +341,21 @@ export async function bestEffortDailySales(args: BestEffortArgs): Promise<DailyS
  * by-day calling {@link bestEffortDailySales}. Used by dashboard, reports,
  * commission report, weekly settlement so they all share one source of
  * truth instead of summing `LotteryTransaction` rows directly.
+ *
+ * **Timezone (B9 fix)**: when `timezone` is supplied, day boundaries are
+ * computed in that IANA timezone. close_day_snapshot events written at
+ * local 22:00 will fall correctly into the local-day's bucket instead of
+ * leaking into the next UTC day. When `timezone` is omitted (or `'UTC'`),
+ * behaves identically to the pre-B9 implementation — UTC day boundaries.
  */
-export async function rangeSales(args: RangeSalesArgs): Promise<RangeSalesResult> {
+export async function rangeSales(args: RangeSalesArgs & { timezone?: string }): Promise<RangeSalesResult> {
   const { orgId, storeId, from, to } = args;
+  const tz = args.timezone || 'UTC';
 
-  const start = new Date(from);
-  start.setUTCHours(0, 0, 0, 0);
-  const end = new Date(to);
-  end.setUTCHours(23, 59, 59, 999);
+  // Compute the inclusive local-date span [fromLocal..toLocal] in `tz`.
+  const fromLocal = formatLocalDate(from, tz);
+  const toLocal = formatLocalDate(to, tz);
+  const todayLocal = formatLocalDate(new Date(), tz);
 
   const allBoxes = (await prisma.lotteryBox.findMany({
     where: { orgId, storeId },
@@ -348,23 +368,18 @@ export async function rangeSales(args: RangeSalesArgs): Promise<RangeSalesResult
   let totalSales = 0;
   const sourcesUsed = new Set<SalesSource>();
 
-  const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
-
   let safety = 0;
-  const cursor = new Date(start);
-  while (cursor <= end && safety++ < 366) {
-    const dayStart = new Date(cursor);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dayEnd = new Date(cursor);
-    dayEnd.setUTCHours(23, 59, 59, 999);
-    const isToday = dayStart.getTime() === now.getTime();
+  let cursorLocal = fromLocal;
+  while (cursorLocal <= toLocal && safety++ < 400) {
+    const dayStart = localDayStartUTC(cursorLocal, tz);
+    const dayEnd = localDayEndUTC(cursorLocal, tz);
+    const isToday = cursorLocal === todayLocal;
 
     const day = await bestEffortDailySales({ orgId, storeId, dayStart, dayEnd, isToday });
     sourcesUsed.add(day.source);
 
     byDay.push({
-      date: dayStart.toISOString().slice(0, 10),
+      date: cursorLocal,
       sales: day.totalSales,
       source: day.source,
     });
@@ -386,7 +401,7 @@ export async function rangeSales(args: RangeSalesArgs): Promise<RangeSalesResult
         byGame.set(gameId, cur);
       }
     }
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    cursorLocal = addOneDay(cursorLocal);
   }
 
   let source: RangeSalesResult['source'] = 'empty';
@@ -400,6 +415,134 @@ export async function rangeSales(args: RangeSalesArgs): Promise<RangeSalesResult
     byDay,
     byGame,
     source,
+  };
+}
+
+/**
+ * Per-shift ticket-math sales (B4 — Session 62).
+ *
+ * Looks up bracketing snapshot events around the shift window:
+ *   • starting position: latest `close_day_snapshot` OR `shift_boundary`
+ *     event AT or BEFORE shift.openedAt
+ *   • ending position: latest `close_day_snapshot` OR `shift_boundary`
+ *     event AT or BEFORE shift.closedAt (or now, for open shifts)
+ *
+ * Sales = Σ |startTicket − endTicket| × ticketPrice for each active box.
+ *
+ * Falls back to `lastShiftEndTicket` then `startTicket` when the box has
+ * no prior snapshot — matches `snapshotSales`' priorPosition() chain.
+ *
+ * For overlapping shifts (e.g. handover with both cashiers on for 30 min),
+ * tickets sold during the overlap appear in BOTH shifts' deltas — minor
+ * double-count that's accepted as a known limitation. The cleaner fix
+ * (per-cashier ticket attribution during overlap) requires per-tx station
+ * data which the system doesn't have for lottery (single physical book on
+ * the counter).
+ */
+export async function shiftSales(args: {
+  orgId: string;
+  storeId: string;
+  /** Shift's opened-at instant (UTC). */
+  openedAt: Date;
+  /** Shift's closed-at instant; defaults to now when null (in-progress shift). */
+  closedAt?: Date | null;
+}): Promise<{ totalSales: number; source: SalesSource }> {
+  const { orgId, storeId } = args;
+  const openedAt = new Date(args.openedAt);
+  const closedAt = args.closedAt ? new Date(args.closedAt) : new Date();
+
+  const boxes = (await prisma.lotteryBox.findMany({
+    where: { orgId, storeId, status: { in: ['active', 'depleted', 'returned'] } },
+    select: {
+      id: true,
+      ticketPrice: true,
+      startTicket: true,
+      totalTickets: true,
+      lastShiftEndTicket: true,
+    },
+  })) as BoxSnapshotRow[];
+  if (!boxes.length) return { totalSales: 0, source: 'empty' };
+
+  const settings = await prisma.lotterySettings
+    .findUnique({ where: { storeId }, select: { sellDirection: true } })
+    .catch(() => null);
+  const sellDirection = settings?.sellDirection || 'desc';
+
+  const validActions = ['close_day_snapshot', 'shift_boundary'];
+  let totalSales = 0;
+  let foundAny = false;
+
+  for (const box of boxes) {
+    // Ending position: latest snapshot AT or BEFORE shift close.
+    const endEvent = await prisma.lotteryScanEvent.findFirst({
+      where: {
+        orgId, storeId, boxId: box.id,
+        action: { in: validActions },
+        createdAt: { lte: closedAt },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { parsed: true, createdAt: true },
+    });
+    // No snapshot AT/BEFORE close → can't compute. Skip this box.
+    if (!endEvent) continue;
+    // The end snapshot must fall AT or AFTER the shift opened, otherwise
+    // it's a stale snapshot from before this shift even started — no sales
+    // should be attributed.
+    if (endEvent.createdAt < openedAt) continue;
+
+    const endParsed = endEvent.parsed as ScanEventParsed | null;
+    const endTicketStr = (endParsed?.currentTicket as string | null | undefined) ?? null;
+    if (endTicketStr == null || endTicketStr === '') continue;
+    const endTicket = parseInt(endTicketStr, 10);
+    if (!Number.isFinite(endTicket)) continue;
+
+    // Starting position: latest snapshot AT or BEFORE shift open. We use
+    // `lte` (not `lt`) so the openShift handler's auto-written shift_boundary
+    // event AT exactly shift.openedAt counts as this shift's starting
+    // position. For multi-cashier handover, this is critical: Bob's open at
+    // 2:30 PM has a fresh shift_boundary capturing the box state AFTER
+    // Alice's morning sales (124), not stale from the previous day's close.
+    // Without `lte`, Bob's start would fall through to the prior-day snapshot
+    // (128) and incorrectly include Alice's morning sales in Bob's total.
+    const startEvent = await prisma.lotteryScanEvent.findFirst({
+      where: {
+        orgId, storeId, boxId: box.id,
+        action: { in: validActions },
+        createdAt: { lte: openedAt },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { parsed: true },
+    });
+    let startTicketStr: string | null = null;
+    if (startEvent) {
+      const sp = startEvent.parsed as ScanEventParsed | null;
+      startTicketStr = (sp?.currentTicket as string | null | undefined) ?? null;
+    }
+    if (!startTicketStr) {
+      // Same priority chain as snapshotSales.priorPosition()
+      if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '') {
+        startTicketStr = box.lastShiftEndTicket;
+      } else if (box.startTicket != null) {
+        startTicketStr = box.startTicket;
+      } else {
+        const total = Number(box.totalTickets || 0);
+        if (!total) continue;
+        startTicketStr = sellDirection === 'asc' ? '0' : String(total - 1);
+      }
+    }
+    const startTicket = parseInt(startTicketStr, 10);
+    if (!Number.isFinite(startTicket)) continue;
+
+    const sold = Math.abs(startTicket - endTicket);
+    if (sold === 0) continue;
+    foundAny = true;
+    const price = Number(box.ticketPrice || 0);
+    totalSales += sold * price;
+  }
+
+  return {
+    totalSales: Math.round(totalSales * 100) / 100,
+    source: foundAny ? 'snapshot' : 'empty',
   };
 }
 

@@ -107,6 +107,58 @@ export const openShift = async (req: Request, res: Response): Promise<void> => {
       },
     });
 
+    // ── B4 (Session 62) — shift-boundary lottery snapshots ────────────
+    // Capture each active box's `currentTicket` at the moment this shift
+    // opens. Pairs with the close_day_snapshot the closeShift handler
+    // writes at end of shift to bracket the shift's lottery activity.
+    //
+    // Without this, multi-cashier days attribute the WHOLE day's lottery
+    // delta to whichever cashier was on at end-of-day (because windowSales
+    // walks day-by-day and snapshotSales only finds end-of-day snapshots).
+    // The boundary event is the missing "starting position" reference for
+    // the shift's `shiftSales` calc.
+    //
+    // Trustingly uses `box.currentTicket` (no cashier prompt) — the EoD
+    // wizard already prompts the cashier at close. Fire-and-forget: a
+    // snapshot insert failure must not block the shift-open response.
+    try {
+      const settings = await prisma.lotterySettings.findUnique({
+        where: { storeId },
+        select: { enabled: true },
+      });
+      if (settings?.enabled) {
+        const activeBoxes = await prisma.lotteryBox.findMany({
+          where: { orgId: orgId ?? undefined, storeId, status: 'active' },
+          select: {
+            id: true, currentTicket: true,
+            game: { select: { id: true, name: true, gameNumber: true } },
+          },
+        });
+        for (const b of activeBoxes) {
+          await prisma.lotteryScanEvent.create({
+            data: {
+              orgId:     orgId as string,
+              storeId,
+              boxId:     b.id,
+              scannedBy: effectiveCashierId,
+              raw:       `shift_open:${shift.id}:auto`,
+              parsed: {
+                gameNumber:    b.game?.gameNumber ?? null,
+                gameName:      b.game?.name       ?? null,
+                currentTicket: b.currentTicket    ?? null,
+                shiftId:       shift.id,
+                source:        'auto-on-open',
+              } as Prisma.InputJsonValue,
+              action:  'shift_boundary',
+              context: 'shift',
+            },
+          }).catch((e: Error) => console.warn('[openShift] boundary insert failed', b.id, e.message));
+        }
+      }
+    } catch (boundaryErr) {
+      console.warn('[openShift] boundary capture failed:', (boundaryErr as Error).message);
+    }
+
     res.status(201).json({ ...shift, openingAmount: Number(shift.openingAmount) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

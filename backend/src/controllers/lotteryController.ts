@@ -25,6 +25,9 @@ import {
 import {
   bestEffortDailySales,
   rangeSales,
+  localDayStartUTC,
+  localDayEndUTC,
+  formatLocalDate,
 } from '../services/lottery/reporting/index.js';
 import { reconcileShift } from '../services/reconciliation/shift/index.js';
 import { errMsg } from '../utils/typeHelpers.js';
@@ -1040,12 +1043,17 @@ export const getLotteryDashboard = async (req: Request, res: Response): Promise<
   try {
     const orgId = getOrgId(req) as string;
     const storeId = getStore(req) as string;
-    // Month-to-date window (UTC), inclusive
-    const monthStart = new Date();
-    monthStart.setUTCDate(1);
-    monthStart.setUTCHours(0, 0, 0, 0);
+
+    // B9 — month-to-date window in store-local timezone (NOT UTC). For a
+    // store in EDT, "April MTD" means April 1 00:00 EDT = April 1 04:00 UTC,
+    // not April 1 00:00 UTC. Snapshots written at local 22:00 land in the
+    // correct local-day bucket only when day boundaries respect tz.
+    const store = await prisma.store.findUnique({ where: { id: storeId }, select: { timezone: true } });
+    const tz = store?.timezone || 'UTC';
+    const todayLocalStr = formatLocalDate(new Date(), tz);
+    const monthStartLocalStr = `${todayLocalStr.slice(0, 7)}-01`;
+    const monthStart = localDayStartUTC(monthStartLocalStr, tz);
     const monthEnd = new Date();
-    monthEnd.setUTCHours(23, 59, 59, 999);
 
     const [monthTxnsRaw, activeBoxes, inventoryBoxes, real] = await Promise.all([
       // Payouts + posSales come from LotteryTransaction (audit signal only)
@@ -1057,7 +1065,7 @@ export const getLotteryDashboard = async (req: Request, res: Response): Promise<
       prisma.lotteryBox.count({ where: { orgId, storeId, status: 'inventory' } }),
       // Authoritative sales come from ticket-math snapshots (the cashier
       // doesn't have to ring up every ticket — close_day_snapshot deltas are truth)
-      _realSalesRange({ orgId, storeId, from: monthStart, to: monthEnd }),
+      _realSalesRange({ orgId, storeId, from: monthStart, to: monthEnd, timezone: tz }),
     ]);
     const monthTxns = monthTxnsRaw as LotteryTxnRow[];
 
@@ -1100,26 +1108,34 @@ export const getLotteryReport = async (req: Request, res: Response): Promise<voi
     const storeId = getStore(req) as string;
     const { period = 'day', from, to } = req.query;
 
+    // B9 — date-string parsing must respect store timezone. A `from=2026-04-23`
+    // query for an EDT store means "starting at local midnight on Apr 23",
+    // which is 04:00 UTC the same day — NOT 00:00 UTC. Otherwise close_day_snapshot
+    // events written at local 22:00 (= UTC 02:00 next day) land in the wrong bucket
+    // and per-day sales drift by one day across the whole window.
+    const store = await prisma.store.findUnique({ where: { id: storeId }, select: { timezone: true } });
+    const tz = store?.timezone || 'UTC';
+
     const now = new Date();
+    const todayLocal = formatLocalDate(now, tz);
     let startDate: Date;
     if (from) {
-      startDate = new Date((from as string) + 'T00:00:00.000Z');
+      startDate = localDayStartUTC(from as string, tz);
     } else if (period === 'week') {
-      startDate = new Date(now);
-      startDate.setUTCDate(now.getUTCDate() - 7);
-      startDate.setUTCHours(0, 0, 0, 0);
+      // 7 days ago in store-local terms
+      const seven = new Date(localDayStartUTC(todayLocal, tz).getTime() - 7 * 24 * 3600 * 1000);
+      startDate = localDayStartUTC(formatLocalDate(seven, tz), tz);
     } else if (period === 'month') {
-      startDate = new Date(now);
-      startDate.setUTCMonth(now.getUTCMonth() - 1);
-      startDate.setUTCHours(0, 0, 0, 0);
+      // 30 days ago in store-local terms
+      const thirty = new Date(localDayStartUTC(todayLocal, tz).getTime() - 30 * 24 * 3600 * 1000);
+      startDate = localDayStartUTC(formatLocalDate(thirty, tz), tz);
     } else {
-      startDate = new Date(now);
-      startDate.setUTCHours(0, 0, 0, 0);
+      startDate = localDayStartUTC(todayLocal, tz);
     }
-    const endDate = to ? new Date((to as string) + 'T23:59:59.999Z') : new Date();
+    const endDate = to ? localDayEndUTC(to as string, tz) : new Date();
 
     // Ticket-math (authoritative) sales — walks close_day_snapshot deltas day by day
-    const real = await _realSalesRange({ orgId, storeId, from: startDate, to: endDate });
+    const real = await _realSalesRange({ orgId, storeId, from: startDate, to: endDate, timezone: tz });
     const totalSales = real.totalSales;
 
     // POS-side data (audit signal): payouts + ringed-up sales
@@ -1158,7 +1174,9 @@ export const getLotteryReport = async (req: Request, res: Response): Promise<voi
     txns
       .filter((t) => t.type === 'payout')
       .forEach((t) => {
-        const key = t.createdAt.toISOString().slice(0, 10);
+        // B9 — bucket payouts by store-local date (not UTC) so they line up
+        // with rangeSales' tz-aware day buckets.
+        const key = formatLocalDate(t.createdAt, tz);
         if (!dayMap[key])
           dayMap[key] = {
             date: key,
@@ -1262,25 +1280,30 @@ export const getLotteryCommissionReport = async (req: Request, res: Response): P
     const storeId = getStore(req) as string;
     const { from, to, period = 'month' } = req.query;
 
+    // B9 — same tz-aware date parsing as getLotteryReport. Without this,
+    // commission rates × snapshot sales for non-UTC stores produce numbers
+    // that drift by one day every day across the window.
+    const store = await prisma.store.findUnique({ where: { id: storeId }, select: { timezone: true } });
+    const tz = store?.timezone || 'UTC';
+    const todayLocal = formatLocalDate(new Date(), tz);
+
     let startDate: Date;
     if (from) {
-      startDate = new Date((from as string) + 'T00:00:00.000Z');
+      startDate = localDayStartUTC(from as string, tz);
     } else if (period === 'week') {
-      startDate = new Date();
-      startDate.setUTCDate(startDate.getUTCDate() - 7);
-      startDate.setUTCHours(0, 0, 0, 0);
+      const seven = new Date(localDayStartUTC(todayLocal, tz).getTime() - 7 * 24 * 3600 * 1000);
+      startDate = localDayStartUTC(formatLocalDate(seven, tz), tz);
     } else if (period === 'day') {
-      startDate = new Date();
-      startDate.setUTCHours(0, 0, 0, 0);
+      startDate = localDayStartUTC(todayLocal, tz);
     } else {
-      startDate = new Date();
-      startDate.setUTCDate(1);
-      startDate.setUTCHours(0, 0, 0, 0);
+      // Default 'month' = MTD (first of current local month)
+      const monthStartLocal = `${todayLocal.slice(0, 7)}-01`;
+      startDate = localDayStartUTC(monthStartLocal, tz);
     }
-    const endDate = to ? new Date((to as string) + 'T23:59:59.999Z') : new Date();
+    const endDate = to ? localDayEndUTC(to as string, tz) : new Date();
 
     // Authoritative sales from ticket math — already grouped by gameId
-    const real = await _realSalesRange({ orgId, storeId, from: startDate, to: endDate });
+    const real = await _realSalesRange({ orgId, storeId, from: startDate, to: endDate, timezone: tz });
 
     // Game catalog for naming + ensure inactive games still show with $0 sales
     const games = (await prisma.lotteryGame.findMany({
@@ -1344,6 +1367,71 @@ export const getShiftReports = async (req: Request, res: Response): Promise<void
       take: 50,
     });
     res.json(reports);
+  } catch (err) {
+    res.status(500).json({ success: false, error: errMsg(err) });
+  }
+};
+
+/**
+ * GET /api/lottery/previous-shift-readings?excludeShiftId=X
+ *
+ * Returns the cumulative-day terminal readings recorded by the most recent
+ * LotteryShiftReport closed TODAY at this store, EXCLUDING the given shiftId.
+ *
+ * Used by the cashier-app EoD wizard for Shift 2+ to compute its INCREMENTAL
+ * contribution to today's online sales (Apr 2026 — Fix #3). Without this,
+ * Shift 2's "Daily Due" would double-count Shift 1's online activity (since
+ * the cashier reads cumulative-day totals off the terminal printout).
+ *
+ * Returns all-zeros if no prior shift report exists today (Shift 1 case).
+ */
+export const getPreviousShiftReadings = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const orgId = getOrgId(req);
+    const storeId = getStore(req);
+    const excludeShiftId = (req.query?.excludeShiftId as string) || null;
+
+    const todayUtc = new Date();
+    todayUtc.setUTCHours(0, 0, 0, 0);
+    const tomorrowUtc = new Date(todayUtc.getTime() + 24 * 3600 * 1000);
+
+    const where: Prisma.LotteryShiftReportWhereInput = {
+      orgId,
+      storeId,
+      closedAt: { gte: todayUtc, lt: tomorrowUtc },
+    };
+    if (excludeShiftId) where.shiftId = { not: excludeShiftId };
+
+    const prev = await prisma.lotteryShiftReport.findFirst({
+      where,
+      orderBy: { closedAt: 'desc' },
+      select: {
+        shiftId: true,
+        closedAt: true,
+        grossSalesReading: true,
+        cancelsReading: true,
+        machineCashingReading: true,
+        couponCashReading: true,
+        discountsReading: true,
+        instantCashingReading: true,
+      },
+    });
+
+    const num = (v: unknown): number => (v != null ? Number(v) : 0);
+    res.json({
+      success: true,
+      hasPrevious: !!prev,
+      shiftId: prev?.shiftId ?? null,
+      closedAt: prev?.closedAt ?? null,
+      readings: {
+        grossSales:     num(prev?.grossSalesReading),
+        cancels:        num(prev?.cancelsReading),
+        machineCashing: num(prev?.machineCashingReading),
+        couponCash:     num(prev?.couponCashReading),
+        discounts:      num(prev?.discountsReading),
+        instantCashing: num(prev?.instantCashingReading),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: errMsg(err) });
   }

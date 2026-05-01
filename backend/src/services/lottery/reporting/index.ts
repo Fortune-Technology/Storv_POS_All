@@ -37,4 +37,12 @@ export {
   bestEffortDailySales,
   rangeSales,
   windowSales,
+  // B4 — per-shift ticket-math sales using bracketing snapshot events.
+  shiftSales,
+  // B9 — timezone-aware day-boundary helpers exported so controllers can
+  // parse `from`/`to` query strings into UTC instants that respect the
+  // store's IANA timezone (instead of treating dates as UTC midnight).
+  formatLocalDate,
+  localDayStartUTC,
+  localDayEndUTC,
 } from './realSales.js';

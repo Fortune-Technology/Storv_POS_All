@@ -63,7 +63,13 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
     netLotteryCash:   r2(netLotteryCash),
   };
 
-  // Final expected drawer figure
+  // Final expected drawer figure.
+  //
+  // B6 (Session 63) — `payouts.backOfficeCashPayments` is the new term:
+  // back-office VendorPayments paid in cash within this shift's window.
+  // These reduce drawer cash even though they're recorded outside the
+  // register flow. Without it, drawer expectation overshoots by every
+  // back-office cash vendor payment recorded against this shift's day.
   const expectedDrawer =
     openingFloat
     + cash.cashSales
@@ -71,6 +77,7 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
     + payouts.cashIn
     - payouts.cashOut
     - payouts.cashDropsTotal
+    - payouts.backOfficeCashPayments
     + netLotteryCash;
 
   const variance =
@@ -86,6 +93,17 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
     { key: 'cashIn',          label: '+ Paid In / Received on Acct',  amount: r2(payouts.cashIn),                kind: 'incoming' },
     { key: 'cashOut',         label: '- Paid Out / Loans',            amount: r2(payouts.cashOut),               kind: 'outgoing' },
     { key: 'cashDrops',       label: '- Cash Drops (Pickups)',        amount: r2(payouts.cashDropsTotal),        kind: 'outgoing' },
+    // B6 — emit only when non-zero so stores without back-office vendor
+    // cash flow don't see an empty row.
+    ...(payouts.backOfficeCashPayments > 0
+      ? [{
+          key: 'backOfficeCashPayments',
+          label: '- Back-Office Vendor Cash Payments',
+          amount: r2(payouts.backOfficeCashPayments),
+          kind: 'outgoing' as const,
+          hint: 'VendorPayment rows where tenderMethod=cash within shift window',
+        }]
+      : []),
     // Lottery section — only emit the rows that have non-zero amounts so
     // the UI doesn't render a wall of zeros for stores without lottery.
     ...(unreportedCash > 0

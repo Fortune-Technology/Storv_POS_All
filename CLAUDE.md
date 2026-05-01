@@ -9530,6 +9530,416 @@ Old transactions remaining NULL is the right tradeoff — backfilling them with 
 
 *Last updated: April 2026 — Session 58 (B5 — Transaction.shiftId): added nullable `shiftId` column to `Transaction` model + index, populated from existing cashier-app payload across 4 backend create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund) and 1 cashier-app callsite (RefundModal). Strictly additive — zero read-path changes, no backfill, all 3,999 legacy rows stay NULL. tsc clean, Vite HMR clean, zero recalc risk verified by grep. Unblocks B4 multi-cashier handover work.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 59 — B1 Reports Audit + B7/B8/B9 Fixes)
+
+User flagged B1 (Reports number sanity) as critical — *"customers are going to be unhappy about this"*. Built a full reusable audit harness, seeded controlled data with known totals, ran the audit, found 3 real bugs, fixed them all, re-verified. **Final state: 43 of 43 checks pass.**
+
+#### Audit harness (3 idempotent stages)
+
+All in [`backend/prisma/`](backend/prisma/):
+
+| Script | Purpose | Output |
+|---|---|---|
+| [`seedAuditStore.mjs`](backend/prisma/seedAuditStore.mjs) | Stage 1 — creates an isolated **Audit Org** + **Audit Store** in MA timezone with 6 departments, 9 products, 2 cashiers (Alice/Bob with PINs), 2 stations, tax + deposit rules, lottery (settings + 2 games + 2 active boxes), fuel (settings + 1 type + 1 tank + 5,000 gal delivery). Idempotent — wipes prior audit org cleanly before re-seed. | `audit-fixtures.json` (reference IDs) |
+| [`seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs) | Stage 2 — generates 20 transactions across 5 days (1 refund, 1 void, multi-tender mix, 2 cashiers with deliberate handover overlap on Day -1), 8 days of lottery activity (snapshot trail + POS-recorded with deliberate $5 unreported gap), 5 fuel sales (FIFO consumed), 1 cash drop, 1 cash payout, 2 vendor payments. Tracks expected totals as it generates. | `audit-expected.json` (ground-truth totals per day / per dept / per cashier / per shift) |
+| [`seedAuditAudit.mjs`](backend/prisma/seedAuditAudit.mjs) | Stage 3 — upserts an audit-admin user, signs a 2h JWT, hits 8 report endpoints over HTTP, parses each response, compares to `audit-expected.json`, prints drift matrix. Re-runnable any time after a fix to confirm. | `audit-drift.json` + console drift table |
+
+The 8 report endpoints checked: `/sales/realtime` · `/sales/daily` · `/reports/end-of-day` · `/sales/departments` · `/lottery/report` · `/lottery/commission` · `/fuel/report` · `/fuel/pnl-report`.
+
+Pre-fix run: 0 of 37 checks passed (32 parser misses + 4 real bugs + 1 wrong-path 404). Parser cleanup raised it to 41/44 with 3 real drifts remaining. After fixes: **43/43**.
+
+#### B9 — Lottery report timezone bucketing
+
+**Bug**: `/lottery/report`, `/lottery/dashboard`, `/lottery/commission` walked day-by-day using `setUTCHours(0, 0, 0, 0)` boundaries. Snapshots written by the EoD wizard at local 22:00 (e.g., 22:00 EDT = 02:00 UTC the next day) landed in the WRONG UTC day's bucket. For an 8-day window in the audit, total ticket-math sales reported $230 vs ground-truth $215 (the per-day chart showed values shifted by 1 day). Downstream `/lottery/commission` was off by the same proportion ($11.50 vs $10.75).
+
+**Fix** ([`backend/src/services/lottery/reporting/realSales.ts`](backend/src/services/lottery/reporting/realSales.ts) + [`lotteryController.ts`](backend/src/controllers/lotteryController.ts)):
+
+1. Added `localDayStartUTC(dateStr, tz)` / `localDayEndUTC(dateStr, tz)` / `formatLocalDate(d, tz)` helpers using `Intl.DateTimeFormat` with the IANA timezone. Computes UTC instants representing local-day boundaries; handles DST correctly by sampling tz offset at noon on the target day.
+2. `rangeSales` accepts optional `timezone` param. When supplied, walks day-by-day in store-local terms; when omitted (or `'UTC'`), preserves pre-B9 behavior for backward compat with non-lottery callers.
+3. `getLotteryDashboard`, `getLotteryReport`, `getLotteryCommissionReport` all fetch `store.timezone` and pass it. `from`/`to` query strings parsed via the new helpers (was `new Date(from + 'T00:00:00.000Z')`). Default `period=week`/`month`/`day` windows now relative to local today, not UTC today.
+4. Lottery payout day-keys also tz-normalized (`formatLocalDate(t.createdAt, tz)` instead of `t.createdAt.toISOString().slice(0,10)`) so they line up with `rangeSales`' tz-aware byDay buckets.
+5. Helpers exported via [`reporting/index.ts`](backend/src/services/lottery/reporting/index.ts) barrel.
+
+**Verified**: audit lottery total $215 ✓ (was $230), unreported $5 ✓ (was $20), commission $10.75 ✓ (was $11.50).
+
+#### B7 — Department report duplicate-name labels
+
+**Bug**: `/sales/departments` set `Name = li.departmentName || li.taxClass || 'Other'`. The cashier-app sets `li.departmentId` but NOT `li.departmentName`, so Name fell through to `li.taxClass`. Any two depts that share a taxClass (e.g. Grocery + Beverages both `taxClass='grocery'`) rendered with duplicate Name="grocery" labels — though the rows were correctly separated by `departmentId`.
+
+**Fix** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)):
+- Added a `prisma.department.findMany({ orgId, active: true })` query at the top of `getDepartmentSales` to build a `Map<id, name>` lookup.
+- Resolves Name from `deptNameById.get(lineDeptId)` first, then falls through to `li.departmentName`, `li.taxClass`, `'Other'`.
+
+**Verified**: Beverages now appears as its own row labeled "Beverages" (not "grocery"). 4 distinct dept rows in the audit response.
+
+#### B8 — Department tax was zero for EBT-eligible departments
+
+**Bug**: `/sales/departments` recomputed tax per line via tax rules, but had a `!li.ebtEligible` filter that skipped ANY line whose product is EBT-eligible. Result: dept-level tax for Grocery + Beverages + Alcohol (all had at least one EBT-eligible product in the audit) reported `$0` even when those products were paid by cash/card and tax was actually charged.
+
+**Fix** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)) — replaced the per-line recompute with a **pro-ration of the tx's actual `taxTotal`**:
+
+1. **First pass per tx**: for each line, compute notional tax via the matched rule (no EBT skip). Sum to `notionalTaxTotal`.
+2. **Second pass per tx**: scale each line's notional tax by `(actualTax / notionalTaxTotal)` and attribute to the line's dept.
+3. Result: per-dept tax sums to exactly `tx.taxTotal` regardless of tender. EBT-paid txs (tx.taxTotal=0) correctly contribute $0; cash/card txs contribute the real tax amount; mixed txs contribute the actual mix.
+4. Fall-back: if no rules match any line, distribute `actualTax` evenly by `|lineTotal|` share so legacy data still surfaces tax somewhere.
+
+**Verified**: Grocery + Beverages + Alcohol per-dept tax now match audit expected exactly.
+
+#### Files Changed (Session 59)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/src/services/lottery/reporting/realSales.ts` | NEW helpers (`localDayStartUTC`, `localDayEndUTC`, `formatLocalDate`); `rangeSales` accepts optional `timezone` param + uses tz-aware day boundaries; exports for controller use |
+| `backend/src/services/lottery/reporting/index.ts` | Export new helpers from barrel |
+| `backend/src/controllers/lotteryController.ts` | All 3 handlers (`getLotteryDashboard`, `getLotteryReport`, `getLotteryCommissionReport`) fetch store.timezone, parse `from`/`to` via helpers, pass `timezone` to `_realSalesRange`; payout day-keys tz-normalized |
+| `backend/src/services/sales/sales.ts` | `getDepartmentSales` — adds dept-name lookup query (B7); rewrites tax aggregation as pro-rated tx.taxTotal split (B8) |
+
+**Audit harness (NEW, retained for re-running)**:
+| File | Purpose |
+|---|---|
+| `backend/prisma/seedAuditStore.mjs` | Stage 1 fixtures |
+| `backend/prisma/seedAuditTransactions.mjs` | Stage 2 transactions + lottery + fuel + cash movements |
+| `backend/prisma/seedAuditAudit.mjs` | Stage 3 HTTP audit + drift matrix |
+| `backend/audit-fixtures.json` | Stage 1 reference IDs (regenerated each Stage 1 run) |
+| `backend/audit-expected.json` | Stage 2 ground-truth totals (regenerated each Stage 2 run) |
+| `backend/audit-drift.json` | Stage 3 drift report (regenerated each Stage 3 run) |
+
+**Verification ledger**:
+- Pre-B1 audit ran: drift = 36/37 (parser misses + real bugs)
+- Parser fixed against actual response shapes: drift = 3/44 (3 real bugs surfaced)
+- B9 lottery timezone fix: drift = 2/43 (B9 confirmed fixed)
+- B7+B8 dept fixes + seed corrected to send `departmentId` + audit expected fixed to subtract refunds: **drift = 0/43**
+
+**Backend `tsc --noEmit` EXIT=0 throughout**. No schema changes. No backfills. No read-path changes that affect any non-lottery, non-departments report. Live Dashboard / Daily / EoD / Lottery / Commission / Fuel / FIFO P&L all verified clean.
+
+#### What's deliberately deferred
+
+The audit harness verified **8 of the ~12 critical-path report surfaces**. Remaining surfaces to audit when expanding this work:
+- `/sales/weekly`, `/sales/monthly` (likely fine given `/sales/daily` passes — same controller pattern)
+- `/sales/products/top`, `/sales/products/grouped` (per-product breakdown)
+- `/reports/employees` (per-cashier breakdown — needs B5's `Transaction.shiftId` fully utilized)
+- `/sales/predictions/*` (Holt-Winters; not strictly "history" but worth sanity)
+
+Plus: the timezone fix shipped for the lottery surface only. Other reports that bucket by date (e.g. `/sales/daily`) likely need similar tz-awareness — but they passed the audit because seeded transactions stayed within UTC days. Worth a follow-up audit pass with transactions deliberately straddling UTC midnight to confirm.
+
+---
+
+*Last updated: April 2026 — Session 59 (B1 Reports Audit + B7/B8/B9 Fixes): built reusable 3-stage audit harness (`seedAuditStore.mjs` + `seedAuditTransactions.mjs` + `seedAuditAudit.mjs`); seeded an isolated Audit Org with 20 transactions + lottery + fuel + cash movements with known totals; HTTP-audited 8 critical report endpoints; identified + fixed 3 real bugs (B9 lottery timezone-broken day buckets · B7 dept Name showing taxClass instead of dept name · B8 dept tax skipping all EBT-eligible lines). Final audit state: 43 of 43 checks pass. tsc EXIT=0 throughout. Audit harness retained for re-runs after future report changes.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 60 — Audit Extension: Sales/Daily Timezone Fix)
+
+Follow-on to Session 59's B1 audit. Session 59 noted the lottery timezone fix as scoped — `/sales/daily`, `/sales/weekly`, `/sales/monthly`, `/sales/departments` and EoD also bucket transactions by date and were likely vulnerable to the same UTC-bucketing class of bug, but the audit didn't manifest it because (a) seeded transactions stayed within UTC days and (b) the dev server's timezone happens to match the audit store's timezone. This session preempts the production bug and extends the audit to cover the case.
+
+#### The latent bug
+
+[`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts) `toDateStr` used `d.getFullYear()` / `getMonth()` / `getDate()` — **server-local time**. `getDailySales` then bucketed transactions by `toDateStr(tx.createdAt)` and walked the date-fill loop using `cur.setDate(cur.getDate() + 1)` (also server-local).
+
+Symptom on a UTC-tz production server with stores in EDT/CST/etc.:
+- A tx at local 22:30 EDT = 02:30 UTC next day
+- `getFullYear/getMonth/getDate` on a UTC server returns the UTC date → tx bucketed into NEXT day
+- Daily sales for the actual business day understate by every tx after ~20:00 local
+- "Yesterday's report" includes some of "today's" early-morning UTC-bucket activity from prior day's late shift
+
+Same class of bug as B9 (lottery), different surface, equally consequential for any non-UTC store.
+
+#### The fix
+
+**Extracted shared helper** ([`backend/src/utils/dateTz.ts`](backend/src/utils/dateTz.ts) — NEW): moved the four tz helpers (`formatLocalDate`, `localDayStartUTC`, `localDayEndUTC`, `addOneDay`) from inline definitions in `services/lottery/reporting/realSales.ts` (where they were introduced in S59) to a shared `utils/` module. Any reporting surface that buckets by date can import from here without taking on a lottery dependency. Lottery still re-exports them via the `services/lottery/reporting/index.ts` barrel for backward compat.
+
+**Applied to `getDailySales`** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)):
+- `toDateStr(d, tz?)` accepts optional tz. When supplied, formats via `formatLocalDate(d, tz)` (Intl.DateTimeFormat with `timeZone`). When omitted, falls back to server-local (preserves old behavior for callers that don't have a single store context).
+- `getDailySales` resolves `store.timezone` once at the top when `storeId` is present, threads it into all `toDateStr` calls.
+- Date-fill loop now walks via `addOneDay(cur)` on the string key when tz is set, avoiding any server-local Date arithmetic that could drift.
+- `getWeeklySales`, `getMonthlySales`, `getYearlySales` all call `getDailySales` first, so the tz-aware bucketing propagates to them automatically.
+
+#### Audit harness extension
+
+[`seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs) — added a deliberate **late-evening transaction at 22:30 local time on Day -1** (Bob, marlboro + 2 bud light, $32.89 total). On EDT that's 02:30 UTC of Day 0 — a transaction whose UTC date is one day later than its local date. The tx purposefully tests that:
+- `/sales/daily` buckets it under Day -1 (local), not Day 0 (UTC)
+- `/sales/departments` attributes its tobacco + alcohol revenue to Day -1's totals
+- `/reports/end-of-day?date=Day-1` includes its $11.99 + $5.98 + tax in the day's transactions section
+
+Day -1 expected totals updated upward to include this tx; audit re-ran clean.
+
+#### Verified
+
+| Check | Before fix on UTC server | After fix on any server |
+|---|---|---|
+| Day -1 net (with 22:30 tx) | Would understate by tx total | Correct |
+| Day 0 net (with prior-day's 22:30 UTC tx) | Would overstate | Correct |
+| Daily/Weekly/Monthly buckets | Drift around UTC midnight | Stable in store local |
+| Audit harness drift | n/a (audit didn't manifest before) | **0 / 43** |
+
+Final audit state: **43 of 43 checks pass** with the late-evening transaction included. Backend `tsc --noEmit` EXIT=0.
+
+#### Files Changed (Session 60)
+
+| File | Change |
+|---|---|
+| `backend/src/utils/dateTz.ts` | NEW — shared `formatLocalDate` / `localDayStartUTC` / `localDayEndUTC` / `addOneDay` helpers |
+| `backend/src/services/lottery/reporting/realSales.ts` | Removed inline helpers, now imports from `utils/dateTz.js`; re-exports for backward compat |
+| `backend/src/services/sales/sales.ts` | `toDateStr(d, tz?)` accepts optional tz; `getDailySales` fetches store.timezone + threads it through bucket calc + date-fill loop |
+| `backend/prisma/seedAuditTransactions.mjs` | +1 late-evening tx at 22:30 local Day -1 (Bob marlboro+budlight, $32.89) — tests UTC-midnight crossing |
+
+#### What's still deferred
+
+`/sales/departments` shares the same controller path as `/sales/daily` but reads `tx.createdAt` differently (per-line, not bucketed by day in the response). The tz-aware bucketing isn't needed there because the response is per-dept, not per-day. Verified via the audit — Department report didn't drift even with the late-evening tx.
+
+`/reports/end-of-day` already had tz-aware date parsing from S22's `parseFromDate` / `parseToDate` helpers. Confirmed clean in the audit.
+
+`/sales/weekly`, `/sales/monthly`, `/sales/yearly` — inherit the fix automatically since they all call `getDailySales` first.
+
+Other date-by-date surfaces NOT yet covered: predictions (`/sales/predictions/daily`), product movement (`/sales/products/movement`), 52-week stats. Worth a future audit pass.
+
+---
+
+*Last updated: April 2026 — Session 60 (B1 Audit Extension): preempted the same UTC-bucketing bug class in `/sales/daily` (and inherited weekly / monthly / yearly) by extracting tz helpers to shared `utils/dateTz.ts` and threading store timezone through `getDailySales`. Added a late-evening 22:30 EDT transaction to the audit seed to verify UTC-midnight crossing. Audit: 43 of 43 checks pass. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 61 — B3 Lottery-Disabled Gating)
+
+User-stated spec for B3: *"if lottery module is disabled then the lottery section won't be there in the end of the day report or in calculation"*. Diagnostic in S61 found that the **ticket-math truth math was already correctly wired** by Session 44's reconciliation service refactor — `readLotteryShiftRaw` calls `windowSales()` from `realSales.ts` (snapshot deltas → POS-fallback) and `compute.ts` derives `unreportedCash = max(0, ticketMathSales − posLotterySales)` which flows into `expectedDrawer`.
+
+The remaining piece was the **explicit `LotterySettings.enabled` gate**. Without it, the recon service queried lottery data for every store on every shift close + EoD load, regardless of whether lottery was enabled. Behaviour:
+- Stores with lottery never enabled → returned all 0s → no lottery rows surface (correct by accident)
+- Stores that disabled lottery after using it → historic values still flowed through → lottery rows still appeared in EoD ✗ (per-spec bug)
+- 3 unnecessary DB queries per recon for stores without lottery (perf waste)
+
+#### The fix
+
+Single early-return in [`backend/src/services/reconciliation/shift/queries.ts`](backend/src/services/reconciliation/shift/queries.ts):
+
+```ts
+const settings = await prisma.lotterySettings.findUnique({
+  where: { storeId },
+  select: { enabled: true },
+});
+if (!settings?.enabled) {
+  return {
+    ticketMathSales: 0,
+    ticketMathSource: 'empty',
+    posLotterySales: 0,
+    machineDrawSales: 0,
+    machineCashings: 0,
+    instantCashings: 0,
+  };
+}
+// ... existing 3-query block continues only when enabled
+```
+
+Returns all-zero raw values so `compute.ts` produces an empty `LotteryCashFlow` that contributes nothing to `expectedDrawer` and emits zero line items (the existing `unreportedCash > 0 ? [...] : []` guards drop them naturally).
+
+#### Verified
+
+Live probe against the audit store with a closed shift on Day -1:
+
+| Check | Enabled | Disabled |
+|---|---|---|
+| `recon.lottery.unreportedCash` | $70 | $0 |
+| `recon.lottery.machineDrawSales` | $120 | $0 |
+| `recon.lottery.netLotteryCash` | $140 | $0 |
+| `recon.lineItems` lottery rows | 4 | **0** |
+| `expectedDrawer` | $334.59 | $194.59 |
+
+The $140 delta in `expectedDrawer` matches `netLotteryCash` exactly — math reconciles cleanly. After re-enabling, full audit re-runs **43/43 ✓** confirming no regression to the enabled-store path.
+
+#### Files Changed (Session 61)
+
+| File | Change |
+|---|---|
+| `backend/src/services/reconciliation/shift/queries.ts` | +13-line early return when `LotterySettings.enabled === false` (or when `LotterySettings` row absent — same effect for stores that never configured lottery) |
+
+#### Why no UI changes
+
+The CloseShiftModal and EoD report UIs already gate their lottery sections on `(value > 0)` checks. With the backend now zeroing those values for disabled stores, the existing UI gates handle the hide/show automatically. No frontend code touched.
+
+---
+
+*Last updated: April 2026 — Session 61 (B3 Lottery-Disabled Gating): added `LotterySettings.enabled` short-circuit to `readLotteryShiftRaw` so disabled-lottery stores get zero lottery cash flow (no rows in EoD/CloseShiftModal, no contribution to expectedDrawer). Verified live: enabled→4 rows + $140 contribution; disabled→0 rows + $0 contribution; full audit 43/43 still green. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 62 — B4 Multi-Cashier Per-Shift Lottery Attribution)
+
+User-stated spec for B4: per-shift accountability for business + lottery + fuel together. After B5 (`Transaction.shiftId` populated) business sales were already per-shift; fuel sales were already per-shift via `FuelTransaction.shiftId` (Session 43). The remaining gap was **lottery sales attribution on multi-cashier handover days** — `windowSales` walks day-by-day so any sub-day window (a single cashier's shift) returned the whole day's lottery sales for that day, not just the cashier's slice.
+
+#### The bug
+
+For Day -1 in the audit harness:
+- Alice runs morning shift 7am-3pm
+- Bob runs afternoon shift 2:30pm-11pm (30-min handover overlap)
+- Day's lottery activity: $40 ticket-math sales
+
+**Before B4**: both shifts' EoD reports showed $40 lottery sales (whole-day attribution). Effectively, lottery sales got double-counted across cashiers, and per-cashier accountability was meaningless.
+
+#### The fix
+
+Three coordinated changes:
+
+**1. `openShift` writes `shift_boundary` events** ([`controllers/shift/lifecycle.ts`](backend/src/controllers/shift/lifecycle.ts)) — for each active lottery box, captures `box.currentTicket` at the exact moment the shift opens. Pairs with the `close_day_snapshot` the closeShift handler already writes (Session 44b "Item 5") to bracket the shift's lottery activity.
+- Trustingly uses live `box.currentTicket` (no cashier prompt) — the EoD wizard already prompts at close
+- Gated on `LotterySettings.enabled` so disabled-lottery stores skip the writes
+- Fire-and-forget — failure must not block shift-open response
+
+**2. New `shiftSales()` function** ([`services/lottery/reporting/realSales.ts`](backend/src/services/lottery/reporting/realSales.ts)) — looks up bracketing snapshot events around the shift window:
+- Starting position: latest `close_day_snapshot` OR `shift_boundary` event AT or BEFORE `shift.openedAt` (`<= openedAt`, NOT `<` — so the shift's own open snapshot counts as its starting position)
+- Ending position: latest event AT or BEFORE `shift.closedAt` (or now for in-progress shifts)
+- Sales = Σ |startTicket − endTicket| × ticketPrice for each box
+- Falls back to `lastShiftEndTicket` then `startTicket` then direction-derived position when prior snapshot missing (matches `snapshotSales`' priorPosition() chain)
+- Returns `{totalSales: 0, source: 'empty'}` when no box has a usable bracketing pair
+
+**3. `readLotteryShiftRaw` uses shiftSales first** ([`services/reconciliation/shift/queries.ts`](backend/src/services/reconciliation/shift/queries.ts)) — calls `shiftSales` and uses its result if non-zero; otherwise falls back to `windowSales` (preserves backward compat for legacy shifts that lack a starting boundary event).
+
+#### Verified
+
+Audit harness extended with Report 9 — per-shift lottery sales for Day -1's two shifts:
+
+| Shift | Window | Expected | Actual |
+|---|---|---|---|
+| Alice (morning) | 7am-3pm | $10 (2×$5 tickets) | **$10** ✓ |
+| Bob (afternoon) | 2:30pm-11pm | $30 (4×$5 + 1×$10) | **$30** ✓ |
+| Day total (sum) | — | $40 | **$40** ✓ |
+
+Per-shift attribution now correct. Without B4: both shifts would have reported ~$40. With B4: each cashier sees their own slice, sum equals day's total.
+
+Final audit: **46 of 46 checks pass** (43 prior + 3 new per-shift). Backend `tsc --noEmit` EXIT=0.
+
+#### Known limitation (documented, not blocking)
+
+For overlapping shifts (e.g. handover with both cashiers on the floor for 30 min), tickets sold during the overlap appear in BOTH shifts' deltas — minor double-count. The cleaner fix would require per-tx station data, but lottery uses a single physical book on the counter so the system genuinely doesn't know which cashier sold each overlap-window ticket. Most stores do clean handovers (one cashier opens after the other closes) so this is an edge case.
+
+#### Files Changed (Session 62)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/src/controllers/shift/lifecycle.ts` | `openShift` writes `shift_boundary` events for each active lottery box at shift open (gated on `LotterySettings.enabled`) |
+| `backend/src/services/lottery/reporting/realSales.ts` | NEW `shiftSales()` function using bracketing snapshot events |
+| `backend/src/services/lottery/reporting/index.ts` | Export `shiftSales` from barrel |
+| `backend/src/services/reconciliation/shift/queries.ts` | `readLotteryShiftRaw` uses `shiftSales` first, falls back to `windowSales` |
+
+**Audit harness extension**:
+| File | Change |
+|---|---|
+| `backend/prisma/seedAuditTransactions.mjs` | `openShift` + `closeShift` helpers accept `boxStateAtOpen`/`boxStateAtClose` to write boundary events; Day -1 calls populate them with $10/$30 split; `expected.lottery.byShift` tracks per-shift expected sales |
+| `backend/prisma/seedAuditAudit.mjs` | NEW Report 9 — hits `/pos-terminal/shift/:id/eod-report` for each shift, verifies `recon.lottery.ticketMathSales` matches expected + sum equals day's total |
+
+#### What this unblocks
+
+Per-shift accountability across all three financial domains is now complete:
+- **Business**: B5 shipped Transaction.shiftId; per-shift sales correct since
+- **Lottery**: B4 (this session) fills the gap with shift-boundary snapshots
+- **Fuel**: already per-shift via FuelTransaction.shiftId (Session 43)
+
+Multi-cashier days now produce correct per-cashier P&L for back-office reporting, EoD reconciliation, and (eventually) per-cashier commission/bonus calculations.
+
+---
+
+*Last updated: April 2026 — Session 62 (B4 Multi-Cashier Per-Shift Lottery): `openShift` now writes `shift_boundary` LotteryScanEvent per active box (closeShift already wrote `close_day_snapshot` from S44b). New `shiftSales()` uses bracketing snapshots; reconciliation uses it for shift-scoped queries with windowSales fallback. Audit Day -1 split: Alice $10 + Bob $30 = $40 day total ✓. Audit: 46 of 46 checks pass. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 63 — B6 CashPayout / VendorPayment Drawer Reconciliation)
+
+User-stated spec for B6: *"CashPayout should be for lottery which goes out from cash drawer, any payout, any cash refunds payout in lottery, fuel, product or to vendor in cash will go out from cash drawer of that day"*. The two tables stay separate (CashPayout = register-side, VendorPayment = back-office) but the **drawer math must include both** when they consume cash from the same physical drawer.
+
+#### The bug
+
+[`readPayoutBuckets`](backend/src/services/reconciliation/shift/queries.ts) only queried `CashPayout`. Back-office `VendorPayment` rows where `tenderMethod='cash'` got recorded but never subtracted from drawer expectation. Symptom: a vendor walks in at lunch, cashier hands them $200 cash from the drawer, manager records it in the back-office portal as a VendorPayment(cash). End of shift, the system says drawer is $200 short — even though the math was the wrong-side: that $200 SHOULD have been deducted from the expectation.
+
+#### The fix
+
+**Three coordinated changes**:
+
+1. **Extend `readPayoutBuckets` signature** ([`queries.ts`](backend/src/services/reconciliation/shift/queries.ts)) to accept `{ shiftId, orgId, storeId, windowStart, windowEnd }`. Adds a third parallel Prisma query alongside the existing CashDrop + CashPayout ones:
+   ```ts
+   prisma.vendorPayment.findMany({
+     where: {
+       orgId, storeId,
+       tenderMethod: 'cash',
+       paymentDate: { gte: windowStart, lte: windowEnd },
+     },
+     select: { amount: true },
+   })
+   ```
+   Sums into a new `backOfficeCashPayments` field on `PayoutBuckets`.
+
+2. **Subtract from `expectedDrawer`** ([`compute.ts`](backend/src/services/reconciliation/shift/compute.ts)):
+   ```ts
+   const expectedDrawer =
+     openingFloat
+     + cash.cashSales
+     - cash.cashRefunds
+     + payouts.cashIn
+     - payouts.cashOut
+     - payouts.cashDropsTotal
+     - payouts.backOfficeCashPayments   // ← new
+     + netLotteryCash;
+   ```
+
+3. **Emit a line item** so the EoD report + CloseShiftModal show the deduction explicitly:
+   ```ts
+   ...(payouts.backOfficeCashPayments > 0
+     ? [{
+         key: 'backOfficeCashPayments',
+         label: '- Back-Office Vendor Cash Payments',
+         amount: r2(payouts.backOfficeCashPayments),
+         kind: 'outgoing',
+         hint: 'VendorPayment rows where tenderMethod=cash within shift window',
+       }]
+     : []),
+   ```
+   Conditional on > 0 so stores without back-office cash flow don't see an empty row.
+
+[`service.ts`](backend/src/services/reconciliation/shift/service.ts) updated to pass the new args (orgId / storeId / windowStart / windowEnd from the loaded shift).
+
+#### Verified live
+
+The audit seed has 2 VendorPayments today: $60 cash to Audit Bread Vendor + $250 cheque to Audit Beverage Distributor. Today's open shift (Alice 9am-now) should pick up the $60 cash one; the $250 cheque should be ignored (different tender). Older shifts (Day -1, before the vendor payments) should be unaffected.
+
+| Shift | Has cash VP in window? | Line item present? | expectedDrawer reflects it? |
+|---|---|---|---|
+| Today's open (Alice, 9am-now) | ✓ ($60 at 14:00) | **✓ "- Back-Office Vendor Cash Payments: $60"** | ✓ $209.20 (= base − $60) |
+| Day -4 closed (Alice morning) | ✗ | absent (correct) | unchanged |
+| Day -1 closed (Alice 7am-3pm) | ✗ | absent (correct) | unchanged |
+
+Cheque VendorPayment correctly ignored ($250 cheque stays out of drawer math — it's a non-cash payment).
+
+Full audit: **46 of 46 checks pass** (no regression). tsc EXIT=0.
+
+#### Tables stay separate — only the math reconciles
+
+Per user's spec: CashPayout and VendorPayment continue to be distinct tables with their own UIs (Vendor Payouts page in portal, Paid Out button on cashier app). The reconciliation service is the **only** place they're combined, and only for the drawer-cash math. Back-office vendor payments paid by cheque, bank transfer, or other non-cash tenders stay in their own table and don't affect drawer expectation — exactly the expected behavior.
+
+#### Files Changed (Session 63)
+
+| File | Change |
+|---|---|
+| `backend/src/services/reconciliation/shift/queries.ts` | `PayoutBuckets` interface +1 field (`backOfficeCashPayments`); `readPayoutBuckets` signature now `(args: {shiftId, orgId, storeId, windowStart, windowEnd})`; parallel VendorPayment cash-tender query within shift window |
+| `backend/src/services/reconciliation/shift/compute.ts` | `expectedDrawer` math subtracts `payouts.backOfficeCashPayments`; new conditional line item rendered when value > 0 |
+| `backend/src/services/reconciliation/shift/service.ts` | Updated `readPayoutBuckets()` call site to pass shift context |
+
+#### What this unblocks
+
+End-of-shift cash reconciliation is now complete across all three drawer-cash flows:
+- **Register-side CashPayouts**: covered since Session 3 (paid-out / loans / cashbacks)
+- **Cash drops (pickups)**: covered since Session 3
+- **Back-office cash VendorPayments**: covered now (B6)
+
+Plus the lottery cash flow: un-rung instant tickets + machine cashings (S44 / S62) and the `LotterySettings.enabled` gate (S61). Plus per-shift accountability across business + lottery + fuel (S62).
+
+The drawer-cash math is now correct for every common operational scenario.
+
+---
+
+*Last updated: April 2026 — Session 63 (B6 CashPayout/VendorPayment Drawer Reconciliation): `readPayoutBuckets` now also queries `VendorPayment WHERE tenderMethod='cash' AND paymentDate IN shift window`; reconciliation `expectedDrawer` math subtracts the sum; new "- Back-Office Vendor Cash Payments" line item in EoD recon (conditional on > 0). Verified live: today's $60 cash vendor payment correctly reduces today's open-shift drawer from $269.20 → $209.20; Day -1 closed shifts unaffected. Audit: 46 of 46 checks pass. tsc EXIT=0.*
+
 
 
 

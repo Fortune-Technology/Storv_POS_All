@@ -7,7 +7,7 @@
  */
 
 import prisma from '../../../config/postgres.js';
-import { windowSales } from '../../lottery/reporting/realSales.js';
+import { windowSales, shiftSales } from '../../lottery/reporting/realSales.js';
 import type { SalesSource } from '../../lottery/reporting/types.js';
 
 interface TenderLine {
@@ -37,6 +37,12 @@ export interface PayoutBuckets {
   cashIn: number; // paid_in + received_on_acct
   cashOut: number; // paid_out + loans
   cashPayoutsTotal: number; // legacy: paid_out alone (kept for back-compat surfaces)
+  // B6 (Session 63) — back-office VendorPayment rows where tenderMethod='cash'
+  // and paymentDate falls in the shift window. These reduce drawer cash but
+  // live in their own table (not CashPayout). Without including them, drawer
+  // expectation overshoots by every cash vendor payment recorded outside
+  // the register flow.
+  backOfficeCashPayments: number;
 }
 
 export interface LotteryShiftRaw {
@@ -113,18 +119,44 @@ export async function readCashFlowsFromTransactions(args: {
  * cashIn  = paid_in + received_on_acct      (drawer GAINS)
  * cashOut = paid_out + loans                 (drawer LOSES)
  */
-export async function readPayoutBuckets(shiftId: string): Promise<PayoutBuckets> {
+export async function readPayoutBuckets(args: {
+  shiftId: string;
+  /** B6 (Session 63) — needed for the cross-table VendorPayment query. */
+  orgId: string;
+  storeId: string;
+  windowStart: Date;
+  windowEnd: Date;
+}): Promise<PayoutBuckets> {
+  const { shiftId, orgId, storeId, windowStart, windowEnd } = args;
+
   type DropRow = { amount: number | string };
   type PayoutRow = { amount: number | string; payoutType?: string | null };
+  type VendorPayRow = { amount: number | string };
 
-  const drops = (await prisma.cashDrop.findMany({
-    where: { shiftId },
-    select: { amount: true },
-  })) as DropRow[];
-  const payouts = (await prisma.cashPayout.findMany({
-    where: { shiftId },
-    select: { amount: true, payoutType: true },
-  })) as PayoutRow[];
+  const [drops, payouts, vendorCashPays] = await Promise.all([
+    prisma.cashDrop.findMany({
+      where: { shiftId },
+      select: { amount: true },
+    }) as Promise<DropRow[]>,
+    prisma.cashPayout.findMany({
+      where: { shiftId },
+      select: { amount: true, payoutType: true },
+    }) as Promise<PayoutRow[]>,
+    // B6 — back-office VendorPayments paid in cash that fall in this shift's
+    // window for this store. These reduce drawer cash even though they're
+    // recorded via the back-office portal (not the register's "Paid Out"
+    // button which writes CashPayout). Filter by paymentDate (the date the
+    // user said the payment happened, which may or may not equal createdAt).
+    prisma.vendorPayment.findMany({
+      where: {
+        orgId,
+        storeId,
+        tenderMethod: 'cash',
+        paymentDate: { gte: windowStart, lte: windowEnd },
+      },
+      select: { amount: true },
+    }) as Promise<VendorPayRow[]>,
+  ]);
 
   const cashDropsTotal = drops.reduce((s, d) => s + Number(d.amount || 0), 0);
 
@@ -154,7 +186,18 @@ export async function readPayoutBuckets(shiftId: string): Promise<PayoutBuckets>
   // payout regardless of bucket. Keep that semantic for back-compat.
   const cashPayoutsTotal = cashOut + cashIn;
 
-  return { cashDropsTotal, cashIn, cashOut, cashPayoutsTotal };
+  const backOfficeCashPayments = vendorCashPays.reduce(
+    (s, v) => s + Number(v.amount || 0),
+    0,
+  );
+
+  return {
+    cashDropsTotal,
+    cashIn,
+    cashOut,
+    cashPayoutsTotal,
+    backOfficeCashPayments,
+  };
 }
 
 /**
@@ -173,13 +216,49 @@ export async function readLotteryShiftRaw(args: {
 }): Promise<LotteryShiftRaw> {
   const { orgId, storeId, windowStart, windowEnd } = args;
 
-  // Ticket-math sales for the window — uses the shared reporting service.
-  const ticket = await windowSales({
+  // B3 (Session 61) — short-circuit when the store has lottery disabled
+  // (or never enabled it). Skips 3 unnecessary queries per shift close /
+  // EoD load AND prevents historic lottery values from leaking into the
+  // drawer math after a store toggles the module off. Behaviour the user
+  // explicitly specified: "if lottery module is disabled then the lottery
+  // section won't be there in the end of the day report or in calculation".
+  //
+  // Returns all-zero raw values so compute.ts produces an empty
+  // LotteryCashFlow that contributes nothing to expectedDrawer and emits
+  // no line items.
+  const settings = await prisma.lotterySettings.findUnique({
+    where: { storeId },
+    select: { enabled: true },
+  });
+  if (!settings?.enabled) {
+    return {
+      ticketMathSales: 0,
+      ticketMathSource: 'empty',
+      posLotterySales: 0,
+      machineDrawSales: 0,
+      machineCashings: 0,
+      instantCashings: 0,
+    };
+  }
+
+  // B4 (Session 62) — per-shift ticket-math sales using bracketing snapshot
+  // events (shift open + close). When the shift was opened AFTER the
+  // openShift handler started writing shift_boundary events, this gives a
+  // CORRECT per-shift delta. For multi-cashier days, this prevents the
+  // whole-day's lottery sales from being attributed to whichever cashier
+  // closed last.
+  //
+  // Falls back to `windowSales` (day-by-day delta) when shiftSales returns
+  // empty — covers legacy shifts that lack a starting boundary event.
+  const shiftRes = await shiftSales({
     orgId,
     storeId,
-    windowStart,
-    windowEnd,
+    openedAt: windowStart,
+    closedAt: windowEnd,
   });
+  const ticket = shiftRes.totalSales > 0
+    ? shiftRes
+    : await windowSales({ orgId, storeId, windowStart, windowEnd });
 
   // POS-recorded lottery sales for the window. Different from ticket-math
   // when the cashier skipped ringing up some tickets.
