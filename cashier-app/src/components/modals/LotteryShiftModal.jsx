@@ -621,7 +621,17 @@ export default function LotteryShiftModal({
                             onChange={e => setEndTickets(prev => ({ ...prev, [b.id]: numInput(e.target.value) }))}
                           />
                         </span>
-                        <span className="lsm-book-sold">{b.isSoldout ? 'ALL' : (b.ticketsSold ?? '—')}</span>
+                        {/* Show ACTUAL ticket count for soldouts (not "ALL")
+                            so cashier sees exactly what's being attributed to
+                            today's sale. e.g., a book with yesterday=1 and
+                            SO clicked → "2 SO" (2 tickets sold today via the
+                            soldout sentinel) — matches the dollar amount the
+                            backend will record. */}
+                        <span className="lsm-book-sold">
+                          {b.isSoldout
+                            ? (b.soldoutTickets != null ? `${b.soldoutTickets} SO` : 'SO')
+                            : (b.ticketsSold ?? '—')}
+                        </span>
                         <span className="lsm-book-amt">{b.isSoldout ? fmtL(b.soldoutAmount) : (b.calcAmount !== null ? fmtL(b.calcAmount) : '—')}</span>
                         <span className="lsm-book-actions">
                           <button

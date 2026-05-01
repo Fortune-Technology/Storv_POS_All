@@ -372,16 +372,18 @@ export default function LotteryBackOffice() {
         await returnLotteryBoxToLotto(box.id, { returnType: 'full' });
         showToast('Book returned');
       } else if (kind === 'restore') {
-        // Undo a soldout that was hit by mistake. Restores the book to
-        // active state, walks currentTicket back to its pre-soldout
-        // position, neutralises the inflated soldout-day sale.
+        // Apr 2026 — handles BOTH soldout (status='depleted') and return
+        // (status='returned') undo. Same backend endpoint, same correction-
+        // snapshot mechanism. Walks currentTicket back to its pre-event
+        // position and neutralises that day's inflated/under-reported sale.
+        const fromState = box.status === 'returned' ? 'return' : 'soldout';
         if (!await confirm({
           title: 'Restore to counter?',
-          message: `Restore ${box.game?.name || 'book'} ${box.boxNumber} to the counter? The soldout will be undone, and tickets that were counted as sold on the soldout day will revert to their actual position.`,
+          message: `Restore ${box.game?.name || 'book'} ${box.boxNumber} to the counter? The ${fromState} will be undone, and tickets that were counted as sold on the ${fromState} day will revert to their actual position.`,
           confirmLabel: 'Restore',
         })) return;
         await restoreLotteryBoxToCounter(box.id, { reason: 'manual_restore' });
-        showToast('Book restored to counter');
+        showToast(box.status === 'returned' ? 'Return undone — book on counter' : 'Book restored to counter');
       } else if (kind === 'delete') {
         if (!await confirm({
           title: 'Delete book?',
@@ -752,6 +754,8 @@ export default function LotteryBackOffice() {
                   <ReturnPanel
                     active={active}
                     safe={safe}
+                    sellDirection={sellDirection}
+                    date={date}
                     onClose={() => setRightPane('safe')}
                     onSaved={() => { setRightPane('safe'); load(); }}
                   />
@@ -1118,11 +1122,23 @@ function BookList({ books, emptyMsg, variant, onAction }) {
         { key: 'restore', label: 'Restore to Counter',  icon: Play,      onClick: () => onAction?.('restore', b) },
         { separator: true },
         { key: 'return',  label: 'Return to Lottery',   icon: RotateCcw, onClick: () => onAction?.('return',  b) },
+        { separator: true },
+        // Apr 2026 — Delete option for cases where the book was a complete
+        // mistake (test data, duplicate, wrong receive). Different from
+        // Restore (which keeps the book and undoes the SO event); Delete
+        // removes the entire book record with its full audit history.
+        { key: 'delete',  label: 'Delete book',         icon: Trash2,    danger: true, onClick: () => onAction?.('delete', b) },
       ];
     }
     if (variant === 'returned') {
-      // Returned books are terminal — view only. No actions.
-      return [];
+      // Apr 2026 — undo a return (parity with soldout restore). Same backend
+      // endpoint handles both depleted and returned. Writes a correction
+      // snapshot to neutralise the return's day-sales contribution.
+      return [
+        { key: 'restore', label: 'Restore to Counter',  icon: Play,    onClick: () => onAction?.('restore', b) },
+        { separator: true },
+        { key: 'delete',  label: 'Delete book',         icon: Trash2,  danger: true, onClick: () => onAction?.('delete', b) },
+      ];
     }
     return [];
   };
@@ -1330,7 +1346,7 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
 // ════════════════════════════════════════════════════════════════════
 // Return Panel — supports full and partial returns
 // ════════════════════════════════════════════════════════════════════
-function ReturnPanel({ active, safe, onClose, onSaved }) {
+function ReturnPanel({ active, safe, sellDirection = 'desc', date, onClose, onSaved }) {
   const confirm = useConfirm();
   const boxes = [...active, ...safe];
   const [pickId, setPickId] = useState('');
@@ -1339,6 +1355,10 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState('');
+  // Tracks whether the user has manually edited the ticketsSold input.
+  // We auto-prefill from the live position when a partial-return book is
+  // selected, but stop overwriting once the user types their own value.
+  const [touched, setTouched] = useState(false);
 
   // Pre-select a book when the Return drawer is opened via a CounterRow /
   // BookList action menu. The parent dispatches `lbo-return-preselect`
@@ -1355,9 +1375,41 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
   const pick = boxes.find(b => b.id === pickId);
   const total = pick ? Number(pick.totalTickets || 0) : 0;
   const price = pick ? Number(pick.ticketPrice || 0) : 0;
+
+  // Apr 2026 — compute the LIVE sold count from box.currentTicket
+  // direction-aware. This is the system's best-known value at the moment
+  // the user opens the return panel; matches the SO confirm modal pattern.
+  // Used to pre-fill the ticketsSold input AND for the confirm message.
+  const liveSoldCount = useMemo(() => {
+    if (!pick) return 0;
+    const ct = Number(pick.currentTicket);
+    if (!Number.isFinite(ct) || total === 0) return 0;
+    if (sellDirection === 'asc') {
+      // asc: startTicket=0, currentTicket=N means N tickets sold (0..N-1).
+      const start = Number(pick.startTicket ?? 0);
+      return Math.max(0, Math.min(total, ct - start));
+    }
+    // desc: startTicket=total-1, currentTicket=N means (start-N) tickets sold.
+    const start = Number(pick.startTicket ?? total - 1);
+    return Math.max(0, Math.min(total, start - ct));
+  }, [pick, total, sellDirection]);
+
+  // Pre-fill ticketsSold when partial mode + book selected + user hasn't typed
+  // their own value yet. Reset 'touched' when book or kind changes.
+  useEffect(() => {
+    setTouched(false);
+    if (kind === 'partial' && pick) {
+      setTicketsSold(String(liveSoldCount));
+    } else {
+      setTicketsSold('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickId, kind]);
+
   const soldN = kind === 'partial' ? Number(ticketsSold || 0) : 0;
   const unsold = Math.max(0, total - soldN);
   const unsoldValue = unsold * price;
+  const soldValue = soldN * price;
 
   const submit = async () => {
     if (!pick) return;
@@ -1368,12 +1420,20 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
     }
     if (!await confirm({
       title: 'Return book?',
-      message: `Return ${pick.game?.name} Book ${pick.boxNumber}?\n\n${kind === 'partial' ? `${soldN} sold · ${unsold} unsold → ${fmtMoney(unsoldValue)} deducted from settlement` : 'Full return'}`,
+      message: kind === 'partial'
+        ? `Return ${pick.game?.name} Book ${pick.boxNumber} on ${date}?\n\n` +
+          `Sold today: ${soldN} ticket${soldN === 1 ? '' : 's'} (${fmtLottery(soldValue)}) — counted as that day's sales\n` +
+          `Unsold: ${unsold} ticket${unsold === 1 ? '' : 's'} (${fmtLottery(unsoldValue)}) — credited back to inventory\n\n` +
+          `Cannot be undone without "Restore to Counter".`
+        : `Return ${pick.game?.name} Book ${pick.boxNumber} on ${date}?\n\nFull return — no tickets sold from this book. Cannot be undone without "Restore to Counter".`,
       confirmLabel: 'Return',
+      danger: true,
     })) return;
     setSaving(true); setErr('');
     try {
-      const body = { reason: reason || null, returnType: kind };
+      // Apr 2026 — pass selected calendar date so backend dates the return
+      // correctly + writes a close_day_snapshot for that date.
+      const body = { reason: reason || null, returnType: kind, date };
       if (kind === 'partial') body.ticketsSold = soldN;
       await returnLotteryBoxToLotto(pick.id, body);
       onSaved?.();
@@ -1423,13 +1483,19 @@ function ReturnPanel({ active, safe, onClose, onSaved }) {
               type="number"
               min="0" max={total}
               value={ticketsSold}
-              onChange={e => setTicketsSold(e.target.value)}
+              onChange={e => { setTicketsSold(e.target.value); setTouched(true); }}
               placeholder={`0 – ${total}`}
             />
             <small className="lbo-field-hint">
-              Book has {total} tickets. Enter how many were sold before physical return.
+              Book has {total} tickets.{' '}
+              {!touched && liveSoldCount > 0 && (
+                <>Pre-filled from live position — system shows <strong>{liveSoldCount}</strong> sold so far. Adjust if needed.</>
+              )}
+              {touched && (
+                <>Enter how many were sold before physical return.</>
+              )}
               {Number.isFinite(soldN) && soldN > 0 && soldN <= total && (
-                <> <strong>{unsold} tickets unsold · {fmtMoney(unsoldValue)} credited back</strong></>
+                <> <strong>{soldN} sold ({fmtLottery(soldValue)}) · {unsold} unsold ({fmtLottery(unsoldValue)} credited back)</strong></>
               )}
             </small>
           </div>
