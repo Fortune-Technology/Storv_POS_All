@@ -402,51 +402,110 @@ export const receiveBoxOrder = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const created = await Promise.all(
-      items.map(async (b: Record<string, unknown>) => {
-        let game = await resolveOrCreateStoreGame({
-          orgId,
-          storeId,
-          gameId: b.gameId as string | null | undefined,
-          catalogTicketId: b.catalogTicketId as string | null | undefined,
-          state: b.state as string | null | undefined,
-          gameNumber: b.gameNumber as string | number | null | undefined,
+    // Apr 2026 — duplicate-book validation. A physical lottery book has a
+    // unique (gameNumber, bookNumber) — receiving the same book twice
+    // would create two LotteryBox rows that share inventory math + scan
+    // matching, producing wrong sales numbers and confusing the cashier.
+    // Reject the receive if the same (gameId, boxNumber) already exists at
+    // this store in any active-lifecycle status (inventory/active/depleted/
+    // returned) — settled books can theoretically have the box-number
+    // recycled by the lottery commission years later, so those are excluded.
+    type CreatedBox = Awaited<ReturnType<typeof prisma.lotteryBox.create>>;
+    const created: CreatedBox[] = [];
+    const duplicates: Array<{ gameNumber: string | null; boxNumber: string; existingStatus: string }> = [];
+
+    for (const b of items as Record<string, unknown>[]) {
+      let game = await resolveOrCreateStoreGame({
+        orgId,
+        storeId,
+        gameId: b.gameId as string | null | undefined,
+        catalogTicketId: b.catalogTicketId as string | null | undefined,
+        state: b.state as string | null | undefined,
+        gameNumber: b.gameNumber as string | number | null | undefined,
+      });
+      const total = Number(b.totalTickets || game.ticketsPerBox);
+
+      // Persist pack-size correction back to the store-level LotteryGame
+      // so future receives default correctly (every book of the same game
+      // has the same pack size — natural home for the value).
+      if (
+        b.totalTickets != null &&
+        Number.isFinite(total) &&
+        total > 0 &&
+        total !== game.ticketsPerBox
+      ) {
+        game = await prisma.lotteryGame.update({
+          where: { id: game.id },
+          data: { ticketsPerBox: total },
         });
-        const total = Number(b.totalTickets || game.ticketsPerBox);
+      }
 
-        // Persist the user's pack-size correction back to the store-level
-        // LotteryGame so future receives of the same game default to the
-        // correct size (no need to re-pick every time). Every book of the
-        // same game has the same pack size — this is the natural home for
-        // the value. We only update if the caller explicitly supplied
-        // totalTickets and it disagrees with what the game currently holds.
-        if (
-          b.totalTickets != null &&
-          Number.isFinite(total) &&
-          total > 0 &&
-          total !== game.ticketsPerBox
-        ) {
-          game = await prisma.lotteryGame.update({
-            where: { id: game.id },
-            data: { ticketsPerBox: total },
-          });
-        }
+      const boxNum = (b.boxNumber as string | null) || null;
 
-        return prisma.lotteryBox.create({
-          data: {
+      // Duplicate check — only fires when boxNumber is set (legacy receives
+      // without a book number can have multiple null-number rows; the lottery
+      // commission requires book numbers in practice so this should be rare).
+      if (boxNum) {
+        const existing = await prisma.lotteryBox.findFirst({
+          where: {
             orgId,
             storeId,
             gameId: game.id,
-            boxNumber: (b.boxNumber as string | null) || null,
-            totalTickets: total,
-            ticketPrice: Number(game.ticketPrice),
-            totalValue: Number(game.ticketPrice) * total,
-            startTicket: (b.startTicket as string | null) || null,
-            status: 'inventory',
+            boxNumber: boxNum,
+            status: { in: ['inventory', 'active', 'depleted', 'returned'] },
           },
+          select: { status: true },
         });
-      }),
-    );
+        if (existing) {
+          duplicates.push({
+            gameNumber: game.gameNumber || null,
+            boxNumber: boxNum,
+            existingStatus: existing.status,
+          });
+          continue;   // skip this item; we'll error after the loop
+        }
+      }
+
+      const newBox = await prisma.lotteryBox.create({
+        data: {
+          orgId,
+          storeId,
+          gameId: game.id,
+          boxNumber: boxNum,
+          totalTickets: total,
+          ticketPrice: Number(game.ticketPrice),
+          totalValue: Number(game.ticketPrice) * total,
+          startTicket: (b.startTicket as string | null) || null,
+          status: 'inventory',
+        },
+      });
+      created.push(newBox);
+    }
+
+    if (duplicates.length > 0) {
+      // Friendly error mapping each duplicate to its existing-book status.
+      // The UI can surface this so the cashier knows EXACTLY which books
+      // are already in inventory and what their current state is.
+      const statusLabel = (s: string) => ({
+        inventory: 'Safe',
+        active: 'Counter',
+        depleted: 'Sold Out',
+        returned: 'Returned to Lotto',
+      }[s] || s);
+      const message = duplicates.length === 1
+        ? `Book ${duplicates[0].gameNumber}-${duplicates[0].boxNumber} is already in your store as ${statusLabel(duplicates[0].existingStatus)}. Cannot receive the same book twice.`
+        : `${duplicates.length} books are already in your store: ` +
+          duplicates.slice(0, 3).map((d) => `${d.gameNumber}-${d.boxNumber} (${statusLabel(d.existingStatus)})`).join(', ') +
+          (duplicates.length > 3 ? `, and ${duplicates.length - 3} more.` : '.');
+      res.status(409).json({
+        success: false,
+        error: message,
+        duplicates,
+        partial: created.length > 0 ? created : undefined,
+      });
+      return;
+    }
+
     res.json({ success: true, data: created, count: created.length });
   } catch (err) {
     console.error('[lottery.receiveBoxOrder]', err);
@@ -539,8 +598,73 @@ export const updateBox = async (req: Request, res: Response): Promise<void> => {
       boxNumber,
     } = req.body;
 
+    // Apr 2026 — slot-uniqueness check (parity with activateBox). Without
+    // this, two active books could end up assigned to the same machine
+    // slot when admin renumbers via the back-office Counter row's slot
+    // input — confusing for cashiers + breaks slot-based scan routing.
+    let slotForUpdate: number | null | undefined;
+    if (slotNumber !== undefined) {
+      if (slotNumber === null || slotNumber === '') {
+        slotForUpdate = null;   // explicit clear
+      } else {
+        const slot = Number(slotNumber);
+        if (!Number.isFinite(slot)) {
+          res.status(400).json({ success: false, error: 'slotNumber must be a number' });
+          return;
+        }
+        // Only enforce uniqueness against ACTIVE books — soldout/returned/
+        // inventory books can keep their old slot number for audit trail
+        // (slotNumber is set null by markBoxSoldout/returnBoxToLotto/
+        // moveBoxToSafe so this is mostly defensive).
+        const clash = await prisma.lotteryBox.findFirst({
+          where: { orgId, storeId, status: 'active', slotNumber: slot, NOT: { id } },
+          select: { id: true, boxNumber: true, game: { select: { name: true } } },
+        });
+        if (clash) {
+          res.status(409).json({
+            success: false,
+            error: `Slot ${slot} is already occupied by ${clash.game?.name || 'book'} ${clash.boxNumber || clash.id}. Move that book first or pick a different slot.`,
+          });
+          return;
+        }
+        slotForUpdate = slot;
+      }
+    }
+
+    // Apr 2026 — boxNumber uniqueness check on rename. Without this, admin
+    // could rename one book's boxNumber to another active book's number,
+    // leaving the system with two rows that share (gameId, boxNumber) —
+    // which scan-matching depends on. Same status filter as receiveBoxOrder
+    // (active-lifecycle states only; settled books can recycle numbers).
+    if (boxNumber != null && String(boxNumber).trim() !== '' && String(boxNumber) !== String(box.boxNumber || '')) {
+      const dup = await prisma.lotteryBox.findFirst({
+        where: {
+          orgId,
+          storeId,
+          gameId: box.gameId,
+          boxNumber: String(boxNumber),
+          status: { in: ['inventory', 'active', 'depleted', 'returned'] },
+          NOT: { id },
+        },
+        select: { id: true, status: true, boxNumber: true },
+      });
+      if (dup) {
+        const statusLabel = (s: string) => ({
+          inventory: 'Safe',
+          active: 'Counter',
+          depleted: 'Sold Out',
+          returned: 'Returned to Lotto',
+        }[s] || s);
+        res.status(409).json({
+          success: false,
+          error: `Book number ${boxNumber} is already used by another book in ${statusLabel(dup.status)} for this game. Pick a different number or update the other book first.`,
+        });
+        return;
+      }
+    }
+
     const patch: Prisma.LotteryBoxUpdateInput = {
-      ...(slotNumber != null && { slotNumber: Number(slotNumber) }),
+      ...(slotForUpdate !== undefined && { slotNumber: slotForUpdate }),
       ...(status != null && { status }),
       ...(currentTicket != null && { currentTicket: String(currentTicket) }),
       ...(startTicket != null && { startTicket: String(startTicket) }),
@@ -579,15 +703,44 @@ export const deleteBox = async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ success: false, error: 'Box not found' });
       return;
     }
-    // Activated boxes CANNOT be deleted
-    if (box.status !== 'inventory') {
+    // Apr 2026 — allow deletion from inventory, depleted (soldout), and
+    // returned statuses. Per user direction: "the sold book can be deleted
+    // if done by mistake or can bring back on counter". Active books are
+    // still locked (currently in use on the counter); settled books are
+    // locked (already accounted for in the lottery commission settlement).
+    if (!['inventory', 'depleted', 'returned'].includes(box.status)) {
       res.status(400).json({
         success: false,
         error:
-          'Only inventory boxes can be deleted. Activated, depleted, or settled boxes cannot be removed.',
+          `Cannot delete a book with status '${box.status}'. Only inventory (Safe), depleted (Sold Out), and returned books can be removed. ` +
+          (box.status === 'active'
+            ? 'Move this book to the Safe or mark it sold out first, then delete.'
+            : 'Settled books are part of the closed weekly settlement and cannot be removed.'),
       });
       return;
     }
+
+    // Don't allow deletion of books with real POS transaction history —
+    // those are part of the audit trail. The cashier can Restore the book
+    // instead, which keeps the history intact while undoing the SO/return.
+    const txCount = await prisma.lotteryTransaction.count({
+      where: { boxId: id },
+    });
+    if (txCount > 0) {
+      res.status(400).json({
+        success: false,
+        error:
+          `Cannot delete this book — it has ${txCount} POS transaction${txCount === 1 ? '' : 's'} on record. ` +
+          'Use "Restore to Counter" instead to undo the soldout/return without losing history.',
+      });
+      return;
+    }
+
+    // Clean up associated scan events (otherwise the snapshot trail
+    // references a non-existent box, which causes spurious entries in
+    // bestEffortDailySales' boxBreakdown).
+    await prisma.lotteryScanEvent.deleteMany({ where: { boxId: id } }).catch(() => {});
+
     await prisma.lotteryBox.delete({ where: { id } });
     res.json({ success: true });
   } catch (err) {
@@ -2471,17 +2624,23 @@ export const restoreBoxToCounter = async (req: Request, res: Response): Promise<
       res.status(404).json({ success: false, error: 'Box not found' });
       return;
     }
-    if (box.status !== 'depleted') {
+    // Apr 2026 — accept BOTH 'depleted' (sold out) AND 'returned' (sent back
+    // to lottery) statuses. Same restore mechanism applies: find the prior
+    // snapshot, restore currentTicket, write a correction snapshot at
+    // {depletedAt|returnedAt} + 1ms so snapshotSales picks the corrected
+    // value over the original SO/return event.
+    if (!['depleted', 'returned'].includes(box.status)) {
       res
         .status(400)
-        .json({ success: false, error: `Cannot restore to counter from status ${box.status} — only depleted books can be restored` });
+        .json({ success: false, error: `Cannot restore to counter from status ${box.status} — only depleted (soldout) or returned books can be restored` });
       return;
     }
 
-    // Find the prior close_day_snapshot for this box (the one BEFORE the
-    // soldout's snapshot). The soldout's createdAt is `box.depletedAt`,
-    // so we look for the latest snapshot with createdAt < depletedAt.
-    const cutoff = box.depletedAt || new Date();
+    // The cutoff for "prior snapshot" is whichever timestamp marks the
+    // book's exit from active state — depletedAt for soldouts, returnedAt
+    // for returned books. The original SO/return event's snapshot was
+    // written at this same timestamp.
+    const cutoff = box.depletedAt || box.returnedAt || new Date();
     const priorSnap = await prisma.lotteryScanEvent.findFirst({
       where: {
         orgId, storeId,
@@ -2535,6 +2694,7 @@ export const restoreBoxToCounter = async (req: Request, res: Response): Promise<
       data: {
         status: 'active',
         depletedAt: null,
+        returnedAt: null,                       // ← Apr 2026: also clear returnedAt for returned-book restores
         autoSoldoutReason: null,
         currentTicket: restoredTicket,
         ticketsSold,
@@ -2544,11 +2704,12 @@ export const restoreBoxToCounter = async (req: Request, res: Response): Promise<
       include: { game: true },
     });
 
-    // Write a correction close_day_snapshot for the soldout day. createdAt
-    // is `box.depletedAt + 1 ms` so it sorts AFTER the original soldout
-    // event — snapshotSales picks this one as the "latest event of the day"
-    // and reverts that day's inflated sale back to reality.
-    const correctionAt = new Date((box.depletedAt || new Date()).getTime() + 1);
+    // Write a correction close_day_snapshot for the depleted/returned day.
+    // createdAt is `cutoff + 1 ms` (cutoff = depletedAt OR returnedAt) so
+    // it sorts AFTER the original SO/return event — snapshotSales picks
+    // this one as the "latest event of the day" and reverts that day's
+    // inflated sale back to reality.
+    const correctionAt = new Date(cutoff.getTime() + 1);
     await prisma.lotteryScanEvent
       .create({
         data: {
@@ -2603,6 +2764,11 @@ export const returnBoxToLotto = async (req: Request, res: Response): Promise<voi
       // Informational metadata — accepted so the UI can log "partial"
       // explicitly even when ticketsSold is 0 (e.g. manual adjustment).
       returnType,
+      // Apr 2026 — accept selected calendar date so the return is dated
+      // correctly when admin returns a book retroactively (e.g., "this
+      // book was physically returned yesterday"). Defaults to today.
+      // Mirrors markBoxSoldout's date handling.
+      date: dateStr,
     } = req.body || {};
 
     const box = await prisma.lotteryBox.findFirst({ where: { id: boxId, orgId, storeId } });
@@ -2617,13 +2783,35 @@ export const returnBoxToLotto = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    // Resolve return date (mirrors markBoxSoldout). returnedAt is set to
+    // the selected day's 23:59:59 so the close_day_snapshot we write below
+    // sorts as the LATEST event for that day → snapshotSales picks our
+    // return-position over any prior same-day snapshot.
+    const dateParsed = dateStr ? parseDate(dateStr) : new Date();
+    if (!dateParsed) {
+      res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+      return;
+    }
+    const returnedAt = new Date(dateParsed);
+    returnedAt.setUTCHours(23, 59, 59, 0);
+
     const data: Prisma.LotteryBoxUpdateInput = {
       status: 'returned',
-      returnedAt: new Date(),
+      returnedAt,
       slotNumber: null,
       autoSoldoutReason: reason || (returnType ? `Return (${returnType})` : null),
       updatedAt: new Date(),
     };
+
+    // Resolve sellDirection — drives the post-return currentTicket position
+    // computation. Default 'desc' matches the rest of the codebase.
+    const settings = await prisma.lotterySettings
+      .findUnique({ where: { storeId }, select: { sellDirection: true } })
+      .catch(() => null);
+    const sellDir = settings?.sellDirection || 'desc';
+
+    const total = Number(box.totalTickets || 0);
+    let normalizedTicketsSold: number | null = null;
 
     // Accept ticketsSold for partial returns. Clamp to [0, totalTickets].
     if (ticketsSold != null) {
@@ -2634,8 +2822,25 @@ export const returnBoxToLotto = async (req: Request, res: Response): Promise<voi
           .json({ success: false, error: 'ticketsSold must be a non-negative number' });
         return;
       }
-      const total = Number(box.totalTickets || 0);
-      data.ticketsSold = total > 0 ? Math.min(n, total) : Math.floor(n);
+      normalizedTicketsSold = total > 0 ? Math.min(n, total) : Math.floor(n);
+      data.ticketsSold = normalizedTicketsSold;
+
+      // Apr 2026 — also bump currentTicket to reflect the post-return
+      // position so the close_day_snapshot we write below is meaningful.
+      // For desc-direction: book starts at startTicket=99 (100-pack), 20
+      // sold means top 20 tickets gone, currentTicket = 79 (next-to-sell
+      // would be ticket 79 if the book were active). For asc: 20 sold
+      // means tickets 0-19 gone, currentTicket = 20.
+      const start = box.startTicket != null
+        ? Number(box.startTicket)
+        : (sellDir === 'asc' ? 0 : Math.max(0, total - 1));
+      let newCurrent: number;
+      if (sellDir === 'asc') {
+        newCurrent = start + normalizedTicketsSold;
+      } else {
+        newCurrent = start - normalizedTicketsSold;
+      }
+      data.currentTicket = String(newCurrent);
     }
 
     const updated = await prisma.lotteryBox.update({
@@ -2643,6 +2848,44 @@ export const returnBoxToLotto = async (req: Request, res: Response): Promise<voi
       data,
       include: { game: true },
     });
+
+    // Apr 2026 — Write close_day_snapshot for the return day (parity with
+    // markBoxSoldout). Without this, partial returns contribute ZERO to
+    // the day's sales math:
+    //   - snapshotSales tier skips (no event)
+    //   - liveSalesFromCurrentTickets skips (status='returned' not 'active')
+    //   - POS tier only catches what was rung up — tickets sold without
+    //     POS rings get attributed to nowhere
+    //
+    // With this snapshot, snapshotSales sees today=newCurrent and computes
+    // the correct delta (= ticketsSold) × price for that day.
+    if (normalizedTicketsSold != null && data.currentTicket != null) {
+      await prisma.lotteryScanEvent
+        .create({
+          data: {
+            orgId: orgId as string,
+            storeId: storeId as string,
+            boxId,
+            scannedBy: req.user?.id || null,
+            raw: `return:${boxId}:${dateStr || returnedAt.toISOString().slice(0, 10)}`,
+            parsed: {
+              gameNumber: updated.game?.gameNumber ?? null,
+              gameName: updated.game?.name ?? null,
+              currentTicket: data.currentTicket as string,
+              ticketsSold: normalizedTicketsSold,
+              soldout: false,
+              source: 'manual-return',
+              returnType: returnType || (normalizedTicketsSold > 0 ? 'partial' : 'full'),
+              reason: reason || null,
+            } as Prisma.InputJsonValue,
+            action: 'close_day_snapshot',
+            context: 'eod',
+            createdAt: returnedAt,
+          },
+        })
+        .catch((e: Error) => console.warn('[returnBoxToLotto] snapshot insert failed', boxId, e.message));
+    }
+
     res.json({ success: true, data: updated });
   } catch (err) {
     console.error('[lottery.returnBoxToLotto]', err);
