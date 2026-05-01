@@ -196,7 +196,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 // ── @access  Public
 export const forgotPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { email } = req.body as { email?: string };
+    const { email, app } = req.body as { email?: string; app?: string };
     // Always return success to avoid email enumeration
     const successMsg = 'If that email is registered, a reset link has been sent.';
 
@@ -218,8 +218,14 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
       },
     });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
+    // `app` selects the redirect target. 'admin' → admin-app, anything
+    // else (default 'portal') → main portal. Superadmins reset through the
+    // admin-app login page and should land back there.
+    const isAdminApp = app === 'admin';
+    const baseUrl = isAdminApp
+      ? (process.env.ADMIN_URL || 'http://localhost:5175')
+      : (process.env.FRONTEND_URL || 'http://localhost:5173');
+    const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
     sendForgotPassword(user.email, user.name, resetUrl);
 
     res.json({ message: successMsg });

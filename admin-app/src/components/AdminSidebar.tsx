@@ -4,7 +4,6 @@ import StoreveuLogo from './StoreveuLogo';
 import './AdminSidebar.css';
 import {
   LayoutDashboard,
-  Users,
   Building2,
   FileText,
   Briefcase,
@@ -18,7 +17,6 @@ import {
   PieChart,
   TrendingUp,
   Activity,
-  Store,
   CreditCard,
   MessageSquare,
   Calculator,
@@ -27,6 +25,7 @@ import {
   BookOpen,
   Compass,
   Percent,
+  UserCircle,
 } from 'lucide-react';
 import api from '../services/api';
 import { getRoutePermission } from '../rbac/routePermissions';
@@ -68,9 +67,7 @@ const adminMenuGroups: MenuGroup[] = [
   {
     label: 'Management',
     items: [
-      { name: 'Users',            icon: <Users size={13} />,     path: '/users' },
-      { name: 'Organizations',    icon: <Building2 size={13} />, path: '/organizations' },
-      { name: 'Stores',           icon: <Store size={13} />,     path: '/stores' },
+      { name: 'Organization / Store', icon: <Building2 size={13} />, path: '/org-store' },
       { name: 'States',           icon: <MapPin size={13} />,    path: '/states' },
       { name: 'Vendor Templates', icon: <FileText size={13} />,  path: '/vendor-templates' },
       { name: 'Roles',            icon: <Shield size={13} />,    path: '/roles' },
@@ -119,6 +116,12 @@ const adminMenuGroups: MenuGroup[] = [
       { name: 'AI Knowledge Base', icon: <BookOpen size={13} />,  path: '/ai-kb' },
       { name: 'AI Product Tours',  icon: <Compass size={13} />,   path: '/ai-tours' },
       { name: 'System Config', icon: <Settings size={13} />,      path: '/config' },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      { name: 'My Profile', icon: <UserCircle size={13} />, path: '/profile' },
     ],
   },
 ];

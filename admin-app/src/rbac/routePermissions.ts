@@ -8,9 +8,8 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/analytics/organizations':      'admin_analytics.view',
   '/analytics/stores':             'admin_analytics.view',
   '/analytics/users':              'admin_analytics.view',
-  '/users':                        'admin_users.view',
-  '/organizations':                'admin_organizations.view',
-  '/stores':                       'admin_stores.view',
+  // Unified Org → Store → User drill-down (replaces /users, /organizations, /stores)
+  '/org-store':                    'admin_organizations.view',
   '/roles':                        'admin_roles.view',
   '/merchants':                    'admin_payments.view',
   '/cms':                          'admin_cms.view',

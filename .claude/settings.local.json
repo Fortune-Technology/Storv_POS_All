@@ -70,7 +70,8 @@
       "Bash(npx tsx *)",
       "Bash(tasklist)",
       "WebFetch(domain:docs.ipospays.com)",
-      "Bash(grep -nA 25 \"model EcomOrder\" \"D:/The Fortune Tech Projects/Fortune_POS_Platform/ecom-backend/prisma/schema.prisma\")"
+      "Bash(grep -nA 25 \"model EcomOrder\" \"D:/The Fortune Tech Projects/Fortune_POS_Platform/ecom-backend/prisma/schema.prisma\")",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }

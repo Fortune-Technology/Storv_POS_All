@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app';
 import '../styles/globals.css';
 import '../styles/cart-drawer.css';
 import '../styles/templates.css';
+import '../styles/product-detail-templates.css';
 import '../components/ConfirmModal.css';
 import { StoreProvider } from '../lib/store';
 import { CartProvider } from '../lib/cart';

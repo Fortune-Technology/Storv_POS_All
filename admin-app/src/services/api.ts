@@ -86,6 +86,21 @@ type Headers = Record<string, string>;
 export const login = (credentials: { email: string; password: string }) =>
   api.post<LoginResponse>('/auth/login', credentials);
 
+// Forgot/reset — admin-app passes `app: 'admin'` so the email link points
+// back at the admin panel (5175) instead of the portal (5173).
+export const forgotPassword = (email: string) =>
+  api.post('/auth/forgot-password', { email, app: 'admin' });
+export const resetPassword = (data: { token: string; password: string }) =>
+  api.post('/auth/reset-password', data).then(r => r.data);
+
+// Self-service profile (works for any authenticated user, including superadmin)
+export const getMyProfile      = (): Promise<Record<string, unknown>> =>
+  api.get('/users/me').then(r => r.data);
+export const updateMyProfile   = (data: { name?: string; phone?: string | null }) =>
+  api.put('/users/me', data).then(r => r.data);
+export const changeMyPassword  = (currentPassword: string, newPassword: string) =>
+  api.put('/users/me/password', { currentPassword, newPassword }).then(r => r.data);
+
 // ── Admin Dashboard ──────────────────────────────────────────────────────────
 // Response is `{ data: { totalUsers, chartData[], recentTickets[], ... } }` —
 // the inner shape is free-form so pages destructure what they need. Pages

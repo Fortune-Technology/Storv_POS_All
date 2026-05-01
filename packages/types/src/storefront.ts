@@ -95,6 +95,9 @@ export interface TemplateProps {
   products?: Product[];
   departments?: Department[];
   storeSlug: string;
+  // Single-product templates (Product Detail Page) — populated only when
+  // rendering /products/[slug]. Other templates ignore it.
+  product?: Product | null;
 }
 
 // ─── Product catalog ─────────────────────────────────────────────────────────
