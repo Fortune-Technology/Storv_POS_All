@@ -1,19 +1,19 @@
 import React, { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingSection from '../../components/marketing/MarketingSection';
-import MarketingButton from '../../components/marketing/MarketingButton';
-import SEO from '../../components/SEO';
-import ssLiveDashboard from '../../assets/Store_Dashboard/LiveDashboard.png';
-import ssAnalytics from '../../assets/Store_Dashboard/Analytics.png';
-import ssProducts from '../../assets/Store_Dashboard/ProductsCatalogue.png';
-import ssTransactions from '../../assets/Store_Dashboard/Transactions.png';
-import ssEmployees from '../../assets/Store_Dashboard/Employees.png';
-import ssVendorOrders from '../../assets/Store_Dashboard/VendorOrder.png';
-import ssPOS from '../../assets/Store_Dashboard/POS_Cashier_Screen.png';
-import ssInvoice from '../../assets/Store_Dashboard/InvoiceImportPage.png';
-import ssPredictions from '../../assets/Store_Dashboard/Sales_Predictions.png';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingSection from '../components/marketing/MarketingSection';
+import MarketingButton from '../components/marketing/MarketingButton';
+import SEO from '../components/SEO';
+import ssLiveDashboard from '../assets/Store_Dashboard/LiveDashboard.png';
+import ssAnalytics from '../assets/Store_Dashboard/Analytics.png';
+import ssProducts from '../assets/Store_Dashboard/ProductsCatalogue.png';
+import ssTransactions from '../assets/Store_Dashboard/Transactions.png';
+import ssEmployees from '../assets/Store_Dashboard/Employees.png';
+import ssVendorOrders from '../assets/Store_Dashboard/VendorOrder.png';
+import ssPOS from '../assets/Store_Dashboard/POS_Cashier_Screen.png';
+import ssInvoice from '../assets/Store_Dashboard/InvoiceImportPage.png';
+import ssPredictions from '../assets/Store_Dashboard/Sales_Predictions.png';
 import {
   ArrowRight, WifiOff, ScanBarcode, CreditCard, ShieldCheck, Users, LayoutGrid,
   Globe, Boxes, ClipboardList, DollarSign, Lock, TrendingUp, RefreshCw,

@@ -1,0 +1,211 @@
+/** Marketing Footer — Redesigned */
+
+/* ── Pre-footer CTA Strip ── */
+.mktf-cta {
+  background: var(--bg-dark);
+  padding: var(--mkt-section-pad-sm) 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.mktf-cta::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: -10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(61, 86, 181, 0.15), transparent 60%);
+  pointer-events: none;
+}
+
+.mktf-cta-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3rem;
+}
+
+.mktf-cta-text h3 {
+  font-size: var(--mkt-heading-md);
+  color: var(--text-inverse);
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.mktf-cta-text p {
+  color: var(--text-inverse-muted);
+  font-size: var(--mkt-body-lg);
+}
+
+.mktf-cta-actions {
+  display: flex;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Main Footer ── */
+.mktf {
+  background: var(--bg-dark);
+  padding: 64px 1.5rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mktf-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.mktf-grid {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(3, 1fr);
+  gap: 4rem;
+  padding-bottom: 48px;
+}
+
+/* ── Brand column ── */
+.mktf-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.mktf-logo {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.mktf-desc {
+  font-size: 0.92rem;
+  color: var(--text-inverse-muted);
+  line-height: 1.65;
+  max-width: 300px;
+}
+
+.mktf-social {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.mktf-social-link {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-inverse-muted);
+  transition: all 0.2s ease;
+}
+
+.mktf-social-link:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-inverse);
+  transform: translateY(-2px);
+}
+
+/* ── Link groups ── */
+.mktf-group-title {
+  font-family: var(--font-heading);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-inverse-muted);
+  margin-bottom: 1.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.mktf-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.mktf-links a {
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  transition: color 0.2s ease;
+}
+
+.mktf-links a:hover {
+  color: var(--text-inverse);
+}
+
+/* ── Bottom bar ── */
+.mktf-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 1.5rem 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.mktf-legal {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.mktf-legal a {
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.35);
+  transition: color 0.2s ease;
+}
+
+.mktf-legal a:hover {
+  color: var(--text-inverse-muted);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .mktf-cta-inner {
+    flex-direction: column;
+    text-align: center;
+    gap: 2rem;
+  }
+  .mktf-cta-actions {
+    justify-content: center;
+  }
+  .mktf-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+  }
+  .mktf-brand {
+    grid-column: 1 / -1;
+    align-items: center;
+    text-align: center;
+  }
+  .mktf-desc { max-width: 400px; }
+  .mktf-social { justify-content: center; }
+}
+
+@media (max-width: 768px) {
+  .mktf-grid {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    text-align: center;
+  }
+  .mktf-group { text-align: center; }
+  .mktf-links { align-items: center; }
+  .mktf-bottom {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+  .mktf-legal { justify-content: center; }
+  .mktf-cta-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .mktf-cta-actions .mkt-btn { width: 100%; justify-content: center; }
+}

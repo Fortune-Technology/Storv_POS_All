@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingButton from '../../components/marketing/MarketingButton';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingButton from '../components/marketing/MarketingButton';
 import { Mail, Phone, MapPin, CheckCircle2, Clock, ShieldCheck, Star, ArrowRight } from 'lucide-react';
-import SEO from '../../components/SEO';
+import SEO from '../components/SEO';
 import './Contact.css';
 
 const FadeIn = ({ children, className, delay = 0 }) => {

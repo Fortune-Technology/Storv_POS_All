@@ -7,13 +7,7 @@ import ExchangeNotifier from './components/ExchangeNotifier';
 import InactivityLock from './components/InactivityLock';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 
-// Marketing Pages
-import Home from './pages/marketing/Home';
-import Features from './pages/marketing/Features';
-import Pricing from './pages/marketing/Pricing';
-import Contact from './pages/marketing/Contact';
-import About from './pages/marketing/About';
-import Download from './pages/marketing/Download';
+// Internal payment simulator (not part of marketing site)
 import PaymentSimulator from './pages/marketing/PaymentSimulator';
 
 // Auth / Onboarding Pages
@@ -213,14 +207,13 @@ function App() {
         <Route path="/shop/checkout" element={<ShopCheckout />} />
         <Route path="/shop/:slug"    element={<ProductPage />} />
 
-        {/* ── Marketing (Public) ────────────────────────────────────────── */}
-        <Route path="/"         element={<Home />} />
-        <Route path="/features" element={<Features />} />
-        <Route path="/pricing"  element={<Pricing />} />
-        <Route path="/contact"  element={<Contact />} />
-        <Route path="/about"    element={<About />} />
-        <Route path="/download" element={<Download />} />
+        {/* ── Marketing site moved to dedicated `marketing/` app.
+              `/`, `/features`, `/pricing`, `/contact`, `/about`, `/download`
+              are served by that app. The frontend's `/` redirects to /login. */}
+        <Route path="/"         element={<Navigate to="/login" replace />} />
         <Route path="/payment-simulator" element={<PaymentSimulator />} />
+
+        {/* ── Public Content (still served by frontend) ───────────────── */}
         <Route path="/careers"      element={<Careers />} />
         <Route path="/careers/:id"  element={<CareerDetail />} />
         <Route path="/support"      element={<Support />} />
