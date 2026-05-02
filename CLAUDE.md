@@ -10291,6 +10291,146 @@ The AnalyticsHub fix is purely visual cleanup — removed nested chrome, no func
 
 *Last updated: May 2026 — Session 66 (Reports IA): SalesAnalytics + SalesPredictions inner period tab bars converted to header dropdowns (no more nested tab rows under AnalyticsHub); new `DailyReports` hub at `/portal/daily-reports` consolidates End of Day + Daily Sale + Dual Pricing (3 sidebar entries → 1 hub); old URLs preserved as React Router redirects; sidebar Reports & Analytics group shrunk from 7 → 5 entries. Vite build clean (16.96s).*
 
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 67 — Configurable EoD Report: Department Breakdown + Lottery-Separate-from-Drawer + Hide-Zero-Rows)
+
+User feedback: 3 EoD configurability asks
+1. *"Department wise report in end of day report (Enable and disable)"*
+2. *"Lottery ringged/scanned/checkout from register shall be in dept breakdown. Give another option to include or remove cash from cash drawer so cashdrawer will be only business cash and lottery details are shown separate in EoD report (Again enable / disable)"*
+3. *"Enable / disable if the store needs full report or only show rows in report that has value, for zero transaction and 0 / null values include / not include"*
+
+#### Architecture: 3 settings on `store.pos.eodReport` JSON (no schema migration)
+
+```json
+"eodReport": {
+  "showDepartmentBreakdown":   true,    // adds DEPT BREAKDOWN section to EoD
+  "lotterySeparateFromDrawer": false,   // pulls lottery cash OUT of drawer math
+  "hideZeroRows":              true     // drops rows where amount == 0 && count == 0
+}
+```
+
+Defaults chosen to keep current behavior unchanged for existing stores while making the most-requested options on by default.
+
+#### Backend changes ([endOfDayReportController.ts](backend/src/controllers/endOfDayReportController.ts))
+
+**1. New `aggregateDepartments(scope)` helper** (~80 lines) — pulls every transaction in window, bucket-sums net revenue + tx-count + line-count per department, applying the B7/B8/B9 refund sign convention. Lottery + Fuel get their own synthetic bucket rows (`__lottery__`, `__fuel__`) so the breakdown is the FULL revenue picture, not just non-lottery sales. Uses live Department lookup so renamed departments still resolve correctly. Bag fees + bottle returns excluded (pass-through).
+
+**2. EoD settings reader** at the top of `getEndOfDayReport` — reads `store.pos.eodReport` JSON with explicit per-field type checks + falls back to defaults. Three settings travel together in the response as `settings: { ... }` so renderers know what to show.
+
+**3. Department aggregation parallelized** with the existing `aggregateTransactions` / `aggregateCashEvents` / `aggregateFuel` `Promise.all` — no extra latency for stores that have it enabled, zero work for stores that don't.
+
+**4. `hideZeroRows` filter** at the response edge via a typed `filterZero<T>(rows)` helper applied to `payouts`, `tenders`, `fees`, and `departments.rows`. The transactions section always renders (Net/Gross/Tax/Cash are signal even at $0). Server-side filter so cashier-app + back-office + thermal print stay consistent.
+
+#### Reconciliation engine changes ([compute.ts](backend/src/services/reconciliation/shift/compute.ts) + [service.ts](backend/src/services/reconciliation/shift/service.ts))
+
+`ReconcileShiftArgs` + `ComputeArgs` both gained a new optional `lotterySeparateFromDrawer?: boolean` flag (default `false` preserves S44/S61 behavior).
+
+When `true`:
+- **Math change**: `expectedDrawer` math uses `+0` instead of `+netLotteryCash`. Drawer expectation reflects business cash only.
+- **Line items**: the 4 lottery rows (`lotteryUnreported`, `machineDrawSales`, `machineCashings`, `instantCashings`) are dropped from the reconciliation breakdown so the drawer block doesn't show partial info.
+- **`lotteryCashFlow` detail still emitted** on the `lottery` field of the response so renderers can show it as its own dedicated section parallel to (not inside) the drawer reconciliation.
+
+EoD controller threads the flag through: `reconcileShift({ ..., lotterySeparateFromDrawer: eodSettings.lotterySeparateFromDrawer })`.
+
+#### Frontend — POSSettings.jsx
+
+New "📊 End of Day Report" section between "🎟️ Lottery" and "BAG FEE" with 3 toggles + explanatory copy per toggle:
+
+- **Show Department Breakdown** — *"Add a per-department revenue section (Grocery / Beverages / Tobacco / Lottery / Fuel / etc.) to the EoD report."*
+- **Lottery Cash Separate from Drawer** — *"When ON, lottery cash flow (un-rung tickets, machine sales, machine cashings, instant cashings) is excluded from the cash drawer reconciliation. Drawer expectation reflects business cash only; lottery shows as its own section."*
+- **Hide Zero Rows** — *"Only show rows with non-zero amounts. When OFF, every category renders even if it had no activity (useful for full audit trails)."*
+
+Default config in `DEFAULT_POS_CONFIG.eodReport` matches the backend defaults.
+
+#### Frontend — EndOfDayReport.jsx (back-office) + EndOfDayModal.jsx (cashier-app)
+
+Both pages got two new conditional sections:
+
+**1. Department Breakdown** — between TRANSACTIONS and PASS-THROUGH FEES sections. Renders when `report.departments?.rows?.length > 0`. 4 columns: Department / Tx Count / Lines / Net Sales + Total row. Synthetic Lottery + Fuel rows mix in alongside Grocery / Beverages / Tobacco / Alcohol so it's a complete revenue picture.
+
+**2. Standalone Lottery Cash Flow** — between FUEL SALES and DUAL PRICING. Renders only when `report.settings?.lotterySeparateFromDrawer === true` AND there's actual lottery activity. Shows: Ticket-math Sales / POS-Recorded / + Un-rung / + Machine Sales / − Machine Cashings / − Instant Cashings / **= Net Lottery Cash** (bold). Header subtitle: *"These figures are tracked independently of the cash drawer reconciliation above."*
+
+CSV + PDF export blocks updated to include the new department rows so downloaded reports match what's on screen.
+
+#### Frontend — printerService.js (thermal print template)
+
+Same two new sections added to the ESC/POS receipt template:
+- **DEPARTMENT BREAKDOWN** block right after PASS-THROUGH FEES, with 3-col layout: Department / Tx / Net + Total row in bold
+- **LOTTERY CASH FLOW (separate from drawer)** block before CASH RECONCILIATION when toggle on + activity present. Per-line currency rows + bold "= Net Lottery Cash" total
+
+#### End-to-end verification
+
+**Spot check via direct HTTP** against the audit store on a closed shift with lottery activity:
+
+| Toggle | expectedDrawer | Drawer-side lineItems | Lottery in own section |
+|---|---|---|---|
+| OFF (default) | **$294.59** | 4 lottery rows mixed in: `+$30 un-rung`, `+$120 machine sales`, `−$30 machine cash`, `−$20 instant cash` | also shown via `lotteryCashFlow` for back-compat |
+| ON | **$194.59** | 0 lottery rows (cleanly removed) | shown standalone, **$100 = Net Lottery Cash** |
+
+**Math reconciles**: $294.59 − $194.59 = **$100 = `netLotteryCash` exactly**.
+
+**Department breakdown spot check** (yesterday on audit store):
+```
+- Grocery   $45.39 (3 tx, 11 lines)
+- Tobacco   $35.97 (3 tx,  3 lines)
+- Alcohol   $23.92 (2 tx,  8 lines)
+- Beverages $13.96 (3 tx,  8 lines)
+  Total     $119.24
+```
+Matches `byDay[YESTERDAY].net` from `audit-expected.json` exactly.
+
+**Hide-zero filter active**: with default `hideZeroRows: true`, payouts went 9 → 1 row (Cashback only had activity yesterday); tenders went 9 → 3 rows (Cash / Credit / EBT). With it OFF, all 9 categories of each render.
+
+#### Audit harness regression check
+
+Ran the full S65 audit harness (`seedAuditAudit.mjs`) end-to-end against the new code. **63/63 checks still pass.** Zero regressions in any of the 15 reports the harness covers — the new optional sections are purely additive and don't disturb existing aggregation.
+
+#### Verification
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` filtered for endOfDayReport + reconciliation/shift + sales/sales | ✓ zero new errors |
+| `npx vite build` portal | ✓ 15.96s, zero errors |
+| `npx vite build` cashier-app | ✓ 4.77s, PWA generated |
+| Audit harness `seedAuditAudit.mjs` | ✓ **63/63 checks pass** |
+| Live HTTP spot-check: settings shape | ✓ `{ showDepartmentBreakdown: true, lotterySeparateFromDrawer: false, hideZeroRows: true }` |
+| Live HTTP spot-check: dept breakdown | ✓ 4 dept rows, total matches `byDay[YESTERDAY].net` |
+| Live HTTP spot-check: lottery toggle ON vs OFF | ✓ $100 net lottery cash cleanly removed from drawer when ON |
+
+#### Files Changed (Session 67)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/controllers/endOfDayReportController.ts` | +`aggregateDepartments()` helper; settings reader at top of `getEndOfDayReport`; threads `lotterySeparateFromDrawer` into `reconcileShift`; applies `hideZeroRows` filter via typed `filterZero<T>` helper; surfaces `settings` + `departments` on response |
+| `backend/src/services/reconciliation/shift/compute.ts` | `ComputeArgs` +`lotterySeparateFromDrawer?` flag; conditionally drops `+netLotteryCash` from `expectedDrawer` math + skips 4 lottery line-items when true |
+| `backend/src/services/reconciliation/shift/service.ts` | `ReconcileShiftArgs` +`lotterySeparateFromDrawer?` flag, threads through to compute |
+
+**Frontend (portal):**
+| File | Change |
+|---|---|
+| `frontend/src/pages/POSSettings.jsx` | +`eodReport` defaults; new "End of Day Report" settings card with 3 toggles between Lottery and BAG FEE sections |
+| `frontend/src/pages/EndOfDayReport.jsx` | +DEPARTMENT BREAKDOWN section; +standalone LOTTERY CASH FLOW section (gated on `settings.lotterySeparateFromDrawer`); CSV + PDF exports updated |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/components/modals/EndOfDayModal.jsx` | +DEPARTMENT BREAKDOWN section; +standalone LOTTERY CASH FLOW section |
+| `cashier-app/src/services/printerService.js` | `buildEoDReceiptString` +DEPARTMENT BREAKDOWN block; +LOTTERY CASH FLOW block (gated on settings.lotterySeparateFromDrawer) |
+
+#### What this gives stores
+
+- **Department-aware EoD** — see exactly where the day's revenue came from at a glance, lottery + fuel included so it's a complete picture
+- **Cleaner cash drawer math** for stores that prefer to track lottery separately — drawer reconciliation reflects business cash only, lottery flow gets its own dedicated audit block
+- **Cleaner reports for low-activity windows** — no walls of zeros for tender categories the store doesn't take, payout buckets that didn't fire, etc. Toggle off when full audit trails are needed.
+
+All defaults preserve existing behavior — opt in per store via Store Settings → POS Settings → End of Day Report.
+
+---
+
+*Last updated: May 2026 — Session 67 (Configurable EoD Report): 3 new toggles in `store.pos.eodReport` JSON drive (a) DEPARTMENT BREAKDOWN section across back-office page + cashier modal + thermal print, (b) `lotterySeparateFromDrawer` flag through `reconcileShift` for clean business-only drawer math + standalone lottery section, (c) `hideZeroRows` server-side filter on payouts/tenders/fees/departments rows. Math verified end-to-end: lottery toggle OFF→$294.59 drawer, ON→$194.59, exactly $100 difference matching `netLotteryCash`. Audit harness regression-clean: **63/63 pass** unchanged. tsc + 2 vite builds clean.*
+
 
 
 

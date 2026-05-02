@@ -32,10 +32,17 @@ export interface ReconcileShiftArgs {
    * the moment of close, before we've written `closedAt`.
    */
   windowEnd?: Date;
+  /**
+   * S67 — when true, lottery cash flow is excluded from `expectedDrawer`
+   * so the drawer reconciliation reflects business cash only. Lottery
+   * detail stays available on `lotteryCashFlow` for separate rendering.
+   * Default false (preserves S44/S61 behavior).
+   */
+  lotterySeparateFromDrawer?: boolean;
 }
 
 export async function reconcileShift(args: ReconcileShiftArgs): Promise<ShiftReconciliation> {
-  const { shiftId, closingAmount = null, windowEnd } = args;
+  const { shiftId, closingAmount = null, windowEnd, lotterySeparateFromDrawer = false } = args;
 
   const shift = await loadShift(shiftId);
   const start = shift.openedAt;
@@ -70,5 +77,6 @@ export async function reconcileShift(args: ReconcileShiftArgs): Promise<ShiftRec
     payouts,
     lottery,
     closingAmount,
+    lotterySeparateFromDrawer,
   });
 }

@@ -38,10 +38,19 @@ export interface ComputeArgs {
   lottery: LotteryShiftRaw;
   /** Cashier-counted closing amount. Pass null when computing pre-close preview. */
   closingAmount?: number | null;
+  /**
+   * S67: when true, lottery cash flow is EXCLUDED from `expectedDrawer` and
+   * the corresponding line-items are dropped from the reconciliation breakdown.
+   * The full lottery detail is still surfaced in `lottery` (lotteryCashFlow)
+   * so the rendering layer can show it as a separate section.
+   *
+   * Default false → preserves S44/S61 behavior (lottery cash IS in drawer).
+   */
+  lotterySeparateFromDrawer?: boolean;
 }
 
 export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliation {
-  const { shift, cash, payouts, lottery, closingAmount = null } = args;
+  const { shift, cash, payouts, lottery, closingAmount = null, lotterySeparateFromDrawer = false } = args;
 
   const openingFloat = Number(shift.openingAmount) || 0;
 
@@ -70,6 +79,10 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
   // These reduce drawer cash even though they're recorded outside the
   // register flow. Without it, drawer expectation overshoots by every
   // back-office cash vendor payment recorded against this shift's day.
+  // S67: when lotterySeparateFromDrawer=true, drop lottery from drawer math.
+  // The lotteryCashFlow detail is still emitted on the response so callers
+  // can render it as its own section parallel to the drawer reconciliation.
+  const lotteryContribution = lotterySeparateFromDrawer ? 0 : netLotteryCash;
   const expectedDrawer =
     openingFloat
     + cash.cashSales
@@ -78,7 +91,7 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
     - payouts.cashOut
     - payouts.cashDropsTotal
     - payouts.backOfficeCashPayments
-    + netLotteryCash;
+    + lotteryContribution;
 
   const variance =
     closingAmount != null ? r2(closingAmount - expectedDrawer) : null;
@@ -106,7 +119,10 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
       : []),
     // Lottery section — only emit the rows that have non-zero amounts so
     // the UI doesn't render a wall of zeros for stores without lottery.
-    ...(unreportedCash > 0
+    // S67: when lotterySeparateFromDrawer=true, skip these rows entirely.
+    // The full lotteryCashFlow detail still ships in the response so the UI
+    // can render lottery as its own section parallel to drawer math.
+    ...(!lotterySeparateFromDrawer && unreportedCash > 0
       ? [{
           key: 'lotteryUnreported',
           label: '+ Lottery Sales (un-rung)',
@@ -115,7 +131,7 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
           hint: `Ticket-math ${r2(lottery.ticketMathSales)} − rung-up ${r2(lottery.posLotterySales)}`,
         }]
       : []),
-    ...(lottery.machineDrawSales > 0
+    ...(!lotterySeparateFromDrawer && lottery.machineDrawSales > 0
       ? [{
           key: 'machineDrawSales',
           label: '+ Machine Draw Sales',
@@ -123,7 +139,7 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
           kind: 'incoming' as const,
         }]
       : []),
-    ...(lottery.machineCashings > 0
+    ...(!lotterySeparateFromDrawer && lottery.machineCashings > 0
       ? [{
           key: 'machineCashings',
           label: '- Machine Draw Cashings',
@@ -131,7 +147,7 @@ export function computeShiftReconciliation(args: ComputeArgs): ShiftReconciliati
           kind: 'outgoing' as const,
         }]
       : []),
-    ...(lottery.instantCashings > 0
+    ...(!lotterySeparateFromDrawer && lottery.instantCashings > 0
       ? [{
           key: 'instantCashings',
           label: '- Instant Cashings (online)',

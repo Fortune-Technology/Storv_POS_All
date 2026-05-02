@@ -543,6 +543,107 @@ async function aggregateFuel(scope: Scope): Promise<FuelAgg> {
   };
 }
 
+// ─── Department breakdown (S67 — opt-in via store.pos.eodReport.showDepartmentBreakdown) ──
+//
+// Pulls every transaction in scope window and bucket-sums net revenue +
+// tx-count per department. Refunds subtract (B7/B8/B9 sign convention).
+// Lottery + Fuel transactions get their own synthetic rows so the breakdown
+// is a complete revenue picture, not just non-lottery / non-fuel sales.
+interface DepartmentRow {
+  departmentId: number | string | null;
+  name: string;
+  netSales: number;
+  txCount: number;
+  lineCount: number;
+}
+
+interface LineForDept {
+  productId?: string | number | null;
+  departmentId?: number | string | null;
+  departmentName?: string | null;
+  taxClass?: string | null;
+  qty?: number | string | null;
+  lineTotal?: number | string | null;
+  isLottery?: boolean;
+  isBottleReturn?: boolean;
+  isBagFee?: boolean;
+  isFuel?: boolean;
+}
+
+async function aggregateDepartments(scope: Scope): Promise<{ rows: DepartmentRow[]; total: number }> {
+  // Department name lookup — line items only carry departmentId; many older
+  // rows have null departmentName so we resolve from the live Department table.
+  const depts = await prisma.department.findMany({
+    where: { orgId: scope.orgId, active: true },
+    select: { id: true, name: true },
+  });
+  const deptNameById = new Map<number, string>(depts.map((d: { id: number; name: string }) => [d.id, d.name]));
+
+  const txWhere: Prisma.TransactionWhereInput = {
+    orgId:     scope.orgId,
+    status:    { in: ['complete', 'refund'] },
+    createdAt: { gte: scope.from, lte: scope.to },
+  };
+  if (scope.storeId)   txWhere.storeId   = scope.storeId;
+  if (scope.cashierId) txWhere.cashierId = scope.cashierId;
+  if (scope.stationId) txWhere.stationId = scope.stationId;
+  if (scope.shift)     txWhere.shiftId   = scope.shift.id;
+
+  const txs = await prisma.transaction.findMany({
+    where: txWhere,
+    select: { id: true, status: true, lineItems: true },
+  });
+
+  const buckets = new Map<string, DepartmentRow>();
+  const txCountByBucket = new Map<string, Set<string>>();
+
+  for (const tx of txs) {
+    const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as LineForDept[];
+    const isRefund = tx.status === 'refund';
+    for (const li of items) {
+      if (li.isBagFee) continue;     // bag fees are pass-through, skip
+      if (li.isBottleReturn) continue; // bottle returns are pass-through, skip
+      // Pick a synthetic bucket key + name for lottery/fuel; otherwise use deptId
+      let key: string;
+      let name: string;
+      let deptId: number | string | null = null;
+      if (li.isLottery) {
+        key  = '__lottery__';
+        name = 'Lottery';
+      } else if (li.isFuel) {
+        key  = '__fuel__';
+        name = 'Fuel';
+      } else {
+        const did = li.departmentId != null ? Number(li.departmentId) : null;
+        deptId = did;
+        key = did == null ? '__nodept__' : String(did);
+        name = (did != null && deptNameById.get(did)) || li.departmentName || li.taxClass || 'Other';
+      }
+      if (!buckets.has(key)) {
+        buckets.set(key, { departmentId: deptId, name, netSales: 0, txCount: 0, lineCount: 0 });
+      }
+      const row = buckets.get(key)!;
+      const qty       = Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal || 0);
+      row.netSales  += isRefund ? -Math.abs(lineTotal) : lineTotal;
+      row.lineCount += isRefund ? -Math.abs(qty)       : qty;
+      // Track unique tx ids per bucket for txCount
+      if (!txCountByBucket.has(key)) txCountByBucket.set(key, new Set<string>());
+      txCountByBucket.get(key)!.add(tx.id);
+    }
+  }
+
+  // Finalise + round
+  const rows: DepartmentRow[] = Array.from(buckets.entries()).map(([key, row]) => ({
+    ...row,
+    netSales: r2(row.netSales),
+    txCount:  txCountByBucket.get(key)?.size || 0,
+  })).sort((a, b) => b.netSales - a.netSales);
+
+  const total = r2(rows.reduce((s, r) => s + r.netSales, 0));
+  return { rows, total };
+}
+
 // ─── Aggregate shift-scoped payouts and drops ───────────────────────────────
 // When scope has a specific shift, we pull the shift's drops[] / payouts[]
 // directly. Otherwise we query CashPayout / CashDrop by date range.
@@ -587,13 +688,39 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
   try {
     const scope = await resolveScope(req);
 
-    const [txAgg, cashEvents, _openingRow, fuelAgg] = await Promise.all([
+    // ── S67: read store-level EoD report settings ───────────────────────────
+    // Stored in store.pos.eodReport JSON. Defaults are conservative — keep
+    // current behavior unchanged for stores that haven't opted in.
+    interface EoDSettings {
+      showDepartmentBreakdown: boolean;
+      lotterySeparateFromDrawer: boolean;
+      hideZeroRows: boolean;
+    }
+    const eodSettings: EoDSettings = {
+      showDepartmentBreakdown: true,    // default ON — most stores want to see it
+      lotterySeparateFromDrawer: false, // default OFF — preserves S44/S61 drawer math
+      hideZeroRows: true,               // default ON — cleaner reports
+    };
+    if (scope.storeId) {
+      const storeRow = await prisma.store.findUnique({
+        where: { id: scope.storeId },
+        select: { pos: true },
+      });
+      const posJson = (storeRow?.pos || {}) as { eodReport?: Partial<EoDSettings> };
+      const ovr = posJson.eodReport || {};
+      if (typeof ovr.showDepartmentBreakdown === 'boolean')   eodSettings.showDepartmentBreakdown   = ovr.showDepartmentBreakdown;
+      if (typeof ovr.lotterySeparateFromDrawer === 'boolean') eodSettings.lotterySeparateFromDrawer = ovr.lotterySeparateFromDrawer;
+      if (typeof ovr.hideZeroRows === 'boolean')              eodSettings.hideZeroRows              = ovr.hideZeroRows;
+    }
+
+    const [txAgg, cashEvents, _openingRow, fuelAgg, deptAgg] = await Promise.all([
       aggregateTransactions(scope),
       aggregateCashEvents(scope),
       // Opening cash amount — only meaningful for single-shift scope
       scope.shift ? Promise.resolve({ openingAmount: Number(scope.shift.openingAmount || 0) })
                   : Promise.resolve(null),
       aggregateFuel(scope),
+      eodSettings.showDepartmentBreakdown ? aggregateDepartments(scope) : Promise.resolve(null),
     ]);
 
     // ── PAYOUTS section (9 categories) ───────────────────────────────────────
@@ -691,6 +818,7 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
         shiftId: scope.shift.id,
         closingAmount: scope.shift.closingAmount != null ? Number(scope.shift.closingAmount) : null,
         windowEnd: scope.shift.closedAt ?? new Date(),
+        lotterySeparateFromDrawer: eodSettings.lotterySeparateFromDrawer,
       });
       reconciliation = {
         ...recon,
@@ -706,6 +834,15 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
     const storeName = scope.storeId ? (await prisma.store.findUnique({
       where: { id: scope.storeId }, select: { name: true },
     })) : null;
+
+    // S67 — `hideZeroRows` filter: drop rows where both count + amount are 0.
+    // Applied at response time so cashier-app + back-office + thermal print
+    // all stay consistent. The transactionSection always renders (Net/Gross
+    // are signal even at $0). Fees rows only ever non-trivial when they fire.
+    const filterZero = <T extends { count?: number; amount?: number }>(rows: T[]): T[] =>
+      eodSettings.hideZeroRows
+        ? rows.filter(r => (r.amount ?? 0) !== 0 || (r.count ?? 0) !== 0)
+        : rows;
 
     res.json({
       header: {
@@ -723,11 +860,16 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
         to:           scope.to,
         printedAt:    new Date().toISOString(),
       },
-      payouts:      PAYOUT_CATEGORIES.map(c => payoutMap[c.key]),
-      tenders:      TENDER_CATEGORIES.map(c => txAgg.tenderMap[c.key]),
+      // S67 — surface settings so renderers know which optional sections to show
+      // and whether they should also client-side-filter zero rows (defense in depth).
+      settings:     eodSettings,
+      payouts:      filterZero(PAYOUT_CATEGORIES.map(c => payoutMap[c.key])),
+      tenders:      filterZero(TENDER_CATEGORIES.map(c => txAgg.tenderMap[c.key])),
       transactions: transactionSection,
-      fees:         feesSection,
+      fees:         filterZero(feesSection),
       fuel:         fuelAgg,
+      // S67 — Department breakdown (opt-in via settings.showDepartmentBreakdown)
+      departments:  deptAgg ? { rows: filterZero(deptAgg.rows.map(r => ({ ...r, count: r.txCount, amount: r.netSales }))).map(r => ({ departmentId: r.departmentId, name: r.name, netSales: r.netSales, txCount: r.txCount, lineCount: r.lineCount })), total: deptAgg.total } : null,
       // Session 52 — Dual Pricing summary. Null when no transaction in the
       // window came from a dual_pricing store, so the UI can hide the
       // section entirely without an empty card eating screen real estate.

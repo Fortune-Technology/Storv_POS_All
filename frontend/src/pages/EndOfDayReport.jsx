@@ -103,6 +103,15 @@ export default function EndOfDayReport({ embedded = false } = {}) {
     rows.push({ Section: '', Type: '', Count: '', Amount: '' });
     header('TRANSACTIONS');
     report.transactions.forEach(tx => rows.push({ Section: '', Type: tx.label, Count: tx.count, Amount: tx.amount.toFixed(2) }));
+    // S67 — Department breakdown (when enabled)
+    if (report.departments?.rows?.length) {
+      rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+      header('DEPARTMENT BREAKDOWN');
+      report.departments.rows.forEach(d => rows.push({
+        Section: '', Type: d.name, Count: d.txCount, Amount: Number(d.netSales).toFixed(2),
+      }));
+      rows.push({ Section: '', Type: 'Total', Count: '', Amount: Number(report.departments.total).toFixed(2) });
+    }
     if (Array.isArray(report.fees) && report.fees.some(f => Math.abs(f.amount) > 0.001 || f.count > 0)) {
       header('PASS-THROUGH FEES (not revenue / not profit)');
       report.fees.forEach(f => rows.push({ Section: '', Type: f.label, Count: f.count, Amount: (f.amount || 0).toFixed(2) }));
@@ -146,6 +155,12 @@ export default function EndOfDayReport({ embedded = false } = {}) {
     report.payouts.forEach(p => push('Payout', p));
     report.tenders.forEach(t => push('Tender', t));
     report.transactions.forEach(tx => push('Transaction', tx));
+    // S67 — Department breakdown
+    if (report.departments?.rows?.length) {
+      report.departments.rows.forEach(d => rows.push({
+        Section: 'Department', Type: d.name, Count: d.txCount, Amount: `$${Number(d.netSales).toFixed(2)}`,
+      }));
+    }
     if (report.fuel?.rows?.length) {
       report.fuel.rows.forEach(r => rows.push({
         Section: 'Fuel',
@@ -298,6 +313,39 @@ export default function EndOfDayReport({ embedded = false } = {}) {
             totalLabel={null}
           />
 
+          {/* S67 — Department Breakdown (opt-in via store.pos.eodReport.showDepartmentBreakdown). */}
+          {report.departments && report.departments.rows.length > 0 && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">DEPARTMENT BREAKDOWN</h3>
+              <table className="eod-table">
+                <thead>
+                  <tr>
+                    <th>Department</th>
+                    <th className="eod-num">Tx Count</th>
+                    <th className="eod-num">Lines</th>
+                    <th className="eod-num">Net Sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.departments.rows.map(d => (
+                    <tr key={String(d.departmentId ?? d.name)}>
+                      <td>{d.name}</td>
+                      <td className="eod-num">{d.txCount}</td>
+                      <td className="eod-num">{Number(d.lineCount || 0).toFixed(0)}</td>
+                      <td className="eod-num">{fmt$(d.netSales)}</td>
+                    </tr>
+                  ))}
+                  <tr className="eod-row-strong">
+                    <td>Total</td>
+                    <td className="eod-num">—</td>
+                    <td className="eod-num">—</td>
+                    <td className="eod-num">{fmt$(report.departments.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* Section 3b: Pass-through fees — bag fees + bottle deposits.
               These are already in Gross Sales above; this section is purely
               an accounting breakdown so the retailer can see what they
@@ -365,6 +413,53 @@ export default function EndOfDayReport({ embedded = false } = {}) {
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* S67 — Standalone Lottery section. Renders when lottery cash is
+               configured to be separate from the drawer (settings.lotterySeparateFromDrawer)
+               AND the shift had any lottery activity. */}
+          {report.settings?.lotterySeparateFromDrawer && report.reconciliation?.lottery && (
+            (() => {
+              const L = report.reconciliation.lottery;
+              const anyActivity = L.ticketMathSales > 0 || L.posLotterySales > 0 ||
+                                  L.machineDrawSales > 0 || L.machineCashings > 0 ||
+                                  L.instantCashings > 0;
+              if (!anyActivity) return null;
+              return (
+                <div className="eod-section">
+                  <h3 className="eod-section-title">LOTTERY CASH FLOW (separate from drawer)</h3>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                    These figures are tracked independently of the cash drawer reconciliation above.
+                  </div>
+                  <table className="eod-table">
+                    <tbody>
+                      {L.ticketMathSales > 0 && (
+                        <tr><td>Ticket-math Sales (truth)</td><td className="eod-num">{fmt$(L.ticketMathSales)}</td></tr>
+                      )}
+                      {L.posLotterySales > 0 && (
+                        <tr><td>POS-Recorded Lottery Sales</td><td className="eod-num">{fmt$(L.posLotterySales)}</td></tr>
+                      )}
+                      {L.unreportedCash > 0 && (
+                        <tr><td style={{ color: 'var(--warning, #b45309)' }}>+ Un-rung Tickets (cashier skipped POS)</td><td className="eod-num" style={{ color: 'var(--warning, #b45309)' }}>{fmt$(L.unreportedCash)}</td></tr>
+                      )}
+                      {L.machineDrawSales > 0 && (
+                        <tr><td>+ Machine Draw Sales</td><td className="eod-num">{fmt$(L.machineDrawSales)}</td></tr>
+                      )}
+                      {L.machineCashings > 0 && (
+                        <tr><td>− Machine Draw Cashings</td><td className="eod-num">{fmt$(L.machineCashings)}</td></tr>
+                      )}
+                      {L.instantCashings > 0 && (
+                        <tr><td>− Instant Cashings (online)</td><td className="eod-num">{fmt$(L.instantCashings)}</td></tr>
+                      )}
+                      <tr className="eod-row-strong">
+                        <td>= Net Lottery Cash</td>
+                        <td className="eod-num">{fmt$(L.netLotteryCash)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()
           )}
 
           {/* Section 5: Dual Pricing (only when store ran dual_pricing during the window) */}

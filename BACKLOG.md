@@ -1,6 +1,6 @@
 # Storv POS — Master Backlog
 
-**Last updated:** 2026-05-02 (S66)
+**Last updated:** 2026-05-02 (S67)
 **Owner:** nishant@future
 **Companion file:** [CLAUDE.md](CLAUDE.md) — long-form historical record of completed work
 
@@ -159,6 +159,7 @@
 | F1 | pre-BACKLOG | **Sante import** — full Sante POS product CSV transformer at `backend/src/utils/transformers/sante.ts` (363 lines), wired into `vendorRegistry.ts`, exposed via the existing `UploadPage` vendor selector. Handles UPC `_` prefix, `$`/`%` symbol stripping, multi-UPC comma splits. Verified by `tests/_smoke_sante_transform.mjs` — **10/10 tests pass** against a real 7,771-row Sante export. Audited in S66 follow-up. | M | Discovered already shipped during S66 audit |
 | F3 | pre-BACKLOG | **Tags imports for catalog + groups** — Sante's `Tags` field (free-form `key: value / key: value`) is parsed into `attributes` JSON for non-routing pairs and into `productGroup` (pipe-separated) for `Other:` cross-references. ProductGroup auto-create at validation step verified by smoke test. | S | Bundled into the F1 Sante work |
 | F4 | pre-BACKLOG | **Packs imports** — Sante Pack 1-6 columns flatten into Storeveu's `packOptions` format (`label@unitCount@price[*]`). Pack 1 marked as cashier-picker default with `*`. Verified by smoke test against real SURFSIDE LEMON VP 12 PK CN row. | S | Bundled into the F1 Sante work |
+| EoD Config | 2026-05-02 | **Configurable EoD report** — 3 new `store.pos.eodReport` toggles drive (1) Department Breakdown section across back-office + cashier-app + thermal print, (2) `lotterySeparateFromDrawer` flag pulls lottery cash OUT of drawer math + renders as standalone section, (3) `hideZeroRows` server-side filter on payouts/tenders/fees/departments. Backend reconciliation engine extended to support the lottery-separate flag without disturbing existing math. Audit harness clean (63/63), end-to-end verified: $100 net lottery cash exactly removed from drawer when toggle ON. | M | CLAUDE.md S67 |
 
 ---
 
