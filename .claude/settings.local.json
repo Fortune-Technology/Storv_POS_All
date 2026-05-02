@@ -71,7 +71,14 @@
       "Bash(tasklist)",
       "WebFetch(domain:docs.ipospays.com)",
       "Bash(grep -nA 25 \"model EcomOrder\" \"D:/The Fortune Tech Projects/Fortune_POS_Platform/ecom-backend/prisma/schema.prisma\")",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(npm install *)",
+      "Bash(node --input-type=module -e \"process.chdir\\('ecom-backend'\\); const r = await import\\('@storeveu/redis'\\); console.log\\('redis ok:', Object.keys\\(r\\)\\); const q = await import\\('@storeveu/queue/producers'\\); console.log\\('queue producers ok:', Object.keys\\(q\\)\\);\")",
+      "Bash(node --input-type=module -e \"const r = await import\\('@storeveu/redis'\\); console.log\\('redis:', Object.keys\\(r\\), 'available=', r.isRedisAvailable\\(\\)\\); const q = await import\\('@storeveu/queue/producers'\\); console.log\\('queue:', Object.keys\\(q\\)\\);\")",
+      "Bash(node --input-type=module -e \"const r = await import\\('@storeveu/redis'\\); console.log\\('redis:', Object.keys\\(r\\), 'avail=', r.isRedisAvailable\\(\\), 'client=', r.getRedisClient\\(\\)\\); const q = await import\\('@storeveu/queue/producers'\\); console.log\\('queue producers:', Object.keys\\(q\\)\\); await q.emitProductSync\\({test:1}\\); console.log\\('emitProductSync no-op OK'\\);\")",
+      "Bash(node --input-type=module -e \"const m = await import\\('./src/server.js'\\).catch\\(e => \\({_err: e.message}\\)\\); console.log\\(m._err || 'imported ok'\\);\")",
+      "Bash(timeout 8 node --input-type=module -e \"process.env.NODE_ENV='test'; const m = await import\\('./src/server.js'\\).catch\\(e => \\({_err: e.message + '\\\\n' + e.stack}\\)\\); console.log\\(m._err ? 'IMPORT ERR: ' + m._err : 'imported ok'\\);\")",
+      "Bash(git add *)"
     ]
   }
 }

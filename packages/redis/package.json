@@ -1,0 +1,11 @@
+{
+  "name": "@storeveu/redis",
+  "version": "1.0.0",
+  "description": "Shared Redis client wrapper for Storeveu apps. Returns null/no-op when REDIS_URL is unset so consumers degrade gracefully.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "private": true
+}
