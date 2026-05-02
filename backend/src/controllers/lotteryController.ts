@@ -402,6 +402,45 @@ export const receiveBoxOrder = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Apr 2026 — accept `date` parameter so manager can record a receive
+    // that physically happened on a past date (e.g., manager was out for a
+    // few days and is now logging the receive retroactively). Without this,
+    // every receive uses Prisma's @default(now()) which puts createdAt at
+    // the current moment — which then misclassifies which day's "Received"
+    // total the books fall into. Mirrors activateBox / markBoxSoldout /
+    // returnBoxToLotto's date handling.
+    //
+    // The date sets `createdAt` for every box in this order. Defaults to
+    // now() when omitted (legacy callers + scan-time receives). Future
+    // dates are rejected — receive can only be retroactive, not forward.
+    const dateStr = req.body.date as string | undefined;
+    let receivedAt: Date | null = null;
+    if (dateStr) {
+      const parsed = parseDate(dateStr);
+      if (!parsed) {
+        res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+        return;
+      }
+      const now = new Date();
+      // Allow today (UTC). Reject any future date — receives are only retroactive.
+      const startOfTomorrowUtc = new Date();
+      startOfTomorrowUtc.setUTCHours(0, 0, 0, 0);
+      startOfTomorrowUtc.setUTCDate(startOfTomorrowUtc.getUTCDate() + 1);
+      if (parsed.getTime() >= startOfTomorrowUtc.getTime()) {
+        res.status(400).json({ success: false, error: 'Receive date cannot be in the future.' });
+        return;
+      }
+      // Set receivedAt to the END of the selected day (23:59:59) so it
+      // sorts AFTER any earlier same-day events, AND lands cleanly inside
+      // the selected day's UTC window for the daily-inventory query.
+      // (Same convention as markBoxSoldout / returnBoxToLotto's setUTCHours.)
+      receivedAt = new Date(parsed);
+      receivedAt.setUTCHours(23, 59, 59, 0);
+      // If the resolved time is in the future relative to now (e.g., today
+      // at 23:59 vs current 14:00), clamp to now() to avoid future timestamps.
+      if (receivedAt.getTime() > now.getTime()) receivedAt = now;
+    }
+
     // Apr 2026 — duplicate-book validation. A physical lottery book has a
     // unique (gameNumber, bookNumber) — receiving the same book twice
     // would create two LotteryBox rows that share inventory math + scan
@@ -477,6 +516,9 @@ export const receiveBoxOrder = async (req: Request, res: Response): Promise<void
           totalValue: Number(game.ticketPrice) * total,
           startTicket: (b.startTicket as string | null) || null,
           status: 'inventory',
+          // Apr 2026 — explicit createdAt for retroactive receives. When
+          // `receivedAt` is null, Prisma falls back to @default(now()).
+          ...(receivedAt && { createdAt: receivedAt }),
         },
       });
       created.push(newBox);
@@ -1129,6 +1171,19 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
     // events. Without this, the cashier's EoD scan never reached the box's
     // currentTicket field (so scan engine kept the old position) AND no
     // snapshot existed for the next-day rollover.
+    //
+    // Apr 2026 — collect per-box failures so the response can surface them
+    // to the cashier-app. Previously these were silently swallowed via
+    // .catch(...console.warn) which hid the cause of "I scanned but
+    // back-office still shows old numbers" — the box update WAS failing
+    // (e.g., FK / status mismatch) but cashier saw "Save successful" and
+    // walked away. Now we collect every failure into `boxUpdateFailures`
+    // and `snapshotInsertFailures` and return them as warnings.
+    const boxUpdateFailures: Array<{ boxId: string; error: string; attemptedTicket: string }> = [];
+    const snapshotInsertFailures: Array<{ boxId: string; error: string }> = [];
+    let boxesUpdated = 0;
+    let snapshotsWritten = 0;
+
     if (Array.isArray(boxScans)) {
       for (const bs of boxScans as BoxScanInput[]) {
         if (!bs?.boxId) continue;
@@ -1138,25 +1193,32 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
 
         // Update the box if we have a real end ticket
         if (endTicket != null) {
-          await prisma.lotteryBox
-            .update({
+          try {
+            await prisma.lotteryBox.update({
               where: { id: bs.boxId },
               data: {
                 currentTicket: endTicket,
                 lastShiftEndTicket: endTicket,
                 updatedAt: new Date(),
               },
-            })
-            .catch((e: unknown) =>
-              console.warn('[saveShiftReport] box update failed', bs.boxId, errMsg(e)),
-            );
+            });
+            boxesUpdated += 1;
+          } catch (e) {
+            const msg = errMsg(e);
+            console.warn('[saveShiftReport] box update failed', bs.boxId, msg);
+            boxUpdateFailures.push({
+              boxId: bs.boxId,
+              error: msg,
+              attemptedTicket: endTicket,
+            });
+          }
         }
 
         // Create close_day_snapshot event so the next-day rollover works.
         // (Soldout boxes also get an event so the daily-close report
         // includes them — currentTicket: null indicates no specific ticket.)
-        await prisma.lotteryScanEvent
-          .create({
+        try {
+          await prisma.lotteryScanEvent.create({
             data: {
               orgId,
               storeId,
@@ -1174,14 +1236,40 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
               action: 'close_day_snapshot',
               context: 'eod',
             },
-          })
-          .catch((e: unknown) =>
-            console.warn('[saveShiftReport] snapshot insert failed', bs.boxId, errMsg(e)),
-          );
+          });
+          snapshotsWritten += 1;
+        } catch (e) {
+          const msg = errMsg(e);
+          console.warn('[saveShiftReport] snapshot insert failed', bs.boxId, msg);
+          snapshotInsertFailures.push({ boxId: bs.boxId, error: msg });
+        }
       }
     }
 
-    res.json({ success: true, data: report });
+    res.json({
+      success: true,
+      data: report,
+      // Apr 2026 — diagnostic fields. Cashier-app can show these as a
+      // warning strip if either failure list is non-empty so the cashier
+      // sees that NOT every box committed successfully. Also includes
+      // the success counts so any frontend can verify what was saved.
+      writeStats: {
+        boxesScanned: Array.isArray(boxScans) ? boxScans.length : 0,
+        boxesUpdated,
+        snapshotsWritten,
+      },
+      warnings: (boxUpdateFailures.length > 0 || snapshotInsertFailures.length > 0)
+        ? {
+            boxUpdateFailures,
+            snapshotInsertFailures,
+            summary:
+              `${boxUpdateFailures.length} box update${boxUpdateFailures.length === 1 ? '' : 's'} failed` +
+              (snapshotInsertFailures.length > 0
+                ? `, ${snapshotInsertFailures.length} snapshot insert${snapshotInsertFailures.length === 1 ? '' : 's'} failed`
+                : ''),
+          }
+        : null,
+    });
   } catch (err) {
     console.error('[saveLotteryShiftReport]', err);
     res.status(500).json({ success: false, error: errMsg(err) });
@@ -2092,13 +2180,35 @@ export const receiveFromCatalog = async (req: Request, res: Response): Promise<v
   try {
     const orgId = getOrgId(req) as string;
     const storeId = getStore(req) as string;
-    const { catalogTicketId, qty } = req.body;
+    const { catalogTicketId, qty, date: dateStr } = req.body;
 
     if (!catalogTicketId || !qty || Number(qty) < 1) {
       res
         .status(400)
         .json({ success: false, error: 'catalogTicketId and qty (≥1) are required' });
       return;
+    }
+
+    // Apr 2026 — accept `date` for retroactive receives (parity with
+    // receiveBoxOrder). See that handler for full rationale.
+    let receivedAt: Date | null = null;
+    if (dateStr) {
+      const parsed = parseDate(dateStr);
+      if (!parsed) {
+        res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+        return;
+      }
+      const startOfTomorrowUtc = new Date();
+      startOfTomorrowUtc.setUTCHours(0, 0, 0, 0);
+      startOfTomorrowUtc.setUTCDate(startOfTomorrowUtc.getUTCDate() + 1);
+      if (parsed.getTime() >= startOfTomorrowUtc.getTime()) {
+        res.status(400).json({ success: false, error: 'Receive date cannot be in the future.' });
+        return;
+      }
+      const now = new Date();
+      receivedAt = new Date(parsed);
+      receivedAt.setUTCHours(23, 59, 59, 0);
+      if (receivedAt.getTime() > now.getTime()) receivedAt = now;
     }
 
     // Route through the shared resolver — stores the REAL gameNumber on the
@@ -2119,6 +2229,7 @@ export const receiveFromCatalog = async (req: Request, res: Response): Promise<v
             ticketPrice: Number(game.ticketPrice),
             totalValue: Number(game.ticketPrice) * game.ticketsPerBox,
             status: 'inventory',
+            ...(receivedAt && { createdAt: receivedAt }),
           },
         }),
       ),
@@ -3089,16 +3200,26 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
   try {
     const orgId = getOrgId(req) as string;
     const storeId = getStore(req) as string;
-    const date = parseDate(req.query.date);
+    const dateStr = (req.query?.date as string | undefined) || new Date().toISOString().slice(0, 10);
+    const date = parseDate(dateStr);
     if (!date) {
       res.status(400).json({ success: false, error: 'Invalid date' });
       return;
     }
 
-    const dayStart = new Date(date);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setUTCHours(23, 59, 59, 999);
+    // Apr 2026 — store-local day boundaries. Without this, books received
+    // at 9pm EST (= 01:00 UTC next day) showed up under TOMORROW's "Received"
+    // total because the queries used UTC midnight. Same bug class as the
+    // lottery sales math fix from Session 59 (B9). Use the shared
+    // dateTz helpers so day boundaries always mean store-local day.
+    const store = await prisma.store.findUnique({
+      where: { id: storeId },
+      select: { timezone: true },
+    });
+    const tz = store?.timezone || 'UTC';
+    const { localDayStartUTC, localDayEndUTC } = await import('../utils/dateTz.js');
+    const dayStart = localDayStartUTC(dateStr, tz);
+    const dayEnd = localDayEndUTC(dateStr, tz);
 
     // Current state (as of now, not historical)
     const [activeCnt, safeCnt, soldoutCnt, activeBoxesRaw, safeBoxesRaw] = await Promise.all([
@@ -3164,9 +3285,11 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
     // Best-effort sales — tries snapshots first, then live ticket-math
     // (today only), then POS LotteryTransaction sum. The `salesSource`
     // field tells the UI which tier produced the value.
-    const todayMidnight = new Date();
-    todayMidnight.setUTCHours(0, 0, 0, 0);
-    const isToday = dayStart.getTime() === todayMidnight.getTime();
+    // Compare requested date to TODAY in the store's tz (not UTC) so the
+    // live tier fires on the right day for non-UTC stores.
+    const { formatLocalDate } = await import('../utils/dateTz.js');
+    const todayLocal = formatLocalDate(new Date(), tz);
+    const isToday = dateStr === todayLocal;
     const real = await _bestEffortDailySales({ orgId, storeId, dayStart, dayEnd, isToday });
     const sold = real.totalSales;
     const salesSource = real.source; // 'snapshot' | 'live' | 'pos_fallback' | 'empty'
@@ -3377,14 +3500,28 @@ export const getYesterdayCloses = async (req: Request, res: Response): Promise<v
   try {
     const orgId = getOrgId(req);
     const storeId = getStore(req);
-    const date = parseDate(req.query.date);
+    const dateStr = req.query?.date as string | undefined;
+    if (!dateStr) {
+      res.status(400).json({ success: false, error: 'date param required (YYYY-MM-DD)' });
+      return;
+    }
+    const date = parseDate(dateStr);
     if (!date) {
       res.status(400).json({ success: false, error: 'Invalid date' });
       return;
     }
 
-    const dayStart = new Date(date);
-    dayStart.setUTCHours(0, 0, 0, 0);
+    // Apr 2026 — store-local-day boundary. "Snapshots before today" must
+    // mean before today's LOCAL midnight, not UTC midnight, otherwise a
+    // close_day_snapshot written at 22:00 EST = 02:00 UTC tomorrow would
+    // mistakenly count as "yesterday's close" for tomorrow's view.
+    const store = await prisma.store.findUnique({
+      where: { id: storeId },
+      select: { timezone: true },
+    });
+    const tz = store?.timezone || 'UTC';
+    const { localDayStartUTC } = await import('../utils/dateTz.js');
+    const dayStart = localDayStartUTC(dateStr, tz);
 
     // All close_day_snapshot events prior to this date's start. Newest first
     // so the first one we encounter per box is its most recent close.
@@ -3435,19 +3572,30 @@ export const getCounterSnapshot = async (req: Request, res: Response): Promise<v
   try {
     const orgId = getOrgId(req);
     const storeId = getStore(req);
-    const date = parseDate(req.query.date);
+    const dateStr = req.query?.date as string | undefined;
+    if (!dateStr) {
+      res.status(400).json({ success: false, error: 'date param required (YYYY-MM-DD)' });
+      return;
+    }
+    const date = parseDate(dateStr);
     if (!date) {
       res.status(400).json({ success: false, error: 'Invalid date' });
       return;
     }
 
-    const dayStart = new Date(date);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setUTCHours(23, 59, 59, 999);
-    const todayUtc = new Date();
-    todayUtc.setUTCHours(0, 0, 0, 0);
-    const isToday = dayStart.getTime() === todayUtc.getTime();
+    // Apr 2026 — store-local-day boundaries (parity with getDailyLotteryInventory).
+    // Without this, books activated/depleted/returned at evening hours in
+    // non-UTC stores would appear on the WRONG calendar day.
+    const store = await prisma.store.findUnique({
+      where: { id: storeId },
+      select: { timezone: true },
+    });
+    const tz = store?.timezone || 'UTC';
+    const { localDayStartUTC, localDayEndUTC, formatLocalDate } = await import('../utils/dateTz.js');
+    const dayStart = localDayStartUTC(dateStr, tz);
+    const dayEnd = localDayEndUTC(dateStr, tz);
+    const todayLocal = formatLocalDate(new Date(), tz);
+    const isToday = dateStr === todayLocal;
 
     // Books that were on the counter during day D
     type CounterBox = {

@@ -281,13 +281,15 @@ export async function liveSalesFromCurrentTickets(args: {
 export async function bestEffortDailySales(args: BestEffortArgs): Promise<DailySalesResult> {
   const { orgId, storeId, dayStart, dayEnd, isToday = false } = args;
 
-  // Tier 1 — snapshot
+  // Tier 1 — SNAPSHOT (preferred, authoritative)
+  // For each book with a close_day_snapshot today: |prev − today| × price
   const snap = await snapshotSales({ orgId, storeId, dayStart, dayEnd });
   if (snap.totalSales > 0) {
     return { ...snap, byGame: new Map(), source: 'snapshot' };
   }
 
-  // Tier 2 — TODAY only
+  // Tier 2 — LIVE delta (TODAY only, when no snapshot tier result)
+  // For each active book: |prev_snapshot − box.currentTicket| × price
   if (isToday) {
     const live = await liveSalesFromCurrentTickets({ orgId, storeId, dayStart });
     if (live.totalSales > 0) {
@@ -295,45 +297,22 @@ export async function bestEffortDailySales(args: BestEffortArgs): Promise<DailyS
     }
   }
 
-  // Tier 3 — POS fallback
-  const posTxs = await prisma.lotteryTransaction.findMany({
-    where: {
-      orgId,
-      storeId,
-      type: 'sale',
-      createdAt: { gte: dayStart, lte: dayEnd },
-    },
-    select: { amount: true, gameId: true, boxId: true },
-  });
-  if (!posTxs.length) {
-    return { totalSales: 0, byBox: new Map(), byGame: new Map(), source: 'empty' };
-  }
-
-  const byGame = new Map<string, GameSale>();
-  const byBox = new Map<string, BoxSale>();
-  let totalSales = 0;
-  for (const t of posTxs) {
-    const amt = Number(t.amount || 0);
-    totalSales += amt;
-    if (t.gameId) {
-      const cur = byGame.get(t.gameId) || { sales: 0, count: 0 };
-      cur.sales += amt;
-      cur.count += 1;
-      byGame.set(t.gameId, cur);
-    }
-    if (t.boxId) {
-      const cur = byBox.get(t.boxId) || { sold: 0, price: 0, amount: 0 };
-      cur.amount += amt;
-      cur.sold += 1;
-      byBox.set(t.boxId, cur);
-    }
-  }
-  return {
-    totalSales: Math.round(totalSales * 100) / 100,
-    byBox,
-    byGame,
-    source: 'pos_fallback',
-  };
+  // Apr 2026 — Tier 3 (POS LotteryTransaction sum) DROPPED per user direction.
+  // The user's accounting model is that "Today Sold" / "Instant Sales" should
+  // ONLY reflect ticket-math (yesterday's close → today's close × price).
+  // POS-rang lottery transactions are a separate audit signal (cashier rang
+  // these up at the register; they appear as `posSold` in the daily-inventory
+  // response and in the cash-drawer reconciliation), but they do NOT backfill
+  // "Today Sold" when no scan / no snapshot exists for the day.
+  //
+  // Without this, a store that rang up $35 of lottery via POS but didn't scan
+  // any books would show $35 as "Today Sold" — confusingly mixing register
+  // activity with the "ticket-math truth" headline number.
+  //
+  // If neither tier 1 nor tier 2 yields a result, return 0 ("empty"). The
+  // POS-rang amount stays visible in `posSold` on the daily-inventory
+  // response for any UI that wants to show it separately.
+  return { totalSales: 0, byBox: new Map(), byGame: new Map(), source: 'empty' };
 }
 
 /**

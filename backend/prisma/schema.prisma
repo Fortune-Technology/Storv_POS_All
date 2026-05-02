@@ -166,33 +166,31 @@ model DepartmentAttribute {
 // Configurable tax rates per org / store / product class
 // ─────────────────────────────────────────────────
 model TaxRule {
-  id          Int     @id @default(autoincrement())
-  orgId       String
-  storeId     String? // null = org-wide default; set to override for a specific store
-  name        String // "Maine State Food Tax", "Maine Alcohol Excise"
-  description String?
+  id      Int     @id @default(autoincrement())
+  orgId   String
+  storeId String? // null = org-wide default; set to override for a specific store
+  name    String // "Maine State Food Tax", "Maine Alcohol Excise"
 
   rate Decimal @db.Decimal(6, 4) // e.g. 0.0550 = 5.5%
 
-  // Preferred matcher (Option B) — multi-state/country friendly.
-  // A rule applies when the product's departmentId is in this array. Empty
-  // array means "no department match — fall through to the legacy class
-  // matcher below". This lets retailers model tax by their OWN department
-  // names (e.g. "Beer & Malt", "Clothing Under $175") instead of a hardcoded
-  // class vocabulary that's tied to one US state.
+  // The ONLY matcher. A rule applies when the product's departmentId is in
+  // this array. The legacy `appliesTo` string class matcher was removed in
+  // Session 56b — every rule must now target one or more departments. The
+  // migration `prisma/migrateTaxRulesToDepartments.mjs` converted existing
+  // class-only rules to dept-linked rules before the column was dropped.
+  // For org-wide "tax everything" rules, link to every active department
+  // in the org via the multi-select chip UI.
   departmentIds Int[] @default([])
-
-  // Legacy matcher — product class string ("alcohol", "grocery", "all", etc.).
-  // Still evaluated when departmentIds is empty, so existing rules keep
-  // working without migration.
-  appliesTo String // "grocery", "alcohol", "tobacco", "hot_food", "all"
 
   // EBT: if true, EBT-eligible items are exempt from this tax
   ebtExempt Boolean @default(true)
 
-  // Geographic
-  state  String? // "ME", "NH" — for multi-state support later
-  county String? // county-level tax if needed
+  // Geographic — used for grouping the rules list when an org has rules
+  // tagged with multiple distinct states. Not part of tax matching at
+  // checkout. Auto-prefilled from Store.stateCode for single-state orgs
+  // so single-store admins never see this field. (Session 56 simplification:
+  // dropped `description` and `county` columns — both were cosmetic-only.)
+  state String?
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -204,7 +202,7 @@ model TaxRule {
   // still referenced by N products.
   products MasterProduct[]
 
-  @@index([orgId, appliesTo])
+  @@index([orgId])
   @@map("tax_rules")
 }
 

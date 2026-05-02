@@ -11,7 +11,7 @@
  * Right sidebar: Classification, Compliance, Status, Store Availability
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
 import { useConfirm } from '../hooks/useConfirmDialog.jsx';
@@ -237,7 +237,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
                       onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={8} />
                   </div>
                   <div className="pf-mm-field">
-                    <label className="pf-label">Tax Class</label>
+                    <label className="pf-label">Category (age policy)</label>
                     <select className="form-input pf-mm-input" value={form.taxClass}
                       onChange={e => setForm(f => ({ ...f, taxClass: e.target.value }))}>
                       {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -1401,9 +1401,10 @@ export default function ProductForm() {
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
         itemCode:           form.itemCode         || null,
-        // Session 40 Phase 1 — send both. Backend validates taxRuleId belongs
-        // to this org, auto-mirrors the rule's appliesTo into taxClass if
-        // taxClass wasn't explicitly changed (backward compat for legacy readers).
+        // Session 56b — `taxRuleId` is the per-product tax-matching FK.
+        // `taxClass` is no longer a tax matcher; it persists only as an
+        // age-policy hint (tobacco/alcohol detection at checkout). Both
+        // are sent independently — backend no longer mirrors between them.
         taxRuleId:          form.taxRuleId ? parseInt(form.taxRuleId) : null,
         taxClass:           form.taxClass,
         taxable:            form.taxable,
@@ -1567,6 +1568,41 @@ export default function ProductForm() {
   }
 
   const selDept = departments.find(d => d.id === parseInt(form.departmentId));
+
+  // ── Resolved tax preview ────────────────────────────────────────────────
+  // Session 56b — 2-tier resolution (mirrors cashier-app `selectTotals`).
+  // Legacy class matcher (tier 3) was removed entirely:
+  //   1. Per-product FK   (form.taxRuleId pointing at an active rule)
+  //   2. Department-linked (rule's departmentIds[] contains form.departmentId)
+  //   3. None             (rate = 0% — admin sees a warning)
+  // EBT-eligible items skip tax entirely at checkout regardless of rule
+  // (federal SNAP rule, hard-coded in cart). Non-taxable products same.
+  const resolvedTax = useMemo(() => {
+    const active = (taxRules || []).filter(r => r.active !== false);
+
+    // Tier 1 — per-product override
+    if (form.taxRuleId) {
+      const r = active.find(x => String(x.id) === String(form.taxRuleId));
+      if (r) return { rate: Number(r.rate) || 0, source: 'product', rule: r };
+    }
+    // Tier 2 — dept-linked
+    if (form.departmentId) {
+      const did = Number(form.departmentId);
+      const r = active.find(x =>
+        Array.isArray(x.departmentIds) && x.departmentIds.includes(did)
+      );
+      if (r) return { rate: Number(r.rate) || 0, source: 'department', rule: r };
+    }
+    return { rate: 0, source: 'none', rule: null };
+  }, [form.taxRuleId, form.departmentId, taxRules]);
+
+  // Effective tax on a sample $10 sale, accounting for non-taxable +
+  // EBT-eligible hard skips that the cart applies before rule resolution.
+  const sampleTax = useMemo(() => {
+    if (form.taxable === false) return 0;
+    if (form.ebtEligible)       return 0;
+    return Math.round(resolvedTax.rate * 10 * 100) / 100;
+  }, [resolvedTax.rate, form.taxable, form.ebtEligible]);
 
   return (
       <div className="p-page pf-main">
@@ -1736,15 +1772,14 @@ export default function ProductForm() {
                       </select>
                     </div>
 
-                    {/* Session 40 Phase 1 — strict-FK tax dropdown.
-                        Values are rule.id (stable across renames / rate changes).
-                        Shows every ACTIVE rule (no more dedupe by appliesTo —
-                        each rule is its own option). Dept-default option at top;
-                        legacy string class options preserved at the bottom with
-                        "(legacy)" prefix for products that haven't migrated yet.
-                        Stale-rule warning when taxRuleId points at a deleted/
-                        inactive rule (shows an amber "⚠ rule no longer exists"
-                        hint with a link to Tax Rules page). */}
+                    {/* Session 56b — Tax Rule dropdown. Values are rule.id
+                        (stable across renames / rate changes). The default
+                        option means "no per-product override" — at checkout
+                        the cart resolves via the product's department-linked
+                        rule. Pick an explicit rule here only when the dept
+                        default doesn't apply (e.g. a special-rate product
+                        within a normal department). Stale-rule warning when
+                        taxRuleId points at a deleted/inactive rule. */}
                     <div>
                       <label className="pf-label">
                         Tax Rule
@@ -1753,45 +1788,24 @@ export default function ProductForm() {
                         </Link>
                       </label>
                       <select className="form-input pf-full"
-                        value={form.taxRuleId ? `rule:${form.taxRuleId}` : `class:${form.taxClass || ''}`}
+                        value={form.taxRuleId ? String(form.taxRuleId) : ''}
                         onChange={e => {
-                          const val = e.target.value;
-                          if (val.startsWith('rule:')) {
-                            const rid = val.slice(5);
-                            const rule = taxRules.find(r => String(r.id) === rid);
-                            setF('taxRuleId', rid);
-                            // Mirror appliesTo into taxClass so legacy cashier-app
-                            // builds (that only read taxClass) apply the right rate.
-                            if (rule?.appliesTo) setF('taxClass', rule.appliesTo);
-                          } else {
-                            // Legacy class option — clear the FK and set taxClass.
-                            const cls = val.slice(6);
-                            setF('taxRuleId', '');
-                            setF('taxClass', cls);
-                          }
+                          // Empty string = "use department default" → clear the FK
+                          // Non-empty = explicit per-product override → set the FK
+                          setF('taxRuleId', e.target.value || '');
                         }}>
-                        <option value="class:">— Use department / default —</option>
-                        {taxRules.length > 0 && (
-                          <optgroup label="Tax Rules (preferred)">
-                            {taxRules
-                              .filter(r => r.active !== false)
-                              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-                              .map(r => {
-                                const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
-                                return (
-                                  <option key={r.id} value={`rule:${r.id}`}>
-                                    {r.name}{pct && ` — ${pct}`}
-                                  </option>
-                                );
-                              })}
-                          </optgroup>
-                        )}
-                        <optgroup label="Legacy tax classes">
-                          {TAX_CLASSES.map(t => (
-                            <option key={t.value} value={`class:${t.value}`}>(legacy) {t.label}</option>
-                          ))}
-                          <option value="class:non_taxable">(legacy) Non-Taxable — 0%</option>
-                        </optgroup>
+                        <option value="">— Use department default —</option>
+                        {taxRules.length > 0 && taxRules
+                          .filter(r => r.active !== false)
+                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                          .map(r => {
+                            const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
+                            return (
+                              <option key={r.id} value={String(r.id)}>
+                                {r.name}{pct && ` — ${pct}`}
+                              </option>
+                            );
+                          })}
                       </select>
                       {/* Stale FK warning — product has taxRuleId but that rule
                           is not in the active rules list. Could be soft-deleted
@@ -1810,6 +1824,125 @@ export default function ProductForm() {
                           {' '}to use strict-FK tax linking.
                         </div>
                       )}
+
+                      {/* ── Resolved tax preview ────────────────────────
+                         Live mirror of the cashier-app's checkout-time
+                         resolution. Admin can see EXACTLY which rule will
+                         apply, where it's coming from (per-product /
+                         department / class / none), the effective rate, and
+                         a sample calc on a $10 sale. Updates in real time
+                         as the admin changes Department, Tax Rule, EBT, or
+                         non-taxable. */}
+                      <div className="pf-tax-preview" style={{
+                        marginTop: 10,
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: 8,
+                        background: resolvedTax.source === 'none'
+                          ? 'rgba(245, 158, 11, 0.08)'
+                          : 'var(--brand-05)',
+                        border: `1px solid ${resolvedTax.source === 'none' ? 'rgba(245, 158, 11, 0.3)' : 'var(--brand-20)'}`,
+                        fontSize: '0.78rem',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: '0.65rem', fontWeight: 800,
+                            color: 'var(--text-muted)', letterSpacing: '0.06em',
+                          }}>
+                            AT CHECKOUT
+                          </span>
+
+                          {/* Big rate */}
+                          <span style={{
+                            fontSize: '1.05rem', fontWeight: 900,
+                            color: resolvedTax.source === 'none' ? '#d97706' : 'var(--accent-secondary)',
+                          }}>
+                            {(resolvedTax.rate * 100).toFixed(2).replace(/\.?0+$/, '')}%
+                          </span>
+
+                          {/* Source chip */}
+                          {resolvedTax.source === 'product' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8',
+                              border: '1px solid rgba(99, 102, 241, 0.3)',
+                            }}>★ Per-product override</span>
+                          )}
+                          {resolvedTax.source === 'department' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'var(--brand-10)', color: 'var(--brand-primary)',
+                              border: '1px solid var(--brand-25)',
+                            }}>From department: {selDept?.name || form.departmentId}</span>
+                          )}
+                          {/* Session 56b — `class` source removed (legacy class
+                              matcher gone). Resolution is now product → dept → none. */}
+                          {resolvedTax.source === 'none' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'rgba(245, 158, 11, 0.15)', color: '#d97706',
+                              border: '1px solid rgba(245, 158, 11, 0.3)',
+                            }}>No rule matches</span>
+                          )}
+
+                          {/* Rule name */}
+                          {resolvedTax.rule && (
+                            <span style={{
+                              color: 'var(--text-secondary)', fontWeight: 600,
+                              fontSize: '0.74rem',
+                            }}>
+                              · {resolvedTax.rule.name}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Hard-skip notes (these override any rule) */}
+                        {form.ebtEligible && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: '#34d399', display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                            <Info size={10} /> EBT-eligible — tax is waived at checkout regardless of the rule above.
+                          </div>
+                        )}
+                        {form.taxable === false && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                            <Info size={10} /> Marked NON-TAXABLE — tax is always 0.
+                          </div>
+                        )}
+                        {resolvedTax.source === 'none' && !form.ebtEligible && form.taxable !== false && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: '#d97706',
+                          }}>
+                            ⚠ Pick a rule, link this product&apos;s department to a rule, or change the class — otherwise the cashier rings up no tax.
+                          </div>
+                        )}
+
+                        {/* Sample calc */}
+                        <div style={{
+                          marginTop: 6, fontSize: '0.7rem',
+                          color: 'var(--text-muted)',
+                          display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                          <span>On a $10.00 sale →</span>
+                          <span style={{
+                            fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                            color: sampleTax > 0 ? 'var(--text-primary)' : '#34d399',
+                            fontWeight: 700,
+                          }}>
+                            ${sampleTax.toFixed(2)} tax
+                          </span>
+                          <span style={{ opacity: 0.6 }}>
+                            (line total: ${(10 + sampleTax).toFixed(2)})
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 

@@ -222,28 +222,35 @@ export const applyStateDefaults = async (req: Request, res: Response): Promise<v
     const s = store.state;
     const applied: Record<string, unknown> = {};
 
-    // 1. Tax rule — upsert "Default Sales Tax" scoped to this store
-    //    TaxRule stores `rate` as a decimal (0.0625 = 6.25%).
+    // 1. Tax rule — upsert "Default Sales Tax" scoped to this store + linked
+    //    to every active department in the org so it acts as the catch-all.
+    //    TaxRule stores `rate` as a decimal (0.0625 = 6.25%). Session 56b —
+    //    `appliesTo` matcher is gone; rules must specify departmentIds[].
     if (s.defaultTaxRate != null) {
       const rate = Number(s.defaultTaxRate);
+      const allDepts = await prisma.department.findMany({
+        where: { orgId, active: true },
+        select: { id: true },
+      });
+      const allDeptIds: number[] = allDepts.map((d: { id: number }) => d.id);
       const existingTax = await prisma.taxRule.findFirst({
         where: { orgId, storeId, name: 'Default Sales Tax' },
       });
       if (existingTax) {
         await prisma.taxRule.update({
           where: { id: existingTax.id },
-          data:  { rate, active: true, state: s.code },
+          data:  { rate, active: true, state: s.code, departmentIds: allDeptIds },
         });
       } else {
         await prisma.taxRule.create({
           data: {
             orgId, storeId,
-            name:       'Default Sales Tax',
+            name:          'Default Sales Tax',
             rate,
-            appliesTo:  'all',
-            ebtExempt:  true,
-            state:      s.code,
-            active:     true,
+            departmentIds: allDeptIds,
+            ebtExempt:     true,
+            state:         s.code,
+            active:        true,
           },
         });
       }

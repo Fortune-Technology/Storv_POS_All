@@ -921,15 +921,30 @@ export default function POSScreen() {
   const [pendingAfterLottery, setPendingAfterLottery] = useState(null); // null | 'closeShift' | 'endOfDay'
 
   const handleLotteryShiftSave = async (data) => {
-    await saveLotteryShiftReport(data);
+    // Apr 2026 — capture + return the response so the wizard can surface
+    // any per-box update / snapshot insert failures the backend reports.
+    // Previously the response was discarded and silent failures left the
+    // cashier thinking everything saved when in fact some boxes weren't
+    // updated (causing the back-office "ticket numbers not updated" bug).
+    const resp = await saveLotteryShiftReport(data);
+    // Don't auto-dismiss the wizard if the response has warnings — the
+    // wizard's confirm step will display them and let the cashier dismiss
+    // explicitly. For clean saves, dismiss as before.
+    if (!resp?.warnings) {
+      setShowLotteryShift(false);
+    }
     setLotteryShiftDone(true);
-    setShowLotteryShift(false);
-    // If reconciliation was triggered by a gated action, proceed now.
-    const next = pendingAfterLottery;
-    setPendingAfterLottery(null);
-    setPendingShiftClose(false);  // legacy alias
-    if (next === 'closeShift')    setShowCloseShift(true);
-    else if (next === 'endOfDay') setShowEndOfDay(true);
+    // If reconciliation was triggered by a gated action, proceed now —
+    // but only if the save was clean. With warnings, hold off so the
+    // cashier can review them first.
+    if (!resp?.warnings) {
+      const next = pendingAfterLottery;
+      setPendingAfterLottery(null);
+      setPendingShiftClose(false);
+      if (next === 'closeShift')    setShowCloseShift(true);
+      else if (next === 'endOfDay') setShowEndOfDay(true);
+    }
+    return resp;
   };
 
   // Opens LotteryShiftModal after refreshing active boxes (standalone button)

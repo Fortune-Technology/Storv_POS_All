@@ -42,7 +42,6 @@ interface NamedStrIdRecord { id: string; name: string }
 interface TaxRuleLookupRow {
   id: string; name: string;
   rate: unknown;
-  appliesTo: string | null;
 }
 
 /** Lookup context built once per import — built by `buildContext`. */
@@ -57,7 +56,6 @@ export interface ImportContext {
   depositByName: Map<string, NamedStrIdRecord>;
   taxRules: TaxRuleLookupRow[];
   taxByRate: Map<string, TaxRuleLookupRow>;
-  taxByClassName: Map<string, TaxRuleLookupRow>;
   taxByRuleName: Map<string, TaxRuleLookupRow>;
   // ProductGroup lookup — populated lazily from existing groups in the org.
   // Used by Sante's `Other:`-tag-driven productGroup column to link products
@@ -469,7 +467,7 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
     }),
     prisma.taxRule.findMany({
       where: { orgId, active: true },
-      select: { id: true, name: true, rate: true, appliesTo: true },
+      select: { id: true, name: true, rate: true },
     }) as Promise<TaxRuleLookupRow[]>,
     // ProductGroups — used for `productGroup` column resolution. Includes all
     // groups (no `active` filter; the schema doesn't have one). Match is
@@ -483,8 +481,8 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
   // Build a lookup map for tax rules by rounded rate so imports can match
   // a "6.25%" column value directly against the store's real TaxRule table.
   // Key = 4-decimal string ("0.0625") for stable equality across Prisma's Decimal.
+  // Session 56b — `taxByClassName` removed (legacy class matcher dropped).
   const taxByRate = new Map<string, TaxRuleLookupRow>();
-  const taxByClassName = new Map<string, TaxRuleLookupRow>();
   // Session 40 Phase 1 — map by rule NAME (case-insensitive, trimmed). Used
   // to resolve the new `taxRuleName` CSV field → `MasterProduct.taxRuleId`.
   const taxByRuleName = new Map<string, TaxRuleLookupRow>();
@@ -493,10 +491,6 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
     if (!isNaN(rateNum)) {
       const key = rateNum.toFixed(4);
       if (!taxByRate.has(key)) taxByRate.set(key, r);
-    }
-    if (r.appliesTo) {
-      const key = String(r.appliesTo).toLowerCase().trim();
-      if (!taxByClassName.has(key)) taxByClassName.set(key, r);
     }
     if (r.name) {
       const key = String(r.name).toLowerCase().trim();
@@ -524,7 +518,6 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
     depositByName:new Map<string, NamedStrIdRecord>(depositRules.map((r: DepositRow) => [r.name.toLowerCase(), r])),
     taxRules,      // full list for warnings/debugging
     taxByRate,
-    taxByClassName,
     taxByRuleName,
     productGroupByName: new Map<string, NamedRecord>(
       productGroups.map((g: { id: number; name: string }) => [g.name.toLowerCase().trim(), g as NamedRecord]),
@@ -532,16 +525,19 @@ export async function buildContext(orgId: string): Promise<ImportContext> {
   };
 }
 
-// Resolve a taxClass string from a CSV cell against the store's real TaxRule
+// Session 56b — Resolve a CSV "tax" cell against the store's real TaxRule
 // table. Input can be:
-//   "6.25%"       → lookup by rate 0.0625 → returns rule.appliesTo
-//   "alcohol"     → lookup by class name → returns rule.appliesTo ("alcohol")
-//   "Maine Food"  → lookup by rule name → returns rule.appliesTo
-//   invalid/missing → returns null so caller can fall back to enum defaults
-interface TaxClassResolution { resolved: string | null; rule: TaxRuleLookupRow | null }
-
-function resolveTaxClassFromRules(value: unknown, ctx: ImportContext | null | undefined): TaxClassResolution {
-  if (!value || !ctx?.taxByRate) return { resolved: null, rule: null };
+//   "6.25%"       → lookup by rate 0.0625 → returns the matched rule
+//   "Maine Food"  → lookup by rule name → returns the matched rule
+//   invalid/missing/legacy class string → returns null (caller falls back
+//                                         to enum-class for age policy only)
+//
+// The legacy "match by class name" path was removed when the `appliesTo`
+// matcher was deleted from the schema. Class strings like "alcohol" no
+// longer find a rule — the admin must either pick an explicit rule or rely
+// on the product's department being linked to a rule (resolved at checkout).
+function resolveTaxRuleByRateOrName(value: unknown, ctx: ImportContext | null | undefined): TaxRuleLookupRow | null {
+  if (!value || !ctx?.taxByRate) return null;
   const str = String(value).toLowerCase().trim();
 
   // Try percentage/decimal rate match first
@@ -551,18 +547,14 @@ function resolveTaxClassFromRules(value: unknown, ctx: ImportContext | null | un
     const rate = str.includes('%') || num > 1 ? num / 100 : num;
     const key = rate.toFixed(4);
     const hit = ctx.taxByRate.get(key);
-    if (hit) return { resolved: hit.appliesTo, rule: hit };
+    if (hit) return hit;
   }
-
-  // Try class name match
-  const byClass = ctx.taxByClassName?.get(str);
-  if (byClass) return { resolved: byClass.appliesTo, rule: byClass };
 
   // Try rule name match (case-insensitive)
   const byName = ctx.taxRules?.find((r) => r.name?.toLowerCase() === str);
-  if (byName) return { resolved: byName.appliesTo, rule: byName };
+  if (byName) return byName;
 
-  return { resolved: null, rule: null };
+  return null;
 }
 
 // ─── Department/Vendor resolvers ──────────────────────────────────────────────
@@ -810,19 +802,23 @@ function validateProductRow(
     }
   }
 
-  // Tax class — priority order:
-  //   1. Try to match against the store's REAL TaxRule table (by rate, class
-  //      name, or rule name) — this is what the merchant configured in
-  //      Portal → Tax Rules. Matching by rate lets a CSV with "6.25%" find
-  //      the right tax rule automatically.
-  //   2. Fall back to the hardcoded VALID_TAX_CLASSES enum if no tax rules
-  //      exist yet for this org (first-time setup).
-  //   3. Last resort: "standard" with a warning.
+  // ── Tax resolution (Session 56b — legacy class matcher removed) ─────────
+  // Two output fields are set from the CSV row:
+  //   • taxRuleId — the FK that the cart uses for tier-1 rule resolution.
+  //                 Set when the CSV provides `taxRuleName` OR a `taxClass`
+  //                 cell that resolves to a known rule by rate / rule name.
+  //   • taxClass  — age-policy hint only ("tobacco" / "alcohol" / etc.).
+  //                 Persisted on the product so the cashier-app knows which
+  //                 per-store age threshold to apply. NOT used for tax matching.
   //
-  // Session 40 Phase 1: if the CSV also maps `taxRuleName` and it matches a
-  // live TaxRule by name, set `taxRuleId` on the cleaned row AND auto-mirror
-  // that rule's appliesTo into taxClass. `taxRuleName` wins over `taxClass`
-  // when both are present (the FK is authoritative).
+  // Resolution priority for taxRuleId:
+  //   1. `taxRuleName` column matches a live TaxRule.name → use that rule's id.
+  //   2. `taxClass` column parses as a rate ("6.25%") AND that rate matches
+  //      exactly ONE active rule → use that rule's id.
+  //   3. `taxClass` column matches a TaxRule.name (case-insensitive) → use that rule's id.
+  // Otherwise taxRuleId is left null and the cart will resolve via the
+  // product's department at checkout (tier 2). If neither path resolves,
+  // the product is taxed 0% — the admin can audit via the unmapped report.
   let taxRuleId: string | null = null;
   const ruleNameRaw = get('taxRuleName');
   if (ruleNameRaw) {
@@ -830,59 +826,46 @@ function validateProductRow(
     const hit = ctx.taxByRuleName?.get(key);
     if (hit) {
       taxRuleId = hit.id;
-      // Mirror appliesTo into taxClass if the column isn't separately mapped.
-      // This keeps legacy cashier-app builds (which only read taxClass) correct.
-      if (!(mapping as Record<string, unknown>).taxClass) {
-        // get('taxClass') below reads the mapped column; synthesize one here.
-        (raw as Record<string, unknown>).__syntheticTaxClass = hit.appliesTo;
-      }
     } else {
-      warnings.push({ field: 'taxRuleName', message: `Tax rule "${ruleNameRaw}" not found — will try taxClass fallback` });
+      warnings.push({ field: 'taxRuleName', message: `Tax rule "${ruleNameRaw}" not found — falling back to taxClass column` });
     }
   }
 
-  let taxClass: string = get('taxClass') || String((raw as Record<string, unknown>).__syntheticTaxClass || '') || '';
+  let taxClass: string = get('taxClass') || '';
   if (taxClass) {
-    const raw = taxClass;
+    const rawClass = taxClass;
     const tcLower = taxClass.toLowerCase().trim();
 
-    // STEP 1: match against store TaxRules
-    const ruleHit = resolveTaxClassFromRules(raw, ctx);
-    if (ruleHit.resolved) {
-      taxClass = ruleHit.resolved;
-    } else if (VALID_TAX_CLASSES.includes(tcLower)) {
-      // STEP 2a: known enum class
+    // STEP 1: try to resolve a rule from this cell (by rate or rule name).
+    // Sets taxRuleId only if not already set by `taxRuleName` above.
+    if (!taxRuleId) {
+      const ruleHit = resolveTaxRuleByRateOrName(rawClass, ctx);
+      if (ruleHit) taxRuleId = ruleHit.id;
+    }
+
+    // STEP 2: normalize the taxClass string for AGE-POLICY purposes only.
+    if (VALID_TAX_CLASSES.includes(tcLower)) {
       taxClass = tcLower;
     } else {
-      // STEP 2b: try to parse as a percentage rate and infer class
-      const pct = parseFloat(tcLower.replace(/[%$,\s]/g, ''));
-      if (!isNaN(pct)) {
-        if (pct === 0) {
-          taxClass = 'non_taxable';
-        } else {
-          taxClass = 'standard';
-          warnings.push({
-            field: 'taxClass',
-            message: `Tax "${raw}" — no matching rule at that rate, treated as "standard". Create a Tax Rule with this rate to link it.`,
-          });
-        }
+      // Common text variants → canonical age-policy class
+      const TAX_TEXT_MAP: Record<string, string> = {
+        'none': 'none', 'no': 'non_taxable', 'notaxable': 'non_taxable', 'nontaxable': 'non_taxable',
+        'yes': 'standard', 'taxable': 'standard', 'general': 'standard', 'default': 'standard',
+        'beer': 'alcohol', 'wine': 'alcohol', 'liquor': 'alcohol', 'spirits': 'alcohol', 'alc': 'alcohol',
+        'cig': 'tobacco', 'cigarette': 'tobacco', 'tob': 'tobacco',
+        'hot': 'hot_food', 'hotfood': 'hot_food', 'prepared': 'hot_food', 'deli': 'hot_food',
+        'food': 'grocery', 'groc': 'grocery',
+      };
+      const mapped = TAX_TEXT_MAP[tcLower.replace(/[\s_\-]/g, '')];
+      if (mapped) {
+        taxClass = mapped;
+      } else if (!isNaN(parseFloat(tcLower.replace(/[%$,\s]/g, '')))) {
+        // Pure numeric — was used for rate-based rule resolution above. Keep
+        // taxClass as 'standard' so age policy doesn't trip on a number.
+        taxClass = 'standard';
       } else {
-        // STEP 2c: common text variants
-        const TAX_TEXT_MAP: Record<string, string> = {
-          'none': 'none', 'no': 'non_taxable', 'notaxable': 'non_taxable', 'nontaxable': 'non_taxable',
-          'yes': 'standard', 'taxable': 'standard', 'general': 'standard', 'default': 'standard',
-          'beer': 'alcohol', 'wine': 'alcohol', 'liquor': 'alcohol', 'spirits': 'alcohol', 'alc': 'alcohol',
-          'cig': 'tobacco', 'cigarette': 'tobacco', 'tob': 'tobacco',
-          'hot': 'hot_food', 'hotfood': 'hot_food', 'prepared': 'hot_food', 'deli': 'hot_food',
-          'food': 'grocery', 'groc': 'grocery',
-        };
-        const mapped = TAX_TEXT_MAP[tcLower.replace(/[\s_\-]/g, '')];
-        if (mapped) {
-          taxClass = mapped;
-        } else {
-          taxClass = 'standard';
-          warnings.push({ field: 'taxClass', message: `Tax "${raw}" treated as "standard"` });
-        }
+        taxClass = 'standard';
+        warnings.push({ field: 'taxClass', message: `Tax "${rawClass}" treated as "standard" (no matching rule)` });
       }
     }
   }

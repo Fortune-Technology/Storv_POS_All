@@ -38,19 +38,39 @@ export const seedCatalogDefaults = async (orgId: string): Promise<void> => {
   console.log(`  ✓ ${deptDefs.length} departments`);
 
   // ── Tax Rules (Maine) ────────────────────────────────────────────────────
+  // Session 56b — rules now target departments directly via `departmentIds[]`
+  // (the legacy `appliesTo` string matcher was removed). We query the depts
+  // we just seeded and link each rule to the matching department(s) by
+  // taxClass. The dept seed file uses class values like 'alcohol' / 'tobacco'
+  // / 'grocery' / 'hot_food' which map cleanly to the rules below.
   const existingTax = await prisma.taxRule.count({ where: { orgId, state: 'ME' } });
   if (existingTax === 0) {
+    const depts = await prisma.department.findMany({
+      where: { orgId, active: true },
+      select: { id: true, taxClass: true },
+    });
+    type DeptIdClass = { id: number; taxClass: string | null };
+    const idsByClass = (cls: string): number[] =>
+      depts.filter((d: DeptIdClass) => String(d.taxClass || '').toLowerCase() === cls).map((d: DeptIdClass) => d.id);
+    const allActiveDeptIds: number[] = depts.map((d: DeptIdClass) => d.id);
+    const groceryDeptIds: number[] = idsByClass('grocery');
+    const alcoholDeptIds: number[] = idsByClass('alcohol');
+    const tobaccoDeptIds: number[] = idsByClass('tobacco');
+    const hotFoodDeptIds: number[] = idsByClass('hot_food');
+
     await prisma.taxRule.createMany({
       data: [
-        { orgId, name: 'Maine General Sales Tax',    rate: 0.0550, appliesTo: 'standard',  ebtExempt: true,  state: 'ME', description: '5.5% Maine sales tax on general merchandise' },
-        { orgId, name: 'Maine Grocery Exemption',    rate: 0.0000, appliesTo: 'grocery',   ebtExempt: false, state: 'ME', description: 'Grocery food items are tax-exempt in Maine' },
-        { orgId, name: 'Maine Alcohol Tax',          rate: 0.0550, appliesTo: 'alcohol',   ebtExempt: false, state: 'ME', description: '5.5% on beer and wine' },
-        { orgId, name: 'Maine Tobacco Tax',          rate: 0.0550, appliesTo: 'tobacco',   ebtExempt: false, state: 'ME', description: '5.5% plus state excise on tobacco' },
-        { orgId, name: 'Maine Prepared Food Tax',    rate: 0.0800, appliesTo: 'hot_food',  ebtExempt: false, state: 'ME', description: '8% on prepared / hot food' },
-        { orgId, name: 'EBT / SNAP Exempt',          rate: 0.0000, appliesTo: 'non_taxable', ebtExempt: false, state: 'ME', description: 'Zero tax when purchased with EBT/SNAP benefits' },
+        { orgId, name: 'Maine General Sales Tax (5.5%)', rate: 0.0550, departmentIds: allActiveDeptIds, ebtExempt: true,  state: 'ME' },
+        { orgId, name: 'Maine Grocery Exemption (0%)',   rate: 0.0000, departmentIds: groceryDeptIds,   ebtExempt: false, state: 'ME' },
+        { orgId, name: 'Maine Alcohol Tax (5.5%)',       rate: 0.0550, departmentIds: alcoholDeptIds,   ebtExempt: false, state: 'ME' },
+        { orgId, name: 'Maine Tobacco Tax (5.5%)',       rate: 0.0550, departmentIds: tobaccoDeptIds,   ebtExempt: false, state: 'ME' },
+        { orgId, name: 'Maine Prepared Food Tax (8%)',   rate: 0.0800, departmentIds: hotFoodDeptIds,   ebtExempt: false, state: 'ME' },
       ],
     });
-    console.log('  ✓ 6 Maine tax rules');
+    console.log('  ✓ 5 Maine tax rules');
+    // Note: dropped the "EBT / SNAP Exempt (0%)" rule that used the legacy
+    // `non_taxable` class. EBT-eligibility is enforced at the cart level
+    // (federal SNAP rule, hard-coded) — no dedicated rule needed.
   }
 
   // ── Deposit Rules (Maine CRV) ────────────────────────────────────────────

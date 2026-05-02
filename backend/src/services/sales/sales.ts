@@ -53,6 +53,12 @@ interface PosLineItem {
   name?: string | null;
   departmentId?: number | string | null;
   departmentName?: string | null;
+  // Per-product explicit override — wins at checkout. Cart sends this on
+  // every saved line item; reports use it for tier-1 tax resolution.
+  taxRuleId?: number | string | null;
+  // Legacy product attribute — only used by age policy at checkout (the
+  // `tobacco` / `alcohol` per-store age threshold lookup). NOT used for
+  // tax matching anymore (Session 56b removed the legacy class matcher).
   taxClass?: string | null;
   qty?: number | string | null;
   unitPrice?: number | string | null;
@@ -391,17 +397,12 @@ export async function getMonthlySalesComparison(
 // DEPARTMENT SALES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Rule-match wildcards — mirror of cashier-app's `matchTax` in useCartStore.js
-// so report-time tax attribution matches cart-time calculation.
-const TAX_RULE_WILDCARDS = new Set(['', 'all', 'any', '*', 'standard', 'none']);
-function matchTaxRule(appliesTo: string | null | undefined, taxClass: string | null | undefined): boolean {
-  const applied = String(appliesTo || '').toLowerCase().trim();
-  if (TAX_RULE_WILDCARDS.has(applied)) return true;
-  const list = applied.split(',').map((s) => s.trim()).filter(Boolean);
-  const cls = String(taxClass || '').toLowerCase().trim();
-  if (list.includes(cls)) return true;
-  return list.some((x) => TAX_RULE_WILDCARDS.has(x));
-}
+// Session 56b — legacy class string matcher removed. Tax resolution now uses
+// only two tiers (mirror of cashier-app's `selectTotals`):
+//   1. Per-line `taxRuleId` (set when cashier picks a tax rule on the product)
+//   2. Department-linked: rule whose `departmentIds[]` contains the line's `departmentId`
+// No third tier. Lines with neither path resolved skip per-line tax computation
+// and fall through to the even-distribution-by-lineTotal fallback below.
 
 export interface DepartmentSalesRow {
   Name: string;
@@ -429,14 +430,14 @@ export async function getDepartmentSales(
 ): Promise<SalesEnvelope<DepartmentSalesRow>> {
   const orgId = user?.orgId;
   type TaxRuleRow = Prisma.TaxRuleGetPayload<{
-    select: { appliesTo: true; rate: true; departmentIds: true };
+    select: { id: true; rate: true; departmentIds: true };
   }>;
   const txnsPromise = prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
     select: { id: true, lineItems: true, status: true, taxTotal: true, subtotal: true },
   });
   const taxRulesPromise: Promise<TaxRuleRow[]> = orgId
-    ? prisma.taxRule.findMany({ where: { orgId, active: true }, select: { appliesTo: true, rate: true, departmentIds: true } })
+    ? prisma.taxRule.findMany({ where: { orgId, active: true }, select: { id: true, rate: true, departmentIds: true } })
     : Promise.resolve([]);
   // B7 — fetch real Department names so the response Name field shows the
   // actual department label (e.g. "Beverages") rather than the line item's
@@ -524,16 +525,20 @@ export async function getDepartmentSales(
       d.TotalItems      += qty;
       d.ItemsSold       += qty;
 
-      // Notional tax — match rule by departmentId (Option B) then taxClass.
+      // Notional tax — Session 56b 2-tier resolution (mirrors cashier-app):
+      //   1. Per-line `taxRuleId` (explicit per-product override)
+      //   2. Department-linked: rule whose departmentIds[] contains line's deptId
       // Pro-ration scales these to the tx's actual taxTotal in pass 2.
       let notionalTax = 0;
       if (li.taxable) {
-        const deptRule = lineDeptId
+        const lineRuleId = li.taxRuleId != null ? Number(li.taxRuleId) : null;
+        const productRule = lineRuleId
+          ? taxRules.find((r) => Number(r.id) === lineRuleId)
+          : null;
+        const deptRule = !productRule && lineDeptId
           ? taxRules.find((r) => Array.isArray(r.departmentIds) && r.departmentIds.includes(lineDeptId))
           : null;
-        const rule = deptRule || taxRules.find(
-          (r) => (!r.departmentIds || r.departmentIds.length === 0) && matchTaxRule(r.appliesTo, li.taxClass),
-        );
+        const rule = productRule || deptRule || null;
         const rate = rule ? parseFloat(String(rule.rate)) : 0;
         notionalTax = Math.abs(rawLineTotal) * rate;
       }

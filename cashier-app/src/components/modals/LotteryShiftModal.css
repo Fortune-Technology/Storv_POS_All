@@ -959,6 +959,71 @@
   line-height: 1.4;
 }
 
+/* Apr 2026 — Save-warnings strip. Surfaces backend per-box update / snapshot
+   insert failures so the cashier sees that NOT every box committed. The
+   amber/red treatment makes it obvious vs the green clean-save state. */
+.lsm-save-warnings {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #fca5a5;
+  background: #fef2f2;
+}
+.lsm-save-warnings-head {
+  font-weight: 800;
+  color: #991b1b;
+  font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+.lsm-save-warnings-summary {
+  font-size: 0.84rem;
+  color: #991b1b;
+  margin-bottom: 8px;
+}
+.lsm-save-warnings-list {
+  font-size: 0.78rem;
+  color: #7f1d1d;
+  margin-bottom: 8px;
+}
+.lsm-save-warnings-list strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.lsm-save-warnings-list ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 0;
+}
+.lsm-save-warnings-list li {
+  margin: 2px 0;
+  line-height: 1.4;
+}
+.lsm-save-warnings-list code {
+  background: rgba(127, 29, 29, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.72rem;
+}
+.lsm-save-warnings-tip {
+  font-size: 0.74rem;
+  color: #7f1d1d;
+  font-style: italic;
+  margin-top: 6px;
+}
+
+/* Clean-save write stats — shown only when warnings is null. */
+.lsm-write-stats {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 /* ── Wizard navigation ─────────────────────────────────────────────── */
 .lsm-wizard-nav {
   display: flex;
