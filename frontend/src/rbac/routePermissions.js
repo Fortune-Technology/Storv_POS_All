@@ -42,10 +42,10 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   // Reports & Analytics
   '/portal/analytics':         'analytics.view',
   '/portal/pos-reports':       'transactions.view',
-  '/portal/end-of-day':        'reports.view',
-  '/portal/dual-pricing-report': 'reports.view',
-  '/portal/daily-sale':        'reports.view',
-  '/portal/reports':           'reports.view',
+  '/portal/daily-reports':     'reports.view',   // S66 hub for End of Day / Daily Sale / Dual Pricing
+  '/portal/end-of-day':        'reports.view',   // legacy redirect → /portal/daily-reports?tab=eod
+  '/portal/dual-pricing-report': 'reports.view', // legacy redirect → /portal/daily-reports?tab=dual-pricing
+  '/portal/daily-sale':        'reports.view',   // legacy redirect → /portal/daily-reports?tab=sale
   '/portal/employees':         'users.view',
 
   // Lottery / Fuel

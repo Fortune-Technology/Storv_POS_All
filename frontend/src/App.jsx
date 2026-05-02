@@ -82,7 +82,6 @@ import Fuel from './pages/Fuel';
 import ScanData from './pages/ScanData';
 import Exchange from './pages/Exchange';
 import ExchangeOrderDetail from './pages/ExchangeOrderDetail';
-import ReportsHub from './pages/ReportsHub';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
 import ChatPage from './pages/ChatPage';
@@ -126,6 +125,7 @@ import CustomersHub      from './pages/CustomersHub';
 import EndOfDayReport    from './pages/EndOfDayReport';
 import DualPricingReport from './pages/DualPricingReport';
 import DailySale         from './pages/DailySale';
+import DailyReports      from './pages/DailyReports';
 import Roles             from './pages/Roles';
 
 // Components
@@ -285,9 +285,13 @@ function App() {
 
           {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
           <Route path="/portal/pos-reports"     element={gated(<POSReports />)} />
-          <Route path="/portal/end-of-day"      element={gated(<EndOfDayReport />)} />
-          <Route path="/portal/dual-pricing-report" element={gated(<DualPricingReport />)} />
-          <Route path="/portal/daily-sale"      element={gated(<DailySale />)} />
+          {/* Session 66 — DailyReports hub consolidates the 3 daily-close pages.
+               Original URLs preserved as redirects so existing bookmarks land on
+               the correct tab inside the new hub. */}
+          <Route path="/portal/daily-reports"   element={gated(<DailyReports />)} />
+          <Route path="/portal/end-of-day"      element={<Navigate to="/portal/daily-reports?tab=eod" replace />} />
+          <Route path="/portal/daily-sale"      element={<Navigate to="/portal/daily-reports?tab=sale" replace />} />
+          <Route path="/portal/dual-pricing-report" element={<Navigate to="/portal/daily-reports?tab=dual-pricing" replace />} />
 
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/rules"           element={gated(<RulesAndFees />)} />
@@ -330,7 +334,8 @@ function App() {
           <Route path="/portal/exchange/new"          element={gated(<ExchangeOrderDetail />)} />
           <Route path="/portal/exchange/orders/:id"   element={gated(<ExchangeOrderDetail />)} />
 
-          <Route path="/portal/reports"          element={gated(<ReportsHub />)} />
+          {/* ── Legacy redirect (Session 64) — ReportsHub deleted, tabs distributed to AnalyticsHub/POSReports/InventoryCount ── */}
+          <Route path="/portal/reports"          element={<Navigate to="/portal/analytics" replace />} />
           <Route path="/portal/support-tickets"  element={gated(<SupportTickets />)} />
 
           {/* ── Online Store (E-commerce) ──────────────────────────── */}

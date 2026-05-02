@@ -36,7 +36,7 @@ const todayStr = () => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
 
-export default function EndOfDayReport() {
+export default function EndOfDayReport({ embedded = false } = {}) {
   const [stores,    setStores]    = useState([]);
   const [employees, setEmployees] = useState([]);
   const [storeId,   setStoreId]   = useState('');
@@ -187,16 +187,18 @@ export default function EndOfDayReport() {
 
   return (
     <div className="eod-page">
-      {/* ── Non-print toolbar ── */}
+      {/* ── Non-print toolbar (header hidden when embedded under a hub) ── */}
       <div className="eod-toolbar" data-no-print>
         <div className="eod-toolbar-left">
-          <div className="p-header-left">
-            <div className="p-header-icon"><FileText size={22} /></div>
-            <div>
-              <h1 className="p-title">End of Day Report</h1>
-              <p className="p-subtitle">Reconcile payouts, tender, transactions, and cash drawer</p>
+          {!embedded && (
+            <div className="p-header-left">
+              <div className="p-header-icon"><FileText size={22} /></div>
+              <div>
+                <h1 className="p-title">End of Day Report</h1>
+                <p className="p-subtitle">Reconcile payouts, tender, transactions, and cash drawer</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="eod-toolbar-right">
           <button className="eod-btn eod-btn-secondary" onClick={loadReport} disabled={loading} title="Refresh report">

@@ -861,7 +861,7 @@ export async function getProductMovement(
 ): Promise<{ value: ProductMovementBucket[] }> {
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { lineItems: true, createdAt: true },
+    select: { lineItems: true, createdAt: true, status: true },
   });
 
   // Normalize the search term + line UPC for tolerant matching:
@@ -874,9 +874,14 @@ export async function getProductMovement(
   const termNorm = term.replace(/^0+/, '').toLowerCase();
   const termLow  = term.toLowerCase();
 
+  // S65 T1 fix: apply the refund sign convention established in B7/B8/B9.
+  // Refund tx → subtract |qty| and |lineTotal| from the bucket. Without this,
+  // a 1-unit sale + 1-unit refund of the same product showed up as 2 units in
+  // the time series, making movement charts and predictions inflate sales.
   const buckets: Record<string, ProductMovementBucket> = {};
   for (const tx of txns) {
     const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as PosLineItem[];
+    const isRefund = tx.status === 'refund';
     for (const li of items) {
       const liUpcRaw  = (li.upc || '').trim();
       const liUpcNorm = liUpcRaw.replace(/^0+/, '').toLowerCase();
@@ -887,8 +892,10 @@ export async function getProductMovement(
       const d = new Date(tx.createdAt);
       const key = weekly ? getWeekStart(d) : toDateStr(d);
       if (!buckets[key]) buckets[key] = { Date: key, Revenue: 0, Units: 0 };
-      buckets[key].Revenue += r2(li.lineTotal || 0);
-      buckets[key].Units   += Number(li.qty || 1);
+      const qty       = Number(li.qty || 1);
+      const lineTotal = Number(li.lineTotal || 0);
+      buckets[key].Revenue += isRefund ? -Math.abs(r2(lineTotal)) : r2(lineTotal);
+      buckets[key].Units   += isRefund ? -Math.abs(qty)            : qty;
     }
   }
 
@@ -935,13 +942,18 @@ export async function getProduct52WeekStats(
 
   const txns = await prisma.transaction.findMany({
     where: buildWhere(user, storeId, from, to),
-    select: { lineItems: true, createdAt: true },
+    select: { lineItems: true, createdAt: true, status: true },
   });
 
-  // Aggregate into weekly buckets
+  // Aggregate into weekly buckets.
+  // S65 T1 fix: apply refund sign convention (B7/B8/B9). A 1-unit sale
+  // followed by a 1-unit refund should net to 0 units sold, not 2 — otherwise
+  // 52-week stats inflate sales velocity, which downstream affects orderEngine
+  // reorder calculations + reorder-point recommendations.
   const weeks: Record<string, number> = {};
   for (const tx of txns) {
     const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as PosLineItem[];
+    const isRefund = tx.status === 'refund';
     for (const li of items) {
       // Match by UPC — check both upc and any additionalUpcs
       const liUpc = li.upc || '';
@@ -950,7 +962,8 @@ export async function getProduct52WeekStats(
       const d = new Date(tx.createdAt);
       const wk = getWeekStart(d);
       if (!weeks[wk]) weeks[wk] = 0;
-      weeks[wk] += Number(li.qty || 1);
+      const qty = Number(li.qty || 1);
+      weeks[wk] += isRefund ? -Math.abs(qty) : qty;
     }
   }
 

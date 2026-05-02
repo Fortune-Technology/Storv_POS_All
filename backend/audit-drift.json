@@ -1,6 +1,6 @@
 {
-  "totalChecks": 46,
-  "matches": 46,
+  "totalChecks": 63,
+  "matches": 63,
   "fails": 0,
   "details": [
     {
@@ -28,121 +28,121 @@
       "matches": true
     },
     {
-      "label": "  net (2026-04-26)",
+      "label": "  net (2026-04-28)",
       "expected": 46.4,
       "actual": 46.4,
       "matches": true
     },
     {
-      "label": "  gross (2026-04-26)",
+      "label": "  gross (2026-04-28)",
       "expected": 49.63,
       "actual": 49.63,
       "matches": true
     },
     {
-      "label": "  tax (2026-04-26)",
+      "label": "  tax (2026-04-28)",
       "expected": 3.13,
       "actual": 3.13,
       "matches": true
     },
     {
-      "label": "  txCount (2026-04-26)",
+      "label": "  txCount (2026-04-28)",
       "expected": 4,
       "actual": 4,
       "matches": true
     },
     {
-      "label": "  net (2026-04-27)",
+      "label": "  net (2026-04-29)",
       "expected": 32.45,
       "actual": 32.45,
       "matches": true
     },
     {
-      "label": "  gross (2026-04-27)",
+      "label": "  gross (2026-04-29)",
       "expected": 35.2,
       "actual": 35.2,
       "matches": true
     },
     {
-      "label": "  tax (2026-04-27)",
+      "label": "  tax (2026-04-29)",
       "expected": 2.55,
       "actual": 2.55,
       "matches": true
     },
     {
-      "label": "  txCount (2026-04-27)",
+      "label": "  txCount (2026-04-29)",
       "expected": 3,
       "actual": 3,
       "matches": true
     },
     {
-      "label": "  net (2026-04-28)",
+      "label": "  net (2026-04-30)",
       "expected": 43.91,
       "actual": 43.91,
       "matches": true
     },
     {
-      "label": "  gross (2026-04-28)",
+      "label": "  gross (2026-04-30)",
       "expected": 46.41,
       "actual": 46.41,
       "matches": true
     },
     {
-      "label": "  tax (2026-04-28)",
+      "label": "  tax (2026-04-30)",
       "expected": 2.2,
       "actual": 2.2,
       "matches": true
     },
     {
-      "label": "  txCount (2026-04-28)",
+      "label": "  txCount (2026-04-30)",
       "expected": 2,
       "actual": 2,
       "matches": true
     },
     {
-      "label": "  net (2026-04-29)",
+      "label": "  net (2026-05-01)",
       "expected": 119.24,
       "actual": 119.24,
       "matches": true
     },
     {
-      "label": "  gross (2026-04-29)",
+      "label": "  gross (2026-05-01)",
       "expected": 128.12,
       "actual": 128.12,
       "matches": true
     },
     {
-      "label": "  tax (2026-04-29)",
+      "label": "  tax (2026-05-01)",
       "expected": 8.28,
       "actual": 8.28,
       "matches": true
     },
     {
-      "label": "  txCount (2026-04-29)",
+      "label": "  txCount (2026-05-01)",
       "expected": 7,
       "actual": 7,
       "matches": true
     },
     {
-      "label": "  net (2026-04-30)",
+      "label": "  net (2026-05-02)",
       "expected": 27.45,
       "actual": 27.45,
       "matches": true
     },
     {
-      "label": "  gross (2026-04-30)",
+      "label": "  gross (2026-05-02)",
       "expected": 29.48,
       "actual": 29.48,
       "matches": true
     },
     {
-      "label": "  tax (2026-04-30)",
+      "label": "  tax (2026-05-02)",
       "expected": 1.83,
       "actual": 1.83,
       "matches": true
     },
     {
-      "label": "  txCount (2026-04-30)",
+      "label": "  txCount (2026-05-02)",
       "expected": 3,
       "actual": 3,
       "matches": true
@@ -278,7 +278,109 @@
       "expected": 40,
       "actual": 40,
       "matches": true
+    },
+    {
+      "label": "weekly.sum(net)",
+      "expected": 269.45,
+      "actual": 269.45,
+      "matches": true
+    },
+    {
+      "label": "weekly.sum(gross)",
+      "expected": 288.84000000000003,
+      "actual": 288.84,
+      "matches": true
+    },
+    {
+      "label": "weekly.sum(tax)",
+      "expected": 17.990000000000002,
+      "actual": 17.99,
+      "matches": true
+    },
+    {
+      "label": "weekly.sum(txs)",
+      "expected": 19,
+      "actual": 19,
+      "matches": true
+    },
+    {
+      "label": "monthly.sum(net)",
+      "expected": 269.45,
+      "actual": 269.45,
+      "matches": true
+    },
+    {
+      "label": "monthly.sum(gross)",
+      "expected": 288.84000000000003,
+      "actual": 288.84000000000003,
+      "matches": true
+    },
+    {
+      "label": "monthly.sum(txs)",
+      "expected": 19,
+      "actual": 19,
+      "matches": true
+    },
+    {
+      "label": "top.products.count",
+      "expected": 9,
+      "actual": 9,
+      "matches": true
+    },
+    {
+      "label": "top.sum(units)",
+      "expected": 30,
+      "actual": 30,
+      "matches": true
+    },
+    {
+      "label": "top.sum(revenue)",
+      "expected": 119.24,
+      "actual": 119.24,
+      "matches": true
+    },
+    {
+      "label": "grouped.products.count",
+      "expected": 9,
+      "actual": 9,
+      "matches": true
+    },
+    {
+      "label": "grouped.sum(units)",
+      "expected": 69,
+      "actual": 69,
+      "matches": true
+    },
+    {
+      "label": "grouped.sum(revenue)",
+      "expected": 269.44999999999993,
+      "actual": 269.44999999999993,
+      "matches": true
+    },
+    {
+      "label": "movement.bread.sum(units)",
+      "expected": 9,
+      "actual": 9,
+      "matches": true
+    },
+    {
+      "label": "movement.bread.sum(revenue)",
+      "expected": 35.910000000000004,
+      "actual": 35.910000000000004,
+      "matches": true
+    },
+    {
+      "label": "52week.bread.totalUnits",
+      "expected": 9,
+      "actual": 9,
+      "matches": true
+    },
+    {
+      "label": "52week.bread.avgWeekly(/4)",
+      "expected": 2.25,
+      "actual": 2.25,
+      "matches": true
     }
   ],
-  "generatedAt": "2026-05-01T00:19:58.160Z"
+  "generatedAt": "2026-05-02T04:27:11.073Z"
 }

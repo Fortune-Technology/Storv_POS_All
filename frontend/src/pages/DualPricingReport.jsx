@@ -32,7 +32,7 @@ const addDays = (str, n) => {
   return toLocalDateStr(d);
 };
 
-export default function DualPricingReport() {
+export default function DualPricingReport({ embedded = false } = {}) {
   const [stores,    setStores]    = useState([]);
   const [storeId,   setStoreId]   = useState('');
   const [from,      setFrom]      = useState(addDays(toLocalDateStr(), -7));
@@ -153,11 +153,15 @@ export default function DualPricingReport() {
     <div className="dpr-page">
       <div className="dpr-header">
         <div className="dpr-header-left">
-          <div className="dpr-header-icon"><Percent size={20} /></div>
-          <div>
-            <h1>Dual Pricing Report</h1>
-            <p>Surcharge revenue + customer cash savings by date range</p>
-          </div>
+          {!embedded && (
+            <>
+              <div className="dpr-header-icon"><Percent size={20} /></div>
+              <div>
+                <h1>Dual Pricing Report</h1>
+                <p>Surcharge revenue + customer cash savings by date range</p>
+              </div>
+            </>
+          )}
         </div>
         <div className="dpr-header-actions">
           <button className="dpr-btn dpr-btn-secondary" onClick={loadReport} disabled={loading}>

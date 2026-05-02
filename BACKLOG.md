@@ -1,6 +1,6 @@
 # Storv POS — Master Backlog
 
-**Last updated:** 2026-04-29
+**Last updated:** 2026-05-02 (S66)
 **Owner:** nishant@future
 **Companion file:** [CLAUDE.md](CLAUDE.md) — long-form historical record of completed work
 
@@ -38,7 +38,6 @@
 
 | ID | Status | Item | Effort | Source |
 |---|---|---|---|---|
-| T1 | `[ ]` | **Test all reports** end-to-end with seeded multi-store/multi-day data | M | Prompt |
 | T2 | `[ ]` | EBT / Food stamp integration verification — TenderModal split, eligibility flow, FNS-relevant fields | M | Prompt |
 | T3 | `[ ]` | eComm integration verification — sync pipeline, BullMQ, ISR, customer auth, full order lifecycle | M | Prompt |
 | T4 | `[ ]` | Group discounts + group mapping verification | S | Prompt |
@@ -50,8 +49,8 @@
 
 | ID | Status | Item | Effort | Source |
 |---|---|---|---|---|
-| C1 | `[ ]` | **Product page UI** — better visual hierarchy on ProductForm + ProductCatalog | M | Prompt |
-| C2 | `[ ]` | **Lottery page UI** — 10-tab page is dense; needs better information architecture | M | Prompt |
+| C1 | `[~]` | **Product page UI** — better visual hierarchy on ProductForm + ProductCatalog. **Blocked on Figma comps from designer.** | M | Prompt |
+| C2 | `[~]` | **Lottery page UI** — 10-tab page is dense; needs better information architecture. **Blocked on Figma comps from designer.** | M | Prompt |
 | C3 | `[ ]` | Customer display → Light UI option (POS config toggle: dark \| light) | S | Prompt |
 | C4 | `[ ]` | Cashier-app dark-fonts / light-theme alternative | S | Prompt |
 | C5 | `[ ]` | Label Printer designer UI in back-office (better visuals + preview) | S | Prompt |
@@ -81,11 +80,8 @@
 
 | ID | Status | Item | Effort | Notes |
 |---|---|---|---|---|
-| F1 | `[ ]` | **Sante import** templates + tags → ProductGroup mapping | M | Awaiting sample Sante CSV/XLSX from user |
 | F2 | `[ ]` | CSV filter files (transform pipeline extension) | M | Prompt |
-| F3 | `[ ]` | Tags imports for catalog + groups | S | Prompt |
-| F4 | `[ ]` | Packs imports (pack-size CSV import flow) | S | Prompt |
-| F5 | `[ ]` | Group prices + group promotions (promo engine extension for ProductGroup-scoped pricing) | M | Prompt |
+| F5 | `[ ]` | Group prices + group promotions (promo engine extension for ProductGroup-scoped pricing) | M | Prompt — separate from import work; promo engine currently supports product + department scope, needs ProductGroup scope added |
 
 ### Grocery Module (gated, across all apps)
 
@@ -156,6 +152,13 @@
 | B3 | 2026-04-30 | Cashier-app close-shift drawer math — ticket-math truth was already wired in S44 reconciliation service. Remaining piece (per user spec): explicit `LotterySettings.enabled=false` gating in `readLotteryShiftRaw` so lottery rows + cash math disappear entirely when module disabled. Verified: enabled→4 lottery rows + $140 contribution; disabled→0 rows + $0 contribution. | S | CLAUDE.md S61 |
 | B4 | 2026-04-30 | Multi-cashier same-day handover — `openShift` now writes `shift_boundary` LotteryScanEvent per active box (closeShift already writes `close_day_snapshot` from S44b). New `shiftSales()` in realSales.ts uses bracketing snapshots for per-shift ticket-math; reconciliation service uses it instead of day-by-day `windowSales` for shift-scoped queries. Verified: Day -1 with Alice $10 + Bob $30 split correctly (was attributing whole $40 to one cashier before). | M | CLAUDE.md S62 |
 | B6 | 2026-04-30 | `CashPayout` vs `VendorPayment` reconciliation — `readPayoutBuckets` now also queries `VendorPayment WHERE tenderMethod='cash' AND paymentDate IN [shift.openedAt, shift.closedAt]` and subtracts from `expectedDrawer`. New "Back-Office Vendor Cash Payments" line item in EoD recon. Verified: today's open shift correctly subtracts the seeded $60 cash vendor payment ($209.20 expected drawer); older shifts with no cash VPs unaffected. | M | CLAUDE.md S63 |
+| Reports Cleanup | 2026-05-02 | **ReportsHub deletion + tab distribution** — surveyed the 13-tab ReportsHub (1,482-line jsx + 216-line css), identified 10 of 13 tabs as duplicates of EoD/AnalyticsHub/EmployeeReports/PayoutsReport. Extracted the 3 keepers into `pages/reports/` (`InventoryStatus.jsx` → InventoryCount tab, `PeriodCompare.jsx` → AnalyticsHub tab, `TxNotes.jsx` → POSReports tab) with a trimmed `reports-shared.css`. Deleted ReportsHub files; removed sidebar entry; replaced `/portal/reports` route with `<Navigate to="/portal/analytics">`; removed RBAC entry; dropped 5 unused API helpers. Vite build clean (3,446 modules, 17.29s, 0 errors). | M | CLAUDE.md S64 |
+| B10 | 2026-05-02 | **Orphaned backend report routes cleanup** — verified zero callers across portal + cashier-app + admin-app + ecom-backend + storefront for the 5 dropped paths. Trimmed `reportsHubController.ts` (766 → 230 lines) keeping only `getInventoryReport` + `getCompareReport` + `getNotesReport`; trimmed `reportsHubRoutes.ts` to match. Backend `tsc --noEmit` clean (zero new errors in either file). | S | CLAUDE.md S65 / S64 follow-up |
+| T1 | 2026-05-02 | **Audit harness extension — 6 new reports + 3 bug fixes** — extended `seedAuditAudit.mjs` with 6 new audit blocks (REPORTS 10-15: weekly/monthly aggregation, top products, products grouped, product movement, 52-week stats); added `byProductByDay` to seed expected. Surfaced 3 real bugs in `getProductMovement` + `getProduct52WeekStats` (raw qty sum across complete + refund txs, no sign convention) and fixed both controllers to apply the B7/B8/B9 refund sign convention (refund qty/lineTotal subtract). Final state: **63/63 checks pass**. Drift now covers 15 reports. | M | CLAUDE.md S65 |
+| Reports IA | 2026-05-02 | **Reports navigation reorg** — fixed nested tabs-within-tabs visual on AnalyticsHub by replacing SalesAnalytics' inner Daily/Weekly/Monthly/Yearly tab bar + SalesPredictions' Hourly/Daily/Weekly/Monthly tab bar with `<select>` Period/Horizon dropdowns in the header actions row. Created `DailyReports` hub at `/portal/daily-reports` consolidating End of Day / Daily Sale / Dual Pricing into 3 tabs. Sidebar shrunk from 7 → 5 entries under Reports & Analytics. Old URLs preserved as React Router `<Navigate>` redirects to the appropriate hub tab. Vite build clean. | M | CLAUDE.md S66 |
+| F1 | pre-BACKLOG | **Sante import** — full Sante POS product CSV transformer at `backend/src/utils/transformers/sante.ts` (363 lines), wired into `vendorRegistry.ts`, exposed via the existing `UploadPage` vendor selector. Handles UPC `_` prefix, `$`/`%` symbol stripping, multi-UPC comma splits. Verified by `tests/_smoke_sante_transform.mjs` — **10/10 tests pass** against a real 7,771-row Sante export. Audited in S66 follow-up. | M | Discovered already shipped during S66 audit |
+| F3 | pre-BACKLOG | **Tags imports for catalog + groups** — Sante's `Tags` field (free-form `key: value / key: value`) is parsed into `attributes` JSON for non-routing pairs and into `productGroup` (pipe-separated) for `Other:` cross-references. ProductGroup auto-create at validation step verified by smoke test. | S | Bundled into the F1 Sante work |
+| F4 | pre-BACKLOG | **Packs imports** — Sante Pack 1-6 columns flatten into Storeveu's `packOptions` format (`label@unitCount@price[*]`). Pack 1 marked as cashier-picker default with `*`. Verified by smoke test against real SURFSIDE LEMON VP 12 PK CN row. | S | Bundled into the F1 Sante work |
 
 ---
 
@@ -168,10 +171,14 @@
 
 ## Suggested order for the next 5 sessions
 
-1. **B1 + T1** — full reports sanity audit + fixes (broken numbers undermine trust in everything else)
-2. **F1 + F3 + F4 + F5** — Sante imports / tags / packs / group pricing (one bundle, needs Sante sample first)
-3. **C1** — Product page UI redesign
-4. **C2** — Lottery page UI redesign
-5. From there pick by what's blocking customers
+C1 + C2 (product + lottery UI redesigns) are queued behind the designer's Figma comps. While we wait, here are options that don't depend on visual spec:
+
+1. **F5** — Group prices + group promotions (promo engine ProductGroup-scope extension) — pure backend + minor UI surface
+2. **T5** — Lottery cert smoke test (station-paired E2E walkthrough)
+3. **T2 + T3** — EBT/eComm integration verification (separate sessions)
+4. **C3 / C4** — Customer display light-theme + cashier-app dark-fonts toggles (small, no Figma needed)
+5. **C7** — Department → product details "force push" action (apply department defaults to all products in dept)
+
+When the Figma comps arrive, C1 + C2 jump back to the top.
 
 After that the heavy infra items (U1 TypeScript, U2 Tailwind, U4 controller refactor) can be sequenced based on whichever pain point is biggest.
