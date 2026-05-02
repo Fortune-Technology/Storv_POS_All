@@ -338,6 +338,20 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     }
   }
 
+  // ── S67: Department Breakdown (opt-in via store.pos.eodReport.showDepartmentBreakdown) ──
+  if (report.departments?.rows?.length) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'DEPARTMENT BREAKDOWN' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    r += pad('Department', W - 18) + rpad('Tx', 4) + rpad('Net', 14) + LF;
+    r += divider;
+    for (const d of report.departments.rows) {
+      r += pad(d.name, W - 18) + rpad(String(d.txCount), 4) + rpad(money(d.netSales), 14) + LF;
+    }
+    r += divider;
+    r += ESCPOS.BOLD_ON + pad('Total', W - 18) + rpad('—', 4) + rpad(money(report.departments.total), 14) + LF + ESCPOS.BOLD_OFF;
+  }
+
   // ── Section 4: Fuel Sales (only when fuel sales exist) ────────────────
   if (report.fuel?.rows?.length) {
     r += LF + hr;
@@ -373,6 +387,27 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     r += ESCPOS.BOLD_ON + row('Total Surcharge', money(report.dualPricing.surchargeTotal)) + ESCPOS.BOLD_OFF;
     if (report.dualPricing.cashSavingsTotal > 0.005) {
       r += row('Customer Savings',    money(report.dualPricing.cashSavingsTotal));
+    }
+  }
+
+  // ── S67: Standalone Lottery section. Only when settings.lotterySeparateFromDrawer=true. ──
+  if (report.settings?.lotterySeparateFromDrawer && report.reconciliation?.lottery) {
+    const L = report.reconciliation.lottery;
+    const anyActivity = L.ticketMathSales > 0 || L.posLotterySales > 0 ||
+                        L.machineDrawSales > 0 || L.machineCashings > 0 || L.instantCashings > 0;
+    if (anyActivity) {
+      r += LF + hr;
+      r += ESCPOS.BOLD_ON + 'LOTTERY CASH FLOW' + LF + ESCPOS.BOLD_OFF;
+      r += '(separate from drawer)' + LF;
+      r += divider;
+      if (L.ticketMathSales > 0)  r += row('Ticket-math Sales',     money(L.ticketMathSales));
+      if (L.posLotterySales > 0)  r += row('POS-Recorded Sales',    money(L.posLotterySales));
+      if (L.unreportedCash > 0)   r += row('+ Un-rung Tickets',     money(L.unreportedCash));
+      if (L.machineDrawSales > 0) r += row('+ Machine Draw Sales',  money(L.machineDrawSales));
+      if (L.machineCashings > 0)  r += row('- Machine Cashings',    money(L.machineCashings));
+      if (L.instantCashings > 0)  r += row('- Instant Cashings',    money(L.instantCashings));
+      r += divider;
+      r += ESCPOS.BOLD_ON + row('= Net Lottery Cash', money(L.netLotteryCash)) + ESCPOS.BOLD_OFF;
     }
   }
 

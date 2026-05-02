@@ -42,7 +42,14 @@ const prettyDate = (iso) => {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 };
 
-export default function DailySale() {
+/**
+ * DailySale — Daily sale entry + reconciliation single-day view.
+ *
+ * `embedded` prop: not visually used (the page has no separate p-header to hide),
+ * but the prop is accepted for API symmetry with EndOfDayReport / DualPricingReport
+ * so the DailyReports hub can pass it uniformly.
+ */
+export default function DailySale({ embedded: _embedded = false } = {}) {
   const confirm = useConfirm();
   const [date, setDate]           = useState(isoToday());
   const [snapshot, setSnapshot]   = useState(null);

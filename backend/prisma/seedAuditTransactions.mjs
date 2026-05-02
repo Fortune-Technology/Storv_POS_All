@@ -85,6 +85,7 @@ const expected = {
   byDept: {},         // 'GROC'/'BEV'/'TOBAC' → { netSales, txCount, lineCount }
   byCashier: {},      // userId → { netSales, txCount, refundCount }
   byProduct: {},      // productKey → { unitsSold, revenue, refundUnits }
+  byProductByDay: {}, // 'YYYY-MM-DD' → { productKey: { units, revenue } } (S65 T1 — for product-movement audit)
   lottery: {
     byDay: {},        // 'YYYY-MM-DD' → { instantSales, payouts, ticketsSold, posRecorded }
     snapshotTrail: [],// list of close_day_snapshot events (boxId, currentTicket, date)
@@ -401,13 +402,23 @@ async function saveTx(tx) {
     expected.byCashier[cKey].refundCount += 1;
   }
 
-  // Per-product (only completes)
-  if (tx.audit.status === 'complete') {
+  // Per-product (completes ADD, refunds SUBTRACT).
+  // S65 T1: matches the refund sign convention used by the 3 controllers
+  // that report per-product totals — getProductsGrouped, getProductMovement,
+  // getProduct52WeekStats. Voids contribute nothing.
+  if (tx.audit.status === 'complete' || tx.audit.status === 'refund') {
+    const sign = tx.audit.status === 'refund' ? -1 : 1;
     for (const li of tx.audit.lineItems) {
       const k = li.productKey;
       if (!expected.byProduct[k]) expected.byProduct[k] = { unitsSold: 0, revenue: 0 };
-      expected.byProduct[k].unitsSold += li.qty;
-      expected.byProduct[k].revenue += li.lineTotal;
+      expected.byProduct[k].unitsSold += sign * Math.abs(li.qty);
+      expected.byProduct[k].revenue   += sign * Math.abs(li.lineTotal);
+
+      // Per-product per-day (S65 T1 — for product-movement audit)
+      if (!expected.byProductByDay[dKey]) expected.byProductByDay[dKey] = {};
+      if (!expected.byProductByDay[dKey][k]) expected.byProductByDay[dKey][k] = { units: 0, revenue: 0 };
+      expected.byProductByDay[dKey][k].units   += sign * Math.abs(li.qty);
+      expected.byProductByDay[dKey][k].revenue += sign * Math.abs(li.lineTotal);
     }
   }
 }

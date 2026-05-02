@@ -153,24 +153,39 @@ const station2 = await p.station.create({
 });
 console.log(`✓ Stations created — Register 1 [${station1.id.slice(-6)}], Register 2 [${station2.id.slice(-6)}]`);
 
-// ── 5. Tax rules ───────────────────────────────────────────────────────
+// ── 5. Departments (S65: created BEFORE tax rules so departmentIds can link) ──
+async function dept(d) {
+  return p.department.create({ data: { orgId: org.id, ...d } });
+}
+const deptGrocery   = await dept({ name: 'Grocery',    code: 'GROC',  category: 'general',  ageRequired: null, ebtEligible: true,  taxClass: 'grocery', defaultTaxRate: 0.05,    bottleDeposit: false, sortOrder: 1, color: '#10b981', active: true });
+const deptBeverages = await dept({ name: 'Beverages',  code: 'BEV',   category: 'general',  ageRequired: null, ebtEligible: true,  taxClass: 'grocery', defaultTaxRate: 0.05,    bottleDeposit: true,  sortOrder: 2, color: '#3b82f6', active: true });
+const deptTobacco   = await dept({ name: 'Tobacco',    code: 'TOBAC', category: 'tobacco',  ageRequired: 21,   ebtEligible: false, taxClass: 'tobacco', defaultTaxRate: 0.08875, bottleDeposit: false, sortOrder: 3, color: '#dc2626', active: true });
+const deptAlcohol   = await dept({ name: 'Alcohol',    code: 'ALCO',  category: 'beer',     ageRequired: 21,   ebtEligible: false, taxClass: 'alcohol', defaultTaxRate: 0.08875, bottleDeposit: true,  sortOrder: 4, color: '#f59e0b', active: true });
+const deptLottery   = await dept({ name: 'Lottery',    code: 'LOTTO', category: 'general',  ageRequired: 18,   ebtEligible: false, taxClass: 'none',    defaultTaxRate: 0,       bottleDeposit: false, sortOrder: 5, color: '#a855f7', active: true });
+const deptFuel      = await dept({ name: 'Fuel',       code: 'FUEL',  category: 'general',  ageRequired: null, ebtEligible: false, taxClass: 'none',    defaultTaxRate: 0,       bottleDeposit: false, sortOrder: 6, color: '#06b6d4', active: true });
+
+// ── 6. Tax rules (Session 56b: link via departmentIds, no more appliesTo) ──
 const tax5 = await p.taxRule.create({
   data: {
     orgId: org.id, storeId: store.id,
     name: 'Audit 5% Sales Tax',
-    rate: 0.05, appliesTo: 'grocery', ebtExempt: true, state: 'MA', active: true,
+    rate: 0.05,
+    departmentIds: [deptGrocery.id, deptBeverages.id],
+    ebtExempt: true, state: 'MA', active: true,
   },
 });
 const tax8875 = await p.taxRule.create({
   data: {
     orgId: org.id, storeId: store.id,
     name: 'Audit 8.875% Tobacco/Alcohol',
-    rate: 0.08875, appliesTo: 'tobacco', ebtExempt: true, state: 'MA', active: true,
+    rate: 0.08875,
+    departmentIds: [deptTobacco.id, deptAlcohol.id],
+    ebtExempt: true, state: 'MA', active: true,
   },
 });
 console.log(`✓ Tax rules created — 5% [${tax5.id}], 8.875% [${tax8875.id}]`);
 
-// ── 6. Deposit rules ───────────────────────────────────────────────────
+// ── 7. Deposit rules ───────────────────────────────────────────────────
 const deposit5c = await p.depositRule.create({
   data: {
     orgId: org.id, name: 'Audit 12oz Container Deposit',
@@ -186,17 +201,6 @@ const deposit10c = await p.depositRule.create({
   },
 });
 console.log(`✓ Deposit rules created — $0.05 [${deposit5c.id}], $0.10 [${deposit10c.id}]`);
-
-// ── 7. Departments ─────────────────────────────────────────────────────
-async function dept(d) {
-  return p.department.create({ data: { orgId: org.id, ...d } });
-}
-const deptGrocery   = await dept({ name: 'Grocery',    code: 'GROC',  category: 'general',  ageRequired: null, ebtEligible: true,  taxClass: 'grocery', defaultTaxRate: 0.05,    bottleDeposit: false, sortOrder: 1, color: '#10b981', active: true });
-const deptBeverages = await dept({ name: 'Beverages',  code: 'BEV',   category: 'general',  ageRequired: null, ebtEligible: true,  taxClass: 'grocery', defaultTaxRate: 0.05,    bottleDeposit: true,  sortOrder: 2, color: '#3b82f6', active: true });
-const deptTobacco   = await dept({ name: 'Tobacco',    code: 'TOBAC', category: 'tobacco',  ageRequired: 21,   ebtEligible: false, taxClass: 'tobacco', defaultTaxRate: 0.08875, bottleDeposit: false, sortOrder: 3, color: '#dc2626', active: true });
-const deptAlcohol   = await dept({ name: 'Alcohol',    code: 'ALCO',  category: 'beer',     ageRequired: 21,   ebtEligible: false, taxClass: 'alcohol', defaultTaxRate: 0.08875, bottleDeposit: true,  sortOrder: 4, color: '#f59e0b', active: true });
-const deptLottery   = await dept({ name: 'Lottery',    code: 'LOTTO', category: 'general',  ageRequired: 18,   ebtEligible: false, taxClass: 'none',    defaultTaxRate: 0,       bottleDeposit: false, sortOrder: 5, color: '#a855f7', active: true });
-const deptFuel      = await dept({ name: 'Fuel',       code: 'FUEL',  category: 'general',  ageRequired: null, ebtEligible: false, taxClass: 'none',    defaultTaxRate: 0,       bottleDeposit: false, sortOrder: 6, color: '#06b6d4', active: true });
 console.log(`✓ Departments created — 6 (Grocery, Beverages, Tobacco, Alcohol, Lottery, Fuel)`);
 
 // ── 8. Products ────────────────────────────────────────────────────────

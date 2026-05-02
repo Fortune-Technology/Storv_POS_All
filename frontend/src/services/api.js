@@ -250,14 +250,15 @@ export const getLabelPrintJob       = (id)     => api.get(`/label-print-jobs/${i
 export const retryLabelPrintJob     = (id)     => api.post(`/label-print-jobs/${id}/retry`).then(r => r.data);
 
 // ── Reports Hub ─────────────────────────────────────────────────────────────
-export const getReportSummary       = (params) => api.get('/reports/hub/summary', { params }).then(r => r.data);
-export const getReportTax           = (params) => api.get('/reports/hub/tax', { params }).then(r => r.data);
+// Session 64 — ReportsHub deleted, only 3 surviving sub-reports remain. The
+// 5 unused helpers (getReportSummary/Tax/Events/Receive/HouseAccounts) and
+// their backend routes are gone. Kept here:
+//  - getReportInventory  → InventoryStatus  (mounted in InventoryCount tab)
+//  - getReportCompare    → PeriodCompare    (mounted in AnalyticsHub tab)
+//  - getReportNotes      → TxNotes          (mounted in POSReports tab)
 export const getReportInventory     = (params) => api.get('/reports/hub/inventory', { params }).then(r => r.data);
 export const getReportCompare       = (params) => api.get('/reports/hub/compare', { params }).then(r => r.data);
 export const getReportNotes         = (params) => api.get('/reports/hub/notes', { params }).then(r => r.data);
-export const getReportEvents        = (params) => api.get('/reports/hub/events', { params }).then(r => r.data);
-export const getReportReceive       = (params) => api.get('/reports/hub/receive', { params }).then(r => r.data);
-export const getReportHouseAccounts = ()       => api.get('/reports/hub/house-accounts').then(r => r.data);
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 export const getChatChannels  = ()       => api.get('/chat/channels').then(r => r.data);
