@@ -11,6 +11,7 @@ on:
       - "admin-app/**"
       - "ecom-backend/**"
       - "storefront/**"
+      - "marketing/**"
       - "packages/**"
       - ".github/workflows/deploy.yml"
 
@@ -186,7 +187,7 @@ jobs:
           echo "Ecom backend is healthy"
 
       # ── Build all static apps before touching dist ─────────────────────
-      - name: Build frontend + cashier + admin
+      - name: Build frontend + cashier + admin + marketing
         shell: bash
         run: |
           set -e
@@ -205,12 +206,16 @@ jobs:
           rm -f package-lock.json && npm install
           npm run build -- --outDir dist_new
 
+          cd /var/www/Storv_POS_All/marketing
+          rm -f package-lock.json && npm install
+          npm run build -- --outDir dist_new
+
       # ── Swap dist atomically + reload Nginx + cleanup ──────────────────
       - name: Swap builds and reload Nginx
         shell: bash
         run: |
           set -e
-          for app in frontend cashier-app admin-app; do
+          for app in frontend cashier-app admin-app marketing; do
             APP_DIR="/var/www/Storv_POS_All/$app"
 
             # Nuke anything left over from previous failed deploys
@@ -230,7 +235,7 @@ jobs:
           sleep 5
 
           # Now safe to delete old builds (Nginx has released file handles)
-          for app in frontend cashier-app admin-app; do
+          for app in frontend cashier-app admin-app marketing; do
             rm -rf "/var/www/Storv_POS_All/$app/dist_old" 2>/dev/null || true
           done
 
@@ -262,28 +267,30 @@ jobs:
         run: |
           set -e
           echo "Checking all services..."
-          curl -f https://api.storeveu.com/health && echo " ✓ Backend API"
-          curl -f https://storeveu.com && echo " ✓ Dashboard"
-          curl -f https://pos.storeveu.com && echo " ✓ POS"
-          curl -f https://admin.storeveu.com && echo " ✓ Admin"
+          curl -f https://api.storeveu.com/health     && echo " ✓ Backend API"
+          curl -f https://dashboard.storeveu.com      && echo " ✓ Dashboard"
+          curl -f https://pos.storeveu.com            && echo " ✓ POS"
+          curl -f https://admin.storeveu.com          && echo " ✓ Admin"
           curl -f https://shop-api.storeveu.com/health && echo " ✓ Ecom Backend"
-          curl -f https://shop.storeveu.com && echo " ✓ Storefront"
+          curl -f https://shop.storeveu.com           && echo " ✓ Storefront"
+          curl -f https://storeveu.com                && echo " ✓ Marketing"
           pm2 list
 
       - name: Notify success
         if: success()
         shell: bash
         run: |
-          echo "╔══════════════════════════════════════════════╗"
-          echo "║  ✅ Storeveu POS deployed successfully!       ║"
-          echo "╠══════════════════════════════════════════════╣"
-          echo "║  Backend:      https://api.storeveu.com      ║"
-          echo "║  Dashboard:    https://storeveu.com           ║"
-          echo "║  POS:          https://pos.storeveu.com       ║"
-          echo "║  Admin:        https://admin.storeveu.com     ║"
-          echo "║  Ecom Backend: https://shop-api.storeveu.com  ║"
-          echo "║  Storefront:   https://shop.storeveu.com      ║"
-          echo "╚══════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║  ✅ Storeveu POS deployed successfully!             ║"
+          echo "╠════════════════════════════════════════════════════╣"
+          echo "║  Backend:      https://api.storeveu.com            ║"
+          echo "║  Dashboard:    https://dashboard.storeveu.com      ║"
+          echo "║  POS:          https://pos.storeveu.com            ║"
+          echo "║  Admin:        https://admin.storeveu.com          ║"
+          echo "║  Ecom Backend: https://shop-api.storeveu.com       ║"
+          echo "║  Storefront:   https://shop.storeveu.com           ║"
+          echo "║  Marketing:    https://storeveu.com                ║"
+          echo "╚════════════════════════════════════════════════════╝"
 
       - name: Notify failure
         if: failure()

@@ -17,11 +17,11 @@ import {
   Download as DownloadIcon, Monitor, Apple, HardDrive, Wifi,
   Shield, Zap, CheckCircle2, ArrowRight,
 } from 'lucide-react';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingSection from '../../components/marketing/MarketingSection';
-import MarketingButton from '../../components/marketing/MarketingButton';
-import SEO from '../../components/SEO';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingSection from '../components/marketing/MarketingSection';
+import MarketingButton from '../components/marketing/MarketingButton';
+import SEO from '../components/SEO';
 import './Download.css';
 
 // ── FadeIn helper (matches About/Features pattern) ──────────────────────

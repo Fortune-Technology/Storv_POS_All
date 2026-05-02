@@ -1,0 +1,74 @@
+/** Marketing Button Component Styles */
+
+.mkt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  font-size: 0.95rem;
+  text-decoration: none;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+}
+
+.mkt-btn-icon {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+.mkt-btn:hover .mkt-btn-icon {
+  transform: translateX(3px);
+}
+
+/* ── Variants ── */
+.mkt-btn-primary {
+  background: var(--accent-gradient);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-brand);
+}
+.mkt-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-brand-lg);
+}
+
+.mkt-btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+.mkt-btn-secondary:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--brand-05);
+}
+
+.mkt-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.mkt-btn-ghost:hover {
+  background: var(--brand-08);
+  color: var(--accent-primary);
+}
+
+.mkt-btn-white {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-inverse);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+}
+.mkt-btn-white:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* ── Sizes ── */
+.mkt-btn-sm  { padding: 0.5rem 1rem;    font-size: 0.875rem; }
+.mkt-btn-md  { padding: 0.75rem 1.5rem; }
+.mkt-btn-lg  { padding: 0.9rem 2rem;    font-size: 1.05rem; border-radius: var(--radius-lg); }
+.mkt-btn-xl  { padding: 1.1rem 2.5rem;  font-size: 1.1rem;  border-radius: var(--radius-lg); }

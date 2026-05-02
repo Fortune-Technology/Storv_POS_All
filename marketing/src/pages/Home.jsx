@@ -1,22 +1,22 @@
 import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingSection from '../../components/marketing/MarketingSection';
-import MarketingButton from '../../components/marketing/MarketingButton';
-import ssLiveDashboard from '../../assets/Store_Dashboard/LiveDashboard.png';
-import ssAnalytics from '../../assets/Store_Dashboard/Analytics.png';
-import ssProducts from '../../assets/Store_Dashboard/ProductsCatalogue.png';
-import ssTransactions from '../../assets/Store_Dashboard/Transactions.png';
-import ssEmployees from '../../assets/Store_Dashboard/Employees.png';
-import ssVendorOrders from '../../assets/Store_Dashboard/VendorOrder.png';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingSection from '../components/marketing/MarketingSection';
+import MarketingButton from '../components/marketing/MarketingButton';
+import ssLiveDashboard from '../assets/Store_Dashboard/LiveDashboard.png';
+import ssAnalytics from '../assets/Store_Dashboard/Analytics.png';
+import ssProducts from '../assets/Store_Dashboard/ProductsCatalogue.png';
+import ssTransactions from '../assets/Store_Dashboard/Transactions.png';
+import ssEmployees from '../assets/Store_Dashboard/Employees.png';
+import ssVendorOrders from '../assets/Store_Dashboard/VendorOrder.png';
 import {
   ArrowRight, WifiOff, BarChart3, TrendingUp, ShoppingCart,
   Package, Building2, ShieldCheck, Activity, LayoutDashboard,
   FileText, Users, Truck, Star, Check, X, Download,
 } from 'lucide-react';
-import SEO from '../../components/SEO';
+import SEO from '../components/SEO';
 import './Home.css';
 
 /* ── Data ── */

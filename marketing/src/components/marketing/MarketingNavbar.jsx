@@ -9,14 +9,10 @@ const MarketingNavbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState(null);
   const location = useLocation();
   const lastScrollY = useRef(0);
 
   useEffect(() => {
-    const savedUser = JSON.parse(localStorage.getItem('user'));
-    if (savedUser && savedUser.token) setUser(savedUser);
-
     const handleScroll = () => {
       const y = window.scrollY;
       setIsScrolled(y > 20);
@@ -79,11 +75,7 @@ const MarketingNavbar = () => {
               ))}
             </div>
             <div className="mkt-navbar-cta">
-              {user ? (
-                <MarketingButton href="/portal/realtime" size="sm">Dashboard</MarketingButton>
-              ) : (
-                <MarketingButton href="/contact" size="sm">Book a Demo</MarketingButton>
-              )}
+              <MarketingButton href="/contact" size="sm">Book a Demo</MarketingButton>
             </div>
           </div>
 
@@ -108,7 +100,7 @@ const MarketingNavbar = () => {
       <div className={`mkt-mobile-panel ${isMobileMenuOpen ? 'open' : ''}`}>
         <div className="mkt-mobile-panel-inner">
           <div className="mkt-mobile-links">
-            {navLinks.map((link, i) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.path}
                 to={link.path}
@@ -120,15 +112,9 @@ const MarketingNavbar = () => {
             ))}
           </div>
           <div className="mkt-mobile-cta-group">
-            {user ? (
-              <MarketingButton href="/portal/realtime" className="mkt-mobile-cta-btn" onClick={() => setIsMobileMenuOpen(false)}>
-                Dashboard
-              </MarketingButton>
-            ) : (
-              <MarketingButton href="/contact" className="mkt-mobile-cta-btn" onClick={() => setIsMobileMenuOpen(false)}>
-                Book a Free Demo
-              </MarketingButton>
-            )}
+            <MarketingButton href="/contact" className="mkt-mobile-cta-btn" onClick={() => setIsMobileMenuOpen(false)}>
+              Book a Free Demo
+            </MarketingButton>
           </div>
         </div>
       </div>

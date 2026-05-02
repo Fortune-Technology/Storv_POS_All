@@ -1,14 +1,14 @@
 import React, { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingSection from '../../components/marketing/MarketingSection';
-import MarketingButton from '../../components/marketing/MarketingButton';
-import ssLiveDashboard from '../../assets/Store_Dashboard/LiveDashboard.png';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingSection from '../components/marketing/MarketingSection';
+import MarketingButton from '../components/marketing/MarketingButton';
+import ssLiveDashboard from '../assets/Store_Dashboard/LiveDashboard.png';
 import {
   Lightbulb, DollarSign, Brain, ShieldCheck, Layers, WifiOff, TrendingUp, ArrowRight,
 } from 'lucide-react';
-import SEO from '../../components/SEO';
+import SEO from '../components/SEO';
 import './About.css';
 
 const FadeIn = ({ children, className, delay = 0 }) => {
