@@ -218,16 +218,20 @@ jobs:
           for app in frontend cashier-app admin-app marketing; do
             APP_DIR="/var/www/Storv_POS_All/$app"
 
-            # Nuke anything left over from previous failed deploys
-            rm -rf "$APP_DIR/dist_old" 2>/dev/null || true
+            # Nuke anything left over from previous failed deploys.
+            # sudo because root-owned leftovers from prior partial deploys
+            # silently fail otherwise and break the swap below.
+            sudo rm -rf "$APP_DIR/dist_old"
 
-            # Move current dist out of the way (rename only works if target doesn't exist)
+            # Move current dist out of the way. -T forces target to be the
+            # rename name (not "move into existing dir") so a leftover
+            # dist_old can never cause dist to nest inside it.
             if [ -d "$APP_DIR/dist" ]; then
-              mv "$APP_DIR/dist" "$APP_DIR/dist_old"
+              mv -T "$APP_DIR/dist" "$APP_DIR/dist_old"
             fi
 
             # Promote new build to dist
-            mv "$APP_DIR/dist_new" "$APP_DIR/dist"
+            mv -T "$APP_DIR/dist_new" "$APP_DIR/dist"
           done
 
           # Reload Nginx so it picks up new files and releases old handles
@@ -236,7 +240,7 @@ jobs:
 
           # Now safe to delete old builds (Nginx has released file handles)
           for app in frontend cashier-app admin-app marketing; do
-            rm -rf "/var/www/Storv_POS_All/$app/dist_old" 2>/dev/null || true
+            sudo rm -rf "/var/www/Storv_POS_All/$app/dist_old"
           done
 
       # ── Storefront (Next.js) ───────────────────────────────────────────
