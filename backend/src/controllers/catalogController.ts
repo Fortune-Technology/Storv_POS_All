@@ -137,8 +137,8 @@ type ProductRowLite = {
 type TaxRuleRow = {
   id: number;
   name: string;
-  appliesTo: string;
   rate: number | string;
+  departmentIds: number[];
 };
 
 type ProductUpcRow = {
@@ -375,6 +375,14 @@ export const getDepartments = async (req: Request, res: Response): Promise<void>
     const departments = await prisma.department.findMany({
       where: { orgId, ...(showInactive ? {} : { active: true }) },
       orderBy: { sortOrder: 'asc' },
+      // Per-department product count — used by the cascade-edit modal so the
+      // admin sees "Apply to 47 products?" before pulling the trigger. Counts
+      // active, non-deleted products only (the cascade also targets only those).
+      include: {
+        _count: {
+          select: { products: { where: { deleted: false } } },
+        },
+      },
     });
 
     res.json({ success: true, data: departments });
@@ -475,6 +483,17 @@ export const createDepartment = async (req: Request, res: Response): Promise<voi
   }
 };
 
+// Fields that exist on BOTH Department and MasterProduct and can be safely
+// cascaded (i.e. an admin editing a department can opt-in to overwrite the
+// same field on every product in that department). Mapping is dept-key →
+// product-key — they happen to be identical names today but we keep the map
+// explicit so future renames don't accidentally cascade unrelated fields.
+const CASCADABLE_DEPT_FIELDS = {
+  taxClass:     'taxClass',
+  ageRequired:  'ageRequired',
+  ebtEligible:  'ebtEligible',
+} as const;
+
 export const updateDepartment = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
@@ -492,6 +511,11 @@ export const updateDepartment = async (req: Request, res: Response): Promise<voi
       showInPOS,
       active,
       category,
+      // Cascade controls — set by the dept-edit form when the admin opts in
+      // to apply field changes to every product in this department.
+      cascadeToProducts,   // boolean — true = cascade, missing/false = save dept only
+      cascadedFields,      // string[] — which fields to cascade. Filtered against
+                           // CASCADABLE_DEPT_FIELDS allowlist below.
     } = req.body;
 
     // Validate + normalize category. Empty string clears the category.
@@ -528,8 +552,35 @@ export const updateDepartment = async (req: Request, res: Response): Promise<voi
       },
     });
 
+    // ── Cascade to products in this department (opt-in) ──────────────────
+    // Only runs when the admin explicitly checks "apply to all products" in
+    // the dept-edit modal. The frontend already shows them which fields
+    // changed and the product count before they confirm. We strictly
+    // filter to the allowlist (CASCADABLE_DEPT_FIELDS) so unrelated payload
+    // keys can't sneak through and overwrite product fields.
+    let productsUpdated = 0;
+    if (cascadeToProducts && Array.isArray(cascadedFields) && cascadedFields.length > 0) {
+      type CascadeKey = keyof typeof CASCADABLE_DEPT_FIELDS;
+      const allowedKeys = Object.keys(CASCADABLE_DEPT_FIELDS) as CascadeKey[];
+      const cascadeData: Record<string, unknown> = {};
+      for (const key of cascadedFields as string[]) {
+        if (!allowedKeys.includes(key as CascadeKey)) continue;
+        const productKey = CASCADABLE_DEPT_FIELDS[key as CascadeKey];
+        // Use the dept's POST-update value, not the request body — keeps the
+        // cascade in sync with what got persisted (validated, normalized).
+        cascadeData[productKey] = (dept as Record<string, unknown>)[key];
+      }
+      if (Object.keys(cascadeData).length > 0) {
+        const result = await prisma.masterProduct.updateMany({
+          where: { orgId, departmentId: id, deleted: false },
+          data: cascadeData,
+        });
+        productsUpdated = result.count;
+      }
+    }
+
     emitDepartmentSync(orgId as string, dept.id, 'update', dept);
-    res.json({ success: true, data: dept });
+    res.json({ success: true, data: dept, productsUpdated });
   } catch (err) {
     if (errCode(err) === 'P2025') {
       res.status(404).json({ success: false, error: 'Department not found' });
@@ -827,7 +878,7 @@ export const getTaxRules = async (req: Request, res: Response): Promise<void> =>
         active: true,
         ...(storeId ? { OR: [{ storeId }, { storeId: null }] } : { storeId: null }),
       },
-      orderBy: { appliesTo: 'asc' },
+      orderBy: { name: 'asc' },
     });
 
     res.json({ success: true, data: rules });
@@ -851,22 +902,22 @@ export const createTaxRule = async (req: Request, res: Response): Promise<void> 
     const orgId = getOrgId(req) as string;
     const {
       name,
-      description,
       rate,
-      appliesTo,
       ebtExempt,
       state,
-      county,
       storeId,
       departmentIds,
     } = req.body;
+    // Session 56b — legacy `appliesTo` class matcher removed. Rules now MUST
+    // specify which departments they apply to. To create a "tax everything"
+    // catch-all, link the rule to every active department in the org.
+    // (Session 56 also removed `description` and `county` cosmetic columns.)
 
     const deptIds = normalizeDeptIds(departmentIds);
-    const hasClass = appliesTo && String(appliesTo).trim() !== '';
-    if (!name || rate == null || (!hasClass && deptIds.length === 0)) {
+    if (!name || rate == null || deptIds.length === 0) {
       res.status(400).json({
         success: false,
-        error: 'name, rate, and either departments or appliesTo are required',
+        error: 'name, rate, and at least one department are required',
       });
       return;
     }
@@ -876,13 +927,10 @@ export const createTaxRule = async (req: Request, res: Response): Promise<void> 
         orgId,
         storeId: storeId || null,
         name,
-        description: description || null,
         rate,
-        appliesTo: hasClass ? appliesTo : 'all',
         departmentIds: deptIds,
         ebtExempt: ebtExempt !== false,
         state: state || null,
-        county: county || null,
       },
     });
 
@@ -900,16 +948,15 @@ export const updateTaxRule = async (req: Request, res: Response): Promise<void> 
     const body = req.body || {};
     const data: Record<string, unknown> = {};
     if (body.name !== undefined) data.name = body.name;
-    if (body.description !== undefined) data.description = body.description;
     if (body.rate !== undefined) data.rate = body.rate;
-    if (body.appliesTo !== undefined) data.appliesTo = body.appliesTo || 'all';
     if (body.ebtExempt !== undefined) data.ebtExempt = Boolean(body.ebtExempt);
     if (body.state !== undefined) data.state = body.state || null;
-    if (body.county !== undefined) data.county = body.county || null;
     if (body.storeId !== undefined) data.storeId = body.storeId || null;
     if (body.active !== undefined) data.active = Boolean(body.active);
     if (body.departmentIds !== undefined)
       data.departmentIds = normalizeDeptIds(body.departmentIds);
+    // Session 56b — `appliesTo` body key silently ignored (legacy clients).
+    // Session 56  — `description` / `county` body keys silently ignored too.
 
     const rule = await prisma.taxRule.update({
       where: { id, orgId },
@@ -1804,25 +1851,26 @@ export const getTaxUnmappedProducts = async (req: Request, res: Response): Promi
     const orgId = getOrgId(req);
     const { skip, take } = paginationParams(req.query as Record<string, unknown>);
 
+    // Session 56b — Diagnostic rewritten to mirror the cashier-app's 2-tier
+    // resolution. A product is "OK" if EITHER:
+    //   (1) it has an explicit `taxRuleId` pointing at an active rule, OR
+    //   (2) its `departmentId` is in some active rule's `departmentIds[]`.
+    // Anything else → UNMAPPED (no rule will fire at checkout = 0% tax).
+    // STALE_FK still flags products whose taxRuleId points at an inactive
+    // / deleted rule (admin should re-link).
     const rules = (await prisma.taxRule.findMany({
       where: { orgId, active: true },
-      select: { id: true, name: true, appliesTo: true, rate: true },
+      select: { id: true, name: true, rate: true, departmentIds: true },
     })) as TaxRuleRow[];
     const ruleIds = new Set(rules.map((r) => r.id));
-    const byName = new Map<string, TaxRuleRow>();
-    const byAppliesTo = new Map<string, TaxRuleRow[]>();
-    const byRate = new Map<string, TaxRuleRow[]>();
+    // Index: deptId → rules that include that dept (multiple rules CAN target
+    // the same dept — that's reported as AMBIGUOUS so the admin can pick).
+    const rulesByDept = new Map<number, TaxRuleRow[]>();
     for (const r of rules) {
-      const nk = String(r.name).toLowerCase().trim();
-      const ak = String(r.appliesTo).toLowerCase().trim();
-      if (nk && !byName.has(nk)) byName.set(nk, r);
-      if (ak) {
-        if (!byAppliesTo.has(ak)) byAppliesTo.set(ak, []);
-        byAppliesTo.get(ak)!.push(r);
+      for (const did of r.departmentIds || []) {
+        if (!rulesByDept.has(did)) rulesByDept.set(did, []);
+        rulesByDept.get(did)!.push(r);
       }
-      const rk = Number(r.rate).toFixed(4);
-      if (!byRate.has(rk)) byRate.set(rk, []);
-      byRate.get(rk)!.push(r);
     }
 
     type TaxProductRow = {
@@ -1849,6 +1897,7 @@ export const getTaxUnmappedProducts = async (req: Request, res: Response): Promi
     const countsByStatus = { STALE_FK: 0, UNMAPPED: 0, AMBIGUOUS: 0, OK: 0 };
 
     for (const p of products) {
+      // Tier 1: explicit taxRuleId override. Must be active.
       if (p.taxRuleId && !ruleIds.has(p.taxRuleId)) {
         unmapped.push({
           id: p.id,
@@ -1869,50 +1918,15 @@ export const getTaxUnmappedProducts = async (req: Request, res: Response): Promi
         continue;
       }
 
-      if (!p.taxClass) {
-        countsByStatus.OK++;
-        continue;
-      }
-
-      const tc = String(p.taxClass).toLowerCase().trim();
-
-      if (byName.has(tc)) {
-        countsByStatus.OK++;
-        continue;
-      }
-
-      const apHits = byAppliesTo.get(tc);
-      if (apHits) {
-        if (apHits.length === 1) {
+      // Tier 2: department-linked. If product's dept appears in any rule's
+      // departmentIds[], the cart will resolve a rule at checkout.
+      if (p.departmentId != null) {
+        const deptRules = rulesByDept.get(p.departmentId);
+        if (deptRules && deptRules.length === 1) {
           countsByStatus.OK++;
           continue;
         }
-        unmapped.push({
-          id: p.id,
-          name: p.name,
-          upc: p.upc,
-          departmentId: p.departmentId,
-          taxClass: p.taxClass,
-          taxRuleId: null,
-          status: 'AMBIGUOUS',
-          suggestions: apHits.map((r) => ({ id: r.id, name: r.name, rate: Number(r.rate) })),
-          reason: `${apHits.length} active rules match appliesTo="${tc}"`,
-        });
-        countsByStatus.AMBIGUOUS++;
-        continue;
-      }
-
-      const cleaned = p.taxClass.replace(/[%$,\s]/g, '').trim();
-      const n = parseFloat(cleaned);
-      if (!isNaN(n) && n >= 0) {
-        const dec = n <= 1 ? n : n / 100;
-        const rk = dec.toFixed(4);
-        const rateHits = byRate.get(rk);
-        if (rateHits?.length === 1) {
-          countsByStatus.OK++;
-          continue;
-        }
-        if (rateHits && rateHits.length > 1) {
+        if (deptRules && deptRules.length > 1) {
           unmapped.push({
             id: p.id,
             name: p.name,
@@ -1921,14 +1935,15 @@ export const getTaxUnmappedProducts = async (req: Request, res: Response): Promi
             taxClass: p.taxClass,
             taxRuleId: null,
             status: 'AMBIGUOUS',
-            suggestions: rateHits.map((r) => ({ id: r.id, name: r.name, rate: Number(r.rate) })),
-            reason: `${rateHits.length} active rules match rate ${(dec * 100).toFixed(2)}%`,
+            suggestions: deptRules.map((r) => ({ id: r.id, name: r.name, rate: Number(r.rate) })),
+            reason: `${deptRules.length} active rules target this department — pick one as a per-product override or remove the dept from the others`,
           });
           countsByStatus.AMBIGUOUS++;
           continue;
         }
       }
 
+      // Neither tier resolved → product will be taxed 0% at checkout.
       unmapped.push({
         id: p.id,
         name: p.name,
@@ -1938,7 +1953,9 @@ export const getTaxUnmappedProducts = async (req: Request, res: Response): Promi
         taxRuleId: null,
         status: 'UNMAPPED',
         suggestions: [],
-        reason: `No active rule matches taxClass="${p.taxClass}"`,
+        reason: p.departmentId == null
+          ? 'No department set and no per-product taxRuleId — product will be taxed 0%.'
+          : `Department is not linked to any active tax rule — product will be taxed 0%.`,
       });
       countsByStatus.UNMAPPED++;
     }
@@ -2431,7 +2448,7 @@ export const getMasterProduct = async (req: Request, res: Response): Promise<voi
         vendor: true,
         depositRule: true,
         taxRule: {
-          select: { id: true, name: true, rate: true, appliesTo: true, active: true },
+          select: { id: true, name: true, rate: true, active: true },
         },
         storeProducts: {
           select: {
@@ -2600,7 +2617,7 @@ export const createMasterProduct = async (req: Request, res: Response): Promise<
     if (taxRuleId != null && taxRuleId !== '') {
       const rule = await prisma.taxRule.findFirst({
         where: { id: parseInt(taxRuleId), orgId },
-        select: { id: true, appliesTo: true },
+        select: { id: true },
       });
       if (!rule) {
         res
@@ -2609,9 +2626,10 @@ export const createMasterProduct = async (req: Request, res: Response): Promise<
         return;
       }
       resolvedTaxRuleId = rule.id;
-      if (taxClass == null) {
-        taxClass = rule.appliesTo;
-      }
+      // Session 56b — no longer mirroring `rule.appliesTo` into `product.taxClass`
+      // because rules don't have appliesTo anymore. taxClass on products is now
+      // an age-policy hint only (tobacco/alcohol). It comes from either user
+      // input OR the department's taxClass (handled below).
     }
 
     let deptDefaults: {
@@ -2894,7 +2912,7 @@ export const updateMasterProduct = async (req: Request, res: Response): Promise<
       } else {
         const rule = await prisma.taxRule.findFirst({
           where: { id: parseInt(body.taxRuleId), orgId },
-          select: { id: true, appliesTo: true },
+          select: { id: true },
         });
         if (!rule) {
           res.status(400).json({
@@ -2904,7 +2922,9 @@ export const updateMasterProduct = async (req: Request, res: Response): Promise<
           return;
         }
         updates.taxRuleId = rule.id;
-        if (body.taxClass === undefined) updates.taxClass = rule.appliesTo;
+        // Session 56b — no longer mirroring rule.appliesTo into product.taxClass
+        // (rule.appliesTo is gone). taxClass is now age-policy-only and is set
+        // independently via body.taxClass or department default.
       }
     }
     if (body.taxClass !== undefined) updates.taxClass = body.taxClass || null;

@@ -225,7 +225,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
                       onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={8} />
                   </div>
                   <div className="pf-mm-field">
-                    <label className="pf-label">Tax Class</label>
+                    <label className="pf-label">Category (age policy)</label>
                     <select className="form-input pf-mm-input" value={form.taxClass}
                       onChange={e => setForm(f => ({ ...f, taxClass: e.target.value }))}>
                       {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -1235,9 +1235,9 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
         itemCode:           form.itemCode         || null,
-        // Session 40 Phase 1 — send both. Backend validates taxRuleId belongs
-        // to this org, auto-mirrors the rule's appliesTo into taxClass if
-        // taxClass wasn't explicitly changed (backward compat for legacy readers).
+        // Session 56b — `taxRuleId` is the per-product tax-matching FK.
+        // `taxClass` is no longer a tax matcher; it persists only as an
+        // age-policy hint (tobacco/alcohol detection at checkout).
         taxRuleId:          form.taxRuleId ? parseInt(form.taxRuleId) : null,
         taxClass:           form.taxClass,
         taxable:            form.taxable,
@@ -1573,13 +1573,11 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                       </select>
                     </div>
 
-                    {/* Session 40 Phase 1 — strict-FK tax dropdown.
-                        Values are rule.id (stable across renames / rate changes).
-                        Shows every ACTIVE rule (no more dedupe by appliesTo).
-                        Legacy string class options preserved at the bottom
-                        with "(legacy)" prefix for products that haven't
-                        migrated yet. Stale-rule warning when taxRuleId points
-                        at a deleted/inactive rule. */}
+                    {/* Session 56b — Tax Rule dropdown. Values are rule.id
+                        (stable across renames / rate changes). The default
+                        option means "no per-product override" — at checkout
+                        the cart resolves via the product's department-linked
+                        rule. */}
                     <div>
                       <label className="pf-label">
                         Tax Rule
@@ -1588,45 +1586,20 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                         </Link>
                       </label>
                       <select className="form-input pf-full"
-                        value={form.taxRuleId ? `rule:${form.taxRuleId}` : `class:${form.taxClass || ''}`}
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (val.startsWith('rule:')) {
-                            const rid = val.slice(5);
-                            const rule = taxRules.find(r => String(r.id) === rid);
-                            setF('taxRuleId', rid);
-                            // Mirror appliesTo into taxClass so legacy cashier-app
-                            // builds (that only read taxClass) apply the right rate.
-                            if (rule?.appliesTo) setF('taxClass', rule.appliesTo);
-                          } else {
-                            // Legacy class option — clear the FK and set taxClass.
-                            const cls = val.slice(6);
-                            setF('taxRuleId', '');
-                            setF('taxClass', cls);
-                          }
-                        }}>
-                        <option value="class:">— Use department / default —</option>
-                        {taxRules.length > 0 && (
-                          <optgroup label="Tax Rules (preferred)">
-                            {taxRules
-                              .filter(r => r.active !== false)
-                              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-                              .map(r => {
-                                const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
-                                return (
-                                  <option key={r.id} value={`rule:${r.id}`}>
-                                    {r.name}{pct && ` — ${pct}`}
-                                  </option>
-                                );
-                              })}
-                          </optgroup>
-                        )}
-                        <optgroup label="Legacy tax classes">
-                          {TAX_CLASSES.map(t => (
-                            <option key={t.value} value={`class:${t.value}`}>(legacy) {t.label}</option>
-                          ))}
-                          <option value="class:non_taxable">(legacy) Non-Taxable — 0%</option>
-                        </optgroup>
+                        value={form.taxRuleId ? String(form.taxRuleId) : ''}
+                        onChange={e => setF('taxRuleId', e.target.value || '')}>
+                        <option value="">— Use department default —</option>
+                        {taxRules.length > 0 && taxRules
+                          .filter(r => r.active !== false)
+                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                          .map(r => {
+                            const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
+                            return (
+                              <option key={r.id} value={String(r.id)}>
+                                {r.name}{pct && ` — ${pct}`}
+                              </option>
+                            );
+                          })}
                       </select>
                       {/* Stale-FK warning */}
                       {form.taxRuleId && !taxRules.some(r => String(r.id) === String(form.taxRuleId) && r.active !== false) && (

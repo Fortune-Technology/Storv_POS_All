@@ -1,26 +1,13 @@
 /**
  * Pure tax calculation utilities.
  * No side effects — safe to unit test.
+ *
+ * Session 56b — `computeTax` and `matchesTaxClass` were removed when the
+ * legacy class matcher was deleted. The cart's authoritative tax math now
+ * lives in `selectTotals` in `useCartStore.js`, which uses the 2-tier
+ * resolution chain (per-product taxRuleId → department-linked rule).
+ * This file kept only because `round2` is imported by `useCartStore.js`.
  */
-
-export function computeTax(items, taxRules = []) {
-  let tax = 0;
-  for (const item of items) {
-    if (!item.taxable) continue;
-    if (item.ebtEligible) continue; // EBT items are tax-exempt
-    const rule = taxRules.find(r =>
-      r.active && matchesTaxClass(r.appliesTo, item.taxClass)
-    );
-    const rate = rule ? parseFloat(rule.rate) : 0;
-    tax += item.lineTotal * rate;
-  }
-  return round2(tax);
-}
-
-function matchesTaxClass(appliesTo, taxClass) {
-  if (!appliesTo || appliesTo === 'all') return true;
-  return appliesTo.split(',').map(s => s.trim()).includes(taxClass);
-}
 
 export function round2(n) {
   return Math.round(n * 100) / 100;

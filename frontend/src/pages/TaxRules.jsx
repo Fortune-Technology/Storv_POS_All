@@ -3,7 +3,14 @@
  * CRUD via GET/POST/PUT/DELETE /api/catalog/tax-rules
  *
  * Fields per rule:
- *   name, description, rate (%), appliesTo, ebtExempt, state, county, storeId, active
+ *   name, rate (%), ebtExempt, state, departmentIds[], storeId, active
+ *
+ * Session 56  — `description` and `county` removed (cosmetic only).
+ * Session 56b — `appliesTo` (legacy class matcher) removed entirely. Rules
+ *               now MUST target one or more departments via `departmentIds[]`.
+ *               State is auto-prefilled from Store.stateCode for single-state
+ *               orgs and is used only for visual grouping in the rules list
+ *               when an org has rules tagged with multiple distinct states.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -12,10 +19,11 @@ import {
   updateCatalogTaxRule,
   deleteCatalogTaxRule,
   getCatalogDepartments,
+  getStores,
 } from '../services/api';
 import {
   Percent, Plus, Pencil, Trash2, Check, X as XIcon,
-  AlertCircle, ChevronDown, Info,
+  AlertCircle, ChevronDown, ChevronRight, Info,
 } from 'lucide-react';
 import './TaxRules.css';
 
@@ -29,18 +37,9 @@ const US_STATES = [
   'DC',
 ];
 
-const APPLIES_TO_OPTIONS = [
-  { value: 'all',            label: 'All Products' },
-  { value: 'grocery',        label: 'Grocery' },
-  { value: 'prepared_food',  label: 'Prepared Food' },
-  { value: 'beverage',       label: 'Beverage' },
-  { value: 'alcohol',        label: 'Alcohol' },
-  { value: 'tobacco',        label: 'Tobacco' },
-  { value: 'cannabis',       label: 'Cannabis' },
-  { value: 'general',        label: 'General Merchandise' },
-  { value: 'health',         label: 'Health & Beauty' },
-  { value: 'service',        label: 'Service' },
-];
+// Session 56b — `APPLIES_TO_OPTIONS` constant removed. Legacy class matcher
+// is gone entirely; rules target departments only. Multi-select chips below
+// in the form replace the old class dropdown.
 
 // ── Shared styles ──────────────────────────────────────────────────────────
 const inp = {
@@ -61,25 +60,10 @@ const labelStyle = {
   marginBottom: 4, display: 'block',
 };
 const EMPTY_FORM = {
-  name: '', description: '', rate: '', appliesTo: 'all',
-  departmentIds: [],                // Option B: dept-linked matching (preferred)
-  ebtExempt: true, state: '', county: '',
+  name: '', rate: '',
+  departmentIds: [],                // The ONLY matcher (Session 56b)
+  ebtExempt: true, state: '',
 };
-
-// ── AppliesTo label ────────────────────────────────────────────────────────
-function AppliesToBadge({ value }) {
-  const opt = APPLIES_TO_OPTIONS.find(o => o.value === value);
-  return (
-    <span style={{
-      fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.55rem',
-      borderRadius: 8,
-      background: 'var(--brand-10)', color: 'var(--accent-secondary)',
-      border: '1px solid var(--brand-25)',
-    }}>
-      {opt?.label || value}
-    </span>
-  );
-}
 
 // ── Toggle chip ────────────────────────────────────────────────────────────
 function ToggleChip({ checked, onChange, label }) {
@@ -121,6 +105,9 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
   const [err,  setErr]  = useState('');
   const [depts, setDepts] = useState([]);
   const [deptsLoading, setDeptsLoading] = useState(true);
+  // Multi-state grouping toggle — collapsed by default. Auto-opens when
+  // editing a rule that already has a state set, so the value isn't hidden.
+  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(initial?.state));
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   // Load departments for the multi-select — Option B's primary matcher.
@@ -147,23 +134,24 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
     if (form.rate === '' || isNaN(Number(form.rate)) || Number(form.rate) < 0 || Number(form.rate) > 100) {
       setErr('Rate must be a number between 0 and 100.'); return;
     }
-    // Option B: a rule can match by departments OR appliesTo class. At least one is required.
-    if ((!form.departmentIds || form.departmentIds.length === 0) && !form.appliesTo) {
-      setErr('Pick at least one department OR an Applies-to class.'); return;
+    // Session 56b — a rule MUST target at least one department. Departments
+    // are the only matcher now (legacy class matcher removed). For org-wide
+    // "tax everything" rules, link to every department in the org.
+    if (!form.departmentIds || form.departmentIds.length === 0) {
+      setErr('Pick at least one department. Use "Select All" if this rate applies to every department.'); return;
     }
     setErr('');
     // The form collects the rate as a percent (e.g. "5.5" for 5.5%). The DB
     // stores it as a decimal fraction (0.055) because that's how it's applied
     // at checkout: lineTotal × rate. Convert on save; reverse on edit-load.
+    // Session 56  — `description` / `county` removed from schema; not sent.
+    // Session 56b — `appliesTo` removed from schema; not sent.
     await onSave({
       name:          form.name.trim(),
-      description:   form.description.trim() || null,
       rate:          parseFloat(form.rate) / 100,
-      appliesTo:     form.appliesTo || 'all',
       departmentIds: form.departmentIds || [],
       ebtExempt:     form.ebtExempt,
       state:         form.state || null,
-      county:        form.county.trim() || null,
     });
   };
 
@@ -194,12 +182,11 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
           </div>
         </div>
 
-        {/* Departments multi-select — preferred matcher (Option B) */}
+        {/* Departments multi-select — primary matcher (Option B) */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>DEPARTMENTS (RECOMMENDED)</label>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 8 }}>
-            Pick the departments this rate applies to. Uses YOUR own department names — works across states and countries.
-            {form.departmentIds.length === 0 && ' Leave empty to fall back to the class-based "Applies to" matcher below.'}
+          <label style={labelStyle}>APPLIES TO DEPARTMENTS *</label>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+            Pick the departments this rate applies to. Use your own department names — works across states and countries.
           </div>
           {deptsLoading ? (
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '0.5rem' }}>Loading departments…</div>
@@ -234,47 +221,9 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
           )}
           {form.departmentIds.length > 0 && (
             <div style={{ fontSize: '0.7rem', color: 'var(--accent-primary)', marginTop: 6 }}>
-              ✓ Linked to {form.departmentIds.length} department{form.departmentIds.length === 1 ? '' : 's'} — class matcher below is ignored.
+              ✓ {form.departmentIds.length} department{form.departmentIds.length === 1 ? '' : 's'} selected
             </div>
           )}
-        </div>
-
-        {/* Applies to — legacy / fallback matcher */}
-        <div>
-          <label style={labelStyle}>APPLIES TO (LEGACY CLASS)</label>
-          <div style={{ position: 'relative' }}>
-            <select
-              style={{ ...inp, paddingRight: '2rem', cursor: 'pointer', opacity: form.departmentIds.length > 0 ? 0.5 : 1 }}
-              value={form.appliesTo} onChange={e => set('appliesTo', e.target.value)}
-              disabled={form.departmentIds.length > 0}
-            >
-              {APPLIES_TO_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted, #6b7280)' }} />
-          </div>
-          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            Only used when no departments are picked above.
-          </div>
-        </div>
-
-        {/* State */}
-        <div>
-          <label style={labelStyle}>STATE (optional)</label>
-          <div style={{ position: 'relative' }}>
-            <select style={{ ...inp, paddingRight: '2rem', cursor: 'pointer' }}
-              value={form.state} onChange={e => set('state', e.target.value)}>
-              <option value="">All / Org-wide</option>
-              {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <ChevronDown size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted, #6b7280)' }} />
-          </div>
-        </div>
-
-        {/* County */}
-        <div>
-          <label style={labelStyle}>COUNTY / MUNICIPALITY (optional)</label>
-          <input style={inp} value={form.county} onChange={e => set('county', e.target.value)}
-            placeholder="e.g. Los Angeles County" />
         </div>
 
         {/* EBT exempt toggle */}
@@ -289,12 +238,51 @@ function TaxRuleForm({ initial, onSave, onCancel, saving }) {
           </span>
         </div>
 
-        {/* Description */}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>DESCRIPTION (optional)</label>
-          <input style={inp} value={form.description} onChange={e => set('description', e.target.value)}
-            placeholder="Internal notes…" />
+        {/* ── Advanced options disclosure ─────────────────────────────────
+           Collapsed by default. Holds the multi-state grouping picker. State
+           is auto-prefilled from Store.stateCode by the parent page so
+           single-state orgs never need to open this — it's only useful for
+           multi-state chains that want their rules grouped by state in the
+           list view. */}
+        <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '0.4rem 0.6rem',
+              background: 'transparent', border: 'none',
+              color: 'var(--text-secondary, #9ca3af)',
+              fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer',
+              letterSpacing: '0.02em',
+            }}
+          >
+            {advancedOpen
+              ? <ChevronDown size={14} />
+              : <ChevronRight size={14} />}
+            Advanced options
+            <span style={{ opacity: 0.55, marginLeft: 4, fontWeight: 500, fontSize: '0.72rem' }}>
+              Multi-state grouping
+            </span>
+          </button>
         </div>
+
+        {advancedOpen && (
+          <div>
+            <label style={labelStyle}>STATE (MULTI-STATE GROUPING)</label>
+            <div style={{ position: 'relative' }}>
+              <select style={{ ...inp, paddingRight: '2rem', cursor: 'pointer' }}
+                value={form.state} onChange={e => set('state', e.target.value)}>
+                <option value="">— None —</option>
+                {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <ChevronDown size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted, #6b7280)' }} />
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Optional. Used only for grouping in the rules list when an org has rules tagged with multiple states.
+            </div>
+          </div>
+        )}
       </div>
 
       {err && (
@@ -352,17 +340,15 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
         </span>
       </div>
 
-      {/* Info */}
+      {/* Info — name + matcher chip + EBT exempt chip.
+          Description and state/county labels deliberately not rendered:
+          • description was redundant with name
+          • state/county were misleading — they look like they gate the rule
+            but tax matching ignores them entirely. They survive in the
+            schema for back-compat but no longer surface here. */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-primary, #e2e8f0)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-primary, #e2e8f0)', marginBottom: 4 }}>
           {rule.name}
-          {rule.state && (
-            <span style={{
-              fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem',
-              borderRadius: 10, background: 'rgba(52,211,153,.12)', color: '#34d399',
-              border: '1px solid rgba(52,211,153,.25)',
-            }}>{rule.state}{rule.county ? ` · ${rule.county}` : ''}</span>
-          )}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
           {Array.isArray(rule.departmentIds) && rule.departmentIds.length > 0 ? (
@@ -376,7 +362,14 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
               {rule.departmentIds.length} dept{rule.departmentIds.length === 1 ? '' : 's'}
             </span>
           ) : (
-            <AppliesToBadge value={rule.appliesTo} />
+            <span style={{
+              fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.55rem',
+              borderRadius: 8,
+              background: 'rgba(245, 158, 11, 0.15)', color: '#d97706',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+            }} title="This rule has no departments — it will not apply to any product. Edit and pick at least one department.">
+              ⚠ No departments
+            </span>
           )}
           {rule.ebtExempt && (
             <span style={{
@@ -384,11 +377,6 @@ function TaxRuleCard({ rule, onEdit, onDelete }) {
               borderRadius: 8, background: 'rgba(52,211,153,.08)', color: '#34d399',
               border: '1px solid rgba(52,211,153,.2)',
             }}>EBT Exempt</span>
-          )}
-          {rule.description && (
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted, #6b7280)' }}>
-              · {rule.description}
-            </span>
           )}
         </div>
       </div>
@@ -424,6 +412,13 @@ export default function TaxRules({ embedded }) {
   const [saving,   setSaving]   = useState(false);
   const [showForm, setShowForm] = useState(false);   // 'new' | rule object | false
   const [confirmDelete, setConfirmDelete] = useState(null);
+  // Auto-fill state for new rules — Session 56. When the org has stores in
+  // exactly ONE state, prefill the (Advanced) state field with that state
+  // code so the rule lands in the right grouping bucket without the admin
+  // having to think about it. Multi-state orgs get an empty default and
+  // pick manually in Advanced. Falls back to '' (no state) when stores
+  // haven't been tagged with a stateCode yet.
+  const [defaultStateCode, setDefaultStateCode] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -440,6 +435,24 @@ export default function TaxRules({ embedded }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Derive single-state default from the org's stores. If every store with a
+  // stateCode shares the same code, that becomes the auto-fill for new rules.
+  // Mixed states (or no stateCode set anywhere) → leave default empty.
+  useEffect(() => {
+    let cancelled = false;
+    getStores()
+      .then(list => {
+        if (cancelled) return;
+        const codes = (Array.isArray(list) ? list : [])
+          .map(s => s.stateCode)
+          .filter(Boolean);
+        const unique = Array.from(new Set(codes));
+        if (unique.length === 1) setDefaultStateCode(unique[0]);
+      })
+      .catch(() => { /* silent — auto-fill is a nice-to-have */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSave = async (data) => {
     setSaving(true);
@@ -472,7 +485,13 @@ export default function TaxRules({ embedded }) {
     }
   };
 
-  // Group rules by state for display
+  // Group rules by state for display ONLY when the org actually has rules
+  // tagged with multiple distinct states. Single-state (or all-org-wide)
+  // orgs see a flat list — the "ORG-WIDE (ALL STATES)" group header on a
+  // single-state org was just visual noise that implied state-based logic
+  // exists when it doesn't.
+  const distinctStates = new Set(rules.map(r => r.state).filter(Boolean));
+  const showByState    = distinctStates.size >= 2;
   const byState = rules.reduce((acc, r) => {
     const key = r.state || 'Org-wide';
     if (!acc[key]) acc[key] = [];
@@ -491,7 +510,7 @@ export default function TaxRules({ embedded }) {
           </div>
           <div>
             <h1 className="p-title">Tax Rules</h1>
-            <p className="p-subtitle">Define tax slabs by category, state, and county</p>
+            <p className="p-subtitle">Tax rates by department</p>
           </div>
         </div>
         <div className="p-header-actions">
@@ -512,9 +531,9 @@ export default function TaxRules({ embedded }) {
       }}>
         <Info size={14} color="var(--accent-secondary)" style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
-          Tax rules are applied at checkout based on product category. State-specific rules override org-wide rules
-          for stores in matching states. Rules are automatically inherited by all stores unless a store-specific
-          override exists.
+          At checkout, each product&apos;s tax is determined by the rule that matches its department. Rules with
+          <strong> EBT Exempt</strong> on are waived for EBT-eligible items. Multi-state chains can scope rules to
+          specific stores via the per-store override (Advanced).
         </span>
       </div>
 
@@ -538,17 +557,14 @@ export default function TaxRules({ embedded }) {
       {/* ── Form ── */}
       {showForm && (
         <TaxRuleForm
-          initial={showForm === 'new' ? EMPTY_FORM : {
+          initial={showForm === 'new' ? { ...EMPTY_FORM, state: defaultStateCode } : {
             name:          showForm.name,
-            description:   showForm.description || '',
             // DB stores rate as decimal fraction (0.055) — display in the
             // form as percent (5.5) to match the "%" label the user sees.
             rate:          String(+(Number(showForm.rate) * 100).toFixed(4)),
-            appliesTo:     showForm.appliesTo,
             departmentIds: Array.isArray(showForm.departmentIds) ? showForm.departmentIds : [],
             ebtExempt:     showForm.ebtExempt !== false,
             state:         showForm.state || '',
-            county:        showForm.county || '',
           }}
           onSave={handleSave}
           onCancel={() => setShowForm(false)}
@@ -597,8 +613,8 @@ export default function TaxRules({ embedded }) {
           N/A — no active tax rules configured.<br />
           <span style={{ fontSize: '0.8rem' }}>Click <strong style={{ color: 'var(--text-secondary, #9ca3af)' }}>Add Tax Rule</strong> to create your first slab.</span>
         </div>
-      ) : (
-        // Grouped by state
+      ) : showByState ? (
+        // Multi-state org: group by state for clarity
         Object.entries(byState).map(([stateKey, stateRules]) => (
           <div key={stateKey} style={{ marginBottom: '1.5rem' }}>
             <div style={{
@@ -613,7 +629,7 @@ export default function TaxRules({ embedded }) {
                 background: 'var(--bg-tertiary, #0f172a)',
                 border: '1px solid var(--border-color, #1f2937)',
               }}>
-                {stateKey === 'Org-wide' ? 'ORG-WIDE (ALL STATES)' : stateKey}
+                {stateKey === 'Org-wide' ? 'ORG-WIDE' : stateKey}
               </span>
               <span style={{ fontSize: '0.68rem', fontWeight: 600 }}>
                 {stateRules.length} rule{stateRules.length !== 1 ? 's' : ''}
@@ -631,6 +647,18 @@ export default function TaxRules({ embedded }) {
             </div>
           </div>
         ))
+      ) : (
+        // Single-state or all-org-wide: flat list
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rules.map(rule => (
+            <TaxRuleCard
+              key={rule.id}
+              rule={rule}
+              onEdit={(r) => { setShowForm(r); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              onDelete={(r) => setConfirmDelete(r)}
+            />
+          ))}
+        </div>
       )}
     </>
   );

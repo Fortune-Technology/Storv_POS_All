@@ -21,7 +21,10 @@ interface LineItem {
   isBottleReturn?: boolean;
   productId?: string | number | null;
   taxable?: boolean;
+  ebtEligible?: boolean;
   taxClass?: string | null;
+  taxRuleId?: number | string | null;
+  departmentId?: number | string | null;
   departmentName?: string | null;
   qty?: number | string | null;
   unitPrice?: number | string | null;
@@ -327,13 +330,25 @@ export const getSummaryReport = async (req: Request, res: Response, next: NextFu
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GET /api/reports/hub/tax — Tax breakdown by class
+// GET /api/reports/hub/tax — Tax breakdown by rule (rate)
 // ═══════════════════════════════════════════════════════════════════════════
+// Session 56b — completely rewritten. Groups by the actual tax rule that
+// resolved at checkout (mirrors cashier-app `selectTotals` 2-tier priority):
+//   1. Per-line `taxRuleId` (per-product override on the saved line item)
+//   2. Department-linked: rule whose `departmentIds[]` contains line's deptId
+// Lines that fail both tiers go into a "No rule matched" bucket so the admin
+// can audit which products are slipping through tax-free. EBT-eligible lines
+// have $0 tax in the cart regardless of rule, so they go to the matched rule's
+// taxableSales but contribute $0 to taxAmount — visible for audit but accurate.
+// Refunded transactions excluded (status='complete' filter unchanged).
 
-interface TaxClassRow {
-  taxClass: string;
-  taxableSales: number;
-  itemCount: number;
+interface TaxRuleBucket {
+  ruleId: number | null;       // null = no rule matched bucket
+  ruleName: string;
+  rate: number;                // decimal fraction (0.055 = 5.5%)
+  taxableSales: number;        // sum of lineTotal where rule resolved + taxable
+  taxAmount: number;           // sum of computed tax (lineTotal × rate, EBT-aware)
+  itemCount: number;           // line items mapped to this rule
 }
 
 export const getTaxReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -347,30 +362,81 @@ export const getTaxReport = async (req: Request, res: Response, next: NextFuncti
     const where: Prisma.TransactionWhereInput = { orgId, status: 'complete', createdAt: { gte: new Date(`${from}T00:00:00`), lte: new Date(`${to}T23:59:59.999`) } };
     if (storeId) where.storeId = storeId;
 
-    const txns = await prisma.transaction.findMany({ where, select: { lineItems: true, taxTotal: true } });
+    const [txns, rules] = await Promise.all([
+      prisma.transaction.findMany({ where, select: { lineItems: true, taxTotal: true } }),
+      prisma.taxRule.findMany({
+        where: { orgId, active: true },
+        select: { id: true, name: true, rate: true, departmentIds: true, ebtExempt: true },
+      }),
+    ]);
+    type RuleRow = (typeof rules)[number];
+    const ruleById = new Map<number, RuleRow>(rules.map((r: RuleRow) => [r.id, r]));
 
-    const taxClasses: Record<string, TaxClassRow> = {};
+    // Resolve a line to its rule using the same 2-tier priority as the cart.
+    // Returns the rule row or null when nothing matches.
+    function resolveRule(li: LineItem): RuleRow | null {
+      const lineRuleId = li.taxRuleId != null ? Number(li.taxRuleId) : null;
+      if (lineRuleId != null && ruleById.has(lineRuleId)) {
+        return ruleById.get(lineRuleId) ?? null;
+      }
+      const lineDeptId = li.departmentId != null ? Number(li.departmentId) : null;
+      if (lineDeptId != null) {
+        const r = rules.find((x: RuleRow) => Array.isArray(x.departmentIds) && x.departmentIds.includes(lineDeptId));
+        if (r) return r;
+      }
+      return null;
+    }
+
+    const buckets = new Map<string, TaxRuleBucket>();
+    function bucketFor(rule: RuleRow | null): TaxRuleBucket {
+      const key = rule ? String(rule.id) : 'none';
+      let b = buckets.get(key);
+      if (!b) {
+        b = {
+          ruleId:       rule ? rule.id : null,
+          ruleName:     rule ? rule.name : 'No rule matched',
+          rate:         rule ? Number(rule.rate) : 0,
+          taxableSales: 0,
+          taxAmount:    0,
+          itemCount:    0,
+        };
+        buckets.set(key, b);
+      }
+      return b;
+    }
+
     for (const tx of txns) {
       const items: LineItem[] = Array.isArray(tx.lineItems) ? (tx.lineItems as unknown as LineItem[]) : [];
       for (const li of items) {
         if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
-        const cls = li.taxClass || 'other';
-        if (!taxClasses[cls]) taxClasses[cls] = { taxClass: cls, taxableSales: 0, itemCount: 0 };
-        if (li.taxable !== false) taxClasses[cls].taxableSales += Number(li.lineTotal) || 0;
-        taxClasses[cls].itemCount += 1;
+        const rule = resolveRule(li);
+        const b = bucketFor(rule);
+        b.itemCount += 1;
+        const lineTotal = Number(li.lineTotal) || 0;
+        // taxableSales — sales on which the rule applies. EBT-eligible items
+        // are still listed here (so admins can see the volume) but their tax
+        // is $0 (federal SNAP rule, hard-coded in the cart).
+        if (li.taxable !== false) {
+          b.taxableSales += lineTotal;
+          if (!li.ebtEligible && rule) {
+            b.taxAmount += lineTotal * Number(rule.rate);
+          }
+        }
       }
     }
 
-    // Get tax rules to show rates
-    const rules = await prisma.taxRule.findMany({ where: { orgId, active: true } });
-    type TaxRuleRow = (typeof rules)[number];
-    const ruleMap: Record<string, number> = {};
-    for (const r of rules as TaxRuleRow[]) ruleMap[r.appliesTo || 'all'] = Number(r.rate);
-
-    const breakdown = Object.values(taxClasses).map((tc) => {
-      const rate = ruleMap[tc.taxClass] || ruleMap['all'] || 0;
-      return { ...tc, taxableSales: r2(tc.taxableSales), rate: r4(rate), taxAmount: r2(tc.taxableSales * rate) };
-    }).sort((a, b) => b.taxableSales - a.taxableSales);
+    const breakdown = Array.from(buckets.values())
+      .map((b) => ({
+        ruleId:       b.ruleId,
+        ruleName:     b.ruleName,
+        rate:         r4(b.rate),
+        ratePercent:  r2(b.rate * 100),
+        taxableSales: r2(b.taxableSales),
+        taxAmount:    r2(b.taxAmount),
+        itemCount:    b.itemCount,
+      }))
+      // Sort by tax collected (largest first), then by rule name for stability
+      .sort((a, b) => (b.taxAmount - a.taxAmount) || a.ruleName.localeCompare(b.ruleName));
 
     const totalTax = r2(txns.reduce((s: number, t: { taxTotal: unknown }) => s + (Number(t.taxTotal) || 0), 0));
 

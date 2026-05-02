@@ -18,13 +18,17 @@
  *   4. Pack 1-6 variants flatten into:
  *        - `additionalUpcs` (pipe-separated UPCs)
  *        - `packOptions` (semicolon-separated `label@count@price`)
- *   5. `Tags` are free-form `key: value / key: value` pairs — parsed into
- *        - `productGroup` (first pair, e.g. "Container: Bottle")
- *        - `attributes`   (JSON of all pairs)
- *
- * NOTE: ProductGroup auto-creation is a feature gap in the importer at the
- * moment — the column is emitted so that when the importer gains group
- * support, the transformer output already contains the right value.
+ *   5. `Tags` are free-form `key: value / key: value` pairs — parsed and
+ *      split by KIND:
+ *        - `Other: <name>` entries are sibling-product cross-references
+ *          (e.g. RED BULL 8 OZ tagged with "Other: RED BULL 12 OZ CN" links
+ *          it to the 12 OZ variant). These become productGroup memberships.
+ *          When a row has multiple Other: tags, all values are emitted to
+ *          `productGroup` pipe-separated; the first one wins for
+ *          productGroupId in the importer.
+ *        - All non-Other pairs (Brand, ABV, Container, Vintage, Region, …)
+ *          serialise into `attributes` JSON for round-trip storage on
+ *          MasterProduct.attributes.
  */
 
 import { getColumnValue } from './helpers.js';
@@ -276,29 +280,61 @@ export function transformRow(
   }
   if (extras.length > 0) out.additionalUpcs = extras.join('|');
 
-  /* — Tags → productGroup + attributes — */
+  /* — Tags → productGroup + attributes —
+     Sante's Tags field carries TWO different kinds of data interleaved:
+       (a) "Other: <product name>"  — product-group memberships. These are
+           cross-references between sibling products (e.g. RED BULL 8 OZ
+           tagged with "Other: RED BULL 12 OZ CN" means it's grouped with
+           the 12 OZ variant). MasterProduct.productGroupId is single-valued
+           so we use the FIRST Other: tag's value as the group name and
+           let the importer auto-create / link by name.
+       (b) "Brand: Smirnoff", "ABV: 5%", "Container: Bottle", etc.
+           — real attribute key/value pairs that go into MasterProduct.attributes
+           as JSON. NOT used for grouping.
+
+     Splitting them avoids the previous behavior where the FIRST tag (often
+     "Color: Sparkling" or similar) was stuffed into productGroup, which
+     produced meaningless one-of-a-kind groups like "Color: Sparkling". */
   const tags = parseSanteTags(get('Tags'));
   if (tags.length > 0) {
-    // Use the first key:value pair as the product-group label so similar
-    // products cluster ("Container: Bottle" groups all bottled products).
-    const first = tags[0];
-    out.productGroup = first.key && first.value
-      ? `${first.key}: ${first.value}`
-      : (first.value || '');
-    // All pairs go into attributes as a JSON object — the importer can
-    // either persist as-is on MasterProduct.attributes, or the user can
-    // post-process. Keys with no value are stored under an empty key.
-    const obj: Record<string, string> = {};
-    for (const t of tags) {
-      const k = t.key || '_';
-      // Multiple unkeyed values get suffixed numerically so we don't lose any.
-      let key = k, n = 1;
-      while (Object.prototype.hasOwnProperty.call(obj, key)) {
-        key = `${k}_${++n}`;
+    // Case-insensitive split — Sante users write "Other:", "OTHER:", etc.
+    const isOtherTag = (t: { key: string; value: string }) =>
+      (t.key || '').trim().toLowerCase() === 'other';
+    const groupTags = tags.filter(isOtherTag);
+    const attrTags  = tags.filter((t) => !isOtherTag(t));
+
+    if (groupTags.length > 0) {
+      // First Other: value becomes the productGroup name. When multiple are
+      // present, we pipe-separate them so a future multi-group importer can
+      // use them all; today the importer will use only the first segment.
+      const groupNames = groupTags
+        .map((t) => (t.value || '').trim())
+        .filter((v) => v.length > 0);
+      if (groupNames.length > 0) {
+        out.productGroup = groupNames.join('|');
+        if (groupNames.length > 1) {
+          warnings.push(
+            `"${out.name}" has ${groupNames.length} Other: group memberships; importer will use the first ("${groupNames[0]}") for productGroupId`,
+          );
+        }
       }
-      obj[key] = t.value;
     }
-    out.attributes = JSON.stringify(obj);
+
+    if (attrTags.length > 0) {
+      const obj: Record<string, string> = {};
+      for (const t of attrTags) {
+        // Sante always sends real key:value pairs here (Brand, ABV, Container,
+        // etc.). When the parser couldn't find a colon, t.key is empty and
+        // t.value holds the raw text — store under "_" so we don't lose it.
+        const k = t.key || '_';
+        let key = k, n = 1;
+        while (Object.prototype.hasOwnProperty.call(obj, key)) {
+          key = `${k}_${++n}`;
+        }
+        obj[key] = t.value;
+      }
+      out.attributes = JSON.stringify(obj);
+    }
   }
 
   return { transformedRow: out, warnings };

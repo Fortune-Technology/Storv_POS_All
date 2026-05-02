@@ -146,6 +146,11 @@ export default function LotteryBackOffice() {
   const scanRef = useRef(null);
 
   const [loading, setLoading]           = useState(true);
+  // Apr 2026 — track last-loaded timestamp so the "Refresh" button can
+  // show how stale the displayed data is. Helps debug "I closed the EoD
+  // wizard but back-office still shows old numbers" — user sees timestamp
+  // and clicks Refresh to confirm.
+  const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [saving, setSaving]             = useState(false);
   const [toast, setToast]               = useState(null);
 
@@ -208,7 +213,14 @@ export default function LotteryBackOffice() {
     setCashBalance(Math.round(cashSum * 100) / 100);
   }, [date]);
 
-  useEffect(() => { setLoading(true); load().finally(() => setLoading(false)); }, [load]);
+  useEffect(() => {
+    setLoading(true);
+    load()
+      .finally(() => {
+        setLoading(false);
+        setLastLoadedAt(new Date());
+      });
+  }, [load]);
 
   // Auto-focus scan input when we're on a scan-driven pane
   useEffect(() => {
@@ -294,6 +306,52 @@ export default function LotteryBackOffice() {
       showToast(snapIsToday ? 'Ticket saved' : 'Historical close updated');
     } catch (e) {
       showToast(e?.response?.data?.error || e.message, 'error');
+    }
+  };
+
+  // Apr 2026 — batch-save all dirty drafts in one click. Cashiers were
+  // pressing Enter on every row which is tedious for a counter with 60+
+  // books. This walks every draft and commits it sequentially so the
+  // backend writes don't race (per-box updates).
+  const saveAllTickets = async () => {
+    const ids = Object.keys(counterDrafts).filter(
+      (id) => counterDrafts[id] != null && counterDrafts[id] !== '',
+    );
+    if (ids.length === 0) {
+      showToast('No drafts to save');
+      return;
+    }
+    setSaving(true);
+    let okCount = 0;
+    const errors = [];
+    for (const boxId of ids) {
+      const draft = counterDrafts[boxId];
+      try {
+        if (snapIsToday) {
+          await updateLotteryBox(boxId, { currentTicket: String(draft) });
+        } else {
+          await upsertLotteryHistoricalClose({ boxId, date, ticket: String(draft) });
+        }
+        okCount += 1;
+      } catch (e) {
+        errors.push(`${boxId}: ${e?.response?.data?.error || e.message}`);
+      }
+    }
+    // Clear committed drafts (errors keep their drafts so user can retry).
+    setCounterDrafts((d) => {
+      const next = { ...d };
+      for (const id of ids) {
+        if (!errors.find((e) => e.startsWith(`${id}:`))) delete next[id];
+      }
+      return next;
+    });
+    await load();
+    setSaving(false);
+    if (errors.length === 0) {
+      showToast(`Saved ${okCount} ticket${okCount === 1 ? '' : 's'}`);
+    } else {
+      showToast(`Saved ${okCount} of ${ids.length} (${errors.length} error${errors.length === 1 ? '' : 's'})`, 'error');
+      console.warn('[saveAllTickets] errors:', errors);
     }
   };
 
@@ -550,6 +608,33 @@ export default function LotteryBackOffice() {
           <Ticket size={16} /><span>Daily Scan</span>
         </div>
         <CalendarStrip value={date} onChange={setDate} />
+        {/* Apr 2026 — explicit Refresh + last-loaded timestamp. Helps users
+            verify they're viewing FRESH data after a cashier closes a
+            shift on a separate device. F5 also works but this surfaces the
+            staleness explicitly. */}
+        <div className="lbo-refresh-bar">
+          {lastLoadedAt && (
+            <span className="lbo-refresh-stamp" title={lastLoadedAt.toLocaleString()}>
+              loaded {lastLoadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            type="button"
+            className="lbo-btn lbo-btn-outline lbo-refresh-btn"
+            onClick={() => {
+              setLoading(true);
+              load().finally(() => {
+                setLoading(false);
+                setLastLoadedAt(new Date());
+                showToast('Refreshed');
+              });
+            }}
+            disabled={loading}
+            title="Reload all lottery data from server"
+          >
+            {loading ? '↻ Loading…' : '↻ Refresh'}
+          </button>
+        </div>
       </div>
 
       {loading && !inventory ? (
@@ -655,6 +740,23 @@ export default function LotteryBackOffice() {
                       <button onClick={() => handleScan()} disabled={!scanInput.trim()}>Go</button>
                     </div>
                   )}
+                  {/* Apr 2026 — batch-commit all dirty drafts in one click.
+                      Visible only when there ARE drafts to save. Works in
+                      BOTH manual and scan modes (scan mode auto-saves on
+                      scan, but typed corrections still create drafts). */}
+                  {Object.keys(counterDrafts).length > 0 && (
+                    <button
+                      type="button"
+                      className="lbo-btn lbo-btn-primary lbo-save-all-btn"
+                      onClick={saveAllTickets}
+                      disabled={saving}
+                      title="Save all unsaved ticket numbers in one click"
+                    >
+                      {saving
+                        ? 'Saving…'
+                        : `✓ Save All (${Object.keys(counterDrafts).length})`}
+                    </button>
+                  )}
                 </div>
 
                 {scanLog.length > 0 && (
@@ -746,6 +848,7 @@ export default function LotteryBackOffice() {
                   <ReceivePanel
                     games={games}
                     catalog={catalog}
+                    date={date}
                     onClose={() => setRightPane('safe')}
                     onSaved={() => { setRightPane('safe'); load(); }}
                   />
@@ -958,8 +1061,23 @@ function CounterRow({
     setEditingBookNo(false);
   };
 
+  // Apr 2026 — visual state hierarchy so the cashier can see at a glance
+  // which rows are scanned vs not:
+  //   • dirty     — user has typed unsaved changes (amber, blocks Save All)
+  //   • saved     — today's value was committed AND differs from yesterday
+  //                 (green tint + ✓ marker — actual sales recorded)
+  //   • unchanged — today === yesterday (no movement; muted, low emphasis)
+  //   • untouched — nothing entered + no live currentTicket (lighter still)
+  const yesterdayNum = Number(yesterday);
+  const todayNum = Number(todayVal);
+  const hasTodayValue = todayVal !== '' && Number.isFinite(todayNum);
+  const hasMovement = hasTodayValue && Number.isFinite(yesterdayNum) && todayNum !== yesterdayNum;
+  const rowState = dirty
+    ? 'dirty'
+    : (hasMovement ? 'saved' : (hasTodayValue ? 'unchanged' : 'untouched'));
+
   return (
-    <div className={`lbo-cnt-row ${dirty ? 'dirty' : ''}`}>
+    <div className={`lbo-cnt-row lbo-cnt-row--${rowState} ${dirty ? 'dirty' : ''}`}>
       <PackPill price={price} />
       {editingSlot ? (
         <input
@@ -1182,7 +1300,7 @@ function BookList({ books, emptyMsg, variant, onAction }) {
 // Receive Panel — inline replacement for the right column
 // (replaces the old modal that kept auto-closing)
 // ════════════════════════════════════════════════════════════════════
-function ReceivePanel({ games, catalog, onClose, onSaved }) {
+function ReceivePanel({ games, catalog, date, onClose, onSaved }) {
   const confirm = useConfirm();
   const [items, setItems] = useState([]);      // [{ key, source, gameId?, catalogTicketId?, gameName, gameNumber, bookNumber, ticketPrice, totalTickets, value }]
   const [scan, setScan]   = useState('');
@@ -1265,6 +1383,18 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
   // handler — it actually persists the boxes; the hook is just for dialogs.
   const confirmReceive = async () => {
     if (items.length === 0) return;
+    // Apr 2026 — when admin is on a past calendar date, confirm the
+    // retroactive receive intent so they don't accidentally back-date
+    // a fresh receive when they meant today.
+    const today = todayStr();
+    if (date && date !== today) {
+      const ok = await confirm({
+        title: 'Receive on past date?',
+        message: `Record these ${items.length} book${items.length === 1 ? '' : 's'} as received on ${date}? Their createdAt will be set to that date so they show up under that day's "Received" total — useful when manager was out and is logging the receive retroactively.`,
+        confirmLabel: `Receive on ${date}`,
+      });
+      if (!ok) return;
+    }
     setSaving(true); setErr('');
     try {
       await receiveLotteryBoxOrder({
@@ -1276,6 +1406,9 @@ function ReceivePanel({ games, catalog, onClose, onSaved }) {
           if (it.gameNumber) p.gameNumber = it.gameNumber;
           return p;
         }),
+        // Pass selected calendar date — backend stamps createdAt to that day
+        // (defaulting to today's now() when omitted, matching legacy callers).
+        date,
       });
       onSaved?.();
     } catch (e) {

@@ -105,6 +105,12 @@ export default function LotteryShiftModal({
   // the success screen so the cashier sees what got recorded (which is
   // the same number the back-office Daily page will show).
   const [authoritativeTotal, setAuthoritativeTotal] = useState(null);
+  // Apr 2026 — save warnings + write stats from the backend response.
+  // Surfaced on the Step 3 confirm screen when any per-box update or
+  // snapshot insert failed during the save (previously these failures
+  // were silently logged on the server and the cashier saw "Saved!").
+  const [saveWarnings, setSaveWarnings] = useState(null);
+  const [writeStats, setWriteStats] = useState(null);
   // Apr 2026 — Fix #3: previous shift's saved cumulative readings (today),
   // used to compute Shift 2+'s incremental contribution. For Shift 1 of
   // the day, all zeros (no prior shift). The wizard subtracts these from
@@ -160,6 +166,8 @@ export default function LotteryShiftModal({
         });
     }
     setAuthoritativeTotal(null);
+    setSaveWarnings(null);
+    setWriteStats(null);
     // Reset wizard state each open
     setStep(0);
     setEndTickets({});
@@ -471,7 +479,15 @@ export default function LotteryShiftModal({
         amount:      b.isSoldout ? b.soldoutAmount : b.calcAmount,
         soldout:     b.isSoldout,
       }));
-      await onSave?.({
+      // Capture the save response so we can surface backend warnings.
+      // The response shape (Apr 2026) is:
+      //   { success, data, writeStats: {boxesScanned, boxesUpdated, snapshotsWritten}, warnings }
+      // where `warnings` is null on a clean save, or an object with
+      // boxUpdateFailures / snapshotInsertFailures / summary when any
+      // per-box write didn't land. This is the diagnostic for "I scanned
+      // but back-office shows old numbers" — the response now tells the
+      // cashier-app exactly what didn't commit.
+      const saveResp = await onSave?.({
         shiftId,
         scannedAmount:  scannedTotal,
         boxScans,
@@ -489,6 +505,8 @@ export default function LotteryShiftModal({
         discountsReading:      onlineNums.discounts,
         instantCashingReading: onlineNums.instantCashing,
       });
+      if (saveResp?.warnings) setSaveWarnings(saveResp.warnings);
+      if (saveResp?.writeStats) setWriteStats(saveResp.writeStats);
 
       // 4. Fetch the backend's authoritative daily total — same number
       // the back-office Daily page will show. Lets the cashier see
@@ -759,6 +777,62 @@ export default function LotteryShiftModal({
                   {fmtL(report.dailyDue)}
                 </strong>
               </div>
+
+              {/* Apr 2026 — Save warnings strip. Shown when the backend
+                  reports per-box update or snapshot-insert failures during
+                  saveLotteryShiftReport. Without this, those failures
+                  would be silently logged on the server and the cashier
+                  would think everything saved (= the "back-office shows
+                  old ticket numbers" bug). */}
+              {saveWarnings && (
+                <div className="lsm-save-warnings">
+                  <div className="lsm-save-warnings-head">
+                    ⚠ Save partially failed
+                  </div>
+                  <div className="lsm-save-warnings-summary">
+                    {saveWarnings.summary}
+                  </div>
+                  {saveWarnings.boxUpdateFailures?.length > 0 && (
+                    <div className="lsm-save-warnings-list">
+                      <strong>Box updates that didn't commit:</strong>
+                      <ul>
+                        {saveWarnings.boxUpdateFailures.slice(0, 5).map((f, i) => (
+                          <li key={i}>
+                            <code>{f.boxId.slice(-8)}</code> → ticket {f.attemptedTicket}: {f.error}
+                          </li>
+                        ))}
+                        {saveWarnings.boxUpdateFailures.length > 5 && (
+                          <li>… and {saveWarnings.boxUpdateFailures.length - 5} more</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {saveWarnings.snapshotInsertFailures?.length > 0 && (
+                    <div className="lsm-save-warnings-list">
+                      <strong>Snapshot writes that didn't commit:</strong>
+                      <ul>
+                        {saveWarnings.snapshotInsertFailures.slice(0, 5).map((f, i) => (
+                          <li key={i}>
+                            <code>{f.boxId.slice(-8)}</code>: {f.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="lsm-save-warnings-tip">
+                    The back-office may show stale data for these boxes. Tell your manager.
+                  </div>
+                </div>
+              )}
+
+              {/* Apr 2026 — Write stats. Always shown when save succeeded
+                  (even on clean save) so cashier sees the count of what
+                  was committed. Useful confirmation. */}
+              {writeStats && !saveWarnings && (
+                <div className="lsm-write-stats">
+                  ✓ Saved {writeStats.boxesUpdated} of {writeStats.boxesScanned} books · {writeStats.snapshotsWritten} snapshot{writeStats.snapshotsWritten === 1 ? '' : 's'} written
+                </div>
+              )}
 
               {/* Post-save reconciliation strip (Apr 2026 — Phase 2).
                   Shows the AUTHORITATIVE daily total fetched from the

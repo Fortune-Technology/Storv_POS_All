@@ -693,11 +693,10 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
   let taxTotal = 0;
   for (const item of items) {
     if (!item.taxable || item.ebtEligible) continue;
-    // Session 40 Phase 1 resolution order (strict-FK migration):
+    // Session 56b — 2-tier resolution order (legacy class matcher removed):
     //   1. Product-level explicit FK: item.taxRuleId → rule (per-product override)
-    //   2. Department-linked rule via TaxRule.departmentIds[] (Option B)
-    //   3. Legacy string match on appliesTo ↔ item.taxClass
-    //   4. rate = 0 (no rule matched)
+    //   2. Department-linked rule via TaxRule.departmentIds[]
+    //   3. rate = 0 (no rule matched — auditable via the unmapped report)
     // Every tier requires the rule to be `active: true`.
     const productRule = item.taxRuleId
       ? taxRules.find(r => r.active && Number(r.id) === Number(item.taxRuleId))
@@ -705,9 +704,7 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
     const deptRule = !productRule && item.departmentId
       ? taxRules.find(r => r.active && Array.isArray(r.departmentIds) && r.departmentIds.includes(Number(item.departmentId)))
       : null;
-    const rule = productRule
-      || deptRule
-      || taxRules.find(r => r.active && (!r.departmentIds || r.departmentIds.length === 0) && matchTax(r.appliesTo, item.taxClass));
+    const rule = productRule || deptRule || null;
     taxTotal += item.lineTotal * (rule ? parseFloat(rule.rate) : 0);
   }
   taxTotal = round2(taxTotal);
@@ -820,18 +817,10 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
   };
 }
 
-// Wildcard rule `appliesTo` values that apply to ANY taxable item. `none` is
-// treated as a wildcard because the default "General Sales Tax" seed ships
-// with `appliesTo='none'` and was historically used as a catch-all. `standard`
-// is the default taxClass on new products, so treating it as a wildcard on
-// rule side too lets retailers create a single rule that catches everything.
-const TAX_RULE_WILDCARDS = new Set(['', 'all', 'any', '*', 'standard', 'none']);
-
-function matchTax(appliesTo, taxClass) {
-  const applied = String(appliesTo || '').toLowerCase().trim();
-  if (TAX_RULE_WILDCARDS.has(applied)) return true;
-  const list = applied.split(',').map(s => s.trim()).filter(Boolean);
-  if (list.includes(String(taxClass || '').toLowerCase().trim())) return true;
-  // If any entry is a wildcard, the rule applies universally
-  return list.some(x => TAX_RULE_WILDCARDS.has(x));
-}
+// Session 56b — `matchTax(appliesTo, taxClass)` and TAX_RULE_WILDCARDS were
+// removed when the legacy class matcher was deleted from the schema. Tax
+// resolution now uses only:
+//   1. Per-line `taxRuleId` (per-product override)
+//   2. Department-linked: rule whose departmentIds[] contains line's deptId
+// To create a "tax everything" catch-all rule, the admin links it to every
+// active department in the org via the multi-select chip UI.
