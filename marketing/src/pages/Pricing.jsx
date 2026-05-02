@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import MarketingNavbar from '../../components/marketing/MarketingNavbar';
-import MarketingFooter from '../../components/marketing/MarketingFooter';
-import MarketingSection from '../../components/marketing/MarketingSection';
-import MarketingButton from '../../components/marketing/MarketingButton';
+import MarketingNavbar from '../components/marketing/MarketingNavbar';
+import MarketingFooter from '../components/marketing/MarketingFooter';
+import MarketingSection from '../components/marketing/MarketingSection';
+import MarketingButton from '../components/marketing/MarketingButton';
 import { Check, X, HelpCircle, ChevronDown, ShieldCheck, Zap, Store, BarChart3, ShoppingCart, Package, Users, FileText, Cloud, Headphones, Monitor, Plus } from 'lucide-react';
-import SEO from '../../components/SEO';
+import SEO from '../components/SEO';
 import './Pricing.css';
 
 const Pricing = () => {
