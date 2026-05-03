@@ -460,64 +460,54 @@ jobs:
       - name: Publish installer + auto-update manifest from GitHub Release
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           DOWNLOADS_DIR="/var/www/Storv_POS_All/frontend/dist/downloads"
           mkdir -p "$DOWNLOADS_DIR"
 
-          # Wipe stale artifacts so removed files don't linger
-          rm -f "$DOWNLOADS_DIR"/*.exe \
-                "$DOWNLOADS_DIR"/*.blockmap \
-                "$DOWNLOADS_DIR"/latest.yml
+          # Wipe stale artifacts so removed files don't linger.
+          # `2>/dev/null || true` swallows the "no match" error on first deploy.
+          rm -f "$DOWNLOADS_DIR"/*.exe       2>/dev/null || true
+          rm -f "$DOWNLOADS_DIR"/*.blockmap  2>/dev/null || true
+          rm -f "$DOWNLOADS_DIR"/latest.yml  2>/dev/null || true
 
-          # Pull all assets from the latest-desktop release in one shot
-          REPO="${{ github.repository }}"
-          API_URL="https://api.github.com/repos/${REPO}/releases/tags/latest-desktop"
-
-          # Fetch every browser_download_url + asset name (jq-free parse)
-          ASSETS=$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$API_URL" \
-            | grep -oE '"(browser_download_url|name)":[^,]+' \
-            | grep -oE 'https://[^"]+|: "[^"]+"' \
-            | tr -d '"' | sed 's/^: //')
-
-          if [ -z "$ASSETS" ]; then
-            echo "⚠ No assets found in latest-desktop release — skipping"
+          # Pull every asset from the latest-desktop release in one shot.
+          # `gh release download` handles URL-encoding, spaces in filenames,
+          # auth, retries, and partial transfers for us.
+          if ! gh release view latest-desktop >/dev/null 2>&1; then
+            echo "⚠ No latest-desktop release exists yet — nothing to publish."
             exit 0
           fi
 
-          # Download each asset by its download URL. Names that match the
-          # 3 expected artifacts (.exe, .blockmap, latest.yml) get stable
-          # filenames so the website serves them at predictable paths.
-          dl() {
-            local url="$1"; local target="$2"
-            echo "→ $target ← $url"
-            curl -fSL -H "Authorization: token ${GITHUB_TOKEN}" \
-              -H "Accept: application/octet-stream" \
-              -o "$DOWNLOADS_DIR/$target" "$url"
-          }
+          echo "→ Downloading all assets from latest-desktop release…"
+          gh release download latest-desktop \
+            --dir "$DOWNLOADS_DIR" \
+            --clobber \
+            --pattern "*.exe" \
+            --pattern "*.blockmap" \
+            --pattern "latest.yml"
 
-          # Walk asset URLs from the release. The .exe gets a stable filename
-          # for the manual-download page; the .blockmap + latest.yml keep
-          # their original names because electron-updater expects exact paths.
-          curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$API_URL" \
-            | grep -oE '"browser_download_url":\s*"[^"]+"' \
-            | sed -E 's/.*"(https:[^"]+)"/\1/' \
-            | while read -r url; do
-                fname="${url##*/}"
-                # GitHub URL-encodes spaces — decode for the local filename
-                fname_decoded=$(printf '%b' "${fname//%/\\x}")
-                case "$fname_decoded" in
-                  *.exe)
-                    dl "$url" "StoreVeu-POS-Setup.exe"
-                    # Keep the versioned name too so latest.yml's `path` field resolves
-                    cp "$DOWNLOADS_DIR/StoreVeu-POS-Setup.exe" "$DOWNLOADS_DIR/$fname_decoded"
-                    ;;
-                  latest.yml|*.blockmap)
-                    dl "$url" "$fname_decoded"
-                    ;;
-                esac
-              done
+          # Find the downloaded .exe (filename includes version) and create
+          # a stable alias so the manual-download page link doesn't break
+          # on every version bump. Don't quote the glob — we want the shell
+          # expansion. shopt nullglob makes the loop silent if there's no .exe.
+          shopt -s nullglob
+          installed=0
+          for f in "$DOWNLOADS_DIR"/*.exe; do
+            # Skip the stable-named alias if it already exists from a prior run
+            [ "$(basename "$f")" = "StoreVeu-POS-Setup.exe" ] && continue
+            cp "$f" "$DOWNLOADS_DIR/StoreVeu-POS-Setup.exe"
+            installed=1
+            break
+          done
+          shopt -u nullglob
+
+          if [ "$installed" -eq 0 ]; then
+            echo "⚠ No .exe found in release — manual-download alias not created."
+          else
+            echo "✓ Stable alias: StoreVeu-POS-Setup.exe"
+          fi
 
           echo "✅ Published artifacts:"
-          ls -lh "$DOWNLOADS_DIR"
+          ls -lh "$DOWNLOADS_DIR" || true
