@@ -18,6 +18,16 @@
 const { autoUpdater } = require('electron-updater');
 const { app, ipcMain, BrowserWindow } = require('electron');
 
+// ── Dev simulator ─────────────────────────────────────────────────────────
+// `electron-updater` only runs in packaged builds. To preview the UI states
+// during development without standing up a release server, set:
+//   UPDATER_SIMULATE=1 npm run electron:dev
+// (or use the in-app menu in dev). The simulator walks through
+//   checking → available → downloading 0…100% → ready → idle
+// in response to the same renderer IPC calls real updates use, so the
+// UpdateBadge + StatusBar pill render every state exactly as in production.
+const SIMULATE = process.env.UPDATER_SIMULATE === '1' || process.env.UPDATER_SIMULATE === 'true';
+
 // ── State machine ─────────────────────────────────────────────────────────
 // Renderer pulls this via 'updater:get-state' on demand and also receives
 // pushed events on 'updater:state' for live UI updates.
@@ -113,15 +123,81 @@ function configure() {
   });
 }
 
+// ── Simulated update sequences (dev only) ────────────────────────────────
+function simulateCheck() {
+  setState({ status: 'checking', message: 'Checking for updates… (SIMULATED)', error: null });
+  setTimeout(() => {
+    setState({
+      status: 'available',
+      message: 'Version 99.0.0 is available. (SIMULATED)',
+      version: '99.0.0',
+      error: null,
+    });
+  }, 900);
+}
+
+function simulateDownload() {
+  let pct = 0;
+  setState({
+    status: 'downloading',
+    message: 'Downloading update… 0% (SIMULATED)',
+    progress: { percent: 0, transferred: 0, total: 50 * 1024 * 1024, bytesPerSecond: 1024 * 1024 },
+    error: null,
+  });
+  const tick = setInterval(() => {
+    pct = Math.min(100, pct + 7 + Math.random() * 6);
+    if (pct >= 100) {
+      clearInterval(tick);
+      setState({
+        status: 'ready',
+        message: 'Update 99.0.0 is ready to install. (SIMULATED)',
+        version: '99.0.0',
+        progress: null,
+        error: null,
+      });
+      return;
+    }
+    setState({
+      status: 'downloading',
+      message: `Downloading update… ${Math.round(pct)}% (SIMULATED)`,
+      progress: {
+        percent:        pct,
+        transferred:    Math.round((pct / 100) * 50 * 1024 * 1024),
+        total:          50 * 1024 * 1024,
+        bytesPerSecond: 1024 * 1024,
+      },
+      error: null,
+    });
+  }, 250);
+}
+
+function simulateInstall() {
+  console.log('[Updater] (SIMULATE) quitAndInstall would fire here in production.');
+  // Cycle back to idle so the dev tester can run another round
+  setTimeout(() => {
+    setState({
+      status: 'idle',
+      message: 'Simulated install complete — back to idle. Click again to repeat.',
+      version: null,
+      progress: null,
+      error: null,
+    });
+  }, 600);
+}
+
 function registerIPC() {
   ipcMain.handle('updater:get-state', () => state);
 
   ipcMain.handle('updater:check', async () => {
+    if (SIMULATE) {
+      simulateCheck();
+      return state;
+    }
     if (!app.isPackaged) {
       // electron-updater intentionally refuses in dev. Return a friendly state.
       setState({
         status: 'no-update',
-        message: 'Auto-update is only available in the installed app (not in dev).',
+        message: 'Auto-update is only available in the installed app (not in dev). Run with UPDATER_SIMULATE=1 to preview the UI.',
         error: null,
       });
       return state;
@@ -136,6 +212,10 @@ function registerIPC() {
   });
 
   ipcMain.handle('updater:download', async () => {
+    if (SIMULATE) {
+      simulateDownload();
+      return { ok: true };
+    }
     if (!app.isPackaged) {
       return { ok: false, error: 'Auto-update is only available in the installed app.' };
     }
@@ -152,6 +232,10 @@ function registerIPC() {
   });
 
   ipcMain.handle('updater:install', async () => {
+    if (SIMULATE) {
+      simulateInstall();
+      return { ok: true };
+    }
     if (state.status !== 'ready') {
       return { ok: false, error: 'No update has been downloaded yet.' };
     }
@@ -169,6 +253,14 @@ function registerIPC() {
 function init() {
   configure();
   registerIPC();
+
+  if (SIMULATE) {
+    console.log('[Updater] SIMULATION MODE — fake update flow active. Set UPDATER_SIMULATE=0 to disable.');
+    // Kick off a simulated "available" state shortly after launch so the
+    // PIN-screen badge + StatusBar pill light up without any user action.
+    setTimeout(simulateCheck, 1500);
+    return;
+  }
 
   // Auto-check 5s after app start (production builds only).
   if (app.isPackaged) {
