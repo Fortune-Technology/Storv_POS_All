@@ -1,12 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // `output: 'standalone'` is ONLY for production builds (Docker / self-hosted
-  // deploy). Leaving it on conflicts with `next dev` — it causes next to emit
-  // production-style artifacts into .next/ on every build, which then breaks
-  // the dev server's on-demand chunk hashing and produces 404s for
-  // /_next/static/chunks/*.js on localhost.
-  // Gate it behind NODE_ENV so dev mode uses the default output.
-  ...(process.env.NODE_ENV === 'production' ? { output: 'standalone' } : {}),
+  // NOTE: `output: 'standalone'` was removed. Standalone mode is intended for
+  // Docker / serverless deploys that run `node .next/standalone/server.js`
+  // directly. It deliberately does NOT include `.next/static/` or `public/`
+  // — those must be copied alongside or served by a CDN.
+  //
+  // Our PM2 deploy runs `next start` (see .github/workflows/deploy.yml), which
+  // expects the regular `.next/` layout. Mixing the two produces 404s on the
+  // CSS / JS chunks and the page renders unstyled (Times New Roman fallback).
+  // If we ever switch to a Docker/standalone runtime, re-enable this AND
+  // update the deploy to copy `.next/static/` + `public/` into the standalone
+  // output and run the standalone server.
 
   reactStrictMode: true,
 
