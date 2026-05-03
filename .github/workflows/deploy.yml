@@ -353,6 +353,44 @@ jobs:
         working-directory: cashier-app
         run: npm install
 
+      # ──────────────────────────────────────────────────────────────────────
+      # Auto-bump patch version using github.run_number.
+      # Strategy:
+      #   • Keep major.minor from package.json (you bump these manually for
+      #     real releases — 1.x → 2.x for breaking changes, 1.0.x → 1.1.x for
+      #     features). They live in source-of-truth git.
+      #   • Replace the patch segment with github.run_number (strictly
+      #     monotonic across the entire workflow — every run increments by 1).
+      #
+      # Why monotonic matters: electron-updater compares versions via semver.
+      # If two pushes resulted in the same version string, the second build
+      # would be invisible to installed apps. Using run_number guarantees
+      # every successful build has a unique, strictly-greater version than
+      # every prior one — installed clients see EVERY push as an update.
+      #
+      # Example: package.json says "1.0.0", current run_number is 195.
+      #   → final version baked into the build: "1.0.195"
+      #   → next push (run_number 196): "1.0.196"
+      #
+      # The bumped version is NOT committed back to the repo — it only lives
+      # inside this workflow's checkout. package.json on main stays at the
+      # "1.0.0" baseline, which is correct: that's the human-readable
+      # "marketing version", and 1.0.195 etc. are CI build numbers.
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Auto-bump patch version using run number
+        working-directory: cashier-app
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const [major, minor] = pkg.version.split('.');
+            const newVersion = major + '.' + minor + '.${{ github.run_number }}';
+            pkg.version = newVersion;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('::notice::Auto-bumped cashier-app version → ' + newVersion);
+          "
+
       - name: Build Vite + Electron installer
         working-directory: cashier-app
         run: npx vite build && npx electron-builder --publish never
