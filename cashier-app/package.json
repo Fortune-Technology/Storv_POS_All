@@ -65,8 +65,9 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://pos.storeveu.com/downloads",
-        "channel": "latest"
+        "url": "https://github.com/Fortune-Technology/Storv_POS_All/releases/download/latest-desktop",
+        "channel": "latest",
+        "useMultipleRangeRequest": false
       }
     ],
     "win": {
@@ -78,7 +79,8 @@
           ]
         }
       ],
-      "icon": "public/icon.ico"
+      "icon": "public/icon.ico",
+      "artifactName": "StoreVeu.POS.Setup.${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
