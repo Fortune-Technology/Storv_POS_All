@@ -15,6 +15,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && cross-env NODE_ENV=development electron electron/main.cjs\"",
+    "electron:dev:simulate-update": "concurrently \"vite\" \"wait-on http://localhost:5174 && cross-env NODE_ENV=development UPDATER_SIMULATE=1 electron electron/main.cjs\"",
     "electron:build": "vite build && electron-builder",
     "electron:build:local": "vite build --mode development && electron-builder",
     "electron:pack": "electron-builder --dir",

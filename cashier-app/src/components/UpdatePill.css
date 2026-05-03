@@ -1,0 +1,73 @@
+/* UpdatePill — compact StatusBar pill that surfaces only when an update
+   is actionable. Sits next to AI Assistant / Sign Out. Prefix: sb-update-pill- */
+
+.sb-update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: #fff;
+}
+.sb-update-pill:disabled { opacity: 0.85; cursor: progress; }
+.sb-update-pill-label { line-height: 1; }
+
+.sb-update-pill--available {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  animation: sb-update-pulse 2.4s ease-in-out infinite;
+}
+.sb-update-pill--available:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8, #4338ca);
+}
+
+.sb-update-pill--downloading {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #a5b4fc;
+}
+
+.sb-update-pill--ready {
+  background: linear-gradient(135deg, #16a34a, #059669);
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.4);
+  animation: sb-update-pulse 1.8s ease-in-out infinite;
+}
+.sb-update-pill--ready:hover:not(:disabled) {
+  background: linear-gradient(135deg, #15803d, #047857);
+}
+
+.sb-update-pill--error {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+}
+.sb-update-pill--error:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.sb-update-pill-icon--spin { animation: sb-update-spin 1s linear infinite; }
+
+@keyframes sb-update-spin  { to   { transform: rotate(360deg); } }
+@keyframes sb-update-pulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35); }
+  50%      { box-shadow: 0 2px 14px rgba(37, 99, 235, 0.55); }
+}
+.sb-update-pill--ready { animation-name: sb-update-pulse-green; }
+@keyframes sb-update-pulse-green {
+  0%, 100% { box-shadow: 0 2px 8px rgba(22, 163, 74, 0.4); }
+  50%      { box-shadow: 0 2px 14px rgba(22, 163, 74, 0.6); }
+}
+
+/* Tighter on cramped POS hardware */
+@media (max-width: 1100px) {
+  .sb-update-pill-label { display: none; }
+  .sb-update-pill       { padding: 5px 8px; }
+}
