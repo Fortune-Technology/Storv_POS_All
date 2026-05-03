@@ -9,7 +9,6 @@ import { usePOSConfig }    from '../../hooks/usePOSConfig.js';
 import { fmtTime }         from '../../utils/formatters.js';
 import { countCachedProducts, db } from '../../db/dexie.js';
 import { useConfirm }      from '../../hooks/useConfirmDialog.jsx';
-import UpdatePill          from '../UpdatePill.jsx';
 import './StatusBar.css';
 
 // "Born on or before X" date for an age threshold (today − N years).
@@ -272,11 +271,6 @@ export default function StatusBar({ onRefresh }) {
         <Clock size={12} />
         <span>{time}</span>
       </div>
-
-      {/* Update pill — auto-hides when there's nothing actionable.
-          Surfaces only on 'available' / 'downloading' / 'ready' / 'error'
-          so cashiers can apply updates mid-shift without signing out. */}
-      <UpdatePill />
 
       {/* AI Assistant trigger — sits beside Sign Out so the floating FAB
           no longer overlaps the logout button. Dispatches a window event

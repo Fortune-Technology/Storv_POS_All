@@ -8,34 +8,22 @@
  * Renders nothing in non-Electron contexts.
  */
 
-import { useEffect, useState } from 'react';
 import { Download, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useUpdaterState } from '../hooks/useUpdaterState.js';
 import './UpdatePill.css';
 
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.updaterGetState;
-
 export default function UpdatePill() {
-  const [state, setState] = useState({ status: 'idle', progress: null, version: null });
-
-  useEffect(() => {
-    if (!isElectron) return;
-    let unsubscribe = null;
-    window.electronAPI.updaterGetState().then(setState).catch(() => {});
-    unsubscribe = window.electronAPI.onUpdaterState((s) => setState(s));
-    return () => { if (typeof unsubscribe === 'function') unsubscribe(); };
-  }, []);
-
-  if (!isElectron) return null;
+  const { state, isActionable } = useUpdaterState();
 
   // Hide entirely when there's nothing actionable. Cashiers in mid-shift
   // shouldn't see an "everything's fine" pill — only act-now states surface.
-  if (!['available', 'downloading', 'ready', 'error'].includes(state.status)) return null;
+  if (!state || !isActionable) return null;
 
   const handleClick = async () => {
     try {
-      if (state.status === 'available')   await window.electronAPI.updaterDownload();
-      else if (state.status === 'ready')  await window.electronAPI.updaterInstall();
-      else if (state.status === 'error')  await window.electronAPI.updaterCheck();
+      if (state.status === 'available')   await window.electronAPI?.updaterDownload();
+      else if (state.status === 'ready')  await window.electronAPI?.updaterInstall();
+      else if (state.status === 'error')  await window.electronAPI?.updaterCheck();
     } catch { /* state already reflects via IPC */ }
   };
 
