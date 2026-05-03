@@ -18,6 +18,7 @@ import AdminCmsPages from './pages/AdminCmsPages';
 import AdminCareers from './pages/AdminCareers';
 import AdminCareerApplications from './pages/AdminCareerApplications';
 import AdminTickets from './pages/AdminTickets';
+import AdminNotifications from './pages/AdminNotifications';
 import AdminSystemConfig from './pages/AdminSystemConfig';
 import AdminAnalytics from './pages/AdminAnalytics';
 import AdminOrgAnalytics from './pages/AdminOrgAnalytics';
@@ -72,6 +73,7 @@ function App() {
         <Route path="/careers" element={<ProtectedRoute><AdminLayout><AdminCareers /></AdminLayout></ProtectedRoute>} />
         <Route path="/careers/:careerPostingId/applications" element={<ProtectedRoute><AdminLayout><AdminCareerApplications /></AdminLayout></ProtectedRoute>} />
         <Route path="/tickets" element={<ProtectedRoute><AdminLayout><AdminTickets /></AdminLayout></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute><AdminLayout><AdminNotifications /></AdminLayout></ProtectedRoute>} />
         <Route path="/config" element={<ProtectedRoute><AdminLayout><AdminSystemConfig /></AdminLayout></ProtectedRoute>} />
         <Route path="/merchants" element={<ProtectedRoute><AdminLayout><AdminMerchants /></AdminLayout></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><AdminLayout><AdminBilling /></AdminLayout></ProtectedRoute>} />

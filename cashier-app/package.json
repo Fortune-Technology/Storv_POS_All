@@ -24,6 +24,7 @@
     "axios": "^1.7.7",
     "date-fns": "^3.6.0",
     "dexie": "^4.0.8",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.454.0",
     "nanoid": "^5.0.7",
     "react": "^18.3.1",
@@ -59,6 +60,13 @@
       "public/icon.*",
       "node_modules/serialport/**/*",
       "node_modules/@serialport/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.storeveu.com/cashier-app",
+        "channel": "latest"
+      }
     ],
     "win": {
       "target": [

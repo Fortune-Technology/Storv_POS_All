@@ -246,11 +246,23 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── LAYOUT ───────────────────────────────────────────── */
+/* Outer row: sidebar (full height) | right pane (navbar on top + content below).
+   Capping at 100vh + overflow:hidden anchors the inner pane's scrolling. */
 .layout-container {
   display: flex;
   height: 100vh;
   overflow: hidden;
   background-color: var(--bg-primary);
+}
+
+/* Right pane: a flex column holding the PortalNavbar (fixed top) + main-content
+   (flex-grows + scrolls). Beside the sidebar. */
+.layout-main-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -326,87 +338,10 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
 }
 
-.nav-link-logout {
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--border-color);
-}
-
-/* "Signed in as" card — pinned to sidebar bottom via margin-top:auto.
-   Clickable: navigates to /portal/my-profile. Subsequent Logout button
-   sits directly beneath. */
-.sidebar-user-card {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.6rem 0.65rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  margin-bottom: 0.35rem;
-  min-width: 0; /* allow children to ellipsize */
-  text-decoration: none;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.sidebar-user-card:hover {
-  border-color: var(--brand-primary);
-  background: var(--brand-08);
-}
-
-.sidebar-user-card.active {
-  border-color: var(--brand-primary);
-  background: var(--brand-10);
-}
-
-.sidebar-user-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--brand-primary);
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  letter-spacing: 0.02em;
-}
-
-.sidebar-user-meta {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.sidebar-user-name {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
-
-.sidebar-user-role {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sidebar-user-email {
-  color: var(--text-muted);
-}
+/* `.nav-link-logout` and `.sidebar-user-*` rules previously lived here.
+   Removed — the user card, bell, and Logout button moved into PortalNavbar
+   (see PortalNavbar.css). The `.portal-navbar-user` selector is the new
+   anchor for the profile card. */
 
 .nav-icon {
   margin-right: 0.55rem;

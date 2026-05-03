@@ -7,6 +7,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/postgres.js';
+import { sendTicketReplyToAssignee } from '../services/emailService.js';
 
 interface TicketResponse {
   by: string;
@@ -90,6 +91,7 @@ export const addStoreTicketReply = async (req: Request, res: Response, next: Nex
 
     const ticket = await prisma.supportTicket.findFirst({
       where: { id: req.params.id, orgId },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
     });
     if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
     if (ticket.status === 'closed') {
@@ -110,7 +112,25 @@ export const addStoreTicketReply = async (req: Request, res: Response, next: Nex
     const updated = await prisma.supportTicket.update({
       where: { id: req.params.id },
       data:  { responses: responses as unknown as Prisma.InputJsonValue },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
     });
+
+    // Notify the assigned admin/superadmin so they see the org user's reply.
+    if (updated.assignedTo) {
+      sendTicketReplyToAssignee(updated.assignedTo.email, {
+        ticket: {
+          id: updated.id,
+          subject: updated.subject,
+          status: updated.status,
+          priority: updated.priority,
+          email: updated.email,
+          name: updated.name,
+        },
+        assigneeName:  updated.assignedTo.name || 'there',
+        replyFromName: req.user!.name || req.user!.email,
+        replyText:     message.trim(),
+      }).catch((err: Error) => console.warn('sendTicketReplyToAssignee:', err.message));
+    }
 
     res.json({ success: true, data: updated });
   } catch (err) { next(err); }

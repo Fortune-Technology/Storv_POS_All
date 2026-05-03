@@ -60,6 +60,8 @@ import {
   createSupportTicket,
   deleteSupportTicket,
   addAdminTicketReply,
+  assignTicket,
+  getAssignableUsers,
   getSystemConfig,
   updateSystemConfig,
   getAnalyticsDashboard,
@@ -91,6 +93,11 @@ import {
 import { downloadBackup } from '../controllers/backupController.js';
 import { rehostBatch, getRehostStatus } from '../services/imageRehostService.js';
 import { getSaasMarginReport } from '../controllers/saasMarginController.js';
+import {
+  adminBroadcastNotification,
+  adminListBroadcasts,
+  adminRecallBroadcast,
+} from '../controllers/notificationController.js';
 
 const router = Router();
 
@@ -112,6 +119,7 @@ router.get('/analytics/users',         getUserActivity);
 
 // User management (cross-org)
 router.get('/users',                   getAllUsers);
+router.get('/users/assignable',        getAssignableUsers);
 router.post('/users',                  createUser);
 router.put('/users/:id',               updateUser);
 router.delete('/users/:id',            softDeleteUser);
@@ -152,6 +160,12 @@ router.post('/tickets',             createSupportTicket);
 router.put('/tickets/:id',          updateSupportTicket);
 router.delete('/tickets/:id',       deleteSupportTicket);
 router.post('/tickets/:id/reply',   addAdminTicketReply);
+router.put('/tickets/:id/assign',   assignTicket);
+
+// Notifications — superadmin broadcast (audience: platform / org / store / user)
+router.get(   '/notifications',     adminListBroadcasts);
+router.post(  '/notifications',     adminBroadcastNotification);
+router.delete('/notifications/:id', adminRecallBroadcast);
 
 // System config
 router.get('/config',             getSystemConfig);

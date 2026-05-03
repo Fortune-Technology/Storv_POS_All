@@ -16,6 +16,7 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/careers':                      'admin_careers.view',
   '/careers/:id/applications':     'admin_careers.view',
   '/tickets':                      'admin_tickets.view',
+  '/notifications':                'admin_system.view',
   '/config':                       'admin_system.view',
   '/billing':                      'admin_billing.view',
   '/chat':                         'admin_chat.view',

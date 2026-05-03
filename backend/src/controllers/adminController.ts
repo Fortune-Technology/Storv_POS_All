@@ -11,7 +11,16 @@ import prisma from '../config/postgres.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { sendUserApproved, sendUserRejected, sendUserSuspended } from '../services/emailService.js';
+import {
+  sendUserApproved,
+  sendUserRejected,
+  sendUserSuspended,
+  sendTicketAssigned,
+  sendTicketUnassigned,
+  sendTicketStatusChangedToAssignee,
+  sendTicketReplyToAssignee,
+  type TicketSummary,
+} from '../services/emailService.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { logAudit } from '../services/auditService.js';
 import { computeDiff, hasChanges } from '../services/auditDiff.js';
@@ -284,6 +293,14 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     const { name, email, phone, role, orgId, status, password, storeId } = body;
     if (!name || !email || !orgId) { res.status(400).json({ error: 'Name, email, and organization are required' }); return; }
 
+    // Only existing superadmins can mint new superadmin accounts. The route
+    // guard already gates the whole admin panel to superadmin, but this is
+    // belt-and-suspenders against any future relaxation of the route guard.
+    if (role === 'superadmin' && req.user?.role !== 'superadmin') {
+      res.status(403).json({ error: 'Only a superadmin can create another superadmin user.' });
+      return;
+    }
+
     const existing = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (existing) { res.status(400).json({ error: 'A user with this email already exists' }); return; }
 
@@ -374,6 +391,12 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
   try {
     const body = (req.body || {}) as UpdateUserBody;
     const { name, email, phone, role, status, orgId } = body;
+
+    // Only existing superadmins can promote a user to superadmin.
+    if (role === 'superadmin' && req.user?.role !== 'superadmin') {
+      res.status(403).json({ error: 'Only a superadmin can promote a user to superadmin.' });
+      return;
+    }
 
     // Snapshot before-state for the audit diff. Skip orgId on the patch
     // object (it's wired to a relation) — we'll capture the org change
@@ -982,10 +1005,10 @@ export const deleteCareerPosting = async (req: Request, res: Response, next: Nex
 // SUPPORT TICKETS
 // ─────────────────────────────────────────────────────────────
 
-/* GET /api/admin/tickets?status=open&page=1&limit=25 */
+/* GET /api/admin/tickets?status=open&assignedToId=...&page=1&limit=25 */
 export const getSupportTickets = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const q = req.query as { status?: string; page?: string; limit?: string };
+    const q = req.query as { status?: string; page?: string; limit?: string; assignedToId?: string; mine?: string };
     const { status } = q;
     const page = q.page || '1';
     const limit = q.limit || '25';
@@ -993,12 +1016,24 @@ export const getSupportTickets = async (req: Request, res: Response, next: NextF
     const where: Prisma.SupportTicketWhereInput = {};
     if (status) where.status = status;
 
+    // Assignment filter — supports "unassigned", a specific userId, or "mine"
+    if (q.assignedToId === 'unassigned') {
+      where.assignedToId = null;
+    } else if (q.assignedToId) {
+      where.assignedToId = q.assignedToId;
+    } else if (q.mine === 'true' && req.user?.id) {
+      where.assignedToId = req.user.id;
+    }
+
     const [tickets, total] = await Promise.all([
       prisma.supportTicket.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: parseInt(limit),
+        include: {
+          assignedTo: { select: { id: true, name: true, email: true, role: true } },
+        },
       }),
       prisma.supportTicket.count({ where }),
     ]);
@@ -1009,15 +1044,149 @@ export const getSupportTickets = async (req: Request, res: Response, next: NextF
   }
 };
 
+/* GET /api/admin/users/assignable — list active admin/superadmin users for ticket assignment */
+export const getAssignableUsers = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        status: 'active',
+        role:   { in: ['admin', 'superadmin'] },
+      },
+      select: { id: true, name: true, email: true, role: true },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    });
+    res.json({ success: true, data: users });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** Build a TicketSummary used by ticket-assignment email templates. */
+function ticketSummary(t: { id: string; subject: string; status: string; priority: string; email: string; name: string | null }): TicketSummary {
+  return { id: t.id, subject: t.subject, status: t.status, priority: t.priority, email: t.email, name: t.name };
+}
+
 /* PUT /api/admin/tickets/:id */
 export const updateSupportTicket = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const body = (req.body || {}) as { status?: string; priority?: string; adminNotes?: string };
     const { status, priority, adminNotes } = body;
+
+    const before = await prisma.supportTicket.findUnique({
+      where: { id: req.params.id },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
+    });
+    if (!before) { res.status(404).json({ error: 'Ticket not found' }); return; }
+
     const ticket = await prisma.supportTicket.update({
       where: { id: req.params.id },
       data: { status, priority, adminNotes },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
     });
+
+    // If status changed AND there's an assignee AND they're not the one
+    // making the change, notify them so they don't miss the update.
+    if (status && status !== before.status && ticket.assignedTo && ticket.assignedTo.id !== req.user?.id) {
+      sendTicketStatusChangedToAssignee(ticket.assignedTo.email, {
+        ticket:        ticketSummary(ticket),
+        assigneeName:  ticket.assignedTo.name || 'there',
+        oldStatus:     before.status,
+        newStatus:     status,
+        changedByName: req.user?.name || 'A team member',
+      }).catch((err: Error) => console.warn('sendTicketStatusChangedToAssignee:', err.message));
+    }
+
+    res.json({ success: true, data: ticket });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* PUT /api/admin/tickets/:id/assign — assign / reassign / unassign */
+export const assignTicket = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const body = (req.body || {}) as { assignedToId?: string | null };
+    const newAssigneeId = body.assignedToId ?? null;
+
+    const before = await prisma.supportTicket.findUnique({
+      where: { id: req.params.id },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
+    });
+    if (!before) { res.status(404).json({ error: 'Ticket not found' }); return; }
+
+    // No-op when nothing changes
+    if ((before.assignedToId ?? null) === newAssigneeId) {
+      res.json({ success: true, data: before });
+      return;
+    }
+
+    // Validate the new assignee — must be active admin/superadmin.
+    let newAssignee: { id: string; name: string; email: string; role: string } | null = null;
+    if (newAssigneeId) {
+      const u = await prisma.user.findUnique({
+        where: { id: newAssigneeId },
+        select: { id: true, name: true, email: true, role: true, status: true },
+      });
+      if (!u || u.status !== 'active' || !['admin', 'superadmin'].includes(u.role)) {
+        res.status(400).json({ error: 'Assignee must be an active admin or superadmin user.' });
+        return;
+      }
+      newAssignee = { id: u.id, name: u.name, email: u.email, role: u.role };
+    }
+
+    // Append assignment-history entry to responses JSON
+    const responses: Array<Record<string, unknown>> = Array.isArray(before.responses)
+      ? [...((before.responses as unknown) as Array<Record<string, unknown>>)]
+      : [];
+    responses.push({
+      type: 'assignment',
+      from: before.assignedToId ?? null,
+      to:   newAssigneeId,
+      by:   req.user?.id ?? null,
+      byName: req.user?.name ?? null,
+      at:   new Date().toISOString(),
+    });
+
+    const ticket = await prisma.supportTicket.update({
+      where: { id: req.params.id },
+      data: {
+        assignedToId: newAssigneeId,
+        assignedAt:   newAssigneeId ? new Date() : null,
+        assignedById: newAssigneeId ? (req.user?.id ?? null) : null,
+        responses:    responses as unknown as Prisma.InputJsonValue,
+      },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
+    });
+
+    const summary = ticketSummary(ticket);
+    const changedByName = req.user?.name || 'A team member';
+
+    // Email previous assignee if there was one and they're being replaced
+    if (before.assignedTo && before.assignedTo.id !== newAssigneeId) {
+      sendTicketUnassigned(before.assignedTo.email, {
+        ticket:           summary,
+        assigneeName:     before.assignedTo.name || 'there',
+        reassignedToName: newAssignee?.name ?? null,
+        changedByName,
+      }).catch((err: Error) => console.warn('sendTicketUnassigned:', err.message));
+    }
+
+    // Email new assignee if there is one
+    if (newAssignee) {
+      sendTicketAssigned(newAssignee.email, {
+        ticket:         summary,
+        assigneeName:   newAssignee.name || 'there',
+        assignedByName: changedByName,
+      }).catch((err: Error) => console.warn('sendTicketAssigned:', err.message));
+    }
+
+    logAudit(req, 'assign', 'support_ticket', ticket.id, {
+      from: before.assignedToId ?? null,
+      to:   newAssigneeId,
+      fromName: before.assignedTo?.name ?? null,
+      toName:   newAssignee?.name ?? null,
+    });
+
     res.json({ success: true, data: ticket });
   } catch (error) {
     next(error);
@@ -1075,7 +1244,10 @@ export const addAdminTicketReply = async (req: Request, res: Response, next: Nex
     const { message } = body;
     if (!message?.trim()) { res.status(400).json({ error: 'message is required' }); return; }
 
-    const ticket = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    const ticket = await prisma.supportTicket.findUnique({
+      where: { id: req.params.id },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
+    });
     if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
 
     const responses: TicketResponseEntry[] = Array.isArray(ticket.responses)
@@ -1094,7 +1266,21 @@ export const addAdminTicketReply = async (req: Request, res: Response, next: Nex
         responses: responses as unknown as Prisma.InputJsonValue,
         status: ticket.status === 'open' ? 'in_progress' : ticket.status,
       },
+      include: { assignedTo: { select: { id: true, name: true, email: true, role: true } } },
     });
+
+    // Notify the assignee if someone OTHER than them posted the reply
+    // (e.g. another admin chimes in, or the requester replied via the
+    // org-side ticket flow — assignee needs to know).
+    if (updated.assignedTo && updated.assignedTo.id !== req.user?.id) {
+      sendTicketReplyToAssignee(updated.assignedTo.email, {
+        ticket:        ticketSummary(updated),
+        assigneeName:  updated.assignedTo.name || 'there',
+        replyFromName: req.user?.name || 'A team member',
+        replyText:     message.trim(),
+      }).catch((err: Error) => console.warn('sendTicketReplyToAssignee:', err.message));
+    }
+
     res.json({ success: true, data: updated });
   } catch (error) { next(error); }
 };

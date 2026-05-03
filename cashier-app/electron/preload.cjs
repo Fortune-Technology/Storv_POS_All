@@ -96,4 +96,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Open a URL in the user's default system browser (Chrome/Edge/Firefox),
    *  not in an Electron BrowserWindow. Returns true on success. */
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+
+  // ── Auto-Updater ───────────────────────────────────────────────────────────
+  /**
+   * Returns the current updater state:
+   *   { status, message, version, current, progress, error }
+   *   status: 'idle' | 'checking' | 'available' | 'no-update' | 'downloading' | 'ready' | 'error'
+   */
+  updaterGetState: () => ipcRenderer.invoke('updater:get-state'),
+
+  /** Manually check for updates (button click). Resolves to current state. */
+  updaterCheck:    () => ipcRenderer.invoke('updater:check'),
+
+  /** Begin downloading the available update. */
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+
+  /** Quit and install the downloaded update. App relaunches automatically. */
+  updaterInstall:  () => ipcRenderer.invoke('updater:install'),
+
+  /** Subscribe to live updater state changes. Returns an unsubscribe fn. */
+  onUpdaterState: (cb) => {
+    const handler = (_, state) => cb(state);
+    ipcRenderer.on('updater:state', handler);
+    return () => ipcRenderer.removeListener('updater:state', handler);
+  },
 });

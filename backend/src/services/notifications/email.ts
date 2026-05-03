@@ -544,6 +544,110 @@ export async function sendScanDataAckRejection(to: string, {
   return sendMail(to, `[Storeveu] ${rejectedCount} scan-data line${rejectedCount === 1 ? '' : 's'} rejected — ${manufacturerName || 'mfr'}`, html);
 }
 
+// ─── Ticket assignment templates ─────────────────────────────────────────────
+
+export interface TicketSummary {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  email?: string | null;
+  name?: string | null;
+}
+
+function ticketLink(id: string): string {
+  const base = (process.env.ADMIN_URL || 'http://localhost:5175').replace(/\/$/, '');
+  return `${base}/tickets?id=${encodeURIComponent(id)}`;
+}
+
+function statusBadgeColor(status: string): string {
+  switch (status) {
+    case 'open':        return '#3d56b5';
+    case 'in_progress': return '#d97706';
+    case 'resolved':    return '#16a34a';
+    case 'closed':      return '#64748b';
+    default:            return '#3d56b5';
+  }
+}
+
+function ticketMetaBlock(ticket: TicketSummary): string {
+  const url = ticketLink(ticket.id);
+  return `
+    <table cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 16px;width:100%;border-collapse:collapse">
+      <tr><td style="padding:6px 0;color:#64748b;width:90px">Subject</td><td style="padding:6px 0;color:#0f172a;font-weight:600">${escapeHtml(ticket.subject)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Status</td><td style="padding:6px 0"><span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:600;color:#fff;background:${statusBadgeColor(ticket.status)}">${escapeHtml(ticket.status.replace('_',' ').toUpperCase())}</span></td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Priority</td><td style="padding:6px 0;color:#0f172a">${escapeHtml(ticket.priority)}</td></tr>
+      ${ticket.email ? `<tr><td style="padding:6px 0;color:#64748b">From</td><td style="padding:6px 0;color:#0f172a">${escapeHtml(ticket.name || '')} ${ticket.email ? `&lt;${escapeHtml(ticket.email)}&gt;` : ''}</td></tr>` : ''}
+    </table>
+    <p style="text-align:center"><a class="btn" href="${url}">Open Ticket</a></p>
+  `;
+}
+
+export async function sendTicketAssigned(
+  to: string,
+  payload: { ticket: TicketSummary; assigneeName: string; assignedByName: string },
+): Promise<boolean> {
+  const { ticket, assigneeName, assignedByName } = payload;
+  const html = wrap('Support Ticket Assigned to You', `
+    <h2>Hi ${escapeHtml(assigneeName)},</h2>
+    <p><strong>${escapeHtml(assignedByName)}</strong> assigned a support ticket to you. You're now responsible for following up.</p>
+    ${ticketMetaBlock(ticket)}
+    <p class="muted">Status changes and replies you make will notify the requester automatically.</p>
+  `);
+  return sendMail(to, `[Storeveu] Ticket assigned — ${ticket.subject}`, html);
+}
+
+export async function sendTicketUnassigned(
+  to: string,
+  payload: { ticket: TicketSummary; assigneeName: string; reassignedToName: string | null; changedByName: string },
+): Promise<boolean> {
+  const { ticket, assigneeName, reassignedToName, changedByName } = payload;
+  const reassignNote = reassignedToName
+    ? `<p>The ticket has been reassigned to <strong>${escapeHtml(reassignedToName)}</strong>.</p>`
+    : `<p>The ticket is now unassigned.</p>`;
+  const html = wrap('Removed from Support Ticket', `
+    <h2>Hi ${escapeHtml(assigneeName)},</h2>
+    <p><strong>${escapeHtml(changedByName)}</strong> removed you as the assignee for this ticket.</p>
+    ${reassignNote}
+    ${ticketMetaBlock(ticket)}
+    <p class="muted">No further action is needed from you.</p>
+  `);
+  return sendMail(to, `[Storeveu] Removed from ticket — ${ticket.subject}`, html);
+}
+
+export async function sendTicketStatusChangedToAssignee(
+  to: string,
+  payload: { ticket: TicketSummary; assigneeName: string; oldStatus: string; newStatus: string; changedByName: string },
+): Promise<boolean> {
+  const { ticket, assigneeName, oldStatus, newStatus, changedByName } = payload;
+  const html = wrap('Ticket Status Updated', `
+    <h2>Hi ${escapeHtml(assigneeName)},</h2>
+    <p><strong>${escapeHtml(changedByName)}</strong> changed the status of a ticket assigned to you.</p>
+    <p style="margin:16px 0">
+      <span style="display:inline-block;padding:4px 10px;border-radius:6px;background:#f1f5f9;color:#64748b;font-size:13px">${escapeHtml(oldStatus.replace('_',' '))}</span>
+      <span style="margin:0 8px;color:#94a3b8">→</span>
+      <span style="display:inline-block;padding:4px 10px;border-radius:6px;color:#fff;font-size:13px;background:${statusBadgeColor(newStatus)}">${escapeHtml(newStatus.replace('_',' '))}</span>
+    </p>
+    ${ticketMetaBlock(ticket)}
+  `);
+  return sendMail(to, `[Storeveu] Ticket status: ${newStatus.replace('_',' ')} — ${ticket.subject}`, html);
+}
+
+export async function sendTicketReplyToAssignee(
+  to: string,
+  payload: { ticket: TicketSummary; assigneeName: string; replyFromName: string; replyText: string },
+): Promise<boolean> {
+  const { ticket, assigneeName, replyFromName, replyText } = payload;
+  const trimmed = replyText.length > 800 ? replyText.slice(0, 800) + '…' : replyText;
+  const html = wrap('New Reply on Your Ticket', `
+    <h2>Hi ${escapeHtml(assigneeName)},</h2>
+    <p><strong>${escapeHtml(replyFromName)}</strong> replied to a ticket assigned to you:</p>
+    <blockquote style="margin:16px 0;padding:14px 18px;background:#f8fafc;border-left:3px solid #3d56b5;border-radius:6px;color:#334155;font-size:14px;white-space:pre-wrap">${escapeHtml(trimmed)}</blockquote>
+    ${ticketMetaBlock(ticket)}
+  `);
+  return sendMail(to, `[Storeveu] New reply — ${ticket.subject}`, html);
+}
+
 // Minimal HTML escape for template interpolation
 function escapeHtml(s: unknown): string {
   if (s == null) return '';

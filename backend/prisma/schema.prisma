@@ -911,6 +911,11 @@ model User {
   orgs           UserOrg[]
   priceScenarios PriceScenario[] @relation("PriceScenarioCreator")
 
+  assignedTickets   SupportTicket[] @relation("TicketAssignee")
+  assignedByMe      SupportTicket[] @relation("TicketAssigner")
+
+  notificationDeliveries NotificationDelivery[] @relation("UserNotifications")
+
   @@index([orgId, role])
   @@index([orgId, email])
   @@map("users")
@@ -2280,13 +2285,21 @@ model SupportTicket {
   status     String  @default("open") // "open" | "in_progress" | "resolved" | "closed"
   priority   String  @default("normal") // "low" | "normal" | "high" | "urgent"
   adminNotes String? @db.Text // internal notes by superadmin
-  responses  Json?   @default("[]") // Array of { by, message, date }
+  responses  Json?   @default("[]") // Array of { by, byType, message, date } and { type:'assignment', from, to, by, at }
+
+  // Assignment — admin/superadmin user responsible for handling the ticket
+  assignedToId String?
+  assignedAt   DateTime?
+  assignedById String?
+  assignedTo   User? @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  assignedBy   User? @relation("TicketAssigner", fields: [assignedById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([orgId])
+  @@index([assignedToId, status])
   @@map("support_tickets")
 }
 
@@ -4696,4 +4709,74 @@ model ScanDataSubmission {
   @@index([orgId, storeId, submissionDate])
   @@index([manufacturerId, status])
   @@map("scan_data_submissions")
+}
+
+// ─────────────────────────────────────────────────
+// NOTIFICATIONS
+// Cross-portal notification system. One Notification row per "broadcast"
+// (an event the system or a superadmin wants to surface). NotificationDelivery
+// fans out to individual users + tracks per-user read state.
+//
+// Targeting:
+//   • Org-wide          → audience='org',   targetOrgId set, targetStoreId/UserId null
+//   • Store-wide        → audience='store', targetOrgId+StoreId set
+//   • Single user       → audience='user',  targetUserId set
+//   • Platform-wide     → audience='platform' (superadmin → every active user)
+//
+// Source of the row drives the icon + grouping in the UI:
+//   'system' (auto-emitted), 'admin' (manual broadcast), 'order' (ecom),
+//   'task' (task assignment / reminder), 'support' (ticket events).
+// ─────────────────────────────────────────────────
+model Notification {
+  id          String   @id @default(cuid())
+
+  // Author / source
+  source      String   @default("system") // system | admin | order | task | support
+  createdById String?  // User.id who triggered the broadcast (null for system events)
+
+  // Content
+  title       String
+  message     String   @db.Text
+  linkUrl     String?  // optional click-through (e.g. /portal/online-orders)
+  iconKey     String?  // optional UI hint: 'order', 'task', 'system', 'alert', etc.
+  priority    String   @default("normal") // low | normal | high | urgent
+  type        String   @default("info")   // info | success | warning | error
+
+  // Targeting — only one of these dimensions is enforced; deliveries fan out.
+  audience      String   @default("user")  // platform | org | store | user
+  targetOrgId   String?
+  targetStoreId String?
+  targetUserId  String?
+
+  // Idempotency — populated by emitters that risk duplicates (e.g. order webhooks
+  // firing twice). When set, repeat emits with the same key drop silently.
+  dedupeKey   String?  @unique
+
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  deliveries  NotificationDelivery[]
+
+  @@index([source, createdAt])
+  @@index([targetOrgId, createdAt])
+  @@index([targetStoreId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@map("notifications")
+}
+
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  userId         String
+
+  readAt         DateTime?    // null = unread
+  dismissedAt    DateTime?    // user explicitly dismissed (X button)
+  deliveredAt    DateTime     @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+  @@map("notification_deliveries")
 }

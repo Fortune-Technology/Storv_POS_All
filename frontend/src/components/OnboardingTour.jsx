@@ -80,15 +80,19 @@ function buildSteps() {
     });
   }
 
-  // Profile card
-  const userCard = document.querySelector('.sidebar-user-card');
+  // Profile card — moved from sidebar bottom into the top navbar in 2026-05.
+  // Fall back to the legacy `.sidebar-user-card` selector so older portal
+  // snapshots in the wild still get the tour step.
+  const userCard =
+    document.querySelector('.portal-navbar-user') ||
+    document.querySelector('.sidebar-user-card');
   if (userCard) {
     steps.push({
       element: userCard,
       intro:
         '<strong>Your profile</strong><br/>' +
         'See who you are signed in as and update your name, phone, or password from here.',
-      position: 'right',
+      position: 'bottom',
     });
   }
 
