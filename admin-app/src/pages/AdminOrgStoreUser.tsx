@@ -79,7 +79,19 @@ interface AdminUserRow {
 }
 
 const PLAN_OPTIONS = ['trial', 'starter', 'pro', 'enterprise'] as const;
-const ROLE_OPTIONS: Role[] = ['staff', 'cashier', 'manager', 'owner', 'admin'];
+const ROLE_OPTIONS_BASE: Role[] = ['staff', 'cashier', 'manager', 'owner', 'admin'];
+
+/** Build the role options list, optionally including 'superadmin' for current superadmins. */
+function getRoleOptions(): Role[] {
+  try {
+    const raw = localStorage.getItem('admin_user');
+    if (raw) {
+      const u = JSON.parse(raw) as { role?: string };
+      if (u?.role === 'superadmin') return [...ROLE_OPTIONS_BASE, 'superadmin'];
+    }
+  } catch { /* ignore */ }
+  return ROLE_OPTIONS_BASE;
+}
 const STATUS_OPTIONS: UserStatus[] = ['pending', 'active', 'suspended'];
 
 const toSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -580,7 +592,7 @@ const UserModal = ({ open, onClose, onSaved, editUser, orgId, storeId, storeName
             <div className="admin-modal-field">
               <label>Role</label>
               <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                {getRoleOptions().map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
           </div>

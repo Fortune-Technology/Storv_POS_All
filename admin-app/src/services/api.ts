@@ -211,6 +211,11 @@ export const createAdminTicket     = (data: unknown):                           
 export const updateAdminTicket     = (id: string | number, data: unknown):       Promise<{ data: SupportTicket }> => api.put(`/admin/tickets/${id}`, data).then(r => r.data);
 export const deleteAdminTicket     = (id: string | number):                     Promise<SuccessResponse> => api.delete(`/admin/tickets/${id}`).then(r => r.data);
 export const addAdminTicketReply   = (id: string | number, data: unknown):       Promise<{ data: SupportTicket }> => api.post(`/admin/tickets/${id}/reply`, data).then(r => r.data);
+export const assignAdminTicket     = (id: string | number, assignedToId: string | null): Promise<{ data: SupportTicket }> => api.put(`/admin/tickets/${id}/assign`, { assignedToId }).then(r => r.data);
+
+// Active admin/superadmin users for ticket assignment dropdown
+export interface AssignableUser { id: string; name: string; email: string; role: string }
+export const getAssignableUsers    = (): Promise<{ data: AssignableUser[] }> => api.get('/admin/users/assignable').then(r => r.data);
 
 // ── Admin System Config ──────────────────────────────────────────────────────
 export const getAdminSystemConfig    = ():              Promise<{ data: SystemConfig[] }> => api.get('/admin/config').then(r => r.data);

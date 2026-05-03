@@ -911,6 +911,9 @@ model User {
   orgs           UserOrg[]
   priceScenarios PriceScenario[] @relation("PriceScenarioCreator")
 
+  assignedTickets   SupportTicket[] @relation("TicketAssignee")
+  assignedByMe      SupportTicket[] @relation("TicketAssigner")
+
   @@index([orgId, role])
   @@index([orgId, email])
   @@map("users")
@@ -2280,13 +2283,21 @@ model SupportTicket {
   status     String  @default("open") // "open" | "in_progress" | "resolved" | "closed"
   priority   String  @default("normal") // "low" | "normal" | "high" | "urgent"
   adminNotes String? @db.Text // internal notes by superadmin
-  responses  Json?   @default("[]") // Array of { by, message, date }
+  responses  Json?   @default("[]") // Array of { by, byType, message, date } and { type:'assignment', from, to, by, at }
+
+  // Assignment — admin/superadmin user responsible for handling the ticket
+  assignedToId String?
+  assignedAt   DateTime?
+  assignedById String?
+  assignedTo   User? @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  assignedBy   User? @relation("TicketAssigner", fields: [assignedById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([orgId])
+  @@index([assignedToId, status])
   @@map("support_tickets")
 }
 

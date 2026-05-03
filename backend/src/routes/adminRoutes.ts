@@ -60,6 +60,8 @@ import {
   createSupportTicket,
   deleteSupportTicket,
   addAdminTicketReply,
+  assignTicket,
+  getAssignableUsers,
   getSystemConfig,
   updateSystemConfig,
   getAnalyticsDashboard,
@@ -112,6 +114,7 @@ router.get('/analytics/users',         getUserActivity);
 
 // User management (cross-org)
 router.get('/users',                   getAllUsers);
+router.get('/users/assignable',        getAssignableUsers);
 router.post('/users',                  createUser);
 router.put('/users/:id',               updateUser);
 router.delete('/users/:id',            softDeleteUser);
@@ -152,6 +155,7 @@ router.post('/tickets',             createSupportTicket);
 router.put('/tickets/:id',          updateSupportTicket);
 router.delete('/tickets/:id',       deleteSupportTicket);
 router.post('/tickets/:id/reply',   addAdminTicketReply);
+router.put('/tickets/:id/assign',   assignTicket);
 
 // System config
 router.get('/config',             getSystemConfig);
