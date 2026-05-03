@@ -42,7 +42,13 @@ export function normalizeUPC(raw) {
 export function upcVariants(raw) {
   if (raw == null || raw === '') return [];
   const digits = String(raw).replace(/[\s\-\.]/g, '').replace(/\D/g, '');
-  if (!digits || digits.length < 6) return [];
+  if (!digits) return [];
+
+  // Short codes (2-5 digits) are store-assigned product identifiers cashiers
+  // type on the keypad (e.g. `299`). Exact-match only — don't expand via
+  // padding/stripping, which would either explode lookups or false-positive
+  // against long UPCs sharing the same digits.
+  if (digits.length < 6) return [digits];
 
   const set = new Set();
   set.add(digits);
@@ -69,5 +75,5 @@ export function upcVariants(raw) {
     if (noCheckStripped) set.add(noCheckStripped);
   }
 
-  return [...set].filter(v => v.length >= 6);
+  return [...set].filter(v => v.length >= 2);
 }

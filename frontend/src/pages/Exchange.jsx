@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Repeat, Inbox, Send, Handshake, Wallet, Settings2, Check, X,
   ArrowRight, ArrowLeft, Copy, Search, Plus, AlertTriangle,
@@ -803,6 +804,7 @@ function SettlementModal({ partner, direction, amount, onClose, onSaved }) {
 // ═══════════════════════════════════════════════════════════════
 
 function PartnersTab({ partners, pendingIn, onRefresh, can }) {
+  const confirm = useConfirm();
   const [lookupCode, setLookupCode] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupErr, setLookupErr] = useState(null);
@@ -855,7 +857,12 @@ function PartnersTab({ partners, pendingIn, onRefresh, can }) {
     } catch (err) { toast.error(err.response?.data?.error || err.message); }
   };
   const revoke = async (id) => {
-    if (!window.confirm('End partnership? They will no longer be able to send you POs.')) return;
+    if (!await confirm({
+      title: 'End partnership?',
+      message: 'End partnership? They will no longer be able to send you POs.',
+      confirmLabel: 'End',
+      danger: true,
+    })) return;
     try {
       await revokePartnership(id, '');
       toast.info('Partnership ended.');

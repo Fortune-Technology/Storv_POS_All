@@ -26,9 +26,99 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scr
 const SKIP_PATH_PREFIXES = ['/login', '/signup', '/forgot-password', '/reset-password', '/impersonate'];
 const PROTECTED_PATH_PREFIX = '/portal'; // only lock when inside the portal
 
+// Persist lock state across page reloads. Without these keys, hitting F5
+// (or letting the page auto-reload after JS error) silently dismissed the
+// lock — letting anyone with browser access reach the portal without
+// re-entering the password.
+const LS_LOCKED      = 'storv:il:locked';        // 'true' | absent
+const LS_LAST_ACTIVE = 'storv:il:lastActive';    // unix-ms timestamp
+const LS_LOCKED_FOR  = 'storv:il:lockedFor';     // userId of the session that owns the lock
+
+function readPersistedLock() {
+  try { return localStorage.getItem(LS_LOCKED) === 'true'; }
+  catch { return false; }
+}
+function readPersistedLastActive() {
+  try {
+    const v = parseInt(localStorage.getItem(LS_LAST_ACTIVE), 10);
+    return Number.isFinite(v) ? v : 0;
+  } catch { return 0; }
+}
+function writePersistedLock(v) {
+  try {
+    if (v) localStorage.setItem(LS_LOCKED, 'true');
+    else   localStorage.removeItem(LS_LOCKED);
+  } catch { /* ignore */ }
+}
+function writePersistedLastActive(ts) {
+  try { localStorage.setItem(LS_LAST_ACTIVE, String(ts)); }
+  catch { /* ignore */ }
+}
+function readPersistedLockedFor() {
+  try { return localStorage.getItem(LS_LOCKED_FOR) || ''; }
+  catch { return ''; }
+}
+function writePersistedLockedFor(id) {
+  try {
+    if (id) localStorage.setItem(LS_LOCKED_FOR, String(id));
+    else    localStorage.removeItem(LS_LOCKED_FOR);
+  } catch { /* ignore */ }
+}
+// Identity of the currently signed-in user. Falls back to email when id
+// isn't on the user object (older login responses, edge cases).
+function readCurrentUserId() {
+  try {
+    const u = JSON.parse(localStorage.getItem('user') || 'null');
+    return String(u?.id || u?.email || '');
+  } catch { return ''; }
+}
+
 export default function InactivityLock() {
   const location = useLocation();
-  const [locked, setLocked] = useState(false);
+  // Initialise locked state from persistence — this is the actual fix for
+  // the "reload bypasses lock" bug. Two cases trigger initial-locked=true:
+  //   1. lock was explicitly set before the reload (LS_LOCKED='true')
+  //   2. last-active timestamp is older than IDLE_MS (we'd be locked
+  //      anyway by now if the page had stayed open)
+  //
+  // CRITICAL: this component is mounted at the App level so it lives
+  // through every route, including /impersonate (the SSO landing) and
+  // /login. On those paths a brand-new session is being established and
+  // localStorage.user is still pointing at the previous browser session
+  // when the initializer runs. Skip persistence detection entirely for
+  // public/auth paths — start unlocked, never inherit the previous user's
+  // lock. Once routing settles into /portal/*, the listener-effect plants a
+  // fresh idle baseline for the new session.
+  //
+  // Identity guard: even on a /portal/* deep link, if a different user is
+  // now signed in (e.g. user manually pasted /portal/realtime after a
+  // session swap), the persisted lock from the previous user is stale —
+  // clear it and start unlocked.
+  const [locked, setLocked] = useState(() => {
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const onProtected = path.startsWith(PROTECTED_PATH_PREFIX)
+      && !SKIP_PATH_PREFIXES.some(p => path.startsWith(p));
+    if (!onProtected) {
+      // Fresh-page load on /impersonate, /login, /signup etc. — clear any
+      // stale lock state so the next /portal mount starts clean.
+      writePersistedLock(false);
+      writePersistedLastActive(0);
+      writePersistedLockedFor('');
+      return false;
+    }
+    const currentId = readCurrentUserId();
+    const lockedFor = readPersistedLockedFor();
+    if (currentId && lockedFor && lockedFor !== currentId) {
+      writePersistedLock(false);
+      writePersistedLastActive(0);
+      writePersistedLockedFor('');
+      return false;
+    }
+    if (readPersistedLock()) return true;
+    const last = readPersistedLastActive();
+    if (last && Date.now() - last >= IDLE_MS) return true;
+    return false;
+  });
   const [pw, setPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState(null);
@@ -41,11 +131,26 @@ export default function InactivityLock() {
   const isProtected = location.pathname.startsWith(PROTECTED_PATH_PREFIX)
     && !SKIP_PATH_PREFIXES.some(p => location.pathname.startsWith(p));
 
+  // Mirror lock state into localStorage so reloads keep it. Pages outside
+  // the portal don't need persistence — clear when leaving. The lockedFor
+  // marker records the user who owns the current lock so a session change
+  // (login / SSO impersonation / signup / invitation accept) auto-invalidates.
+  useEffect(() => {
+    if (!isProtected) {
+      writePersistedLock(false);
+      writePersistedLockedFor('');
+      return;
+    }
+    writePersistedLock(locked);
+    writePersistedLockedFor(locked ? readCurrentUserId() : '');
+  }, [locked, isProtected]);
+
   const resetTimer = useCallback(() => {
     if (locked || !isProtected) return;
     const now = Date.now();
     if (now - lastActivityRef.current < THROTTLE_MS) return;
     lastActivityRef.current = now;
+    writePersistedLastActive(now);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setLocked(true), IDLE_MS);
   }, [locked, isProtected]);
@@ -56,9 +161,22 @@ export default function InactivityLock() {
       if (timerRef.current) clearTimeout(timerRef.current);
       return;
     }
-    // Initial timer
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setLocked(true), IDLE_MS);
+
+    // If we mounted in the unlocked state, schedule based on persisted
+    // last-active timestamp so a reload mid-session doesn't grant a
+    // fresh full IDLE_MS window. Locked state already handled by the
+    // initial useState callback above.
+    const nowMs = Date.now();
+    const last  = readPersistedLastActive();
+    if (!locked) {
+      const elapsed = last ? nowMs - last : 0;
+      const remaining = Math.max(0, IDLE_MS - elapsed);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setLocked(true), remaining);
+      // If we don't have a baseline yet, plant one now so subsequent
+      // reloads get the same picture.
+      if (!last) writePersistedLastActive(nowMs);
+    }
 
     for (const evt of ACTIVITY_EVENTS) {
       window.addEventListener(evt, resetTimer, { passive: true });
@@ -67,7 +185,7 @@ export default function InactivityLock() {
       if (timerRef.current) clearTimeout(timerRef.current);
       for (const evt of ACTIVITY_EVENTS) window.removeEventListener(evt, resetTimer);
     };
-  }, [isProtected, resetTimer]);
+  }, [isProtected, resetTimer, locked]);
 
   // ── Unlock handler ─────────────────────────────────────────────────────────
   const handleUnlock = async (e) => {
@@ -86,10 +204,13 @@ export default function InactivityLock() {
       // session — we just need to confirm the password is correct.
       const res = await api.post('/auth/verify-password', { password: pw });
       if (res?.data?.success) {
+        const now = Date.now();
         setLocked(false);
         setPw('');
         setError(null);
-        lastActivityRef.current = Date.now();
+        lastActivityRef.current = now;
+        writePersistedLock(false);
+        writePersistedLastActive(now);
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setLocked(true), IDLE_MS);
       } else {
@@ -199,6 +320,11 @@ function LockOverlay({ visible, pw, setPw, showPw, setShowPw, error, submitting,
           onClick={() => {
             localStorage.removeItem('user');
             localStorage.removeItem('activeStoreId');
+            try {
+              localStorage.removeItem('storv:il:locked');
+              localStorage.removeItem('storv:il:lastActive');
+              localStorage.removeItem('storv:il:lockedFor');
+            } catch { /* ignore */ }
             window.location.href = '/login';
           }}
         >

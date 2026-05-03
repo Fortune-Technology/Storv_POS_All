@@ -1,0 +1,638 @@
+{
+  "storeId": "cmonu64m80002zaategfblpvq",
+  "orgId": "cmonu64m40000zaat7o9e9i0q",
+  "generatedAt": "2026-05-02T04:26:59.260Z",
+  "byDay": {
+    "2026-04-28": {
+      "gross": 49.63,
+      "net": 46.4,
+      "tax": 3.13,
+      "deposits": 0.1,
+      "ebt": 25.44,
+      "txCount": 4,
+      "refundCount": 0,
+      "voidCount": 0
+    },
+    "2026-04-29": {
+      "gross": 35.2,
+      "net": 32.45,
+      "tax": 2.55,
+      "deposits": 0.2,
+      "ebt": 18.46,
+      "txCount": 3,
+      "refundCount": 1,
+      "voidCount": 0
+    },
+    "2026-04-30": {
+      "gross": 46.41,
+      "net": 43.91,
+      "tax": 2.2,
+      "deposits": 0.3,
+      "ebt": 43.91,
+      "txCount": 2,
+      "refundCount": 0,
+      "voidCount": 1
+    },
+    "2026-05-01": {
+      "gross": 128.12,
+      "net": 119.24,
+      "tax": 8.28,
+      "deposits": 0.6,
+      "ebt": 59.35,
+      "txCount": 7,
+      "refundCount": 0,
+      "voidCount": 0
+    },
+    "2026-05-02": {
+      "gross": 29.48,
+      "net": 27.45,
+      "tax": 1.83,
+      "deposits": 0.2,
+      "ebt": 15.46,
+      "txCount": 3,
+      "refundCount": 0,
+      "voidCount": 0
+    }
+  },
+  "byShift": [
+    {
+      "shiftId": "cmonub77i0000cwbkd6x2mkm9",
+      "cashierId": "cmonu64vw0003zaat3wibuxke",
+      "openedAt": "2026-04-28T13:00:00.000Z",
+      "closedAt": "2026-04-28T21:00:00.000Z",
+      "openingFloat": 200,
+      "cashSales": 21.73,
+      "cashRefunds": 0,
+      "cashDropsTotal": 0,
+      "cashPayoutsTotal": 0,
+      "expectedDrawer": 221.73,
+      "closingFloat": 221.73
+    },
+    {
+      "shiftId": "cmonub77z0005cwbka0rvmbfj",
+      "cashierId": "cmonu64w80004zaat34ws5vav",
+      "openedAt": "2026-04-29T13:00:00.000Z",
+      "closedAt": "2026-04-29T21:00:00.000Z",
+      "openingFloat": 200,
+      "cashSales": 19.78,
+      "cashRefunds": 10.69,
+      "cashDropsTotal": 0,
+      "cashPayoutsTotal": 0,
+      "expectedDrawer": 209.09,
+      "closingFloat": 209.09
+    },
+    {
+      "shiftId": "cmonub78d000acwbkomueyolv",
+      "cashierId": "cmonu64vw0003zaat3wibuxke",
+      "openedAt": "2026-04-30T12:00:00.000Z",
+      "closedAt": "2026-04-30T21:00:00.000Z",
+      "openingFloat": 200,
+      "cashSales": 24.4,
+      "cashRefunds": 0,
+      "cashDropsTotal": 100,
+      "cashPayoutsTotal": 0,
+      "expectedDrawer": 124.4,
+      "closingFloat": 124.4
+    },
+    {
+      "shiftId": "cmonub78n000gcwbknxnmb7uc",
+      "cashierId": "cmonu64vw0003zaat3wibuxke",
+      "openedAt": "2026-05-01T11:00:00.000Z",
+      "closedAt": "2026-05-01T19:00:00.000Z",
+      "openingFloat": 200,
+      "cashSales": 17.65,
+      "cashRefunds": 0,
+      "cashDropsTotal": 0,
+      "cashPayoutsTotal": 0,
+      "expectedDrawer": 217.65,
+      "closingFloat": 217.65
+    },
+    {
+      "shiftId": "cmonub78x000mcwbk861p3chl",
+      "cashierId": "cmonu64w80004zaat34ws5vav",
+      "openedAt": "2026-05-01T18:30:00.000Z",
+      "closedAt": "2026-05-02T03:00:00.000Z",
+      "openingFloat": 200,
+      "cashSales": 34.59,
+      "cashRefunds": 0,
+      "cashDropsTotal": 0,
+      "cashPayoutsTotal": 40,
+      "expectedDrawer": 194.59,
+      "closingFloat": 194.59
+    },
+    {
+      "shiftId": "cmonub79i000zcwbkpkbmwb41",
+      "cashierId": "cmonu64vw0003zaat3wibuxke",
+      "openedAt": "2026-05-02T13:00:00.000Z",
+      "closedAt": null,
+      "openingFloat": 200,
+      "cashSales": 9.2,
+      "cashRefunds": 0,
+      "cashDropsTotal": 0,
+      "cashPayoutsTotal": 0,
+      "expectedDrawer": 209.2,
+      "closingFloat": null,
+      "open": true
+    }
+  ],
+  "byDept": {
+    "GROCERY": {
+      "netSales": 117.7,
+      "txCount": 0,
+      "lineCount": 21
+    },
+    "BEVERAGES": {
+      "netSales": 34.93,
+      "txCount": 0,
+      "lineCount": 10
+    },
+    "TOBACCO": {
+      "netSales": 83.93,
+      "txCount": 0,
+      "lineCount": 6
+    },
+    "ALCOHOL": {
+      "netSales": 32.89,
+      "txCount": 0,
+      "lineCount": 3
+    }
+  },
+  "byCashier": {
+    "cmonu64vw0003zaat3wibuxke": {
+      "netSales": 167.65,
+      "txCount": 12,
+      "refundCount": 0
+    },
+    "cmonu64w80004zaat34ws5vav": {
+      "netSales": 111.79,
+      "txCount": 7,
+      "refundCount": 1
+    }
+  },
+  "byProduct": {
+    "bread": {
+      "unitsSold": 9,
+      "revenue": 35.910000000000004
+    },
+    "milk": {
+      "unitsSold": 8,
+      "revenue": 35.92
+    },
+    "coke12": {
+      "unitsSold": 10,
+      "revenue": 15
+    },
+    "marlboro": {
+      "unitsSold": 7,
+      "revenue": 83.92999999999999
+    },
+    "budlight": {
+      "unitsSold": 11,
+      "revenue": 32.89
+    },
+    "eggs": {
+      "unitsSold": 5,
+      "revenue": 29.950000000000003
+    },
+    "apples": {
+      "unitsSold": 8,
+      "revenue": 15.92
+    },
+    "pepsi12": {
+      "unitsSold": 4,
+      "revenue": 6
+    },
+    "water32": {
+      "unitsSold": 7,
+      "revenue": 13.93
+    }
+  },
+  "byProductByDay": {
+    "2026-04-28": {
+      "bread": {
+        "units": 2,
+        "revenue": 7.98
+      },
+      "milk": {
+        "units": 1,
+        "revenue": 4.49
+      },
+      "coke12": {
+        "units": 2,
+        "revenue": 3
+      },
+      "marlboro": {
+        "units": 1,
+        "revenue": 11.99
+      },
+      "budlight": {
+        "units": 3,
+        "revenue": 8.97
+      },
+      "eggs": {
+        "units": 1,
+        "revenue": 5.99
+      },
+      "apples": {
+        "units": 2,
+        "revenue": 3.98
+      }
+    },
+    "2026-04-29": {
+      "bread": {
+        "units": 0,
+        "revenue": 0
+      },
+      "pepsi12": {
+        "units": 0,
+        "revenue": 0
+      },
+      "marlboro": {
+        "units": 2,
+        "revenue": 23.98
+      },
+      "water32": {
+        "units": 2,
+        "revenue": 3.98
+      },
+      "milk": {
+        "units": 1,
+        "revenue": 4.49
+      }
+    },
+    "2026-04-30": {
+      "eggs": {
+        "units": 2,
+        "revenue": 11.98
+      },
+      "milk": {
+        "units": 2,
+        "revenue": 8.98
+      },
+      "apples": {
+        "units": 3,
+        "revenue": 5.97
+      },
+      "bread": {
+        "units": 2,
+        "revenue": 7.98
+      },
+      "coke12": {
+        "units": 6,
+        "revenue": 9
+      }
+    },
+    "2026-05-01": {
+      "bread": {
+        "units": 4,
+        "revenue": 15.96
+      },
+      "milk": {
+        "units": 3,
+        "revenue": 13.47
+      },
+      "eggs": {
+        "units": 2,
+        "revenue": 11.98
+      },
+      "marlboro": {
+        "units": 3,
+        "revenue": 35.97
+      },
+      "coke12": {
+        "units": 2,
+        "revenue": 3
+      },
+      "water32": {
+        "units": 4,
+        "revenue": 7.96
+      },
+      "pepsi12": {
+        "units": 2,
+        "revenue": 3
+      },
+      "apples": {
+        "units": 2,
+        "revenue": 3.98
+      },
+      "budlight": {
+        "units": 8,
+        "revenue": 23.92
+      }
+    },
+    "2026-05-02": {
+      "milk": {
+        "units": 1,
+        "revenue": 4.49
+      },
+      "bread": {
+        "units": 1,
+        "revenue": 3.99
+      },
+      "marlboro": {
+        "units": 1,
+        "revenue": 11.99
+      },
+      "pepsi12": {
+        "units": 2,
+        "revenue": 3
+      },
+      "water32": {
+        "units": 1,
+        "revenue": 1.99
+      },
+      "apples": {
+        "units": 1,
+        "revenue": 1.99
+      }
+    }
+  },
+  "lottery": {
+    "byDay": {
+      "2026-04-25": {
+        "instantSales": 0,
+        "posRecorded": 0,
+        "unreported": 0,
+        "instantPayouts": 0,
+        "machineSales": 0,
+        "machineCashing": 0,
+        "ticketsSold": 0
+      },
+      "2026-04-26": {
+        "instantSales": 35,
+        "posRecorded": 35,
+        "unreported": 0,
+        "instantPayouts": 0,
+        "machineSales": 50,
+        "machineCashing": 20,
+        "ticketsSold": 6
+      },
+      "2026-04-27": {
+        "instantSales": 30,
+        "posRecorded": 30,
+        "unreported": 0,
+        "instantPayouts": 10,
+        "machineSales": 80,
+        "machineCashing": 30,
+        "ticketsSold": 5
+      },
+      "2026-04-28": {
+        "instantSales": 25,
+        "posRecorded": 25,
+        "unreported": 0,
+        "instantPayouts": 0,
+        "machineSales": 60,
+        "machineCashing": 15,
+        "ticketsSold": 4
+      },
+      "2026-04-29": {
+        "instantSales": 35,
+        "posRecorded": 35,
+        "unreported": 0,
+        "instantPayouts": 50,
+        "machineSales": 75,
+        "machineCashing": 100,
+        "ticketsSold": 6
+      },
+      "2026-04-30": {
+        "instantSales": 30,
+        "posRecorded": 25,
+        "unreported": 5,
+        "instantPayouts": 0,
+        "machineSales": 65,
+        "machineCashing": 20,
+        "ticketsSold": 5
+      },
+      "2026-05-01": {
+        "instantSales": 40,
+        "posRecorded": 40,
+        "unreported": 0,
+        "instantPayouts": 20,
+        "machineSales": 90,
+        "machineCashing": 30,
+        "ticketsSold": 7
+      },
+      "2026-05-02": {
+        "instantSales": 20,
+        "posRecorded": 20,
+        "unreported": 0,
+        "instantPayouts": 0,
+        "machineSales": 30,
+        "machineCashing": 0,
+        "ticketsSold": 3
+      }
+    },
+    "snapshotTrail": [
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "149",
+        "day": "2026-04-25"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "74",
+        "day": "2026-04-25"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "144",
+        "day": "2026-04-26"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "73",
+        "day": "2026-04-26"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "140",
+        "day": "2026-04-27"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "72",
+        "day": "2026-04-27"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "137",
+        "day": "2026-04-28"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "71",
+        "day": "2026-04-28"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "132",
+        "day": "2026-04-29"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "70",
+        "day": "2026-04-29"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "128",
+        "day": "2026-04-30"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "69",
+        "day": "2026-04-30"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "122",
+        "day": "2026-05-01"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "68",
+        "day": "2026-05-01"
+      },
+      {
+        "boxId": "cmonu6511000bzaatnfojxy82",
+        "currentTicket": "120",
+        "day": "2026-05-02"
+      },
+      {
+        "boxId": "cmonu651g000dzaatmf1rzrcy",
+        "currentTicket": "67",
+        "day": "2026-05-02"
+      }
+    ],
+    "onlineTotals": [
+      {
+        "date": "2026-04-26",
+        "machineSales": 50,
+        "machineCashing": 20,
+        "instantCashing": 0
+      },
+      {
+        "date": "2026-04-27",
+        "machineSales": 80,
+        "machineCashing": 30,
+        "instantCashing": 10
+      },
+      {
+        "date": "2026-04-28",
+        "machineSales": 60,
+        "machineCashing": 15,
+        "instantCashing": 0
+      },
+      {
+        "date": "2026-04-29",
+        "machineSales": 75,
+        "machineCashing": 100,
+        "instantCashing": 50
+      },
+      {
+        "date": "2026-04-30",
+        "machineSales": 65,
+        "machineCashing": 20,
+        "instantCashing": 0
+      },
+      {
+        "date": "2026-05-01",
+        "machineSales": 90,
+        "machineCashing": 30,
+        "instantCashing": 20
+      },
+      {
+        "date": "2026-05-02",
+        "machineSales": 30,
+        "machineCashing": 0,
+        "instantCashing": 0
+      }
+    ],
+    "commission": 10.75,
+    "byShift": {
+      "cmonub78n000gcwbknxnmb7uc": {
+        "cashierId": "cmonu64vw0003zaat3wibuxke",
+        "label": "alice-day-1",
+        "instantSales": 10,
+        "openedAt": "2026-05-01T11:00:00.000Z",
+        "closedAt": "2026-05-01T19:00:00.000Z"
+      },
+      "cmonub78x000mcwbk861p3chl": {
+        "cashierId": "cmonu64w80004zaat34ws5vav",
+        "label": "bob-day-1",
+        "instantSales": 30,
+        "openedAt": "2026-05-01T18:30:00.000Z",
+        "closedAt": "2026-05-02T03:00:00.000Z"
+      }
+    }
+  },
+  "fuel": {
+    "byDay": {
+      "2026-04-28": {
+        "gallons": 12.501,
+        "revenue": 49.99,
+        "cogs": 40,
+        "profit": 9.99
+      },
+      "2026-04-29": {
+        "gallons": 8.752,
+        "revenue": 35,
+        "cogs": 28.01,
+        "profit": 6.99
+      },
+      "2026-04-30": {
+        "gallons": 15.003,
+        "revenue": 60,
+        "cogs": 48.01,
+        "profit": 11.99
+      },
+      "2026-05-01": {
+        "gallons": 10,
+        "revenue": 39.99,
+        "cogs": 32,
+        "profit": 7.99
+      },
+      "2026-05-02": {
+        "gallons": 6.25,
+        "revenue": 24.99,
+        "cogs": 20,
+        "profit": 4.99
+      }
+    },
+    "totalGallonsSold": 52.506,
+    "totalRevenue": 209.97,
+    "totalCOGS": 168.02
+  },
+  "cashMovements": {
+    "drops": [
+      {
+        "shiftId": "cmonub78d000acwbkomueyolv",
+        "amount": 100,
+        "note": "Mid-shift safe drop",
+        "createdAt": "2026-04-30T17:00:00.000Z"
+      }
+    ],
+    "payouts": [
+      {
+        "shiftId": "cmonub78x000mcwbk861p3chl",
+        "amount": 40,
+        "recipient": "Audit Bread Vendor",
+        "createdAt": "2026-05-01T22:00:00.000Z"
+      }
+    ],
+    "vendorPayments": [
+      {
+        "amount": 60,
+        "vendor": "Audit Bread Vendor",
+        "tenderMethod": "cash",
+        "paymentDate": "2026-05-02T18:00:00.000Z"
+      },
+      {
+        "amount": 250,
+        "vendor": "Audit Beverage Distributor",
+        "tenderMethod": "cheque",
+        "paymentDate": "2026-05-02T19:00:00.000Z"
+      }
+    ]
+  }
+}

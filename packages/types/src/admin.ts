@@ -106,6 +106,7 @@ export interface PaymentMerchant {
   environment: MerchantEnvironment;
   spinTpn?: string;
   spinBaseUrl?: string;
+  spinRegisterId?: string;     // iPOSpays "Register Id" — required by /v2/Payment/* endpoints
   // ── HPP (online checkout) ──
   hppMerchantId?: string;
   hppBaseUrl?: string;
@@ -171,6 +172,13 @@ export interface TicketResponse {
   date: IsoDate;
 }
 
+export interface TicketAssignee {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
 export interface SupportTicket {
   id: string | number;
   email: string;
@@ -182,6 +190,10 @@ export interface SupportTicket {
   createdAt: IsoDate;
   adminNotes?: string;
   responses?: TicketResponse[];
+  assignedToId?: string | null;
+  assignedAt?: IsoDate | null;
+  assignedById?: string | null;
+  assignedTo?: TicketAssignee | null;
 }
 
 // ─── CMS & Careers ───────────────────────────────────────────────────────────

@@ -376,7 +376,8 @@
 
 .txn-table-header {
   display: grid;
-  grid-template-columns: 90px 1.6fr 1fr 1fr 0.8fr 1.1fr 90px;
+  /* Session 52 — added 80px Surcharge column between Payment and Total */
+  grid-template-columns: 90px 1.6fr 1fr 1fr 0.8fr 1.1fr 80px 90px;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border-color);
   font-size: 0.67rem;
@@ -388,12 +389,24 @@
 
 .txn-table-row {
   display: grid;
-  grid-template-columns: 90px 1.6fr 1fr 1fr 0.8fr 1.1fr 90px;
+  grid-template-columns: 90px 1.6fr 1fr 1fr 0.8fr 1.1fr 80px 90px;
   padding: 0.65rem 1rem;
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   align-items: center;
   transition: background 0.1s;
+}
+
+/* Surcharge cell — small monospace amount, muted when zero */
+.txn-cell-surcharge {
+  font-size: 0.78rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.txn-cell-surcharge--none {
+  color: var(--text-muted);
+  opacity: 0.5;
 }
 
 .txn-table-row:last-child { border-bottom: none; }

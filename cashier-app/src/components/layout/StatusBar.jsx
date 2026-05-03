@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut, Database, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, User, Clock, LogOut, Database, AlertTriangle, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import StoreveuLogo from '../StoreveuLogo.jsx';
 import { useAuthStore }    from '../../stores/useAuthStore.js';
 import { useStationStore } from '../../stores/useStationStore.js';
@@ -7,7 +7,8 @@ import { useSyncStore }    from '../../stores/useSyncStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
 import { usePOSConfig }    from '../../hooks/usePOSConfig.js';
 import { fmtTime }         from '../../utils/formatters.js';
-import { countCachedProducts } from '../../db/dexie.js';
+import { countCachedProducts, db } from '../../db/dexie.js';
+import { useConfirm }      from '../../hooks/useConfirmDialog.jsx';
 import './StatusBar.css';
 
 // "Born on or before X" date for an age threshold (today − N years).
@@ -46,6 +47,50 @@ export default function StatusBar({ onRefresh }) {
   const [syncAge,       setSyncAge]       = useState(fmtSyncAge(catalogSyncedAt));
   const [productCount,  setProductCount]  = useState(null);
   const resetTimer = useRef(null);
+  const confirm    = useConfirm();
+
+  // Hard Reset — three-stage nuke for "the data on this register is wrong
+  // and Refresh isn't fixing it":
+  //   1. Wipe the IndexedDB products table (so any stale per-product
+  //      depositAmount, retailPrice, etc. is gone — Refresh upserts on top
+  //      of stale rows, which doesn't help when the field shape changed).
+  //   2. Unregister every service worker (forces the PWA to re-download
+  //      the latest JS bundle on reload, instead of serving the cached one).
+  //   3. window.location.reload — kicks the app to fresh JS + empty cache,
+  //      catalog sync will repopulate from server.
+  // Manager PIN gate intentionally omitted — a wrong cache is a real
+  // problem, and the cost of running this is "30 second resync wait."
+  const handleHardReset = async () => {
+    if (catalogSyncing) return;
+    const ok = await confirm({
+      title:   'Hard reset register?',
+      message: 'Wipes the local product cache and reloads the cashier app. ' +
+               'The next sign-in pulls fresh data from the server. Use this ' +
+               'when prices, deposits, or product info look out of date and ' +
+               'the regular Refresh button has not fixed it.',
+      confirmLabel: 'Hard Reset',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await db.products.clear();
+    } catch { /* if Dexie is locked, the unregister + reload still helps */ }
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch { /* no SW to clear, fine */ }
+    try {
+      // Best-effort: also drop the Cache Storage so any opaque PWA assets
+      // are re-fetched. If unsupported (Electron without CacheStorage), skip.
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch { /* ignore */ }
+    window.location.reload();
+  };
 
   // Count cached products for offline indicator
   useEffect(() => {
@@ -147,6 +192,22 @@ export default function StatusBar({ onRefresh }) {
         </button>
       )}
 
+      {/* Hard Reset — wipes IndexedDB products + unregisters the service
+          worker + reloads. Use when the cashier sees stale catalog data
+          (deposit not flowing, prices off, etc.) that a normal Refresh
+          doesn't fix. The normal Refresh upserts on top of the cache; this
+          nukes the cache + the PWA bundle so the register comes back fresh. */}
+      {isOnline && onRefresh && (
+        <button
+          onClick={catalogSyncing ? undefined : handleHardReset}
+          disabled={catalogSyncing}
+          title="Hard reset — wipe local cache + reload (use when refresh isn't fixing stale data)"
+          className="sb-hardreset-btn"
+        >
+          <Zap size={11} /> Hard Reset
+        </button>
+      )}
+
       {/* Pending tx-queue badge */}
       {pendingCount > 0 && (
         <div className="sb-pending">
@@ -210,6 +271,23 @@ export default function StatusBar({ onRefresh }) {
         <Clock size={12} />
         <span>{time}</span>
       </div>
+
+      {/* AI Assistant trigger — sits beside Sign Out so the floating FAB
+          no longer overlaps the logout button. Dispatches a window event
+          that AIAssistantWidget listens to. Only shown when a cashier is
+          signed in (mirrors the widget's own visibility check). */}
+      {cashier && (
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('cashier-ai-toggle'))}
+          title="AI Assistant — get help, ask questions"
+          aria-label="Open AI Assistant"
+          className="sb-ai-btn"
+        >
+          <Sparkles size={12} />
+          <span className="sb-ai-btn-label">AI Assistant</span>
+        </button>
+      )}
 
       {/* Logout button — two-tap confirm */}
       <button

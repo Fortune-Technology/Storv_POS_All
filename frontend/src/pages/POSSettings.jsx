@@ -54,6 +54,12 @@ const DEFAULT_CONFIG = {
     cashOnly:              false,
     scanRequiredAtShiftEnd: false,
   },
+  // S67 — End of Day report settings (server-read in endOfDayReportController)
+  eodReport: {
+    showDepartmentBreakdown:   true,   // adds DEPT BREAKDOWN section to EoD
+    lotterySeparateFromDrawer: false,  // pulls lottery cash OUT of drawer math, renders as own section
+    hideZeroRows:              true,   // only show rows where amount or count > 0
+  },
   quickTender: ['card', 'cash', 'ebt'],
 };
 
@@ -1131,6 +1137,47 @@ export default function POSSettings({ embedded }) {
                   <input type="checkbox"
                     checked={config.lottery?.scanRequiredAtShiftEnd ?? false}
                     onChange={e => setConfig(c => ({ ...c, lottery: { ...c.lottery, scanRequiredAtShiftEnd: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+              </div>
+            </div>
+
+            {/* ── S67: End of Day Report Settings ────────────────────────── */}
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                📊 End of Day Report
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Show Department Breakdown</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Add a per-department revenue section (Grocery / Beverages / Tobacco / Lottery / Fuel / etc.) to the EoD report.</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.eodReport?.showDepartmentBreakdown ?? true}
+                    onChange={e => setConfig(c => ({ ...c, eodReport: { ...c.eodReport, showDepartmentBreakdown: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Lottery Cash Separate from Drawer</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>When ON, lottery cash flow (un-rung tickets, machine sales, machine cashings, instant cashings) is excluded from the cash drawer reconciliation. Drawer expectation reflects business cash only; lottery shows as its own section.</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.eodReport?.lotterySeparateFromDrawer ?? false}
+                    onChange={e => setConfig(c => ({ ...c, eodReport: { ...c.eodReport, lotterySeparateFromDrawer: e.target.checked } }))}
+                    style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-secondary)', borderRadius: 10, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>Hide Zero Rows</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Only show rows with non-zero amounts. When OFF, every category renders even if it had no activity (useful for full audit trails).</div>
+                  </div>
+                  <input type="checkbox"
+                    checked={config.eodReport?.hideZeroRows ?? true}
+                    onChange={e => setConfig(c => ({ ...c, eodReport: { ...c.eodReport, hideZeroRows: e.target.checked } }))}
                     style={{ width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
                 </label>
               </div>

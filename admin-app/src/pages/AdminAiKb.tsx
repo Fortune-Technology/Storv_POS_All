@@ -17,6 +17,9 @@ import {
   updateKbArticle,
   deleteKbArticle,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminAiKb.css';
 
 const CATEGORIES = [
@@ -64,6 +67,7 @@ type EditingState = null | 'new' | KbArticle;
 const BLANK_FORM: FormState = { title: '', content: '', category: 'how-to', tags: '', active: true };
 
 export default function AdminAiKb() {
+  const confirm = useConfirm();
   const [articles, setArticles] = useState<KbArticle[]>([]);
   const [loading, setLoading]   = useState(true);
   const [filters, setFilters]   = useState<Filters>({ search: '', category: '', active: '' });
@@ -167,7 +171,12 @@ export default function AdminAiKb() {
   };
 
   const handleDelete = async (article: KbArticle) => {
-    if (!window.confirm(`Deactivate "${article.title}"? It will stop appearing in search results.`)) return;
+    if (!await confirm({
+      title: 'Deactivate article?',
+      message: `Deactivate "${article.title}"? It will stop appearing in search results.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    })) return;
     try {
       await deleteKbArticle(article.id);
       toast.success('Article deactivated');

@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './analytics.css';
 import './InvoiceImport.css';
 import {
@@ -351,6 +352,7 @@ function ReviewPanel({
   // Default 50¢ when settings haven't been loaded.
   mismatchThresholdCents = 50,
 }) {
+  const confirm = useConfirm();
   const [expanded,    setExpanded]    = useState({});
   const [posLoading,  setPosLoading]  = useState(false);
   const [posUpdating, setPosUpdating] = useState({}); // { [idx]: 'update' | 'create' | null }
@@ -597,8 +599,13 @@ function ReviewPanel({
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Force re-match ALL items — including manual matches you previously confirmed?')) {
+              onClick={async () => {
+                if (await confirm({
+                  title: 'Force re-match ALL items?',
+                  message: 'Force re-match ALL items — including manual matches you previously confirmed?',
+                  confirmLabel: 'Force Re-match',
+                  danger: true,
+                })) {
                   onRematch && onRematch({ force: true });
                 }
               }}
@@ -1750,6 +1757,7 @@ function SearchModal({ modal, onClose, onSearch, onSelect, onCreateNew, itemData
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
 const InvoiceImport = () => {
+  const confirm = useConfirm();
   const [invoices,      setInvoices]      = useState([]);
   const [isLoading,     setIsLoading]     = useState(true);
   const [isUploading,   setIsUploading]   = useState(false);
@@ -2034,8 +2042,13 @@ const InvoiceImport = () => {
   };
 
   // Delete a line item (with confirmation) and recalculate total
-  const handleDeleteItem = (itemIdx, item) => {
-    if (!window.confirm(`Delete "${item.description || 'this item'}" from the invoice?`)) return;
+  const handleDeleteItem = async (itemIdx, item) => {
+    if (!await confirm({
+      title: 'Delete line item?',
+      message: `Delete "${item.description || 'this item'}" from the invoice?`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     setEditData(prev => {
       const items = prev.lineItems.filter((_, idx) => idx !== itemIdx);
       return { ...prev, lineItems: items, totalInvoiceAmount: recomputeInvoiceTotal(items).toFixed(2) };
@@ -2068,10 +2081,14 @@ const InvoiceImport = () => {
   };
 
   // Accept all high-confidence items — mark them as 'matched'
-  const handleAcceptAllHigh = () => {
+  const handleAcceptAllHigh = async () => {
     const highCount = editData?.lineItems?.filter(it => it.confidence === 'high' && it.mappingStatus !== 'matched' && it.mappingStatus !== 'manual').length || 0;
     if (highCount === 0) { toast.info('No high-confidence items to accept'); return; }
-    if (!window.confirm(`Accept ${highCount} high-confidence match${highCount !== 1 ? 'es' : ''} without individual review?`)) return;
+    if (!await confirm({
+      title: 'Accept all high-confidence matches?',
+      message: `Accept ${highCount} high-confidence match${highCount !== 1 ? 'es' : ''} without individual review?`,
+      confirmLabel: 'Accept All',
+    })) return;
     setEditData(prev => ({
       ...prev,
       lineItems: prev.lineItems.map(item =>
@@ -2320,7 +2337,12 @@ const InvoiceImport = () => {
 
   const handleDelete = async (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this invoice? This cannot be undone.')) return;
+    if (!await confirm({
+      title: 'Delete invoice?',
+      message: 'Delete this invoice? This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteInvoiceDraft(id);
       setInvoices(prev => prev.filter(inv => inv.id !== id));

@@ -46,12 +46,60 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Response interceptor — when the server says 401 (token expired or
+// invalid), wipe the superadmin session and redirect to /login. Without
+// this, an expired JWT keeps the user "logged in" in localStorage but
+// every API call silently fails — pages render empty with no clue why.
+//
+// Skip the redirect when the failing request IS /auth/login itself (so
+// the login page can show "Wrong password" without an immediate refresh)
+// or /auth/verify-password (the InactivityLock unlock check).
+api.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    const status   = error?.response?.status;
+    const url      = error?.config?.url || '';
+    const isAuthEp = url.includes('/auth/login') || url.includes('/auth/verify-password');
+    if (status === 401 && !isAuthEp) {
+      try {
+        localStorage.removeItem('admin_user');
+        // Also wipe the inactivity-lock keys so the login page renders
+        // cleanly. (These are portal-side keys but if the user was using
+        // both apps in the same browser they'll get cleared together.)
+        localStorage.removeItem('storv:il:locked');
+        localStorage.removeItem('storv:il:lastActive');
+      } catch { /* ignore */ }
+      // Avoid redirect loops if we're already on /login
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?session=expired&returnTo=${returnTo}`;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 type Params = Record<string, unknown>;
 type Headers = Record<string, string>;
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 export const login = (credentials: { email: string; password: string }) =>
   api.post<LoginResponse>('/auth/login', credentials);
+
+// Forgot/reset — admin-app passes `app: 'admin'` so the email link points
+// back at the admin panel (5175) instead of the portal (5173).
+export const forgotPassword = (email: string) =>
+  api.post('/auth/forgot-password', { email, app: 'admin' });
+export const resetPassword = (data: { token: string; password: string }) =>
+  api.post('/auth/reset-password', data).then(r => r.data);
+
+// Self-service profile (works for any authenticated user, including superadmin)
+export const getMyProfile      = (): Promise<Record<string, unknown>> =>
+  api.get('/users/me').then(r => r.data);
+export const updateMyProfile   = (data: { name?: string; phone?: string | null }) =>
+  api.put('/users/me', data).then(r => r.data);
+export const changeMyPassword  = (currentPassword: string, newPassword: string) =>
+  api.put('/users/me/password', { currentPassword, newPassword }).then(r => r.data);
 
 // ── Admin Dashboard ──────────────────────────────────────────────────────────
 // Response is `{ data: { totalUsers, chartData[], recentTickets[], ... } }` —
@@ -77,6 +125,22 @@ export const impersonateUser     = (id: string | number):                    Pro
 export type AdminOrgsListResponse = PaginatedResponse<Organization> & { organizations?: Organization[] };
 export const getAdminOrganizations     = (params?: Params):                         Promise<AdminOrgsListResponse> => api.get('/admin/organizations', { params }).then(r => r.data);
 export const createAdminOrganization   = (data: unknown):                           Promise<{ organization: Organization }> => api.post('/admin/organizations', data).then(r => r.data);
+// Wipe a target org's product catalog. Uses the X-Tenant-Id superadmin
+// override so the call hits the right tenant via scopeToTenant. The
+// confirmation literal must equal "DELETE ALL" — backend rejects anything
+// else with 400. `permanent: true` deletes rows hard; the default soft
+// delete just sets `deleted: true` so the catalog can be restored by
+// re-importing or via the Prisma console.
+export const deleteAllOrgProducts = (
+  orgId: string | number,
+  confirmation: string,
+  permanent: boolean,
+): Promise<{ success: boolean; deleted: number; type: 'soft' | 'permanent'; message?: string }> =>
+  api.post(
+    '/catalog/products/delete-all',
+    { confirmation, permanent },
+    { headers: { 'X-Tenant-Id': String(orgId) } },
+  ).then(r => r.data);
 export const updateAdminOrganization   = (id: string | number, data: unknown):       Promise<{ organization: Organization }> => api.put(`/admin/organizations/${id}`, data).then(r => r.data);
 export const deleteAdminOrganization   = (id: string | number):                     Promise<SuccessResponse> => api.delete(`/admin/organizations/${id}`).then(r => r.data);
 
@@ -110,6 +174,20 @@ export const createPaymentTerminal   = (data: unknown):                         
 export const updatePaymentTerminal   = (id: string | number, data: unknown):               Promise<{ terminal: PaymentTerminal }> => api.put(`/admin/payment-terminals/${id}`, data).then(r => r.data);
 export const deletePaymentTerminal   = (id: string | number):                             Promise<SuccessResponse> => api.delete(`/admin/payment-terminals/${id}`).then(r => r.data);
 export const pingPaymentTerminal     = (id: string | number):                             Promise<{ success: boolean; message?: string }> => api.post(`/admin/payment-terminals/${id}/ping`).then(r => r.data);
+export const listStationsForStore    = (storeId: string):                                  Promise<{
+  success: boolean;
+  scope?: { storeId: string; storeName: string; orgId: string };
+  stations: Array<{
+    id: string;
+    name: string;
+    orgId?: string;
+    lastSeenAt?: string | null;
+    paired: boolean;
+    pairedTerminalId: string | null;
+    pairedTerminalNickname: string | null;
+    pairedTerminalModel: string | null;
+  }>;
+}> => api.get('/admin/payment-terminals/stations', { params: { storeId } }).then(r => r.data);
 
 // ── Admin CMS Pages ──────────────────────────────────────────────────────────
 export const getAdminCmsPages    = ():                                Promise<{ data: CmsPage[] }> => api.get('/admin/cms').then(r => r.data);
@@ -133,6 +211,11 @@ export const createAdminTicket     = (data: unknown):                           
 export const updateAdminTicket     = (id: string | number, data: unknown):       Promise<{ data: SupportTicket }> => api.put(`/admin/tickets/${id}`, data).then(r => r.data);
 export const deleteAdminTicket     = (id: string | number):                     Promise<SuccessResponse> => api.delete(`/admin/tickets/${id}`).then(r => r.data);
 export const addAdminTicketReply   = (id: string | number, data: unknown):       Promise<{ data: SupportTicket }> => api.post(`/admin/tickets/${id}/reply`, data).then(r => r.data);
+export const assignAdminTicket     = (id: string | number, assignedToId: string | null): Promise<{ data: SupportTicket }> => api.put(`/admin/tickets/${id}/assign`, { assignedToId }).then(r => r.data);
+
+// Active admin/superadmin users for ticket assignment dropdown
+export interface AssignableUser { id: string; name: string; email: string; role: string }
+export const getAssignableUsers    = (): Promise<{ data: AssignableUser[] }> => api.get('/admin/users/assignable').then(r => r.data);
 
 // ── Admin System Config ──────────────────────────────────────────────────────
 export const getAdminSystemConfig    = ():              Promise<{ data: SystemConfig[] }> => api.get('/admin/config').then(r => r.data);
@@ -217,6 +300,100 @@ export const createAdminState    = (data: unknown):                 Promise<{ st
 export const updateAdminState    = (code: string, data: unknown):    Promise<{ state: UsStateRecord }> => api.put(`/states/${code}`, data).then(r => r.data);
 export const deleteAdminState    = (code: string):                  Promise<SuccessResponse> => api.delete(`/states/${code}`).then(r => r.data);
 
+// ── Pricing Model / Dual Pricing (Session 50) ───────────────────────────
+// PricingTier catalog — surcharge rate presets keyed to SaaS billing tiers.
+export const listPricingTiers     = (): Promise<{ tiers: PricingTier[] }> => api.get('/pricing/tiers').then(r => r.data);
+export const createPricingTier    = (data: unknown): Promise<PricingTier> => api.post('/pricing/tiers', data).then(r => r.data);
+export const updatePricingTier    = (id: string, data: unknown): Promise<PricingTier> => api.put(`/pricing/tiers/${id}`, data).then(r => r.data);
+export const deletePricingTier    = (id: string): Promise<SuccessResponse> => api.delete(`/pricing/tiers/${id}`).then(r => r.data);
+
+// Per-store config — superadmin only on PUT.
+export const listStorePricingConfigs = (): Promise<{ stores: StorePricingSummary[] }> =>
+  api.get('/pricing/stores').then(r => r.data);
+export const getStorePricingConfig   = (storeId: string): Promise<StorePricingDetail> =>
+  api.get(`/pricing/stores/${storeId}`).then(r => r.data);
+export const updateStorePricingConfig = (storeId: string, data: unknown): Promise<{
+  success: boolean;
+  store: StorePricingDetail['storeName'] extends string ? StorePricingDetail : StorePricingDetail;
+  effectiveRate: { percent: number; fixedFee: number; source: string; tierKey: string | null };
+  auditWritten: boolean;
+}> => api.put(`/pricing/stores/${storeId}`, data).then(r => r.data);
+export const listStorePricingChanges = (storeId: string, limit?: number): Promise<{ changes: PricingModelChange[] }> =>
+  api.get(`/pricing/stores/${storeId}/changes`, { params: { limit } }).then(r => r.data);
+
+// Local types until @storeveu/types is regenerated for Session 50 schema.
+// The shared package will pick these up on next prisma client regen.
+export interface PricingTier {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  surchargePercent: number | string;
+  surchargeFixedFee: number | string;
+  active: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorePricingSummary {
+  storeId: string;
+  storeName: string;
+  orgId: string;
+  orgName: string | null;
+  stateCode: string | null;
+  stateName: string | null;
+  pricingModel: string;
+  pricingTierKey: string | null;
+  pricingTierName: string | null;
+  effectivePercent: number;
+  effectiveFixedFee: number;
+  effectiveSource: 'custom' | 'tier' | 'none';
+  dualPricingActivatedAt: string | null;
+}
+
+export interface PricingModelChange {
+  id: string;
+  storeId: string;
+  changedById: string;
+  changedByName: string | null;
+  fromModel: string;
+  toModel: string;
+  fromTierId: string | null;
+  toTierId: string | null;
+  fromPercent: number | string | null;
+  toPercent: number | string | null;
+  fromFixedFee: number | string | null;
+  toFixedFee: number | string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface StorePricingDetail {
+  storeId: string;
+  storeName: string;
+  orgId: string;
+  stateCode: string | null;
+  pricingModel: string;
+  pricingTierId: string | null;
+  pricingTier: PricingTier | null;
+  customSurchargePercent: number | string | null;
+  customSurchargeFixedFee: number | string | null;
+  dualPricingDisclosure: string | null;
+  dualPricingActivatedAt: string | null;
+  dualPricingActivatedBy: string | null;
+  effectiveRate: { percent: number; fixedFee: number; source: 'custom' | 'tier' | 'none'; tierKey: string | null };
+  effectiveDisclosure: string;
+  stateConstraints: {
+    surchargeTaxable: boolean;
+    maxSurchargePercent: number | null;
+    dualPricingAllowed: boolean;
+    pricingFraming: string;
+  } | null;
+  recentChanges: PricingModelChange[];
+}
+
 // ── Vendor Import Templates (Session 5) ──────────────────────────────────────
 export const getVendorTemplates      = (params: Params = {}):                         Promise<{ data?: VendorImportTemplate[] }> => api.get('/vendor-templates', { params }).then(r => r.data);
 export const getVendorTemplate       = (id: string | number):                          Promise<{ data: VendorImportTemplate }> => api.get(`/vendor-templates/${id}`).then(r => r.data);
@@ -285,6 +462,42 @@ export const syncAdminLotteryCatalog = (state: string): Promise<{
   results?: Array<{ state: string; fetched?: number; created?: number; updated?: number; nowInactive?: number; error?: string }>;
 }> =>
   api.post('/lottery/catalog/sync', { state }).then(r => r.data);
+
+// ── Admin Notifications (broadcast / history / recall) ──────────────────────
+export interface AdminNotificationBroadcastInput {
+  title:         string;
+  message:       string;
+  audience:      'platform' | 'org' | 'store' | 'user';
+  targetOrgId?:   string | null;
+  targetStoreId?: string | null;
+  targetUserId?:  string | null;
+  priority?:     'low' | 'normal' | 'high' | 'urgent';
+  type?:         'info' | 'success' | 'warning' | 'error';
+  linkUrl?:      string | null;
+  expiresAt?:    string | null;
+}
+export interface AdminNotificationRow {
+  id:            string;
+  source:        string;
+  title:         string;
+  message:       string;
+  linkUrl:       string | null;
+  priority:      string;
+  type:          string;
+  audience:      string;
+  targetOrgId:   string | null;
+  targetStoreId: string | null;
+  targetUserId:  string | null;
+  expiresAt:     string | null;
+  createdAt:     string;
+  deliveryCount: number;
+}
+export const adminBroadcastNotification = (data: AdminNotificationBroadcastInput): Promise<{ success: boolean; notificationId: string | null; deliveryCount: number; deduped: boolean }> =>
+  api.post('/admin/notifications', data).then(r => r.data);
+export const adminListBroadcasts = (params?: Params): Promise<PaginatedResponse<AdminNotificationRow>> =>
+  api.get('/admin/notifications', { params }).then(r => r.data);
+export const adminRecallBroadcast = (id: string): Promise<SuccessResponse> =>
+  api.delete(`/admin/notifications/${id}`).then(r => r.data);
 
 export default api;
 

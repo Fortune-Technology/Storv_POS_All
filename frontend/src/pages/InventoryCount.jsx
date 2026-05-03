@@ -25,11 +25,12 @@ import {
   Scan, Search, Package, Plus, Minus, CheckCircle,
   RefreshCw, X, ChevronDown, ChevronUp, BarChart2,
   AlertCircle, Loader, History, ClipboardList, DollarSign,
-  Trash2, TrendingDown,
+  Trash2, TrendingDown, Warehouse,
 } from 'lucide-react';
 import './InventoryCount.css';
 import SortableHeader from '../components/SortableHeader';
 import { useTableSort } from '../hooks/useTableSort';
+import InventoryStatus from './reports/InventoryStatus';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -712,6 +713,7 @@ const InventoryCountPage = () => {
         {[
           { key: 'count', label: 'Quick Count', icon: Scan },
           { key: 'adjustments', label: 'Adjustments & Shrinkage', icon: TrendingDown },
+          { key: 'levels', label: 'Stock Levels', icon: Warehouse },
         ].map(({ key, label, icon: Icon }) => (
           <button key={key} className={`p-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
             <Icon size={15} /> {label}
@@ -721,6 +723,7 @@ const InventoryCountPage = () => {
 
       {tab === 'count' && <InventoryCount />}
       {tab === 'adjustments' && <AdjustmentsTab />}
+      {tab === 'levels' && <InventoryStatus embedded />}
     </div>
   );
 };

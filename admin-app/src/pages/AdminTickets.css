@@ -587,8 +587,57 @@
 .at-spin { animation: at-spin 0.7s linear infinite; }
 @keyframes at-spin { to { transform: rotate(360deg); } }
 
+/* ── Assignment field (wider in detail panel header) ──────────────────────── */
+.at-assign-field { flex: 1 1 240px; min-width: 200px; }
+.at-assign-field select {
+  width: 100%;
+  /* Override the inline-field capitalize — emails must stay verbatim. */
+  text-transform: none;
+}
+
+/* ── Assignee filter (sits in toolbar) ────────────────────────────────────── */
+.at-assignee-filter { flex: 0 0 220px; }
+.at-assignee-filter label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.at-assignee-filter select { padding: 6px 10px; font-size: 13px; text-transform: none; }
+
+/* ── Assignee chip in ticket list rows ────────────────────────────────────── */
+.at-assignee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 10px 2px 2px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.at-assignee-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.at-assignee-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.at-ticket-date { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .at-split { flex-direction: column; }
   .at-detail { width: 100%; position: static; max-height: none; }
+  .at-assignee-filter { flex: 1 1 100%; }
 }

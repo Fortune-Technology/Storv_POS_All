@@ -1,0 +1,136 @@
+{
+  "orgId": "cmonu64m40000zaat7o9e9i0q",
+  "storeId": "cmonu64m80002zaategfblpvq",
+  "cashierAlice": "cmonu64vw0003zaat3wibuxke",
+  "cashierBob": "cmonu64w80004zaat34ws5vav",
+  "station1": "cmonu64wh0005zaathtm13w76",
+  "station2": "cmonu64wi0006zaat3ewgz9sc",
+  "taxRules": {
+    "tax5": 21,
+    "tax8875": 22
+  },
+  "depositRules": {
+    "d5": 12,
+    "d10": 13
+  },
+  "departments": {
+    "grocery": 143,
+    "beverages": 144,
+    "tobacco": 145,
+    "alcohol": 146,
+    "lottery": 147,
+    "fuel": 148
+  },
+  "products": {
+    "bread": {
+      "id": 50362,
+      "upc": "99000000001",
+      "retail": 3.99,
+      "deptId": 143,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "apples": {
+      "id": 50363,
+      "upc": "99000000002",
+      "retail": 1.99,
+      "deptId": 143,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "milk": {
+      "id": 50364,
+      "upc": "99000000003",
+      "retail": 4.49,
+      "deptId": 143,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "eggs": {
+      "id": 50365,
+      "upc": "99000000004",
+      "retail": 5.99,
+      "deptId": 143,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "coke12": {
+      "id": 50366,
+      "upc": "99000000005",
+      "retail": 1.5,
+      "deptId": 144,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "pepsi12": {
+      "id": 50367,
+      "upc": "99000000006",
+      "retail": 1.5,
+      "deptId": 144,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "water32": {
+      "id": 50368,
+      "upc": "99000000007",
+      "retail": 1.99,
+      "deptId": 144,
+      "ebt": true,
+      "ageRequired": null
+    },
+    "marlboro": {
+      "id": 50369,
+      "upc": "99000000008",
+      "retail": 11.99,
+      "deptId": 145,
+      "ebt": false,
+      "ageRequired": 21
+    },
+    "budlight": {
+      "id": 50370,
+      "upc": "99000000009",
+      "retail": 2.99,
+      "deptId": 146,
+      "ebt": false,
+      "ageRequired": 21
+    }
+  },
+  "lottery": {
+    "game5": {
+      "id": "cmonu650h0008zaat5w06k3h2",
+      "ticketPrice": 5,
+      "ticketsPerBox": 150
+    },
+    "game10": {
+      "id": "cmonu650y0009zaattfg2udz2",
+      "ticketPrice": 10,
+      "ticketsPerBox": 75
+    },
+    "box5": {
+      "id": "cmonu6511000bzaatnfojxy82",
+      "totalTickets": 150,
+      "startTicket": "149"
+    },
+    "box10": {
+      "id": "cmonu651g000dzaatmf1rzrcy",
+      "totalTickets": 75,
+      "startTicket": "74"
+    },
+    "commissionRate": 0.05
+  },
+  "fuel": {
+    "typeReg": {
+      "id": "cmonu651m000fzaatpzftyi13",
+      "pricePerGallon": 3.999
+    },
+    "tankA": {
+      "id": "cmonu651p000hzaatiwsc1pk2",
+      "capacityGal": 10000
+    },
+    "delivery1": {
+      "id": "cmonu651s000izaatqnunkht5",
+      "gallons": 5000,
+      "costPerGal": 3.2
+    }
+  }
+}

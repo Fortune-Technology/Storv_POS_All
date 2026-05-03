@@ -20,6 +20,7 @@ import {
   getCatalogDepartments, searchCatalogProducts,
 } from '../services/api.js';
 import { fmtMoney } from '../utils/formatters';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './LoyaltyProgram.css';
 
 /* ────────────────────────────────────────────────────────────── helpers ── */
@@ -264,6 +265,7 @@ function SettingsTab({ storeId }) {
    Earn Rules Tab
 ══════════════════════════════════════════════════════════════════════════ */
 function EarnRulesTab({ storeId }) {
+  const confirm = useConfirm();
   const [rules,    setRules]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -353,7 +355,12 @@ function EarnRulesTab({ storeId }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this earn rule?')) return;
+    if (!await confirm({
+      title: 'Delete earn rule?',
+      message: 'Customers will stop earning bonus / multiplier points from this rule on future purchases.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteLoyaltyEarnRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
@@ -538,6 +545,7 @@ function EarnRulesTab({ storeId }) {
    Rewards Tab
 ══════════════════════════════════════════════════════════════════════════ */
 function RewardsTab({ storeId }) {
+  const confirm = useConfirm();
   const [rewards,  setRewards]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -601,7 +609,12 @@ function RewardsTab({ storeId }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this reward?')) return;
+    if (!await confirm({
+      title: 'Delete reward?',
+      message: 'Customers will no longer be able to redeem points for this reward.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteLoyaltyReward(id);
       setRewards(prev => prev.filter(r => r.id !== id));

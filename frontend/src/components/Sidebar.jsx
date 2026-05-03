@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { getChatUnread } from '../services/api';
 import StoreveuLogo from './StoreveuLogo';
 import {
@@ -13,7 +13,6 @@ import {
   ClipboardList,
   Zap,
   Globe,
-  LogOut,
   Menu,
   X,
   Building2,
@@ -51,7 +50,7 @@ import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
 import { useStoreModules } from '../hooks/useStoreModules';
 import { useNotificationCounts } from '../hooks/useNotificationCounts';
-import { getRoutePermission } from '../rbac/routePermissions';
+import { getRoutePermission, getRouteModule } from '../rbac/routePermissions';
 
 const menuGroups = [
   {
@@ -114,9 +113,7 @@ const menuGroups = [
       { name: 'Transactions', icon: <Receipt size={13} />, path: '/portal/pos-reports' },
       { name: 'Analytics', icon: <BarChart2 size={13} />, path: '/portal/analytics' },
       { name: 'Employees', icon: <Users size={13} />, path: '/portal/employees' },
-      { name: 'Reports', icon: <FileText size={13} />, path: '/portal/reports' },
-      { name: 'End of Day', icon: <FileText size={13} />, path: '/portal/end-of-day' },
-      { name: 'Daily Sale', icon: <FileText size={13} />, path: '/portal/daily-sale' },
+      { name: 'Daily Reports', icon: <FileText size={13} />, path: '/portal/daily-reports' },
       { name: 'Audit Log', icon: <Shield size={13} />, path: '/portal/audit' },
     ],
   },
@@ -162,7 +159,6 @@ const menuGroups = [
 ];
 
 const Sidebar = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
@@ -176,22 +172,22 @@ const Sidebar = () => {
   // ("chat", etc.) are visible to any authenticated user. Items whose path
   // belongs to a module the current store has disabled are hidden.
   const visibleMenuGroups = React.useMemo(() => {
-    const moduleRoutes = {
-      '/portal/lottery': modules.lottery,
-      '/portal/fuel':    modules.fuel,
-    };
     return menuGroups
       .map(g => ({
         ...g,
         items: g.items.filter(i => {
           const perm = getRoutePermission(i.path);
           if (perm && !can(perm)) return false;
-          if (i.path in moduleRoutes && !moduleRoutes[i.path]) return false;
+          // Hide nav items whose store-module flag is disabled (lottery,
+          // fuel, ecom). Module map is the single source of truth shared
+          // with the route-level guard in PermissionRoute.
+          const moduleKey = getRouteModule(i.path);
+          if (moduleKey && modules[moduleKey] === false) return false;
           return true;
         }),
       }))
       .filter(g => g.items.length > 0);
-  }, [can, modules.lottery, modules.fuel]);
+  }, [can, modules.lottery, modules.fuel, modules.ecom]);
 
   // ── Poll chat unread count every 15 s ────────────────────────────────────
   const fetchUnread = useCallback(() => {
@@ -239,38 +235,7 @@ const Sidebar = () => {
     return () => { document.body.style.overflow = ''; };
   }, [mobileOpen]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('activeStoreId');
-    navigate('/login');
-  };
-
-  // Read current user from localStorage so the sidebar can show a "signed
-  // in as X" card. Lets users verify who they're acting as — especially
-  // important after a PIN-SSO from cashier-app Back Office (Session 37b).
-  const currentUser = React.useMemo(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }, []);
-
-  // Role → friendly label map. Keep short — the card is narrow.
-  const roleLabel = {
-    superadmin: 'Super Admin',
-    admin:      'Admin',
-    owner:      'Owner',
-    manager:    'Manager',
-    cashier:    'Cashier',
-    staff:      'Staff',
-  }[currentUser?.role] || currentUser?.role || '';
-
-  const initials = (currentUser?.name || currentUser?.email || '?')
-    .split(/[\s@]/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(s => s[0].toUpperCase())
-    .join('');
+  // Logout, "signed in as" card, notification bell — moved into PortalNavbar.
 
   return (
     <>
@@ -359,39 +324,9 @@ const Sidebar = () => {
             </div>
           ))}
 
-          {/* ── Signed-in-as card ──
-              Shown above Logout so users can see which account they're
-              acting as — especially important after PIN-SSO from the
-              cashier-app Back Office flow, where the session identity
-              can change without a visible cue elsewhere. Click to open
-              the My Profile page (available to every authenticated user,
-              so staff/cashiers can self-manage without org permissions). */}
-          {currentUser && (
-            <NavLink
-              to="/portal/my-profile"
-              className="sidebar-user-card"
-              title={`${currentUser.email || ''} — click to edit your profile`}
-            >
-              <div className="sidebar-user-avatar">{initials}</div>
-              <div className="sidebar-user-meta">
-                <div className="sidebar-user-name">{currentUser.name || currentUser.email || 'User'}</div>
-                <div className="sidebar-user-role">
-                  {roleLabel}
-                  {currentUser.email && (
-                    <span className="sidebar-user-email"> · {currentUser.email}</span>
-                  )}
-                </div>
-              </div>
-            </NavLink>
-          )}
-
-          <button
-            onClick={handleLogout}
-            className="nav-link nav-link-logout"
-          >
-            <span className="nav-icon"><LogOut size={13} /></span>
-            <span className="nav-text">Logout</span>
-          </button>
+          {/* "Signed in as" card, notification bell, and Logout button moved
+              into the top PortalNavbar — visible across every portal page and
+              accessible without scrolling the sidebar. */}
         </nav>
       </aside>
     </>

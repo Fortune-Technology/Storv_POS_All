@@ -5,6 +5,7 @@ import {
   RefreshCw, List,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import {
   getTasks,
@@ -300,6 +301,7 @@ const TaskModal = ({ task, onClose, onSaved, employees }) => {
 
 /* ── Main Page ──────────────────────────────────────────────────────────── */
 const TasksPage = () => {
+  const confirm = useConfirm();
   const [tasks, setTasks]           = useState([]);
   const [counts, setCounts]         = useState({ open: 0, in_progress: 0, urgent: 0, my: 0 });
   const [employees, setEmployees]   = useState([]);
@@ -364,7 +366,12 @@ const TasksPage = () => {
   };
 
   const handleDelete = async (task) => {
-    if (!window.confirm('Delete this task?')) return;
+    if (!await confirm({
+      title: 'Delete task?',
+      message: 'Delete this task?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteTask(task.id || task._id);
       toast.success('Task deleted');

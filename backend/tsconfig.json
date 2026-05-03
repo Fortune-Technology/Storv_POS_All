@@ -11,14 +11,16 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 
-    /* ─── Gradual migration ────────────────────────────────────────────
-     * `allowJs` lets new .ts files coexist with the existing .js codebase.
-     * `checkJs: false` so the migration can land in slices — TS only
-     * type-checks files we actively convert. Phase 4 will flip checkJs
-     * back to `true` (or migrate everything to .ts) at the end.
+    /* ─── Migration complete ──────────────────────────────────────────
+     * Phase 4 (April 2026) finished the .js → .ts conversion across
+     * src/, prisma/, tests/, scripts/, and root. With every file now .ts,
+     * `checkJs` is flipped to `true` — any future .js stragglers (e.g. a
+     * config file added by a tool) get type-checked alongside the rest of
+     * the codebase. `allowJs` stays on so a one-shot .js drop is still
+     * tolerated; just don't add long-term .js code without migrating it.
      */
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
 
     /* ─── Strictness ──────────────────────────────────────────────────
      * Strict for new TS code from day one. The cost of relaxing later
@@ -54,9 +56,33 @@
     "skipLibCheck": true
   },
 
-  /* Only type-check `src/` for now. `prisma/seed*.js` and `tests/` migrate
-   * later as their own slices.
+  /* Phase 4 (April 2026): coverage expanded from `src/` only to also cover
+   * `prisma/`, `tests/`, `scripts/`, and root scripts. Every file in these
+   * dirs is now .ts; `checkJs` is on for safety against future strays.
+   *
+   * `../packages/{queue,redis}` are external workspace packages (own package.json,
+   * imported as `@storeveu/queue` / `@storeveu/redis`). They have their own
+   * lifecycle and should be typed independently — exclude their .js source
+   * from backend's tsc so we don't transitively check them on every backend
+   * compile. Future work: give those packages their own tsconfig + .d.ts.
    */
-  "include": ["src/**/*.ts", "src/**/*.js", "global.d.ts"],
-  "exclude": ["node_modules", "dist", "build", "**/*.test.mjs", "**/*.test.js"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.js",
+    "prisma/**/*.ts",
+    "prisma/**/*.js",
+    "tests/**/*.ts",
+    "tests/**/*.mjs",
+    "tests/**/*.js",
+    "scripts/**/*.ts",
+    "scripts/**/*.js",
+    "*.ts",
+    "*.js",
+    "global.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build"
+  ]
 }

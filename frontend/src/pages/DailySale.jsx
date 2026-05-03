@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   ChevronLeft, ChevronRight, Save, Lock, FileText, Info, Trash2, Plus, RefreshCw,
 } from 'lucide-react';
@@ -41,7 +42,15 @@ const prettyDate = (iso) => {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 };
 
-export default function DailySale() {
+/**
+ * DailySale — Daily sale entry + reconciliation single-day view.
+ *
+ * `embedded` prop: not visually used (the page has no separate p-header to hide),
+ * but the prop is accepted for API symmetry with EndOfDayReport / DualPricingReport
+ * so the DailyReports hub can pass it uniformly.
+ */
+export default function DailySale({ embedded: _embedded = false } = {}) {
+  const confirm = useConfirm();
   const [date, setDate]           = useState(isoToday());
   const [snapshot, setSnapshot]   = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -100,7 +109,11 @@ export default function DailySale() {
   };
 
   const close = async () => {
-    if (!window.confirm(`Close the Daily Sale report for ${prettyDate(date)}?\n\nThis flips the status to 'closed'. You can still view it afterwards.`)) return;
+    if (!await confirm({
+      title: 'Close Daily Sale report?',
+      message: `Close the Daily Sale report for ${prettyDate(date)}?\n\nThis flips the status to 'closed'. You can still view it afterwards.`,
+      confirmLabel: 'Close',
+    })) return;
     try {
       await save();
       const res = await closeDailySale(date);

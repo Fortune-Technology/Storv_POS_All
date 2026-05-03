@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Link2, Unlink, Settings, ShoppingBag, BarChart3, RefreshCw, Copy,
   Clock, AlertCircle, CheckCircle2, XCircle, ChevronDown, ChevronUp,
@@ -160,6 +161,7 @@ function ConnectionsTab({ platforms, onRefresh }) {
 }
 
 function PlatformCard({ platformKey, data, onRefresh }) {
+  const confirm = useConfirm();
   const meta = PLATFORM_META[platformKey] || { name: platformKey, color: '#888', initial: platformKey?.[0]?.toUpperCase() || '?', credentialFields: [], status: 'live' };
   const [creds, setCreds] = useState({});
   const [busy, setBusy] = useState(false);
@@ -193,7 +195,12 @@ function PlatformCard({ platformKey, data, onRefresh }) {
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm(`Disconnect ${meta.name}? This will stop all syncing.`)) return;
+    if (!await confirm({
+      title: 'Disconnect integration?',
+      message: `Disconnect ${meta.name}? This will stop all syncing.`,
+      confirmLabel: 'Disconnect',
+      danger: true,
+    })) return;
     setBusy(true);
     try {
       await disconnectIntegration({ platform: platformKey });

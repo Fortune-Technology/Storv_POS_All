@@ -13,7 +13,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem 1rem 1.25rem;
+  padding: 0.75rem 0rem 1.25rem;
   min-height: 0;
 }
 
@@ -29,6 +29,31 @@
   flex-wrap: wrap;
 }
 
+/* Apr 2026 — Refresh button + last-loaded timestamp. Pinned to the right
+   end of the header. Helps debug "back-office shows stale data" — user
+   sees exactly when the data was loaded and can force a fresh fetch. */
+.lbo-refresh-bar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lbo-refresh-stamp {
+  font-size: 0.74rem;
+  color: var(--text-muted, #6b7280);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.lbo-refresh-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+
 .lbo-crumb {
   display: inline-flex;
   align-items: center;
@@ -37,11 +62,25 @@
   color: var(--text-muted, #6b7280);
   font-weight: 600;
 }
-.lbo-crumb > svg { color: var(--brand-primary, #3d56b5); }
-.lbo-crumb-sep { color: #d1d5db; padding: 0 2px; }
-.lbo-crumb-current { color: var(--text-primary, #111827); }
 
-.lbo-header-right { margin-left: auto; display: flex; gap: 8px; }
+.lbo-crumb>svg {
+  color: var(--brand-primary, #3d56b5);
+}
+
+.lbo-crumb-sep {
+  color: #d1d5db;
+  padding: 0 2px;
+}
+
+.lbo-crumb-current {
+  color: var(--text-primary, #111827);
+}
+
+.lbo-header-right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
 
 /* ── Calendar strip ───────────────────────────────────────────────── */
 .lbo-cal-strip {
@@ -56,9 +95,11 @@
   border-radius: 8px;
   overflow-x: auto;
 }
+
 .lbo-cal-nav {
   flex-shrink: 0;
-  width: 26px; height: 26px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #e5e7eb);
   background: #ffffff;
@@ -68,8 +109,16 @@
   align-items: center;
   justify-content: center;
 }
-.lbo-cal-nav:hover:not(:disabled) { background: #f3f4f6; color: var(--text-primary, #111827); }
-.lbo-cal-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.lbo-cal-nav:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: var(--text-primary, #111827);
+}
+
+.lbo-cal-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .lbo-cal-days {
   display: flex;
@@ -78,6 +127,7 @@
   overflow-x: auto;
   scroll-snap-type: x proximity;
 }
+
 .lbo-cal-day {
   flex-shrink: 0;
   min-width: 40px;
@@ -94,17 +144,41 @@
   scroll-snap-align: end;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.lbo-cal-day:hover { background: #ffffff; color: var(--text-primary, #111827); }
-.lbo-cal-day.today { border-color: #bbf7d0; color: #166534; font-weight: 700; }
+
+.lbo-cal-day:hover {
+  background: #ffffff;
+  color: var(--text-primary, #111827);
+}
+
+.lbo-cal-day.today {
+  border-color: #bbf7d0;
+  color: #166534;
+  font-weight: 700;
+}
+
 .lbo-cal-day.sel {
   background: var(--brand-primary, #3d56b5);
   color: #ffffff !important;
   border-color: var(--brand-primary, #3d56b5);
 }
+
 .lbo-cal-day.sel .lbo-cal-dow,
-.lbo-cal-day.sel .lbo-cal-date { color: #ffffff; }
-.lbo-cal-dow  { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.lbo-cal-date { font-size: 0.95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lbo-cal-day.sel .lbo-cal-date {
+  color: #ffffff;
+}
+
+.lbo-cal-dow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lbo-cal-date {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 
 .lbo-cal-today-btn button {
   padding: 5px 10px;
@@ -120,12 +194,19 @@
   gap: 4px;
   white-space: nowrap;
 }
-.lbo-cal-today-btn button:hover { background: #dcfce7; }
+
+.lbo-cal-today-btn button:hover {
+  background: #dcfce7;
+}
 
 /* ── Grid ─────────────────────────────────────────────────────────── */
 .lbo-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 300px) 1.5fr minmax(280px, 1fr);
+  /* Right rail: bumped from 280→340 minimum so the per-book row
+     (PackPill + Game# + "Book XXXX" + Date + Amount + Action menu)
+     no longer overflows past the rail edge. The row needs ~340-360px
+     to render fully without truncation. */
+  grid-template-columns: minmax(260px, 300px) 1.5fr minmax(340px, 1fr);
   gap: 0.75rem;
   min-height: 0;
   flex: 1;
@@ -147,13 +228,11 @@
 }
 
 .lbo-col-title {
-  font-size: 0.82rem;
+  font-size: 0.70rem;
   font-weight: 800;
   color: var(--text-primary, #111827);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border-color, #f3f4f6);
 }
 
 .lbo-col-title-bar {
@@ -181,7 +260,6 @@
 
 /* ── Left column — Report ─────────────────────────────────────────── */
 /* Flows with column height; no internal scroll, no clipping. */
-.lbo-col-report { }
 
 .lbo-metric {
   display: flex;
@@ -192,12 +270,42 @@
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
 }
-.lbo-metric.big { padding: 10px 12px; background: #f0fdf4; border-color: #bbf7d0; }
-.lbo-metric.big.green .lbo-metric-value { color: #16a34a; }
-.lbo-metric-label { font-size: 0.66rem; color: var(--text-muted, #6b7280); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-.lbo-metric-value { font-size: 1.2rem; font-weight: 800; color: var(--text-primary, #111827); font-variant-numeric: tabular-nums; line-height: 1.15; }
-.lbo-metric.big .lbo-metric-value { font-size: 1.5rem; }
-.lbo-metric-sub { font-size: 0.66rem; color: #6b7280; line-height: 1.3; }
+
+.lbo-metric.big {
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.lbo-metric.big.green .lbo-metric-value {
+  color: #16a34a;
+}
+
+.lbo-metric-label {
+  font-size: 0.66rem;
+  color: var(--text-muted, #6b7280);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lbo-metric-value {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary, #111827);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.lbo-metric.big .lbo-metric-value {
+  font-size: 1.5rem;
+}
+
+.lbo-metric-sub {
+  font-size: 0.66rem;
+  color: #6b7280;
+  line-height: 1.3;
+}
 
 .lbo-section {
   background: var(--bg-tertiary, #f9fafb);
@@ -205,6 +313,7 @@
   border-radius: 8px;
   overflow: hidden;
 }
+
 .lbo-section-head {
   display: flex;
   justify-content: space-between;
@@ -216,12 +325,22 @@
   font-weight: 700;
   color: var(--text-primary, #111827);
 }
+
 .lbo-section-head strong {
   font-variant-numeric: tabular-nums;
   font-size: 0.86rem;
 }
-.lbo-section-head strong.green { color: #16a34a; }
-.lbo-section-body { padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; }
+
+.lbo-section-head strong.green {
+  color: #16a34a;
+}
+
+.lbo-section-body {
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 
 /* Key-value row (editable vs readonly). flex-wrap allows note line to
  * fall onto a second row instead of overflowing the section. */
@@ -233,21 +352,31 @@
   padding: 2px 4px;
   flex-wrap: wrap;
 }
-.lbo-kv > span:first-child {
+
+.lbo-kv>span:first-child {
   font-size: 0.72rem;
   color: var(--text-muted, #6b7280);
   flex: 1;
   min-width: 0;
 }
-.lbo-kv > strong {
+
+.lbo-kv>strong {
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--text-primary, #111827);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.lbo-kv > strong.green { color: #16a34a; }
-.lbo-kv > strong small { color: #9ca3af; font-weight: 500; }
+
+.lbo-kv>strong.green {
+  color: #16a34a;
+}
+
+.lbo-kv>strong small {
+  color: #9ca3af;
+  font-weight: 500;
+}
+
 .lbo-kv-note {
   flex: 0 0 100%;
   font-size: 0.62rem;
@@ -266,11 +395,23 @@
   width: 100px;
   transition: border-color 0.12s;
 }
-.lbo-kv-input:focus-within { border-color: var(--brand-primary, #3d56b5); box-shadow: 0 0 0 2px rgba(61,86,181,.12); }
-.lbo-kv-input > span { font-size: 0.74rem; color: #9ca3af; margin-right: 3px; }
-.lbo-kv-input > input {
+
+.lbo-kv-input:focus-within {
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 2px rgba(61, 86, 181, .12);
+}
+
+.lbo-kv-input>span {
+  font-size: 0.74rem;
+  color: #9ca3af;
+  margin-right: 3px;
+}
+
+.lbo-kv-input>input {
   flex: 1;
-  border: none; outline: none; background: transparent;
+  border: none;
+  outline: none;
+  background: transparent;
   font-size: 0.82rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -278,12 +419,48 @@
   width: 100%;
   text-align: right;
 }
-.lbo-kv-input > input::-webkit-outer-spin-button,
-.lbo-kv-input > input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.lbo-kv-input>input::-webkit-outer-spin-button,
+.lbo-kv-input>input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 
 /* Action buttons row (Receive / Return) */
-.lbo-actions { display: flex; gap: 6px; margin-top: 4px; }
-.lbo-actions .lbo-btn { flex: 1; }
+.lbo-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.lbo-actions .lbo-btn {
+  flex: 1;
+}
+
+/* Receive / Return / Settings buttons at the top of the right column.
+   (Session 46 — moved out of Report column. Three-up grid to make room
+   for the inline Settings panel button added Apr 2026.) */
+.lbo-right-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.lbo-right-actions .lbo-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .lbo-right-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lbo-right-actions .lbo-btn:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
 
 /* Scan / Manual mode toggle */
 .lbo-mode {
@@ -295,6 +472,21 @@
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
 }
+
+/* When the toggle sits in the column title bar (Session 46 — moved to top
+   for visibility), cap its width so it doesn't dominate the row. The
+   title still gets primary visual weight; the toggle is a secondary
+   control. */
+.lbo-col-title-bar .lbo-mode {
+  max-width: 240px;
+  flex-shrink: 0;
+}
+
+.lbo-col-title-bar .lbo-mode button {
+  padding: 4px 8px;
+  font-size: 0.70rem;
+}
+
 .lbo-mode button {
   padding: 7px 10px;
   border-radius: 6px;
@@ -310,7 +502,12 @@
   gap: 4px;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.lbo-mode button:hover { background: #ffffff; color: var(--text-primary, #111827); }
+
+.lbo-mode button:hover {
+  background: #ffffff;
+  color: var(--text-primary, #111827);
+}
+
 .lbo-mode button.sel {
   background: #ffffff;
   color: #166534;
@@ -331,31 +528,64 @@
   cursor: pointer;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.lbo-btn-full { width: 100%; }
-.lbo-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-.lbo-btn-primary { background: var(--brand-primary, #3d56b5); color: #ffffff; }
-.lbo-btn-primary:hover:not(:disabled) { background: var(--brand-dark, #2f4392); }
+.lbo-btn-full {
+  width: 100%;
+}
 
-.lbo-btn-success { background: #16a34a; color: #ffffff; }
-.lbo-btn-success:hover:not(:disabled) { background: #15803d; }
+.lbo-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
-.lbo-btn-warn { background: #f59e0b; color: #ffffff; }
-.lbo-btn-warn:hover:not(:disabled) { background: #d97706; }
+.lbo-btn-primary {
+  background: var(--brand-primary, #3d56b5);
+  color: #ffffff;
+}
+
+.lbo-btn-primary:hover:not(:disabled) {
+  background: var(--brand-dark, #2f4392);
+}
+
+.lbo-btn-success {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.lbo-btn-success:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.lbo-btn-warn {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+.lbo-btn-warn:hover:not(:disabled) {
+  background: #d97706;
+}
 
 .lbo-btn-outline {
   background: #ffffff;
   color: var(--text-primary, #111827);
   border-color: var(--border-color, #e5e7eb);
 }
-.lbo-btn-outline:hover:not(:disabled) { background: #f9fafb; border-color: #d1d5db; }
+
+.lbo-btn-outline:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
 
 .lbo-btn-ghost {
   background: transparent;
   color: var(--text-muted, #6b7280);
   border-color: transparent;
 }
-.lbo-btn-ghost:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #111827); }
+
+.lbo-btn-ghost:hover {
+  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
 
 /* ── Middle column — Counter ─────────────────────────────────────── */
 .lbo-scan-bar {
@@ -369,7 +599,12 @@
   flex: 1;
   max-width: 360px;
 }
-.lbo-scan-bar > svg { color: #166534; flex-shrink: 0; }
+
+.lbo-scan-bar>svg {
+  color: #166534;
+  flex-shrink: 0;
+}
+
 .lbo-scan-bar input {
   flex: 1;
   padding: 5px 8px;
@@ -381,7 +616,11 @@
   outline: none;
   min-width: 0;
 }
-.lbo-scan-bar input:focus { border-color: #16a34a; }
+
+.lbo-scan-bar input:focus {
+  border-color: #16a34a;
+}
+
 .lbo-scan-bar button {
   padding: 5px 12px;
   border-radius: 5px;
@@ -392,7 +631,13 @@
   font-weight: 700;
   cursor: pointer;
 }
-.lbo-scan-bar button:disabled { background: #bbf7d0; color: #166534; opacity: 0.6; cursor: not-allowed; }
+
+.lbo-scan-bar button:disabled {
+  background: #bbf7d0;
+  color: #166534;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .lbo-scan-log {
   display: flex;
@@ -407,10 +652,25 @@
   font-size: 0.72rem;
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
-.lbo-scan-log-row { display: flex; gap: 10px; line-height: 1.3; }
-.lbo-scan-log-row > span:first-child { color: #9ca3af; min-width: 48px; }
-.lbo-scan-log-row.ok > span:last-child  { color: #166534; }
-.lbo-scan-log-row.err > span:last-child { color: #b91c1c; }
+
+.lbo-scan-log-row {
+  display: flex;
+  gap: 10px;
+  line-height: 1.3;
+}
+
+.lbo-scan-log-row>span:first-child {
+  color: #9ca3af;
+  min-width: 48px;
+}
+
+.lbo-scan-log-row.ok>span:last-child {
+  color: #166534;
+}
+
+.lbo-scan-log-row.err>span:last-child {
+  color: #b91c1c;
+}
 
 .lbo-counter-list {
   display: flex;
@@ -426,21 +686,104 @@
   font-style: italic;
 }
 
-/* Counter row: [pill][slot][book][tickets][sold][amount][action] */
+/* Counter row: [pill][slot][book][tickets][sold][amount][action]
+   Widths tuned for the action column to fit ALL combinations of:
+     • Save ✓ (dirty)
+     • HIST pill (past date)
+     • SO / RET status chip (book has moved)
+     • Action-menu kebab
+   side-by-side without overflowing into the amount cell. */
 .lbo-cnt-row {
   display: grid;
-  grid-template-columns: 36px 28px minmax(0, 1fr) 120px 36px 68px 28px;
-  gap: 6px;
+  /* Session 46 — widened the amount column 78px → 86px so $500.00 (7 chars
+     at 0.82rem 800-weight) fits comfortably without truncation. Slight
+     reduction to the action column (86px → 80px) and tighter gap (5 → 4)
+     to claw back the space without expanding the row.  Earlier rendered
+     as "$500.0 HIST" because the cell clipped the trailing zero. */
+  /* Book/name column has a 95px floor so the "GAMENO-BOOKNO" identifier
+     (~10-12 mono chars at 0.78rem) never gets truncated, while still
+     letting `1fr` claim extra room when the row is wide. */
+  grid-template-columns: 36px 28px minmax(95px, 1fr) 120px 32px 86px 80px;
+  gap: 4px;
   align-items: center;
-  padding: 5px 7px;
+  padding: 5px 6px;
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 6px;
   background: #ffffff;
   transition: border-color 0.12s, background 0.12s;
   font-size: 0.78rem;
 }
-.lbo-cnt-row:hover { background: #f9fafb; }
-.lbo-cnt-row.dirty { border-color: #bbf7d0; background: #f0fdf4; }
+
+.lbo-cnt-row:hover {
+  background: #f9fafb;
+}
+
+/* Apr 2026 — Visual hierarchy by row state.
+ *
+ *   dirty     amber: unsaved changes the user typed
+ *   saved     green: today's value differs from yesterday (= real sales)
+ *   unchanged white: today === yesterday (no movement; cashier checked but
+ *             nothing moved — still "scanned" in the sense of confirmed)
+ *   untouched grey:  no value entered + no live position (truly unscanned)
+ *
+ * The dirty class is preserved separately so existing logic that flips it
+ * (per-row save button visibility, beforeunload guard) continues to work.
+ */
+.lbo-cnt-row.dirty {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.lbo-cnt-row--saved {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.lbo-cnt-row--saved::before {
+  content: '✓';
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #16a34a;
+  font-weight: 800;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.lbo-cnt-row--unchanged {
+  /* No tint — same as default but with subtler border */
+  border-color: var(--border-color, #e5e7eb);
+}
+
+.lbo-cnt-row--untouched {
+  border-color: var(--border-color, #e5e7eb);
+  opacity: 0.7;
+}
+.lbo-cnt-row--untouched .lbo-cnt-y,
+.lbo-cnt-row--untouched .lbo-cnt-dash,
+.lbo-cnt-row--untouched .lbo-cnt-tickets input {
+  color: var(--text-muted, #9ca3af);
+}
+
+/* Make rows position:relative so the ::before checkmark anchors right */
+.lbo-cnt-row {
+  position: relative;
+}
+
+/* Save All batch-commit button — appears in counter column header when
+   there are unsaved drafts. Pulses subtly so cashier sees it's actionable. */
+.lbo-save-all-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  white-space: nowrap;
+  animation: lbo-save-all-pulse 2s ease-in-out infinite;
+}
+
+@keyframes lbo-save-all-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61, 86, 181, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(61, 86, 181, 0.18); }
+}
 
 /* Click-to-edit book number in the counter row. */
 .lbo-cnt-bookno {
@@ -448,8 +791,16 @@
   border-radius: 3px;
   padding: 0 3px;
   transition: background 0.12s;
+  /* Keep "GAMENO-BOOKNO" on a single line — never wrap or truncate.
+     Pair with `min-width: max-content` on `.lbo-cnt-book` parent +
+     `minmax(max-content, 1fr)` on the book grid column in `.lbo-cnt-row`
+     so the cell expands to accommodate the full identifier. */
+  white-space: nowrap;
 }
-.lbo-cnt-bookno:hover { background: #eef2ff; }
+
+.lbo-cnt-bookno:hover {
+  background: #eef2ff;
+}
 
 .lbo-cnt-book-edit {
   width: 100%;
@@ -487,13 +838,37 @@
  * state visually obvious so users don't try to edit history. */
 .lbo-cnt-histpill {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: 4px;
   background: #eef2ff;
   color: #4338ca;
-  font-size: 0.58rem;
+  font-size: 0.55rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+}
+
+/* Status chip in the Counter HISTORICAL view when the book has since
+   moved out of "active" state (e.g. depleted or returned this same day).
+   The historical row still shows the book — but the chip tells the user
+   not to act on it (Session 46 sold-out fix). */
+.lbo-cnt-statuspill {
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: 3px;
+}
+
+.lbo-cnt-statuspill--depleted {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.lbo-cnt-statuspill--returned {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .lbo-cnt-slot {
@@ -511,9 +886,24 @@
   padding: 1px 0;
   transition: background 0.12s, color 0.12s;
 }
+
 .lbo-cnt-slot-click:hover {
   background: #eef2ff;
   color: var(--brand-primary, #3d56b5);
+}
+
+/* Unassigned slot — amber pulse to draw attention until cashier assigns one. */
+.lbo-cnt-slot--unassigned {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px dashed #f59e0b;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.lbo-cnt-slot--unassigned:hover {
+  background: #fde68a;
+  color: #92400e;
 }
 
 .lbo-cnt-slot-edit {
@@ -536,17 +926,21 @@
   flex-direction: column;
   min-width: 0;
 }
+
 .lbo-cnt-book strong {
   font-size: 0.8rem;
   font-weight: 700;
   font-family: ui-monospace, SFMono-Regular, monospace;
   color: var(--text-primary, #111827);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* overflow: hidden; text-overflow: ellipsis; white-space: nowrap; */
 }
+
 .lbo-cnt-book small {
   font-size: 0.66rem;
   color: var(--text-muted, #6b7280);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lbo-cnt-tickets {
@@ -559,8 +953,18 @@
   padding: 3px 5px;
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
-.lbo-cnt-y    { font-size: 0.74rem; color: var(--text-muted, #6b7280); min-width: 30px; text-align: right; }
-.lbo-cnt-dash { color: #d1d5db; }
+
+.lbo-cnt-y {
+  font-size: 0.74rem;
+  color: var(--text-muted, #6b7280);
+  min-width: 30px;
+  text-align: right;
+}
+
+.lbo-cnt-dash {
+  color: #d1d5db;
+}
+
 .lbo-cnt-tickets input {
   width: 50px;
   padding: 2px 4px;
@@ -574,8 +978,17 @@
   outline: none;
   text-align: right;
 }
-.lbo-cnt-tickets input:focus { border-color: #16a34a; box-shadow: 0 0 0 2px rgba(22,163,74,.12); }
-.lbo-cnt-tickets input:disabled { color: #9ca3af; background: transparent; cursor: default; }
+
+.lbo-cnt-tickets input:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, .12);
+}
+
+.lbo-cnt-tickets input:disabled {
+  color: #9ca3af;
+  background: transparent;
+  cursor: default;
+}
 
 .lbo-cnt-sold {
   font-size: 0.8rem;
@@ -584,6 +997,7 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
 .lbo-cnt-amt {
   font-size: 0.82rem;
   font-weight: 800;
@@ -591,10 +1005,18 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.lbo-cnt-act { text-align: center; display: flex; align-items: center; justify-content: center; }
+
+.lbo-cnt-act {
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* ── Right column — Safe/Soldout/Returned/Receive/Return ─────────── */
-.lbo-col-right { padding: 0; }
+.lbo-col-right {
+  padding: 0;
+}
 
 .lbo-right-tabs {
   display: flex;
@@ -604,6 +1026,7 @@
   flex-shrink: 0;
   background: var(--bg-tertiary, #fafafa);
 }
+
 .lbo-right-tabs button {
   flex: 1;
   padding: 8px 10px;
@@ -620,7 +1043,11 @@
   gap: 4px;
   transition: color 0.12s, border-color 0.12s;
 }
-.lbo-right-tabs button:hover { color: var(--text-primary, #111827); }
+
+.lbo-right-tabs button:hover {
+  color: var(--text-primary, #111827);
+}
+
 .lbo-right-tabs button.active {
   color: var(--brand-primary, #3d56b5);
   border-bottom-color: var(--brand-primary, #3d56b5);
@@ -632,7 +1059,8 @@
   background: var(--brand-primary, #3d56b5);
   color: #ffffff;
 }
-.lbo-right-tabs--single > span {
+
+.lbo-right-tabs--single>span {
   color: #ffffff;
   font-weight: 700;
   font-size: 0.85rem;
@@ -640,18 +1068,23 @@
   align-items: center;
   gap: 6px;
 }
+
 .lbo-right-close {
-  background: rgba(255,255,255,0.15);
+  background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
   border: none;
   border-radius: 5px;
-  width: 24px; height: 24px;
+  width: 24px;
+  height: 24px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.lbo-right-close:hover { background: rgba(255,255,255,0.3); }
+
+.lbo-right-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
 
 .lbo-right-list {
   padding: 8px 10px;
@@ -671,11 +1104,21 @@
   color: #166534;
   margin-bottom: 4px;
 }
-.lbo-right-total strong { color: #16a34a; font-variant-numeric: tabular-nums; font-size: 0.88rem; }
+
+.lbo-right-total strong {
+  color: #16a34a;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+}
 
 .lbo-right-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 54px 62px 24px;
+  /* PackPill | Game# badge | Book + name | Date | Amount | Action menu */
+  /* Book column has a 75px floor (fits "Book BXXX" at ~67px in 0.78rem
+     mono). Combined with the rail's 340px minimum width, the row no
+     longer overflows the rail. Earlier 95px floor + 280px rail caused
+     the date + amount cells to spill outside the rail edge. */
+  grid-template-columns: 36px 56px minmax(75px, 1fr) 54px 62px 24px;
   gap: 6px;
   align-items: center;
   padding: 5px 7px;
@@ -684,25 +1127,51 @@
   background: #ffffff;
   font-size: 0.76rem;
 }
-.lbo-right-row:hover { background: #f9fafb; }
-.lbo-right-book {
-  display: flex; flex-direction: column; min-width: 0;
+
+.lbo-right-row:hover {
+  background: #f9fafb;
 }
+
+.lbo-right-game-no {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--brand-primary, #3d56b5);
+  background: rgba(61, 86, 181, 0.08);
+  border: 1px solid rgba(61, 86, 181, 0.18);
+  border-radius: 4px;
+  padding: 2px 6px;
+  text-align: center;
+  letter-spacing: -0.01em;
+}
+
+.lbo-right-book {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .lbo-right-book strong {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.78rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Keep the book label on a single line — never wrap, never truncate. */
+  white-space: nowrap;
 }
+
 .lbo-right-book small {
   color: var(--text-muted, #6b7280);
   font-size: 0.66rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .lbo-right-date {
   font-size: 0.7rem;
   color: var(--text-muted, #6b7280);
   font-variant-numeric: tabular-nums;
 }
+
 .lbo-right-amt {
   font-size: 0.82rem;
   font-weight: 700;
@@ -713,30 +1182,73 @@
 
 /* ── Receive / Return panel body ─────────────────────────────────── */
 .lbo-pane-body {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
-  padding: 10px 12px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
+
 .lbo-pane-foot {
-  padding: 8px 12px;
+  /* Tightened from 8px/12px so the Confirm button isn't pushed off-screen
+     when the receive list is long. (Session 45 / L4) */
+  padding: 6px 10px;
   border-top: 1px solid var(--border-color, #f3f4f6);
   background: var(--bg-tertiary, #fafafa);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
+
 .lbo-pane-total {
   font-size: 0.82rem;
   color: var(--text-muted, #6b7280);
   text-align: center;
 }
-.lbo-pane-total strong { color: #16a34a; font-size: 1rem; font-variant-numeric: tabular-nums; }
-.lbo-pane-actions { display: flex; gap: 6px; }
-.lbo-pane-actions .lbo-btn { flex: 1; }
+
+.lbo-pane-total strong {
+  color: #16a34a;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.lbo-pane-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.lbo-pane-actions .lbo-btn {
+  flex: 1;
+}
+
+/* Inline help under "Save / Close the Day" — explains when to click which.
+   (Session 45 / L6) */
+.lbo-action-help {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--text-secondary, #4b5563);
+  margin-top: 6px;
+}
+
+.lbo-action-help strong {
+  color: var(--text-primary, #0f172a);
+}
+
+.lbo-action-help em {
+  color: #b45309;
+  font-style: normal;
+  font-weight: 700;
+}
 
 .lbo-inline-err {
   padding: 7px 10px;
@@ -746,6 +1258,7 @@
   color: #b91c1c;
   font-size: 0.78rem;
 }
+
 .lbo-inline-info {
   padding: 7px 10px;
   background: #eff6ff;
@@ -764,7 +1277,12 @@
   border: 1.5px solid #bbf7d0;
   border-radius: 7px;
 }
-.lbo-scan-bar-inline > svg { color: #166534; flex-shrink: 0; }
+
+.lbo-scan-bar-inline>svg {
+  color: #166534;
+  flex-shrink: 0;
+}
+
 .lbo-scan-bar-inline input {
   flex: 1;
   padding: 6px 8px;
@@ -776,7 +1294,11 @@
   outline: none;
   min-width: 0;
 }
-.lbo-scan-bar-inline input:focus { border-color: #16a34a; }
+
+.lbo-scan-bar-inline input:focus {
+  border-color: #16a34a;
+}
+
 .lbo-scan-bar-inline button {
   padding: 6px 14px;
   border-radius: 4px;
@@ -787,38 +1309,61 @@
   font-weight: 700;
   cursor: pointer;
 }
-.lbo-scan-bar-inline button:disabled { background: #bbf7d0; color: #166534; opacity: 0.6; cursor: not-allowed; }
+
+.lbo-scan-bar-inline button:disabled {
+  background: #bbf7d0;
+  color: #166534;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .lbo-receive-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Scroll the list internally so the Confirm button below stays in view
+     regardless of how many books were scanned. (Session 45 / L4) */
+  max-height: calc(100vh - 360px);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  /* Reserve gutter for the scrollbar */
 }
+
 .lbo-receive-row {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 70px 24px;
   gap: 8px;
   align-items: center;
-  padding: 6px 8px;
+  padding: 4px 7px;
+  /* Tighter rows so more fit on screen (Session 45 / L4) */
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 6px;
   background: #ffffff;
 }
-.lbo-receive-row > span:nth-child(2) {
+
+.lbo-receive-row>span:nth-child(2) {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.lbo-receive-row > span:nth-child(2) strong {
+
+.lbo-receive-row>span:nth-child(2) strong {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.78rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.lbo-receive-row > span:nth-child(2) small {
+
+.lbo-receive-row>span:nth-child(2) small {
   font-size: 0.66rem;
   color: var(--text-muted, #6b7280);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .lbo-receive-amt {
   font-size: 0.82rem;
   font-weight: 700;
@@ -826,8 +1371,10 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
 .lbo-icon-btn {
-  width: 22px; height: 22px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   border: 1px solid var(--border-color, #e5e7eb);
   background: #ffffff;
@@ -837,7 +1384,12 @@
   align-items: center;
   justify-content: center;
 }
-.lbo-icon-btn:hover { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+
+.lbo-icon-btn:hover {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
 
 /* Return kind selector (full vs partial) */
 .lbo-return-kind {
@@ -845,6 +1397,7 @@
   flex-direction: column;
   gap: 6px;
 }
+
 .lbo-return-kind label {
   display: flex;
   align-items: flex-start;
@@ -856,22 +1409,57 @@
   background: #ffffff;
   transition: border-color 0.12s, background 0.12s;
 }
-.lbo-return-kind label:hover { background: #f9fafb; }
-.lbo-return-kind label.sel { border-color: #fed7aa; background: #fff7ed; }
-.lbo-return-kind label > span { display: flex; flex-direction: column; gap: 2px; }
-.lbo-return-kind label strong { font-size: 0.82rem; color: var(--text-primary, #111827); }
-.lbo-return-kind label small { font-size: 0.7rem; color: var(--text-muted, #6b7280); line-height: 1.35; }
-.lbo-return-kind input[type="radio"] { margin-top: 4px; accent-color: #f59e0b; }
 
-.lbo-field { display: flex; flex-direction: column; gap: 4px; }
-.lbo-field > label {
+.lbo-return-kind label:hover {
+  background: #f9fafb;
+}
+
+.lbo-return-kind label.sel {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.lbo-return-kind label>span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lbo-return-kind label strong {
+  font-size: 0.82rem;
+  color: var(--text-primary, #111827);
+}
+
+.lbo-return-kind label small {
+  font-size: 0.7rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.35;
+}
+
+.lbo-return-kind input[type="radio"] {
+  margin-top: 4px;
+  accent-color: #f59e0b;
+}
+
+.lbo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lbo-field>label {
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--text-primary, #111827);
 }
-.lbo-field > label small { color: var(--text-muted, #6b7280); font-weight: 400; }
-.lbo-field > input,
-.lbo-field > select {
+
+.lbo-field>label small {
+  color: var(--text-muted, #6b7280);
+  font-weight: 400;
+}
+
+.lbo-field>input,
+.lbo-field>select {
   padding: 7px 10px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #e5e7eb);
@@ -881,14 +1469,22 @@
   outline: none;
   transition: border-color 0.12s;
 }
-.lbo-field > input:focus,
-.lbo-field > select:focus { border-color: var(--brand-primary, #3d56b5); box-shadow: 0 0 0 2px rgba(61,86,181,.12); }
+
+.lbo-field>input:focus,
+.lbo-field>select:focus {
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 2px rgba(61, 86, 181, .12);
+}
+
 .lbo-field-hint {
   font-size: 0.7rem;
   color: var(--text-muted, #6b7280);
   line-height: 1.4;
 }
-.lbo-field-hint strong { color: #c2410c; }
+
+.lbo-field-hint strong {
+  color: #c2410c;
+}
 
 /* ── Pack-size pill ──────────────────────────────────────────────── */
 .lbo-pack-pill {
@@ -905,9 +1501,22 @@
   color: var(--text-primary, #111827);
   font-variant-numeric: tabular-nums;
 }
-.lbo-pack-pill--lo  { border-left-color: #94a3b8; }   /* ≤ $5 */
-.lbo-pack-pill--mid { border-left-color: #3b82f6; }   /* $10–$20 */
-.lbo-pack-pill--hi  { border-left-color: #a855f7; }   /* ≥ $30 */
+
+.lbo-pack-pill--lo {
+  border-left-color: #94a3b8;
+}
+
+/* ≤ $5 */
+.lbo-pack-pill--mid {
+  border-left-color: #3b82f6;
+}
+
+/* $10–$20 */
+.lbo-pack-pill--hi {
+  border-left-color: #a855f7;
+}
+
+/* ≥ $30 */
 
 /* ── Loading + toast + spinner ───────────────────────────────────── */
 .lbo-loading {
@@ -920,21 +1529,38 @@
   justify-content: center;
   gap: 8px;
 }
-@keyframes lbo-spin-kf { to { transform: rotate(360deg); } }
-.lbo-spin { animation: lbo-spin-kf 0.8s linear infinite; }
+
+@keyframes lbo-spin-kf {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lbo-spin {
+  animation: lbo-spin-kf 0.8s linear infinite;
+}
 
 .lbo-toast {
   position: fixed;
-  bottom: 20px; right: 20px;
+  bottom: 20px;
+  right: 20px;
   padding: 10px 16px;
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
   z-index: 1000;
 }
-.lbo-toast--ok    { background: #16a34a; color: #ffffff; }
-.lbo-toast--error { background: #dc2626; color: #ffffff; }
+
+.lbo-toast--ok {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.lbo-toast--error {
+  background: #dc2626;
+  color: #ffffff;
+}
 
 /* ── ActionMenu (⋮ dropdown on Counter / Safe / Soldout rows) ────── */
 .lbo-actmenu {
@@ -943,6 +1569,7 @@
   align-items: center;
   justify-content: center;
 }
+
 .lbo-actmenu-btn {
   width: 24px;
   height: 24px;
@@ -956,11 +1583,13 @@
   justify-content: center;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
+
 .lbo-actmenu-btn:hover {
   background: var(--bg-tertiary, #f3f4f6);
   color: var(--text-primary, #111827);
   border-color: var(--border-color, #e5e7eb);
 }
+
 .lbo-actmenu-pop {
   position: absolute;
   top: calc(100% + 4px);
@@ -969,14 +1598,20 @@
   background: #ffffff;
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 100;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.lbo-actmenu-pop--right { right: 0; }
-.lbo-actmenu-pop--left  { left: 0; }
+
+.lbo-actmenu-pop--right {
+  right: 0;
+}
+
+.lbo-actmenu-pop--left {
+  left: 0;
+}
 
 .lbo-actmenu-item {
   display: inline-flex;
@@ -994,12 +1629,32 @@
   width: 100%;
   transition: background 0.12s;
 }
-.lbo-actmenu-item:hover:not(:disabled) { background: var(--bg-tertiary, #f3f4f6); }
-.lbo-actmenu-item:disabled { opacity: 0.45; cursor: not-allowed; }
-.lbo-actmenu-item > svg { color: var(--text-muted, #6b7280); flex-shrink: 0; }
-.lbo-actmenu-item.danger { color: #dc2626; }
-.lbo-actmenu-item.danger:hover:not(:disabled) { background: #fef2f2; }
-.lbo-actmenu-item.danger > svg { color: #dc2626; }
+
+.lbo-actmenu-item:hover:not(:disabled) {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.lbo-actmenu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lbo-actmenu-item>svg {
+  color: var(--text-muted, #6b7280);
+  flex-shrink: 0;
+}
+
+.lbo-actmenu-item.danger {
+  color: #dc2626;
+}
+
+.lbo-actmenu-item.danger:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.lbo-actmenu-item.danger>svg {
+  color: #dc2626;
+}
 
 .lbo-actmenu-sep {
   height: 1px;
@@ -1009,21 +1664,198 @@
 
 /* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .lbo-grid { grid-template-columns: minmax(240px, 260px) 1.4fr minmax(260px, 1fr); }
+  .lbo-grid {
+    /* Same rail-floor bump as the desktop layout (340px) so the per-book
+       row keeps fitting in tighter viewports too. */
+    grid-template-columns: minmax(240px, 260px) 1.4fr minmax(340px, 1fr);
+  }
 }
+
 @media (max-width: 900px) {
-  .lbo-grid { grid-template-columns: 1fr; }
+  .lbo-grid {
+    grid-template-columns: 1fr;
+  }
 }
+
 @media (max-width: 560px) {
-  .lbo-header { flex-direction: column; align-items: stretch; }
-  .lbo-cal-strip { min-width: 0; }
+  .lbo-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lbo-cal-strip {
+    min-width: 0;
+  }
+
   .lbo-cnt-row {
     grid-template-columns: 36px minmax(0, 1fr) 32px;
     gap: 5px;
     padding: 8px;
   }
-  .lbo-cnt-slot, .lbo-cnt-sold, .lbo-cnt-amt { display: none; }
-  .lbo-cnt-tickets { grid-column: 1 / -1; }
-  .lbo-cnt-act { grid-column: 3; grid-row: 1; }
-  .lbo-mode { grid-template-columns: 1fr; }
+
+  .lbo-cnt-slot,
+  .lbo-cnt-sold,
+  .lbo-cnt-amt {
+    display: none;
+  }
+
+  .lbo-cnt-tickets {
+    grid-column: 1 / -1;
+  }
+
+  .lbo-cnt-act {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .lbo-mode {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   SETTINGS PANEL — inline lottery-settings editor in the right column.
+   (Phase E, Apr 2026) Mirrors the look of the existing Receive / Return
+   panes (header strip + body + sticky action bar at the bottom).
+   ─────────────────────────────────────────────────────────────────── */
+.lbo-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  overflow: hidden;
+  max-height: calc(100vh - 320px);
+}
+
+.lbo-settings-err {
+  padding: 10px 14px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.lbo-settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 14px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lbo-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border-color, #e5e7eb);
+}
+
+.lbo-settings-section:last-child {
+  border-bottom: none;
+}
+
+.lbo-settings-section-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #6b7280);
+  text-transform: uppercase;
+}
+
+.lbo-settings-section-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.4;
+  margin-top: -6px;
+}
+
+.lbo-settings-row,
+.lbo-settings-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lbo-settings-toggle-row {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lbo-settings-row-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lbo-settings-row-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.lbo-settings-row-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.35;
+}
+
+.lbo-settings-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  background: var(--bg-secondary, #ffffff);
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--text-primary, #0f172a);
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.lbo-settings-input:focus {
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 3px var(--brand-08, rgba(61, 86, 181, 0.08));
+}
+
+/* Toggle switch */
+.lbo-settings-toggle {
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #d1d5db;
+  border: none;
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s;
+}
+
+.lbo-settings-toggle.on {
+  background: var(--brand-primary, #3d56b5);
+}
+
+.lbo-settings-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.lbo-settings-toggle.on .lbo-settings-toggle-knob {
+  transform: translateX(16px);
 }

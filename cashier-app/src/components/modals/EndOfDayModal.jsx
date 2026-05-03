@@ -23,6 +23,7 @@ import { fmt$ } from '../../utils/formatters.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { useHardware } from '../../hooks/useHardware.js';
 import { usePOSConfig } from '../../hooks/usePOSConfig.js';
+import { useConfirm } from '../../hooks/useConfirmDialog.jsx';
 import { printEoDReport } from '../../services/printerService.js';
 import './EndOfDayModal.css';
 
@@ -36,6 +37,7 @@ const todayLocal = () => {
 const fmtNum3 = (n) => Number(n || 0).toFixed(3);
 
 export default function EndOfDayModal({ onClose }) {
+  const confirm = useConfirm();
   const station   = useStationStore(s => s.station);
   const storeId   = station?.storeId;
   const posConfig = usePOSConfig();
@@ -96,7 +98,12 @@ export default function EndOfDayModal({ onClose }) {
       setSettleResult({ success: false, message: 'No station — cannot settle' });
       return;
     }
-    if (!window.confirm("Close today's batch on the terminal? This will settle all card transactions with the processor.")) return;
+    if (!await confirm({
+      title: "Close today's batch?",
+      message: 'This will settle all card transactions on the terminal with the processor. Once closed, the batch cannot be reopened.',
+      confirmLabel: 'Close batch',
+      danger: true,
+    })) return;
     setSettling(true);
     setSettleResult(null);
     try {
@@ -237,6 +244,32 @@ function ReportBody({ report }) {
       {/* Section 3: Transactions */}
       <ThreeColSection title="TRANSACTIONS" rows={report.transactions} hideZero={false} />
 
+      {/* S67 — Department Breakdown (opt-in via store.pos.eodReport.showDepartmentBreakdown) */}
+      {report.departments?.rows?.length > 0 && (
+        <div className="eod-rb-section">
+          <div className="eod-rb-section-title">DEPARTMENT BREAKDOWN</div>
+          <table className="eod-rb-table">
+            <thead>
+              <tr><th>Department</th><th className="eod-rb-num">Tx</th><th className="eod-rb-num">Net</th></tr>
+            </thead>
+            <tbody>
+              {report.departments.rows.map(d => (
+                <tr key={String(d.departmentId ?? d.name)}>
+                  <td>{d.name}</td>
+                  <td className="eod-rb-num">{d.txCount}</td>
+                  <td className="eod-rb-num">{fmt$(d.netSales)}</td>
+                </tr>
+              ))}
+              <tr className="eod-rb-strong">
+                <td>Total</td>
+                <td className="eod-rb-num">—</td>
+                <td className="eod-rb-num">{fmt$(report.departments.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Section 4: Fuel (optional) */}
       {fuelHas && (
         <div className="eod-rb-section">
@@ -266,6 +299,33 @@ function ReportBody({ report }) {
           </table>
         </div>
       )}
+
+      {/* S67 — Standalone Lottery section. Only when lotterySeparateFromDrawer=true. */}
+      {report.settings?.lotterySeparateFromDrawer && recon?.lottery && (() => {
+        const L = recon.lottery;
+        const anyActivity = L.ticketMathSales > 0 || L.posLotterySales > 0 ||
+                            L.machineDrawSales > 0 || L.machineCashings > 0 || L.instantCashings > 0;
+        if (!anyActivity) return null;
+        return (
+          <div className="eod-rb-section">
+            <div className="eod-rb-section-title">LOTTERY CASH FLOW (separate from drawer)</div>
+            <table className="eod-rb-table">
+              <tbody>
+                {L.ticketMathSales > 0    && <tr><td>Ticket-math Sales (truth)</td><td className="eod-rb-num">{fmt$(L.ticketMathSales)}</td></tr>}
+                {L.posLotterySales > 0    && <tr><td>POS-Recorded Lottery Sales</td><td className="eod-rb-num">{fmt$(L.posLotterySales)}</td></tr>}
+                {L.unreportedCash > 0     && <tr><td>+ Un-rung Tickets</td><td className="eod-rb-num">{fmt$(L.unreportedCash)}</td></tr>}
+                {L.machineDrawSales > 0   && <tr><td>+ Machine Draw Sales</td><td className="eod-rb-num">{fmt$(L.machineDrawSales)}</td></tr>}
+                {L.machineCashings > 0    && <tr><td>− Machine Draw Cashings</td><td className="eod-rb-num">{fmt$(L.machineCashings)}</td></tr>}
+                {L.instantCashings > 0    && <tr><td>− Instant Cashings</td><td className="eod-rb-num">{fmt$(L.instantCashings)}</td></tr>}
+                <tr className="eod-rb-strong">
+                  <td>= Net Lottery Cash</td>
+                  <td className="eod-rb-num">{fmt$(L.netLotteryCash)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* Reconciliation (shift only) */}
       {recon && (

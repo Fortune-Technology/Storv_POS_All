@@ -18,6 +18,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import PriceInput from '../PriceInput';
+import { useConfirm } from '../../hooks/useConfirmDialog.jsx';
 import {
   getCatalogProduct, createCatalogProduct, updateCatalogProduct,
   getCatalogDepartments, createCatalogDepartment, updateCatalogDepartment, deleteCatalogDepartment,
@@ -127,13 +128,17 @@ const calcMargin = (cost, retail) => {
 const marginColor = (m) =>
   m === null ? '#94a3b8' : m >= 30 ? '#10b981' : m >= 20 ? '#f59e0b' : '#ef4444';
 
-const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
+// 2-14 numeric digits. Short codes like `299` are valid identifiers stores
+// type on the keypad for non-scan items. Cashier scan path treats short
+// codes as exact-match only (see utils/upc.js).
+const isValidUPC = (v) => !v || /^\d{2,14}$/.test(v.replace(/\s/g, ''));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline Dept Manager
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptManager({ departments, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(departments);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -165,7 +170,12 @@ function DeptManager({ departments, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete department?')) return;
+    if (!await confirm({
+      title: 'Delete department?',
+      message: 'This cannot be undone. Products tied to this department keep their existing assignment.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogDepartment(id);
       setList(l => l.filter(d => d.id !== id));
@@ -215,7 +225,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
                       onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={8} />
                   </div>
                   <div className="pf-mm-field">
-                    <label className="pf-label">Tax Class</label>
+                    <label className="pf-label">Category (age policy)</label>
                     <select className="form-input pf-mm-input" value={form.taxClass}
                       onChange={e => setForm(f => ({ ...f, taxClass: e.target.value }))}>
                       {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -272,6 +282,7 @@ const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim()
 const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
 
 function VendorManager({ vendors, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(vendors);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -313,7 +324,12 @@ function VendorManager({ vendors, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete vendor?')) return;
+    if (!await confirm({
+      title: 'Delete vendor?',
+      message: 'This cannot be undone. Products tied to this vendor keep their existing assignment.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogVendor(id);
       setList(l => l.filter(v => v.id!==id));
@@ -654,6 +670,7 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
  *   onSaved    — optional callback with the saved product (for parent refresh)
  */
 export default function ProductFormModal({ productId, scannedUpc, onClose, onSaved }) {
+  const confirm = useConfirm();
   const id = productId;
   // Router hooks replaced with a navigate() stub that resolves to onClose()
   // for every /portal/catalog* destination (which = "leave the form").
@@ -1054,7 +1071,7 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
 
   const margin       = calcMargin(unitCostVal, retailVal);
   const mColor       = marginColor(margin);
-  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
+  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC must be 2–14 numeric digits' : null;
   const priceWarning = unitCostVal && retailVal && retailVal < unitCostVal ? 'Retail price is below cost' : null;
 
   // ── Dept auto-fill ───────────────────────────────────────────────────────────
@@ -1218,9 +1235,9 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
         itemCode:           form.itemCode         || null,
-        // Session 40 Phase 1 — send both. Backend validates taxRuleId belongs
-        // to this org, auto-mirrors the rule's appliesTo into taxClass if
-        // taxClass wasn't explicitly changed (backward compat for legacy readers).
+        // Session 56b — `taxRuleId` is the per-product tax-matching FK.
+        // `taxClass` is no longer a tax matcher; it persists only as an
+        // age-policy hint (tobacco/alcohol detection at checkout).
         taxRuleId:          form.taxRuleId ? parseInt(form.taxRuleId) : null,
         taxClass:           form.taxClass,
         taxable:            form.taxable,
@@ -1360,9 +1377,15 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
   };
 
   // Guarded cancel — ask before discarding unsaved edits.
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (dirty) {
-      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'Your edits will be lost.',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true,
+      });
       if (!ok) return;
     }
     onClose?.();
@@ -1550,13 +1573,11 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                       </select>
                     </div>
 
-                    {/* Session 40 Phase 1 — strict-FK tax dropdown.
-                        Values are rule.id (stable across renames / rate changes).
-                        Shows every ACTIVE rule (no more dedupe by appliesTo).
-                        Legacy string class options preserved at the bottom
-                        with "(legacy)" prefix for products that haven't
-                        migrated yet. Stale-rule warning when taxRuleId points
-                        at a deleted/inactive rule. */}
+                    {/* Session 56b — Tax Rule dropdown. Values are rule.id
+                        (stable across renames / rate changes). The default
+                        option means "no per-product override" — at checkout
+                        the cart resolves via the product's department-linked
+                        rule. */}
                     <div>
                       <label className="pf-label">
                         Tax Rule
@@ -1565,45 +1586,20 @@ export default function ProductFormModal({ productId, scannedUpc, onClose, onSav
                         </Link>
                       </label>
                       <select className="form-input pf-full"
-                        value={form.taxRuleId ? `rule:${form.taxRuleId}` : `class:${form.taxClass || ''}`}
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (val.startsWith('rule:')) {
-                            const rid = val.slice(5);
-                            const rule = taxRules.find(r => String(r.id) === rid);
-                            setF('taxRuleId', rid);
-                            // Mirror appliesTo into taxClass so legacy cashier-app
-                            // builds (that only read taxClass) apply the right rate.
-                            if (rule?.appliesTo) setF('taxClass', rule.appliesTo);
-                          } else {
-                            // Legacy class option — clear the FK and set taxClass.
-                            const cls = val.slice(6);
-                            setF('taxRuleId', '');
-                            setF('taxClass', cls);
-                          }
-                        }}>
-                        <option value="class:">— Use department / default —</option>
-                        {taxRules.length > 0 && (
-                          <optgroup label="Tax Rules (preferred)">
-                            {taxRules
-                              .filter(r => r.active !== false)
-                              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-                              .map(r => {
-                                const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
-                                return (
-                                  <option key={r.id} value={`rule:${r.id}`}>
-                                    {r.name}{pct && ` — ${pct}`}
-                                  </option>
-                                );
-                              })}
-                          </optgroup>
-                        )}
-                        <optgroup label="Legacy tax classes">
-                          {TAX_CLASSES.map(t => (
-                            <option key={t.value} value={`class:${t.value}`}>(legacy) {t.label}</option>
-                          ))}
-                          <option value="class:non_taxable">(legacy) Non-Taxable — 0%</option>
-                        </optgroup>
+                        value={form.taxRuleId ? String(form.taxRuleId) : ''}
+                        onChange={e => setF('taxRuleId', e.target.value || '')}>
+                        <option value="">— Use department default —</option>
+                        {taxRules.length > 0 && taxRules
+                          .filter(r => r.active !== false)
+                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                          .map(r => {
+                            const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
+                            return (
+                              <option key={r.id} value={String(r.id)}>
+                                {r.name}{pct && ` — ${pct}`}
+                              </option>
+                            );
+                          })}
                       </select>
                       {/* Stale-FK warning */}
                       {form.taxRuleId && !taxRules.some(r => String(r.id) === String(form.taxRuleId) && r.active !== false) && (

@@ -428,6 +428,40 @@
 .rfm-warning-icon { flex-shrink: 0; margin-top: 1px; }
 .rfm-warning-text { font-size: 0.75rem; color: var(--amber); font-weight: 600; }
 
+/* Session 52 — Dual Pricing surcharge notice on the items step */
+.rfm-surcharge-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 0.75rem 0.875rem;
+  border-radius: 8px;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+.rfm-surcharge-notice--include {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--text-primary);
+}
+.rfm-surcharge-notice--exclude {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--text-primary);
+}
+.rfm-surcharge-notice-icon { flex-shrink: 0; margin-top: 2px; }
+.rfm-surcharge-notice--include .rfm-surcharge-notice-icon { color: #16a34a; }
+.rfm-surcharge-notice--exclude .rfm-surcharge-notice-icon { color: var(--amber); }
+.rfm-surcharge-notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.45;
+}
+.rfm-surcharge-notice-detail {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
 .rfm-note-input {
   width: 100%;
   padding: 0.75rem;

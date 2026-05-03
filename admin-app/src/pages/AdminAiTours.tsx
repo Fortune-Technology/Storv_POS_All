@@ -23,6 +23,9 @@ import {
   updateAiTour,
   deleteAiTour,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminAiTours.css';
 
 const CATEGORIES = [
@@ -74,6 +77,7 @@ const BLANK_FORM: FormState = {
 };
 
 export default function AdminAiTours() {
+  const confirm = useConfirm();
   const [tours, setTours]       = useState<Tour[]>([]);
   const [loading, setLoading]   = useState(true);
   const [filters, setFilters]   = useState<Filters>({ category: '', active: '' });
@@ -183,7 +187,12 @@ export default function AdminAiTours() {
   };
 
   const handleDelete = async (tour: Tour) => {
-    if (!window.confirm(`Deactivate "${tour.name}"? Users will no longer be offered this tour.`)) return;
+    if (!await confirm({
+      title: 'Deactivate tour?',
+      message: `Deactivate "${tour.name}"? Users will no longer be offered this tour.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    })) return;
     try {
       await deleteAiTour(tour.id);
       toast.success('Tour deactivated');

@@ -112,7 +112,7 @@ The **Invoice Import & Processing System** is designed to automatically ingest, 
 ### Priority Matching Engine (rewritten in Session 21 — vendor-scoped)
 
 - **Purpose**: Bridge the gap between invoice identifiers and internal POS records.
-- **7-tier cascade** (see [`backend/src/services/matchingService.js`](backend/src/services/matchingService.js)):
+- **7-tier cascade** (see [`backend/src/services/inventory/matching.ts`](backend/src/services/inventory/matching.ts) — Session 55 moved this from `services/matchingService.ts` into the inventory domain folder; the legacy path still works via a shim):
 
 | # | Tier | Key | Confidence |
 |---|------|-----|-----------|

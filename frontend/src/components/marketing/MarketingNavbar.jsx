@@ -82,10 +82,7 @@ const MarketingNavbar = () => {
               {user ? (
                 <MarketingButton href="/portal/realtime" size="sm">Dashboard</MarketingButton>
               ) : (
-                <>
-                  <Link to="/login" className="mkt-nav-item login-link">Log in</Link>
-                  <MarketingButton href="/contact" size="sm">Book a Demo</MarketingButton>
-                </>
+                <MarketingButton href="/contact" size="sm">Book a Demo</MarketingButton>
               )}
             </div>
           </div>
@@ -128,14 +125,9 @@ const MarketingNavbar = () => {
                 Dashboard
               </MarketingButton>
             ) : (
-              <>
-                <Link to="/login" className="mkt-mobile-login" onClick={() => setIsMobileMenuOpen(false)}>
-                  Log in
-                </Link>
-                <MarketingButton href="/contact" className="mkt-mobile-cta-btn" onClick={() => setIsMobileMenuOpen(false)}>
-                  Book a Free Demo
-                </MarketingButton>
-              </>
+              <MarketingButton href="/contact" className="mkt-mobile-cta-btn" onClick={() => setIsMobileMenuOpen(false)}>
+                Book a Free Demo
+              </MarketingButton>
             )}
           </div>
         </div>

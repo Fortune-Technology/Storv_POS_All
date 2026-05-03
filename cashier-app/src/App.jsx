@@ -20,6 +20,8 @@ import POSScreen           from './screens/POSScreen.jsx';
 import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
 import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
 import LabelPrintIndicator from './components/LabelPrintIndicator.jsx';
+import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
+import { ChooserDialogProvider } from './hooks/useChooserDialog.jsx';
 import './App.css';
 
 export default function App() {
@@ -165,13 +167,23 @@ export default function App() {
   // cashier is authenticated if they have a token (online) OR offlineMode flag (offline)
   const isAuthenticated = !!(cashier?.token || cashier?.offlineMode);
 
-  if (!station)       return <StationSetupScreen />;
-  if (!isAuthenticated) return <PinLoginScreen />;
+  // Wrap every screen in ConfirmDialogProvider so any component can call
+  // `useConfirm()` regardless of which app phase we're in (setup / PIN /
+  // POS). The provider mounts a single dialog instance app-wide.
+  const screen = (() => {
+    if (!station)         return <StationSetupScreen />;
+    if (!isAuthenticated) return <PinLoginScreen />;
+    return (
+      <>
+        <POSScreen />
+        <AIAssistantWidget />
+        <LabelPrintIndicator />
+      </>
+    );
+  })();
   return (
-    <>
-      <POSScreen />
-      <AIAssistantWidget />
-      <LabelPrintIndicator />
-    </>
+    <ConfirmDialogProvider>
+      <ChooserDialogProvider>{screen}</ChooserDialogProvider>
+    </ConfirmDialogProvider>
   );
 }

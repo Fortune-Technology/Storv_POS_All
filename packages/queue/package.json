@@ -1,15 +1,12 @@
 {
   "name": "@storeveu/queue",
   "version": "1.0.0",
-  "description": "Shared BullMQ queue definitions and producers for Storeveu POS platform",
+  "description": "BullMQ producer stubs for ecom sync events. No-op when Redis is unavailable so the POS backend keeps working without ecom infra.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./producers": "./producers.js"
   },
-  "dependencies": {
-    "bullmq": "^5.34.8",
-    "@storeveu/redis": "file:../redis"
-  }
+  "private": true
 }

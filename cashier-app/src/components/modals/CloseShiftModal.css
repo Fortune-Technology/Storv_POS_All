@@ -596,3 +596,73 @@
   align-items: center;
   gap: 6px;
 }
+
+/* ── Session 45: lottery-aware breakdown line items ───────────────────── */
+/* Hint line appears under labels like "+ Lottery Sales (un-rung)" with
+   the supporting math (ticket-math − rung-up) so the cashier can see why
+   the row exists. */
+.csm-breakdown-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.csm-breakdown-hint {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Dedicated panel surfaced under the breakdown when the shift had any
+   lottery cash flow. Only rendered when one of the four lottery numbers
+   is non-zero, so non-lottery stores see no extra UI. */
+.csm-lottery-detail {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+}
+.csm-lottery-detail-title {
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #b45309;
+  margin-bottom: 8px;
+}
+.csm-lottery-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+.csm-lottery-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--text-primary);
+}
+.csm-lottery-detail-row small {
+  display: block;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.7rem;
+  margin-top: 1px;
+}
+.csm-lottery-detail-row strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.csm-lottery-detail-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(245, 158, 11, 0.4);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #92400e;
+}

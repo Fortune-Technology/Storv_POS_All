@@ -11,26 +11,32 @@ import {
   updateAdminTicket,
   deleteAdminTicket,
   addAdminTicketReply,
+  assignAdminTicket,
+  getAssignableUsers,
+  type AssignableUser,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — useConfirmDialog is a shared .jsx file
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/admin.css';
 import './AdminTickets.css';
 
-const STATUS_OPTS   = ['open', 'in_progress', 'resolved', 'closed'] as const;
+const STATUS_OPTS = ['open', 'in_progress', 'resolved', 'closed'] as const;
 const PRIORITY_OPTS = ['low', 'normal', 'high', 'urgent'] as const;
 
 type Status = typeof STATUS_OPTS[number];
 type Priority = typeof PRIORITY_OPTS[number];
 
 const STATUS_COLORS: Record<Status, string> = {
-  open:        'at-badge--open',
+  open: 'at-badge--open',
   in_progress: 'at-badge--progress',
-  resolved:    'at-badge--resolved',
-  closed:      'at-badge--closed',
+  resolved: 'at-badge--resolved',
+  closed: 'at-badge--closed',
 };
 const PRIORITY_COLORS: Record<Priority, string> = {
-  low:    'at-badge--low',
+  low: 'at-badge--low',
   normal: 'at-badge--normal',
-  high:   'at-badge--high',
+  high: 'at-badge--high',
   urgent: 'at-badge--urgent',
 };
 
@@ -39,6 +45,13 @@ interface TicketResponse {
   byType: 'admin' | 'store';
   message: string;
   date: string;
+}
+
+interface TicketAssignee {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
 interface SupportTicket {
@@ -52,6 +65,16 @@ interface SupportTicket {
   createdAt: string;
   adminNotes?: string;
   responses?: TicketResponse[];
+  assignedToId?: string | null;
+  assignedAt?: string | null;
+  assignedTo?: TicketAssignee | null;
+}
+
+/** Compact 2-letter avatar from a name. */
+function initials(name?: string | null): string {
+  if (!name) return '??';
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || name[0].toUpperCase();
 }
 
 interface CreateForm {
@@ -148,18 +171,34 @@ const CreateModal = ({ onClose, onCreated }: CreateModalProps) => {
 // ── Ticket Detail Panel ────────────────────────────────────────────────────
 interface DetailPanelProps {
   ticket: SupportTicket;
+  assignableUsers: AssignableUser[];
   onClose: () => void;
   onUpdated: (ticket: SupportTicket) => void;
   onDeleted: (id: string | number) => void;
 }
 
-const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }: DetailPanelProps) => {
-  const [local, setLocal]     = useState<SupportTicket>(ticket);
-  const [reply, setReply]     = useState('');
+const DetailPanel = ({ ticket, assignableUsers, onClose, onUpdated, onDeleted }: DetailPanelProps) => {
+  const confirm = useConfirm();
+  const [local, setLocal] = useState<SupportTicket>(ticket);
+  const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => { setLocal(ticket); }, [ticket]);
+
+  const handleAssign = async (assignedToId: string) => {
+    setAssigning(true);
+    try {
+      const res = await assignAdminTicket(local.id, assignedToId || null);
+      setLocal(res.data);
+      onUpdated(res.data);
+      toast.success(assignedToId ? 'Ticket assigned' : 'Assignment removed');
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to update assignment';
+      toast.error(msg);
+    } finally { setAssigning(false); }
+  };
 
   const handleField = async (field: string, value: string) => {
     try {
@@ -195,7 +234,12 @@ const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }: DetailPanelProps
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Delete this ticket? This cannot be undone.')) return;
+    if (!await confirm({
+      title: 'Delete this ticket?',
+      message: 'This cannot be undone. The full conversation thread, replies, and any internal notes will be permanently removed.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteAdminTicket(local.id);
       toast.success('Ticket deleted');
@@ -219,6 +263,21 @@ const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }: DetailPanelProps
           <span>{fmtDate(local.createdAt)}</span>
         </div>
         <div className="at-detail-controls">
+          <div className="at-form-field at-inline-field at-assign-field">
+            <label>Assigned To</label>
+            <select
+              value={local.assignedToId || ''}
+              onChange={(e) => handleAssign(e.target.value)}
+              disabled={assigning}
+            >
+              <option value="">— Unassigned —</option>
+              {assignableUsers.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.role}) — {u.email.toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="at-form-field at-inline-field">
             <label>Status</label>
             <select value={local.status} onChange={e => handleField('status', e.target.value)}>
@@ -298,14 +357,19 @@ const DetailPanel = ({ ticket, onClose, onUpdated, onDeleted }: DetailPanelProps
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 const AdminTickets = () => {
-  const [tickets, setTickets]   = useState<SupportTicket[]>([]);
-  const [total, setTotal]       = useState(0);
-  const [loading, setLoading]   = useState(true);
+  // confirm not used directly here — DetailPanel has its own. Leaving the
+  // import in place so the eslint disable above continues to apply.
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<Status | ''>('');
-  const [search, setSearch]     = useState('');
-  const [page, setPage]         = useState(1);
+  // Assignment filter — '' = all, 'unassigned', 'mine', or specific userId
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<SupportTicket | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const limit = 20;
 
   const fetchTickets = useCallback(async () => {
@@ -314,14 +378,24 @@ const AdminTickets = () => {
       const params: Record<string, unknown> = { page, limit };
       if (statusFilter) params.status = statusFilter;
       if (search.trim()) params.search = search.trim();
+      if (assigneeFilter === 'mine') params.mine = 'true';
+      else if (assigneeFilter === 'unassigned') params.assignedToId = 'unassigned';
+      else if (assigneeFilter) params.assignedToId = assigneeFilter;
       const res = await getAdminTickets(params);
       setTickets(res.data);
       setTotal(res.total);
     } catch { toast.error('Failed to load tickets'); }
     finally { setLoading(false); }
-  }, [page, statusFilter, search]);
+  }, [page, statusFilter, search, assigneeFilter]);
 
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
+
+  // Load assignable users once on mount (admin + superadmin, active only).
+  useEffect(() => {
+    getAssignableUsers()
+      .then(res => setAssignableUsers(res.data || []))
+      .catch(() => { /* non-blocking — assignment dropdown will be empty */ });
+  }, []);
 
   const handleCreated = (ticket: SupportTicket) => {
     setTickets(prev => [ticket, ...prev]);
@@ -345,113 +419,137 @@ const AdminTickets = () => {
   return (
     <>
 
-        {/* Page header */}
-        <div className="admin-header">
-          <div className="admin-header-left">
-            <div className="admin-header-icon"><Ticket size={22} /></div>
-            <div>
-              <h1>Support Tickets</h1>
-              <p>{total} ticket{total !== 1 ? 's' : ''} total</p>
-            </div>
+      {/* Page header */}
+      <div className="admin-header">
+        <div className="admin-header-left">
+          <div className="admin-header-icon"><Ticket size={22} /></div>
+          <div>
+            <h1>Support Tickets</h1>
+            <p>{total} ticket{total !== 1 ? 's' : ''} total</p>
           </div>
-          <button className="at-btn-primary" onClick={() => setShowCreate(true)}>
-            <Plus size={15} /> New Ticket
-          </button>
         </div>
+        <button className="at-btn-primary" onClick={() => setShowCreate(true)}>
+          <Plus size={15} /> New Ticket
+        </button>
+      </div>
 
-        {/* Toolbar */}
-        <div className="at-toolbar">
-          <div className="at-search-wrap">
-            <Search size={15} className="at-search-icon" />
-            <input
-              className="at-search-input"
-              placeholder="Search by subject or email…"
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
-            />
-          </div>
-          <div className="at-filter-tabs">
-            <button className={`at-filter-tab ${!statusFilter ? 'active' : ''}`}
-              onClick={() => { setStatusFilter(''); setPage(1); }}>All</button>
-            {STATUS_OPTS.map(s => (
-              <button key={s}
-                className={`at-filter-tab ${statusFilter === s ? 'active' : ''}`}
-                onClick={() => { setStatusFilter(s); setPage(1); }}>
-                {s.replace('_', ' ')}
-              </button>
+      {/* Toolbar */}
+      <div className="at-toolbar">
+        <div className="at-search-wrap">
+          <Search size={15} className="at-search-icon" />
+          <input
+            className="at-search-input"
+            placeholder="Search by subject or email…"
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
+        <div className="at-filter-tabs">
+          <button className={`at-filter-tab ${!statusFilter ? 'active' : ''}`}
+            onClick={() => { setStatusFilter(''); setPage(1); }}>All</button>
+          {STATUS_OPTS.map(s => (
+            <button key={s}
+              className={`at-filter-tab ${statusFilter === s ? 'active' : ''}`}
+              onClick={() => { setStatusFilter(s); setPage(1); }}>
+              {s.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+        <div className="at-form-field at-inline-field at-assignee-filter">
+          <label>Assigned</label>
+          <select
+            value={assigneeFilter}
+            onChange={(e) => { setAssigneeFilter(e.target.value); setPage(1); }}
+          >
+            <option value="">All</option>
+            <option value="mine">My tickets</option>
+            <option value="unassigned">Unassigned</option>
+            {assignableUsers.length > 0 && <option disabled>──────────</option>}
+            {assignableUsers.map(u => (
+              <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
             ))}
-          </div>
+          </select>
         </div>
+      </div>
 
-        {/* Split layout */}
-        <div className={`at-split ${selected ? 'at-split--open' : ''}`}>
+      {/* Split layout */}
+      <div className={`at-split ${selected ? 'at-split--open' : ''}`}>
 
-          {/* Ticket list */}
-          <div className="at-list-col">
-            {loading ? (
-              <div className="at-loading"><Loader size={22} className="at-spin" /></div>
-            ) : tickets.length === 0 ? (
-              <div className="at-empty">
-                <AlertCircle size={32} />
-                <p>No tickets found</p>
-              </div>
-            ) : (
-              tickets.map(t => (
-                <div
-                  key={t.id}
-                  className={`at-ticket-row ${selected?.id === t.id ? 'at-ticket-row--active' : ''}`}
-                  onClick={() => setSelected(t)}
-                >
-                  <div className="at-ticket-row-top">
-                    <span className="at-ticket-subject">{t.subject}</span>
-                    <div className="at-ticket-badges">
-                      <span className={`at-badge ${PRIORITY_COLORS[t.priority]}`}>{t.priority}</span>
-                      <span className={`at-badge ${STATUS_COLORS[t.status]}`}>{t.status.replace('_', ' ')}</span>
-                    </div>
+        {/* Ticket list */}
+        <div className="at-list-col">
+          {loading ? (
+            <div className="at-loading"><Loader size={22} className="at-spin" /></div>
+          ) : tickets.length === 0 ? (
+            <div className="at-empty">
+              <AlertCircle size={32} />
+              <p>No tickets found</p>
+            </div>
+          ) : (
+            tickets.map(t => (
+              <div
+                key={t.id}
+                className={`at-ticket-row ${selected?.id === t.id ? 'at-ticket-row--active' : ''}`}
+                onClick={() => setSelected(t)}
+              >
+                <div className="at-ticket-row-top">
+                  <span className="at-ticket-subject">{t.subject}</span>
+                  <div className="at-ticket-badges">
+                    <span className={`at-badge ${PRIORITY_COLORS[t.priority]}`}>{t.priority}</span>
+                    <span className={`at-badge ${STATUS_COLORS[t.status]}`}>{t.status.replace('_', ' ')}</span>
                   </div>
-                  <div className="at-ticket-from">{t.email}{t.name ? ` — ${t.name}` : ''}</div>
-                  <div className="at-ticket-date">{fmtDate(t.createdAt)}</div>
-                  {Array.isArray(t.responses) && t.responses.length > 0 && (
-                    <div className="at-ticket-replies">
-                      <MessageSquare size={11} /> {t.responses.length} repl{t.responses.length === 1 ? 'y' : 'ies'}
-                    </div>
+                </div>
+                <div className="at-ticket-from">{t.email}{t.name ? ` — ${t.name}` : ''}</div>
+                <div className="at-ticket-date">
+                  {fmtDate(t.createdAt)}
+                  {t.assignedTo && (
+                    <span className="at-assignee-chip" title={`Assigned to ${t.assignedTo.name}`}>
+                      <span className="at-assignee-avatar">{initials(t.assignedTo.name)}</span>
+                      <span className="at-assignee-name">{t.assignedTo.name}</span>
+                    </span>
                   )}
                 </div>
-              ))
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="at-pagination">
-                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-                  <ChevronLeft size={15} />
-                </button>
-                <span>{page} / {totalPages}</span>
-                <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
-                  <ChevronRight size={15} />
-                </button>
+                {Array.isArray(t.responses) && t.responses.length > 0 && (
+                  <div className="at-ticket-replies">
+                    <MessageSquare size={11} /> {t.responses.length} repl{t.responses.length === 1 ? 'y' : 'ies'}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            ))
+          )}
 
-          {/* Detail panel */}
-          {selected && (
-            <DetailPanel
-              ticket={selected}
-              onClose={() => setSelected(null)}
-              onUpdated={handleUpdated}
-              onDeleted={handleDeleted}
-            />
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="at-pagination">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                <ChevronLeft size={15} />
+              </button>
+              <span>{page} / {totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
+                <ChevronRight size={15} />
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Create modal */}
-        {showCreate && (
-          <CreateModal
-            onClose={() => setShowCreate(false)}
-            onCreated={handleCreated}
+        {/* Detail panel */}
+        {selected && (
+          <DetailPanel
+            ticket={selected}
+            assignableUsers={assignableUsers}
+            onClose={() => setSelected(null)}
+            onUpdated={handleUpdated}
+            onDeleted={handleDeleted}
           />
         )}
+      </div>
+
+      {/* Create modal */}
+      {showCreate && (
+        <CreateModal
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
+        />
+      )}
     </>
   );
 };

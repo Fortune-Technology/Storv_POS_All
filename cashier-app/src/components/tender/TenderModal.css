@@ -80,6 +80,10 @@
   cursor: not-allowed;
 }
 
+/* Legacy split-add button — kept for any non-split-aware callers (the
+   manual_card / manual_ebt screens still use this style for the small
+   "Add $X — pay rest separately" hint button). The main entry-screen
+   version is now `.tm-split-add-cta` below (full-width primary CTA). */
 .tm-split-add-btn {
   width: 100%;
   padding: 0.7rem;
@@ -94,6 +98,61 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+
+/* Promoted split-add CTA — same prominence as the main complete button
+   when canAddSplit is true. Cashier's primary action at this point is
+   "commit this partial and move on", not "complete on a partial amount",
+   so the CTA needs to look like a real button.
+
+   Inline `style` from the JSX still drives the background color (matches
+   the active method's accent) so this rule only handles structural
+   layout that's identical to .tm-big-btn. We extend .tm-big-btn rather
+   than duplicate its rules because the layout/sizing match. */
+.tm-split-add-cta {
+  /* No additional rules needed today — the JSX already passes className
+     "tm-big-btn tm-split-add-cta" so .tm-big-btn provides full styling.
+     The class exists as a hook so QA / theming can target the split-add
+     specifically without affecting the regular complete button. */
+}
+
+/* Secondary button — used for the Complete CTA when it's been demoted
+   in favor of a primary split-add CTA (see TenderModal entry-screen
+   footer: when canAddSplit is true, Complete becomes secondary so the
+   cashier doesn't accidentally finalize on a partial amount). */
+.tm-secondary-btn {
+  width: 100%;
+  padding: 0.55rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.tm-secondary-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--text-muted);
+}
+.tm-secondary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Sticky split-progress card — pinned to top of the entry-screen scroll
+   column when one or more splits are committed. Layout is driven by
+   inline styles in the JSX (for the gradient + amber-accent colors that
+   tie into the running theme). This rule is a hook for future theming
+   variations and to ensure the sticky positioning doesn't get overridden
+   by parent flex rules. */
+.tm-split-progress {
+  flex-shrink: 0;
 }
 
 /* Numpad column */

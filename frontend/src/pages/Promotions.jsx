@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Tag, Percent, Gift, ShoppingBag, Shuffle, Link2,
   Plus, Pencil, Trash2, X, ChevronRight, Search,
@@ -111,6 +112,7 @@ function defaultConfig(type) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Promotions() {
+  const confirm = useConfirm();
   const [promos, setPromos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -234,7 +236,12 @@ export default function Promotions() {
 
   // ── Delete ──────────────────────────────────────────────────────────────────
   const handleDelete = async (promo) => {
-    if (!window.confirm(`Delete "${promo.name}"? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: 'Delete promotion?',
+      message: `Delete "${promo.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     setDeleting(promo.id);
     try {
       await deleteCatalogPromotion(promo.id);

@@ -1,14 +1,19 @@
 /**
  * AnalyticsHub — Tabbed hub for all analytics pages
- * Tabs: Sales, Departments, Products, Predictions
+ * Tabs: Sales, Departments, Products, Predictions, Compare
+ *
+ * Compare tab (Session 64) — extracted from the legacy ReportsHub Compare tab.
+ * Mounts <PeriodCompare embedded /> for side-by-side metric comparison
+ * across two arbitrary date ranges.
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BarChart2, PieChart, ShoppingCart, TrendingUp } from 'lucide-react';
+import { BarChart2, PieChart, ShoppingCart, TrendingUp, GitCompare } from 'lucide-react';
 import SalesAnalytics from './SalesAnalytics';
 import DepartmentAnalytics from './DepartmentAnalytics';
 import ProductAnalytics from './ProductAnalytics';
 import SalesPredictions from './SalesPredictions';
+import PeriodCompare from './reports/PeriodCompare';
 import '../styles/portal.css';
 
 const TABS = [
@@ -16,6 +21,7 @@ const TABS = [
   { key: 'departments', label: 'Departments', icon: <PieChart size={14} /> },
   { key: 'products',    label: 'Products',    icon: <ShoppingCart size={14} /> },
   { key: 'predictions', label: 'Predictions', icon: <TrendingUp size={14} /> },
+  { key: 'compare',     label: 'Compare',     icon: <GitCompare size={14} /> },
 ];
 
 export default function AnalyticsHub() {
@@ -47,6 +53,7 @@ export default function AnalyticsHub() {
       {tab === 'departments' && <DepartmentAnalytics embedded />}
       {tab === 'products'    && <ProductAnalytics embedded />}
       {tab === 'predictions' && <SalesPredictions embedded />}
+      {tab === 'compare'     && <PeriodCompare embedded />}
     </div>
   );
 }

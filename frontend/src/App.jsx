@@ -5,14 +5,9 @@ import 'react-toastify/dist/ReactToastify.css';
 import EcomOrderNotifier from './components/EcomOrderNotifier';
 import ExchangeNotifier from './components/ExchangeNotifier';
 import InactivityLock from './components/InactivityLock';
+import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 
-// Marketing Pages
-import Home from './pages/marketing/Home';
-import Features from './pages/marketing/Features';
-import Pricing from './pages/marketing/Pricing';
-import Contact from './pages/marketing/Contact';
-import About from './pages/marketing/About';
-import Download from './pages/marketing/Download';
+// Internal payment simulator (not part of marketing site)
 import PaymentSimulator from './pages/marketing/PaymentSimulator';
 
 // Auth / Onboarding Pages
@@ -81,7 +76,6 @@ import Fuel from './pages/Fuel';
 import ScanData from './pages/ScanData';
 import Exchange from './pages/Exchange';
 import ExchangeOrderDetail from './pages/ExchangeOrderDetail';
-import ReportsHub from './pages/ReportsHub';
 import LoyaltyProgram from './pages/LoyaltyProgram';
 import SupportTickets from './pages/SupportTickets';
 import ChatPage from './pages/ChatPage';
@@ -123,7 +117,9 @@ import AccountHub        from './pages/AccountHub';
 import MyProfile         from './pages/MyProfile';
 import CustomersHub      from './pages/CustomersHub';
 import EndOfDayReport    from './pages/EndOfDayReport';
+import DualPricingReport from './pages/DualPricingReport';
 import DailySale         from './pages/DailySale';
+import DailyReports      from './pages/DailyReports';
 import Roles             from './pages/Roles';
 
 // Components
@@ -162,7 +158,28 @@ const ImpersonateLanding = () => {
       try {
         const user = JSON.parse(decodeURIComponent(userData));
         user.token = token;
+        // Wipe any leftover InactivityLock state from a previous browser
+        // session BEFORE writing the new user. SSO is establishing a fresh
+        // impersonated session; it must never inherit the previous user's
+        // lock — that would demand the impersonated user's password despite
+        // them having just landed via authenticated SSO.
+        localStorage.removeItem('storv:il:locked');
+        localStorage.removeItem('storv:il:lastActive');
+        localStorage.removeItem('storv:il:lockedFor');
         localStorage.setItem('user', JSON.stringify(user));
+        // Re-anchor the active store to one belonging to the impersonated
+        // user. Otherwise the previously-cached `activeStoreId` (from the
+        // admin's browser session) would still be sent as `X-Store-Id` and
+        // resolve to a store outside the impersonated user's org — the
+        // ecom-backend then 401s and the page bounces to /login. Pick the
+        // user's first store; if they have none, clear the value so the
+        // store-switcher prompts.
+        const firstStoreId = Array.isArray(user.storeIds) ? user.storeIds[0] : null;
+        if (firstStoreId) {
+          localStorage.setItem('activeStoreId', firstStoreId);
+        } else {
+          localStorage.removeItem('activeStoreId');
+        }
         navigate('/portal/realtime', { replace: true });
       } catch { navigate('/login', { replace: true }); }
     } else {
@@ -178,6 +195,7 @@ function App() {
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ScrollToTop />
       <StoreProvider>
+      <ConfirmDialogProvider>
       <ToastContainer theme="dark" position="top-right" />
       <EcomOrderNotifier />
       <ExchangeNotifier />
@@ -189,14 +207,13 @@ function App() {
         <Route path="/shop/checkout" element={<ShopCheckout />} />
         <Route path="/shop/:slug"    element={<ProductPage />} />
 
-        {/* ── Marketing (Public) ────────────────────────────────────────── */}
-        <Route path="/"         element={<Home />} />
-        <Route path="/features" element={<Features />} />
-        <Route path="/pricing"  element={<Pricing />} />
-        <Route path="/contact"  element={<Contact />} />
-        <Route path="/about"    element={<About />} />
-        <Route path="/download" element={<Download />} />
+        {/* ── Marketing site moved to dedicated `marketing/` app.
+              `/`, `/features`, `/pricing`, `/contact`, `/about`, `/download`
+              are served by that app. The frontend's `/` redirects to /login. */}
+        <Route path="/"         element={<Navigate to="/login" replace />} />
         <Route path="/payment-simulator" element={<PaymentSimulator />} />
+
+        {/* ── Public Content (still served by frontend) ───────────────── */}
         <Route path="/careers"      element={<Careers />} />
         <Route path="/careers/:id"  element={<CareerDetail />} />
         <Route path="/support"      element={<Support />} />
@@ -261,8 +278,13 @@ function App() {
 
           {/* ── POS Reports Hub (tabbed) ──────────────────────────────── */}
           <Route path="/portal/pos-reports"     element={gated(<POSReports />)} />
-          <Route path="/portal/end-of-day"      element={gated(<EndOfDayReport />)} />
-          <Route path="/portal/daily-sale"      element={gated(<DailySale />)} />
+          {/* Session 66 — DailyReports hub consolidates the 3 daily-close pages.
+               Original URLs preserved as redirects so existing bookmarks land on
+               the correct tab inside the new hub. */}
+          <Route path="/portal/daily-reports"   element={gated(<DailyReports />)} />
+          <Route path="/portal/end-of-day"      element={<Navigate to="/portal/daily-reports?tab=eod" replace />} />
+          <Route path="/portal/daily-sale"      element={<Navigate to="/portal/daily-reports?tab=sale" replace />} />
+          <Route path="/portal/dual-pricing-report" element={<Navigate to="/portal/daily-reports?tab=dual-pricing" replace />} />
 
           {/* ── Rules & Fees Hub (tabbed) ─────────────────────────────── */}
           <Route path="/portal/rules"           element={gated(<RulesAndFees />)} />
@@ -305,7 +327,8 @@ function App() {
           <Route path="/portal/exchange/new"          element={gated(<ExchangeOrderDetail />)} />
           <Route path="/portal/exchange/orders/:id"   element={gated(<ExchangeOrderDetail />)} />
 
-          <Route path="/portal/reports"          element={gated(<ReportsHub />)} />
+          {/* ── Legacy redirect (Session 64) — ReportsHub deleted, tabs distributed to AnalyticsHub/POSReports/InventoryCount ── */}
+          <Route path="/portal/reports"          element={<Navigate to="/portal/analytics" replace />} />
           <Route path="/portal/support-tickets"  element={gated(<SupportTickets />)} />
 
           {/* ── Online Store (E-commerce) ──────────────────────────── */}
@@ -357,6 +380,7 @@ function App() {
         {/* ── Fallback ────────────────────────────────────────────────── */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      </ConfirmDialogProvider>
       </StoreProvider>
     </Router>
   );

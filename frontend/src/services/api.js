@@ -250,14 +250,15 @@ export const getLabelPrintJob       = (id)     => api.get(`/label-print-jobs/${i
 export const retryLabelPrintJob     = (id)     => api.post(`/label-print-jobs/${id}/retry`).then(r => r.data);
 
 // ── Reports Hub ─────────────────────────────────────────────────────────────
-export const getReportSummary       = (params) => api.get('/reports/hub/summary', { params }).then(r => r.data);
-export const getReportTax           = (params) => api.get('/reports/hub/tax', { params }).then(r => r.data);
+// Session 64 — ReportsHub deleted, only 3 surviving sub-reports remain. The
+// 5 unused helpers (getReportSummary/Tax/Events/Receive/HouseAccounts) and
+// their backend routes are gone. Kept here:
+//  - getReportInventory  → InventoryStatus  (mounted in InventoryCount tab)
+//  - getReportCompare    → PeriodCompare    (mounted in AnalyticsHub tab)
+//  - getReportNotes      → TxNotes          (mounted in POSReports tab)
 export const getReportInventory     = (params) => api.get('/reports/hub/inventory', { params }).then(r => r.data);
 export const getReportCompare       = (params) => api.get('/reports/hub/compare', { params }).then(r => r.data);
 export const getReportNotes         = (params) => api.get('/reports/hub/notes', { params }).then(r => r.data);
-export const getReportEvents        = (params) => api.get('/reports/hub/events', { params }).then(r => r.data);
-export const getReportReceive       = (params) => api.get('/reports/hub/receive', { params }).then(r => r.data);
-export const getReportHouseAccounts = ()       => api.get('/reports/hub/house-accounts').then(r => r.data);
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 export const getChatChannels  = ()       => api.get('/chat/channels').then(r => r.data);
@@ -517,6 +518,9 @@ export const scanLotteryBarcode       = (data)   => api.post('/lottery/scan', da
 export const parseLotteryBarcode      = (raw)    => api.post('/lottery/scan/parse', { raw }).then(lotteryUnwrap);
 export const moveLotteryBoxToSafe     = (id, d)  => api.post(`/lottery/boxes/${id}/move-to-safe`, d).then(lotteryUnwrap);
 export const soldoutLotteryBox        = (id, d)  => api.post(`/lottery/boxes/${id}/soldout`, d).then(lotteryUnwrap);
+// Undo a soldout — flips depleted → active, restores currentTicket from
+// the prior close_day_snapshot, neutralises the inflated soldout-day sale.
+export const restoreLotteryBoxToCounter = (id, d) => api.post(`/lottery/boxes/${id}/restore-to-counter`, d).then(lotteryUnwrap);
 export const returnLotteryBoxToLotto  = (id, d)  => api.post(`/lottery/boxes/${id}/return-to-lotto`, d).then(lotteryUnwrap);
 export const cancelLotteryPendingMove = (id)     => api.delete(`/lottery/boxes/${id}/pending-move`).then(lotteryUnwrap);
 export const runLotteryPendingMoves   = ()       => api.post('/lottery/run-pending-moves').then(lotteryUnwrap);
@@ -589,6 +593,8 @@ export const getLotteryCommissionReport = (params) => api.get('/lottery/commissi
 
 export const getLotterySettings    = (storeId) => api.get('/lottery/settings', { params: { storeId } }).then(r => r.data?.data ?? r.data);
 export const updateLotterySettings = (storeId, data) => api.put('/lottery/settings', data, { params: { storeId } }).then(r => r.data?.data ?? r.data);
+// Per-day owner audit view — chronological per-shift breakdown with cumulative-reading deltas + reconcileShift drawer math + day-level rollup. Powers the Shift Reports drill-down (Phase D).
+export const getLotteryShiftAudit  = (params) => api.get('/lottery/shift-audit', { params }).then(r => r.data);
 
 // ── Lottery Ticket Catalog ────────────────────────────────────────────────────
 export const getLotteryCatalog          = (params) => api.get('/lottery/catalog', { params }).then(lotteryUnwrap);
@@ -817,5 +823,12 @@ export const escalateAiConversation = (id, subject, priority = 'normal') =>
   api.post(`/ai-assistant/conversations/${id}/escalate`, { subject, priority }).then(r => r.data);
 export const getAiTourBySlug   = (slug) => api.get(`/ai-assistant/tours/${slug}`).then(r => r.data);
 export const listPublicAiTours = ()     => api.get('/ai-assistant/tours').then(r => r.data);
+
+// ── NOTIFICATIONS (current user's bell) ───────────────────────────────────
+export const listMyNotifications  = (params) => api.get('/notifications', { params }).then(r => r.data);
+export const getUnreadNotifCount  = ()       => api.get('/notifications/count').then(r => r.data);
+export const markNotifRead        = (id)     => api.put(`/notifications/${id}/read`).then(r => r.data);
+export const markAllNotifsRead    = ()       => api.put('/notifications/read-all').then(r => r.data);
+export const dismissNotif         = (id)     => api.delete(`/notifications/${id}`).then(r => r.data);
 
 export default api;

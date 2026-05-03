@@ -30,11 +30,15 @@ import {
   updatePaymentTerminal,
   deletePaymentTerminal,
   pingPaymentTerminal,
+  listStationsForStore,
   getHppWebhookUrl,
   regenerateHppWebhookSecret,
   getAdminOrganizations,
   getAdminStores,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './AdminMerchants.css';
 
 type MerchantStatus = 'active' | 'pending' | 'disabled';
@@ -48,6 +52,7 @@ interface MerchantForm {
   spinTpn: string;
   spinAuthKey: string;
   spinBaseUrl: string;
+  spinRegisterId: string;
   hppMerchantId: string;
   hppAuthKey: string;
   hppBaseUrl: string;
@@ -79,6 +84,7 @@ interface Merchant {
   environment: Environment;
   spinTpn?: string;
   spinBaseUrl?: string;
+  spinRegisterId?: string;
   hppMerchantId?: string;
   hppBaseUrl?: string;
   hppEnabled?: boolean;
@@ -144,6 +150,16 @@ interface TerminalForm {
   notes: string;
 }
 
+interface StationOption {
+  id: string;
+  name: string;
+  lastSeenAt?: string | null;
+  paired: boolean;
+  pairedTerminalId: string | null;
+  pairedTerminalNickname: string | null;
+  pairedTerminalModel: string | null;
+}
+
 const BLANK_FORM: MerchantForm = {
   orgId: '',
   storeId: '',
@@ -152,6 +168,7 @@ const BLANK_FORM: MerchantForm = {
   spinTpn: '',
   spinAuthKey: '',
   spinBaseUrl: '',
+  spinRegisterId: '',
   hppMerchantId: '',
   hppAuthKey: '',
   hppBaseUrl: '',
@@ -219,6 +236,7 @@ function StatusPill({ status }: StatusPillProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminMerchants() {
+  const confirm = useConfirm();
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [orgs, setOrgs]       = useState<Organization[]>([]);
   const [stores, setStores]   = useState<AdminStore[]>([]);
@@ -242,6 +260,7 @@ export default function AdminMerchants() {
   const [termLoading, setTermLoading] = useState(false);
   const [termEditing, setTermEditing] = useState<string | number | null>(null);
   const [termForm, setTermForm]       = useState<TerminalForm>(BLANK_TERMINAL);
+  const [stationOptions, setStationOptions] = useState<StationOption[]>([]);
 
   // ── HPP webhook state ──
   // savedWebhookUrl: the URL we already have on record (fetched on Edit open)
@@ -294,6 +313,7 @@ export default function AdminMerchants() {
       spinTpn:         merchant.spinTpn       || '',
       spinAuthKey:     '',  // empty on edit = "leave unchanged"
       spinBaseUrl:     merchant.spinBaseUrl   || '',
+      spinRegisterId:  merchant.spinRegisterId || '',
       hppMerchantId:   merchant.hppMerchantId || '',
       hppAuthKey:      '',
       hppBaseUrl:      merchant.hppBaseUrl    || '',
@@ -336,12 +356,15 @@ export default function AdminMerchants() {
     const isFirstTime = !form.hppWebhookSecretSet;
     const verb = isFirstTime ? 'generate' : 'regenerate';
     if (!isFirstTime) {
-      const ok = window.confirm(
-        'Regenerate the HPP webhook secret?\n\n' +
-        'The OLD URL will stop working immediately. iPOSpays will fail to deliver ' +
-        'callbacks until you paste the new URL into the merchant settings there.\n\n' +
-        'Only do this if you suspect the secret was leaked or want to rotate it.'
-      );
+      const ok = await confirm({
+        title: 'Regenerate webhook secret?',
+        message: 'Regenerate the HPP webhook secret?\n\n' +
+          'The OLD URL will stop working immediately. iPOSpays will fail to deliver ' +
+          'callbacks until you paste the new URL into the merchant settings there.\n\n' +
+          'Only do this if you suspect the secret was leaked or want to rotate it.',
+        confirmLabel: 'Regenerate',
+        danger: true,
+      });
       if (!ok) return;
     }
     setRegenerating(true);
@@ -392,7 +415,12 @@ export default function AdminMerchants() {
   };
 
   const handleDelete = async (merchant: Merchant) => {
-    if (!window.confirm(`Delete payment merchant for "${merchant.storeName}"?\n\nThis cannot be undone and will also remove all linked terminals.`)) return;
+    if (!await confirm({
+      title: 'Delete payment merchant?',
+      message: `Delete payment merchant for "${merchant.storeName}"?\n\nThis cannot be undone and will also remove all linked terminals.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deletePaymentMerchant(merchant.id);
       toast.success('Merchant deleted');
@@ -405,7 +433,11 @@ export default function AdminMerchants() {
   const handleTest = async (merchant: Merchant) => {
     try {
       const res = await testPaymentMerchant(merchant.id);
-      if (res.success) toast.success('Credentials OK — terminal reachable. You can now Activate.');
+      // The backend probe only validates credentials + cloud reachability — it
+      // does NOT push to the physical terminal. So "test passed" means you can
+      // safely Activate, but the first real card sale is what proves the P17
+      // itself is plugged in + online.
+      if (res.success) toast.success('Credentials valid — cloud reachable. Run a test card sale to verify the P17 device is online.');
       else toast.warn(res.result || 'Test failed');
       load();
     } catch (err: any) {
@@ -418,7 +450,11 @@ export default function AdminMerchants() {
       toast.warn('Test the terminal successfully within the last 24 hours before activating.');
       return;
     }
-    if (!window.confirm(`Activate payment processing for "${merchant.storeName}"?\n\nThe POS will immediately start accepting real card payments.`)) return;
+    if (!await confirm({
+      title: 'Activate payment processing?',
+      message: `Activate payment processing for "${merchant.storeName}"?\n\nThe POS will immediately start accepting real card payments.`,
+      confirmLabel: 'Activate',
+    })) return;
     try {
       await activatePaymentMerchant(merchant.id);
       toast.success('Merchant activated');
@@ -460,15 +496,35 @@ export default function AdminMerchants() {
   };
 
   // ── Terminals drawer ──
+  // Loads terminals AND the station picker options. Stations are fetched
+  // separately because the picker needs to know which stations are already
+  // paired to disable those entries.
+  const loadStations = async (storeId: string) => {
+    try {
+      const res = await listStationsForStore(storeId);
+      setStationOptions(res.stations || []);
+    } catch (err: any) {
+      // Non-fatal — terminal form still works with manual entry as a fallback
+      // if the dropdown can't load. We just won't show a curated list.
+      console.warn('[loadStations]', err?.response?.data?.error || err?.message);
+      setStationOptions([]);
+    }
+  };
+
   const openTerminals = async (merchant: Merchant) => {
     setTermFor(merchant);
     setTerminals([]);
+    setStationOptions([]);
     setTermEditing(null);
     setTermForm({ ...BLANK_TERMINAL, merchantId: String(merchant.id) });
     setTermLoading(true);
     try {
-      const res = await listPaymentTerminals({ merchantId: merchant.id });
-      setTerminals(res.terminals || []);
+      // Load terminals + stations in parallel — both are scoped to this merchant's store
+      const [termRes] = await Promise.all([
+        listPaymentTerminals({ merchantId: merchant.id }),
+        loadStations(merchant.storeId),
+      ]);
+      setTerminals(termRes.terminals || []);
     } catch (err: any) {
       toast.error('Failed to load terminals: ' + (err?.response?.data?.error || err?.message));
     } finally {
@@ -479,7 +535,11 @@ export default function AdminMerchants() {
   const refreshTerminals = async () => {
     if (!termFor) return;
     try {
-      const res = await listPaymentTerminals({ merchantId: termFor.id });
+      const [res] = await Promise.all([
+        listPaymentTerminals({ merchantId: termFor.id }),
+        // Re-fetch stations too so paired-status reflects the latest pairing
+        loadStations(termFor.storeId),
+      ]);
       setTerminals(res.terminals || []);
     } catch (err: any) {
       toast.error('Failed to refresh: ' + (err?.response?.data?.error || err?.message));
@@ -521,7 +581,12 @@ export default function AdminMerchants() {
   };
 
   const removeTerminal = async (t: Terminal) => {
-    if (!window.confirm(`Remove terminal "${t.nickname || t.deviceSerialNumber || t.id}"?`)) return;
+    if (!await confirm({
+      title: 'Remove terminal?',
+      message: `Remove terminal "${t.nickname || t.deviceSerialNumber || t.id}"?`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     try {
       await deletePaymentTerminal(t.id);
       toast.success('Terminal removed');
@@ -769,6 +834,18 @@ export default function AdminMerchants() {
                     {form.spinAuthKeySet && (
                       <span className="am-field-hint">Already saved. Leave blank to keep current value.</span>
                     )}
+                  </div>
+                  <div className="am-field">
+                    <label>Register Id *</label>
+                    <input
+                      value={form.spinRegisterId}
+                      onChange={e => setForm({ ...form, spinRegisterId: e.target.value })}
+                      placeholder="e.g. 837602"
+                    />
+                    <span className="am-field-hint">
+                      iPOSpays portal: TPN → Edit Parameter → Integration → Register Id.
+                      Required by SPIn v2 — Dejavoo returns 400 without it.
+                    </span>
                   </div>
                   <div className="am-field am-grid-full">
                     <label>SPIn Base URL (optional override)</label>
@@ -1085,13 +1162,60 @@ export default function AdminMerchants() {
                     />
                   </div>
                   <div className="am-field">
-                    <label>Station ID</label>
-                    <input
+                    <label>Station</label>
+                    {/*
+                      Dropdown of stations belonging to this merchant's store.
+                      Already-paired stations are disabled (a station can only own
+                      one terminal). The currently-edited terminal's station stays
+                      selectable so the existing binding doesn't break.
+                    */}
+                    <select
                       value={termForm.stationId}
                       onChange={e => setTermForm({ ...termForm, stationId: e.target.value })}
-                      placeholder="station ID (optional)"
-                    />
-                    <span className="am-field-hint">Bind this device to a specific cashier station.</span>
+                    >
+                      <option value="">— Unassigned (set later) —</option>
+                      {stationOptions.map(s => {
+                        // Allow selecting a paired station only if it's the one we're
+                        // currently editing (so save doesn't change anything).
+                        const editingThisStation = !!termEditing
+                          && terminals.find(t => t.id === termEditing)?.stationId === s.id;
+                        const disabled = s.paired && !editingThisStation;
+                        // Include full station ID in the option text so an
+                        // implementation engineer can verify the right station
+                        // is being bound (matches DB / cashier-app station ID).
+                        return (
+                          <option key={s.id} value={s.id} disabled={disabled}>
+                            {s.name} · {s.id}{disabled ? ` — paired with ${s.pairedTerminalNickname || s.pairedTerminalModel || 'terminal'}` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {/*
+                      Show the FULL station ID of the currently-selected option
+                      below the dropdown — copy-friendly, monospace-styled, and
+                      always visible (the option text in a closed select is
+                      truncated by the browser, so this is the reliable place
+                      to verify which station ID is going to be saved).
+                    */}
+                    {termForm.stationId && (
+                      <span
+                        className="am-field-hint"
+                        style={{
+                          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+                          color: '#475569',
+                          marginTop: 4,
+                          display: 'block',
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        Selected station ID: <strong>{termForm.stationId}</strong>
+                      </span>
+                    )}
+                    <span className="am-field-hint">
+                      {stationOptions.length === 0
+                        ? 'No stations registered for this store yet — pair one in the cashier app first.'
+                        : `${stationOptions.length} station${stationOptions.length === 1 ? '' : 's'} for this store. Greyed-out entries already have a terminal paired.`}
+                    </span>
                   </div>
                   <div className="am-field">
                     <label>Device Model</label>

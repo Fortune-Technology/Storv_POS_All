@@ -18,6 +18,11 @@ import ContactCards from './ContactCards';
 import ContactMinimal from './ContactMinimal';
 import ContactMapForm from './ContactMapForm';
 import ContactFloating from './ContactFloating';
+import ProductDetailClassicSplit from './ProductDetailClassicSplit';
+import ProductDetailModernStacked from './ProductDetailModernStacked';
+import ProductDetailMinimalCentered from './ProductDetailMinimalCentered';
+import ProductDetailFloatingCard from './ProductDetailFloatingCard';
+import ProductDetailGalleryFocus from './ProductDetailGalleryFocus';
 import type { TemplateProps } from '@storeveu/types';
 
 type TemplateComponent = ComponentType<TemplateProps>;
@@ -55,14 +60,21 @@ const TEMPLATE_MAP: Record<string, TemplateComponent> = {
   'map-form': ContactMapForm,
   'split-layout': ContactSplit,
   'card-layout': ContactCards,
+  // Product Detail (5)
+  'product-classic-split':    ProductDetailClassicSplit,
+  'product-modern-stacked':   ProductDetailModernStacked,
+  'product-minimal-centered': ProductDetailMinimalCentered,
+  'product-floating-card':    ProductDetailFloatingCard,
+  'product-gallery-focus':    ProductDetailGalleryFocus,
 };
 
-type PageType = 'home' | 'about' | 'contact';
+type PageType = 'home' | 'about' | 'contact' | 'product';
 
 const FALLBACKS: Record<PageType, TemplateComponent> = {
   home: HomeCenteredHero,
   about: AboutStoryMission,
   contact: ContactSplit,
+  product: ProductDetailClassicSplit,
 };
 
 interface TemplateRendererProps extends TemplateProps {
@@ -78,6 +90,7 @@ export default function TemplateRenderer({
   products,
   departments,
   storeSlug,
+  product,
 }: TemplateRendererProps) {
   const Component =
     (templateId && TEMPLATE_MAP[templateId]) ||
@@ -90,6 +103,7 @@ export default function TemplateRenderer({
       products={products}
       departments={departments}
       storeSlug={storeSlug}
+      product={product}
     />
   );
 }

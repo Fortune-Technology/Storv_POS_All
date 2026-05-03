@@ -6,11 +6,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings2, Plus, Trash2, Save, Check, ChevronDown, Ticket, Fuel, MapPin, Wand2 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   getStores, getPOSConfig, updatePOSConfig, getFuelSettings, updateFuelSettings,
   listStatesPublic, setStoreStateCode, applyStoreStateDefaults,
-  getLotterySettings, updateLotterySettings,
+  // Session C: lottery sellDirection + cashOnly + scanRequired moved to
+  // Lottery > Settings tab. Master enable/disable lives in store.pos JSON
+  // and is written via updatePOSConfig — no direct LotterySettings RPC here.
 } from '../services/api.js';
+import { MoneyInput, CountInput } from '../components/NumericInputs';
 
 import './StoreSettings.css';
 
@@ -23,6 +27,7 @@ const DEFAULT_TENDER_METHODS = [
 ];
 
 export default function StoreSettings({ embedded }) {
+  const confirm = useConfirm();
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const [stores,      setStores]      = useState([]);
   const [storeId,     setStoreId]     = useState(localStorage.getItem('activeStoreId') || '');
@@ -61,18 +66,22 @@ export default function StoreSettings({ embedded }) {
     markDirty();
   };
 
+  // Session 52 — Dual Pricing read-only mirror + refund-surcharge policy
+  // toggle. The pricing model itself is superadmin-only (changes the merchant
+  // processor setup). Managers can flip the refund-surcharge policy here
+  // since it's operational, not pricing-model authority.
+  const [dualPricingMirror, setDualPricingMirror] = useState(null);
+  const [refundSurcharge,   setRefundSurcharge]   = useState(false);
+
   // ── State (US state catalog for auto-populate defaults) ──
   const [states,       setStates]       = useState([]);
   const [stateCode,    setStateCode]    = useState('');
   const [stateDirty,   setStateDirty]   = useState(false);
   const [applying,     setApplying]     = useState(false);
 
-  // ── Lottery — sellDirection (descending = 150-pack starts at 149,
-  // counts down. ascending = starts at 0, counts up). Used by EoD
-  // reconciliation math + ticket-math sales aggregation.
-  const [lotterySellDirection, setLotterySellDirection] = useState('desc');
-  const [lotteryDirty,         setLotteryDirty]         = useState(false);
-  const [lotteryCommissionRate, setLotteryCommissionRate] = useState(null);   // for display only
+  // Lottery sellDirection + cashOnly + scanRequired moved to Lottery > Settings
+  // tab in Session C. The master enable toggle below still writes to
+  // store.pos.lottery.enabled via updatePOSConfig (single source of truth).
 
   // Load stores + state catalog
   useEffect(() => {
@@ -94,27 +103,7 @@ export default function StoreSettings({ embedded }) {
     setStateDirty(false);
   }, [storeId, stores]);
 
-  // Load LotterySettings.sellDirection + commissionRate whenever storeId changes
-  useEffect(() => {
-    if (!storeId) return;
-    getLotterySettings(storeId).then(r => {
-      const dir = r?.sellDirection === 'asc' ? 'asc' : 'desc';
-      setLotterySellDirection(dir);
-      setLotteryDirty(false);
-      setLotteryCommissionRate(r?.commissionRate != null ? Number(r.commissionRate) : null);
-    }).catch(() => {});
-  }, [storeId]);
-
-  const saveLotterySettings = async () => {
-    if (!storeId) return;
-    try {
-      await updateLotterySettings(storeId, { sellDirection: lotterySellDirection });
-      toast.success('Book opening direction saved');
-      setLotteryDirty(false);
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Failed to save lottery setting');
-    }
-  };
+  // (LotterySettings load + save moved to Lottery > Settings tab — Session C.)
 
   const saveStateCode = async () => {
     if (!storeId) return;
@@ -133,11 +122,14 @@ export default function StoreSettings({ embedded }) {
 
   const applyDefaults = async () => {
     if (!storeId || !stateCode) return;
-    if (!window.confirm(
-      `Apply ${states.find(s => s.code === stateCode)?.name || stateCode} defaults to this store? ` +
-      `This will overwrite the Default Sales Tax rule, bottle-deposit rules for this state, ` +
-      `lottery settings (state + commission), and tobacco/alcohol age limits.`
-    )) return;
+    if (!await confirm({
+      title: 'Apply state defaults?',
+      message: `Apply ${states.find(s => s.code === stateCode)?.name || stateCode} defaults to this store? ` +
+        `This will overwrite the Default Sales Tax rule, bottle-deposit rules for this state, ` +
+        `lottery settings (state + commission), and tobacco/alcohol age limits.`,
+      confirmLabel: 'Apply Defaults',
+      danger: true,
+    })) return;
     setApplying(true);
     try {
       const res = await applyStoreStateDefaults(storeId);
@@ -173,6 +165,9 @@ export default function StoreSettings({ embedded }) {
       setFuelEnabled(fuelCfg?.enabled ?? false);
       if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
       if (cfg.ageLimits) setAgeLimits(prev => ({ ...prev, ...cfg.ageLimits }));
+      // Session 52 — Dual Pricing config (read-only mirror + refund toggle)
+      setDualPricingMirror(cfg.dualPricing || null);
+      setRefundSurcharge(!!cfg.dualPricing?.refundSurcharge);
       setDirty(false);
     } catch {
       setTenderMethods(DEFAULT_TENDER_METHODS);
@@ -220,6 +215,9 @@ export default function StoreSettings({ embedded }) {
           ageLimits,
           lottery: { ...(rawConfig.lottery || {}), enabled: lotteryEnabled },
         },
+        // Session 52 — refundSurcharge toggle (manager-editable, savePOSConfig
+        // accepts it as a top-level body field and writes Store.refundSurcharge)
+        refundSurcharge,
       });
       // Fuel-settings write: dedicated FuelSettings table row.
       const fuelSave = updateFuelSettings({ storeId, enabled: fuelEnabled }).catch(err => {
@@ -230,6 +228,10 @@ export default function StoreSettings({ embedded }) {
       await Promise.all([posSave, fuelSave]);
       setDirty(false);
       setSaved(true);
+      // Tell every mounted useStoreModules() consumer (Sidebar in particular)
+      // to refetch immediately so module-gated nav items show/hide without a
+      // page reload after the user toggles the feature flags.
+      window.dispatchEvent(new CustomEvent('storv:modules-changed', { detail: { storeId } }));
       toast.success('Store settings saved');
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -331,100 +333,111 @@ export default function StoreSettings({ embedded }) {
             })()}
           </div>
 
-          {/* ── Section: Lottery (sellDirection toggle) ── */}
+          {/* Lottery section moved to Lottery > Settings tab in Session C.
+              The master enable/disable toggle for the Lottery module remains
+              in the "Modules" row below (writes to store.pos.lottery.enabled).
+              Per-store lottery configs (sellDirection, cashOnly, scanRequired)
+              are managed in the Lottery page's Settings tab. State + commission
+              rate are inherited automatically from Account → State + the
+              platform State catalog. */}
+
+          {/* ── Session 52 — Payment Pricing Model (read-only mirror) ── */}
+          {/* Always rendered so the manager can see the active config; the
+              actual model toggle is superadmin-only via the admin-app. The
+              ONE editable field here is refund-surcharge policy — that's
+              operational, not pricing-model authority. */}
           <div className="ss-section">
-            <div className="ss-section-title">
-              <Ticket size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              Lottery
-            </div>
+            <div className="ss-section-title">Payment Pricing Model</div>
             <div className="ss-section-desc">
-              Lottery state and commission rate are inherited from the
-              State you selected above and the platform State Catalog
-              (managed by superadmin). Below is the only store-level
-              setting — pick the direction tickets count when sold.
+              {dualPricingMirror?.pricingModel === 'dual_pricing' ? (
+                <>
+                  This store runs the <strong>{dualPricingMirror?.state?.pricingFraming === 'cash_discount' ? 'Cash Discount' : 'Dual Pricing'}</strong>{' '}
+                  model. Card and debit transactions add a surcharge; cash and EBT pay base price.
+                </>
+              ) : (
+                <>This store runs the <strong>Interchange</strong> (standard) model. Contact your account manager to enable dual pricing.</>
+              )}
             </div>
 
-            {/* Read-only state + commission display */}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-              <div style={{ flex: 1, minWidth: 180, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>State</div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 2 }}>{stateCode || '— not set —'}</div>
-              </div>
-              <div style={{ flex: 1, minWidth: 180, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>Commission Rate</div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 2 }}>
-                  {lotteryCommissionRate != null ? `${(lotteryCommissionRate * 100).toFixed(2)}%` : '— inherits from state —'}
+            <div className="ss-dp-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+              <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>MODEL</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {dualPricingMirror?.pricingModel === 'dual_pricing' ? 'Dual Pricing' : 'Interchange'}
                 </div>
               </div>
+              {dualPricingMirror?.pricingModel === 'dual_pricing' && (
+                <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>SURCHARGE RATE</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {(() => {
+                      const tier = dualPricingMirror.pricingTier;
+                      const customPct = dualPricingMirror.customSurchargePercent;
+                      const customFee = dualPricingMirror.customSurchargeFixedFee;
+                      if (customPct != null && customFee != null) {
+                        return `${Number(customPct).toFixed(2)}% + $${Number(customFee).toFixed(2)} (custom)`;
+                      }
+                      if (tier) {
+                        return `${Number(tier.surchargePercent).toFixed(2)}% + $${Number(tier.surchargeFixedFee).toFixed(2)} (${tier.name})`;
+                      }
+                      return '— (no rate configured)';
+                    })()}
+                  </div>
+                </div>
+              )}
+              {dualPricingMirror?.state && (
+                <>
+                  <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                    <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>STATE POLICY</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {dualPricingMirror.state.code}
+                      {dualPricingMirror.state.surchargeTaxable && ' · taxable'}
+                      {!dualPricingMirror.state.dualPricingAllowed && ' · cash-discount only'}
+                    </div>
+                  </div>
+                  {dualPricingMirror.state.maxSurchargePercent != null && (
+                    <div className="ss-dp-cell" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>STATE CAP</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {Number(dualPricingMirror.state.maxSurchargePercent).toFixed(2)}% maximum
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
-            {/* sellDirection — actually editable */}
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Book Opening Direction
-            </div>
-            <div className="ss-state-row" style={{ marginBottom: 10 }}>
-              <label
-                style={{
-                  flex: 1, padding: '12px 14px', borderRadius: 10,
-                  border: `2px solid ${lotterySellDirection === 'desc' ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                  background: lotterySellDirection === 'desc' ? 'rgba(61, 86, 181, 0.05)' : 'var(--bg-secondary)',
-                  cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'flex-start',
-                }}
-              >
-                <input
-                  type="radio"
-                  checked={lotterySellDirection === 'desc'}
-                  onChange={() => { setLotterySellDirection('desc'); setLotteryDirty(true); }}
-                  style={{ marginTop: 3 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                    Descending <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>(MOST COMMON)</span>
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'monospace' }}>
-                    150-pack starts at <strong>149</strong> and counts <strong>DOWN</strong> as tickets sell
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    Books open from the highest ticket number. Typical for MA / most US states.
+            {dualPricingMirror?.pricingModel === 'dual_pricing' && (
+              <>
+                <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: 8 }}>
+                  <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>RECEIPT DISCLOSURE</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                    {dualPricingMirror.dualPricingDisclosure
+                      || dualPricingMirror.state?.surchargeDisclosureText
+                      || 'A cash discount is available on this transaction. Credit and debit transactions include a processing fee.'}
                   </div>
                 </div>
-              </label>
-              <label
-                style={{
-                  flex: 1, padding: '12px 14px', borderRadius: 10,
-                  border: `2px solid ${lotterySellDirection === 'asc' ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                  background: lotterySellDirection === 'asc' ? 'rgba(61, 86, 181, 0.05)' : 'var(--bg-secondary)',
-                  cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'flex-start',
-                }}
-              >
-                <input
-                  type="radio"
-                  checked={lotterySellDirection === 'asc'}
-                  onChange={() => { setLotterySellDirection('asc'); setLotteryDirty(true); }}
-                  style={{ marginTop: 3 }}
-                />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Ascending</div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'monospace' }}>
-                    150-pack starts at <strong>0</strong> and counts <strong>UP</strong> as tickets sell
+
+                {/* The ONE editable toggle on this card — refund-surcharge policy */}
+                <div className="ss-tender-item" style={{ marginTop: 14 }}>
+                  <div className="ss-tender-info">
+                    <span className="ss-tender-label">Refund includes surcharge</span>
+                    <span className="ss-tender-sub">
+                      When ON, a refund of a card transaction returns the original surcharge proportionally.
+                      When OFF (default), only the principal is refunded — surcharge stays with the merchant.
+                    </span>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    Books open from ticket 0. Used by some stores and a few states.
-                  </div>
+                  <label className="ss-toggle">
+                    <input
+                      type="checkbox"
+                      checked={refundSurcharge}
+                      onChange={(e) => { setRefundSurcharge(e.target.checked); markDirty(); }}
+                    />
+                    <span className="ss-toggle-slider" />
+                  </label>
                 </div>
-              </label>
-            </div>
-            <button
-              className="ss-btn-primary"
-              onClick={saveLotterySettings}
-              disabled={!lotteryDirty || !storeId}
-              title={lotteryDirty ? 'Save book opening direction' : 'No change'}
-            >
-              <Save size={13} /> Save
-            </button>
-            <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              This setting pre-fills the Starting Ticket # when you activate a book and drives the EoD reconciliation math. Applies to every game uniformly — change it once here, not per book.
-            </div>
+              </>
+            )}
           </div>
 
           {/* ── Section: Vendor Payment Tender Methods ── */}
@@ -530,7 +543,7 @@ export default function StoreSettings({ embedded }) {
                     </div>
                     <div>
                       <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 3 }}>Default Tare Weight</label>
-                      <input className="ss-add-input" style={{ width: '100%' }} type="number" step="0.01" value={groceryConfig.tareWeightDefault} onChange={e => setGC('tareWeightDefault', e.target.value)} placeholder="0.00" />
+                      <MoneyInput className="ss-add-input" style={{ width: '100%' }} value={groceryConfig.tareWeightDefault} onChange={(v) => setGC('tareWeightDefault', v)} placeholder="0.00" />
                     </div>
                   </div>
 
@@ -614,12 +627,11 @@ export default function StoreSettings({ embedded }) {
                   <span>Minimum Age</span>
                 </div>
                 <div className="ss-age-input-wrap">
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
+                  <CountInput
+                    min={0}
+                    max={99}
                     value={ageLimits.tobacco}
-                    onChange={e => setAge('tobacco', e.target.value)}
+                    onChange={(v) => setAge('tobacco', v)}
                     className="ss-age-input"
                   />
                   <span className="ss-age-suffix">+</span>
@@ -633,12 +645,11 @@ export default function StoreSettings({ embedded }) {
                   <span>Minimum Age</span>
                 </div>
                 <div className="ss-age-input-wrap">
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
+                  <CountInput
+                    min={0}
+                    max={99}
                     value={ageLimits.alcohol}
-                    onChange={e => setAge('alcohol', e.target.value)}
+                    onChange={(v) => setAge('alcohol', v)}
                     className="ss-age-input"
                   />
                   <span className="ss-age-suffix">+</span>

@@ -11,9 +11,10 @@
  * Right sidebar: Classification, Compliance, Status, Store Availability
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import { useSetupStatus } from '../hooks/useSetupStatus';
 import { NoStoreBanner } from '../components/SetupGuide';
 import PriceInput from '../components/PriceInput';
@@ -110,13 +111,19 @@ const calcMargin = (cost, retail) => {
 const marginColor = (m) =>
   m === null ? '#94a3b8' : m >= 30 ? '#10b981' : m >= 20 ? '#f59e0b' : '#ef4444';
 
-const isValidUPC = (v) => !v || /^\d{7,14}$/.test(v.replace(/\s/g, ''));
+// 2-14 numeric digits. The 2-character floor is intentional — stores use
+// short codes like `299` as keypad-typed product identifiers for non-scan
+// items. The cashier scan path treats short codes as exact-match only
+// (see upcVariants in utils/upc.js), so the validation just makes sure the
+// value is numeric and within a sane upper bound.
+const isValidUPC = (v) => !v || /^\d{2,14}$/.test(v.replace(/\s/g, ''));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline Dept Manager
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptManager({ departments, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(departments);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -148,7 +155,12 @@ function DeptManager({ departments, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete this department?')) return;
+    if (!await confirm({
+      title: 'Delete department?',
+      message: 'Delete this department?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogDepartment(id);
       setList(l => l.filter(d => d.id !== id));
@@ -159,11 +171,14 @@ function DeptManager({ departments, onClose, onRefresh }) {
       // Offer the user an explicit opt-in cascade rather than silently
       // detaching (or leaving stranded assignments that blank out on edit).
       if (resp?.code === 'IN_USE') {
-        const confirmForce = window.confirm(
-          `${resp.error}\n\n` +
-          `Click OK to clear the department on ${resp.usageCount} product(s) and deactivate the department.\n` +
-          `Click Cancel to leave everything as-is and reassign the products first.`
-        );
+        const confirmForce = await confirm({
+          title: 'Department in use',
+          message: `${resp.error}\n\n` +
+            `Click OK to clear the department on ${resp.usageCount} product(s) and deactivate the department.\n` +
+            `Click Cancel to leave everything as-is and reassign the products first.`,
+          confirmLabel: 'Clear & Deactivate',
+          danger: true,
+        });
         if (confirmForce) {
           try {
             const r = await deleteCatalogDepartment(id, { force: true });
@@ -222,7 +237,7 @@ function DeptManager({ departments, onClose, onRefresh }) {
                       onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={8} />
                   </div>
                   <div className="pf-mm-field">
-                    <label className="pf-label">Tax Class</label>
+                    <label className="pf-label">Category (age policy)</label>
                     <select className="form-input pf-mm-input" value={form.taxClass}
                       onChange={e => setForm(f => ({ ...f, taxClass: e.target.value }))}>
                       {TAX_CLASSES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -279,6 +294,7 @@ const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email?.trim()
 const validatePhone = (phone) => !phone || /^\+?[\d\s\-\(\)]{7,15}$/.test(phone?.replace(/\s/g, ''));
 
 function VendorManager({ vendors, onClose, onRefresh }) {
+  const confirm = useConfirm();
   const [list, setList] = useState(vendors);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -345,7 +361,12 @@ function VendorManager({ vendors, onClose, onRefresh }) {
   };
 
   const del = async (id) => {
-    if (!window.confirm('Delete this vendor?')) return;
+    if (!await confirm({
+      title: 'Delete vendor?',
+      message: 'Delete this vendor?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteCatalogVendor(id);
       setList(l => l.filter(v => v.id!==id));
@@ -354,11 +375,14 @@ function VendorManager({ vendors, onClose, onRefresh }) {
       const resp = e.response?.data;
       // Backend returns 409 IN_USE when products still reference this vendor.
       if (resp?.code === 'IN_USE') {
-        const confirmForce = window.confirm(
-          `${resp.error}\n\n` +
-          `Click OK to clear the vendor on ${resp.usageCount} product(s) and deactivate the vendor.\n` +
-          `Click Cancel to leave everything as-is and reassign the products first.`
-        );
+        const confirmForce = await confirm({
+          title: 'Vendor in use',
+          message: `${resp.error}\n\n` +
+            `Click OK to clear the vendor on ${resp.usageCount} product(s) and deactivate the vendor.\n` +
+            `Click Cancel to leave everything as-is and reassign the products first.`,
+          confirmLabel: 'Clear & Deactivate',
+          danger: true,
+        });
         if (confirmForce) {
           try {
             const r = await deleteCatalogVendor(id, { force: true });
@@ -720,6 +744,7 @@ function PackVisual({ sellUnit, sellUnitSize, casePacks, depositPerUnit }) {
 
 
 export default function ProductForm() {
+  const confirm = useConfirm();
   const { id }    = useParams();
   const navigate  = useNavigate();
   const isEdit    = Boolean(id);
@@ -752,7 +777,14 @@ export default function ProductForm() {
   const [duplicating, setDuplicating] = useState(false);
 
   // ── Pack Configuration ───────────────────────────────────────────────────────
-  const [packEnabled, setPackEnabled] = useState(false);
+  // packEnabled toggle removed in Session F — packs are always present (the
+  // primary row is the master), packRows holds only the additional sizes.
+  // Kept as `false` constant so the legacy save-path checks at line ~1362,
+  // 1382, 1488 (which gated on `packEnabled && packRows.length > 0`) flip to
+  // a simpler `packRows.length > 0` check below — see those edits.
+  // Focused row index for the Quick-set margin chips. null = primary (master);
+  // 0..N = the corresponding packRows entry.
+  const [focusedPackIdx, setFocusedPackIdx] = useState(null);
   const [packRows,    setPackRows]    = useState([
     { id: 'new-0', label: 'Single', unitPack: '1', packsPerCase: '', packPrice: '', isDefault: true },
   ]);
@@ -783,7 +815,11 @@ export default function ProductForm() {
   // itemCode are kept as mirrors from the primary for legacy readers.
   const [vendorMappings, setVendorMappings] = useState([]);
   const [addingVendor,   setAddingVendor]   = useState(false);  // toggles inline add-row
-  const [newVendor,      setNewVendor]      = useState({ vendorId: '', vendorItemCode: '', priceCost: '' });
+  // Mirror the primary vendor card's field set so additional vendors capture
+  // the same details (vendor + item code + case cost). Earlier this row only
+  // had a per-each priceCost which was inconsistent with the primary card and
+  // the auto-order engine's case-based math.
+  const [newVendor,      setNewVendor]      = useState({ vendorId: '', vendorItemCode: '', caseCost: '' });
   const [editingMapId,   setEditingMapId]   = useState(null);   // id of mapping currently being edited
   const [editMap,        setEditMap]        = useState({});
   const [mapSaving,      setMapSaving]      = useState(false);
@@ -963,7 +999,7 @@ export default function ProductForm() {
 
         const sizes = sizeRes?.data ?? [];
         if (sizes.length > 0) {
-          setPackEnabled(true);
+          // packEnabled toggle removed in Session F — packs always show.
           setPackRows(sizes.map(s => ({
             id:          s.id,
             label:       s.label ?? '',
@@ -1126,7 +1162,7 @@ export default function ProductForm() {
 
   const margin       = calcMargin(unitCostVal, retailVal);
   const mColor       = marginColor(margin);
-  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC should be 7–14 digits' : null;
+  const upcWarning   = form.upc && !isValidUPC(form.upc) ? 'UPC must be 2–14 numeric digits' : null;
   const priceWarning = unitCostVal && retailVal && retailVal < unitCostVal ? 'Retail price is below cost' : null;
 
   // ── Dept auto-fill ───────────────────────────────────────────────────────────
@@ -1252,7 +1288,7 @@ export default function ProductForm() {
       const r = await createProductVendor(id, {
         vendorId:       parseInt(newVendor.vendorId),
         vendorItemCode: newVendor.vendorItemCode.trim() || null,
-        priceCost:      newVendor.priceCost !== '' ? parseFloat(newVendor.priceCost) : null,
+        caseCost:       newVendor.caseCost !== '' ? parseFloat(newVendor.caseCost) : null,
       });
       const row = r?.data || r;
       setVendorMappings(list => {
@@ -1263,7 +1299,7 @@ export default function ProductForm() {
           (new Date(b.lastReceivedAt || b.createdAt) - new Date(a.lastReceivedAt || a.createdAt))
         );
       });
-      setNewVendor({ vendorId: '', vendorItemCode: '', priceCost: '' });
+      setNewVendor({ vendorId: '', vendorItemCode: '', caseCost: '' });
       setAddingVendor(false);
       toast.success('Vendor mapping added');
     } catch (e) {
@@ -1277,7 +1313,7 @@ export default function ProductForm() {
     try {
       const r = await updateProductVendor(id, editingMapId, {
         vendorItemCode: editMap.vendorItemCode || null,
-        priceCost:      editMap.priceCost !== '' ? parseFloat(editMap.priceCost) : null,
+        caseCost:       editMap.caseCost !== '' ? parseFloat(editMap.caseCost) : null,
       });
       const row = r?.data || r;
       setVendorMappings(list => list.map(m => m.id === editingMapId ? row : m));
@@ -1290,7 +1326,12 @@ export default function ProductForm() {
   };
 
   const handleDeleteVendorMapping = async (mapId) => {
-    if (!window.confirm('Remove this vendor mapping? The product\'s other vendor mappings (if any) stay intact.')) return;
+    if (!await confirm({
+      title: 'Remove vendor mapping?',
+      message: 'Remove this vendor mapping? The product\'s other vendor mappings (if any) stay intact.',
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     try {
       await deleteProductVendor(id, mapId);
       setVendorMappings(list => list.filter(m => m.id !== mapId));
@@ -1322,10 +1363,10 @@ export default function ProductForm() {
     if (!form.departmentId) { toast.error('Department is required');   return; }
     if (upcWarning)         { toast.error(upcWarning);                 return; }
 
-    // Pack-size validation: when pack pricing is enabled, every row must
-    // have a positive unit count and a non-zero price. Silently coercing to
-    // 1 (as the old code did) produced phantom pack sizes on save.
-    if (packEnabled && packRows.length > 0) {
+    // Pack-size validation (Session F: packEnabled gate removed — packRows
+    // are always saved when present). Each row must have positive unit count
+    // and non-zero price.
+    if (packRows.length > 0) {
       for (let i = 0; i < packRows.length; i++) {
         const r = packRows[i];
         const units = parseInt(r.unitPack, 10);
@@ -1344,11 +1385,9 @@ export default function ProductForm() {
       if (defaults > 1) { toast.error('Only one pack size can be marked as default'); return; }
     }
 
-    let derivedRetailPrice = form.defaultRetailPrice || null;
-    if (packEnabled && packRows.length > 0) {
-      const defaultRow = packRows.find(r => r.isDefault) || packRows[0];
-      if (defaultRow?.packPrice) derivedRetailPrice = defaultRow.packPrice;
-    }
+    // Master retail comes from form.defaultRetailPrice (the primary pack row's
+    // retail input, bound directly to that field).
+    const derivedRetailPrice = form.defaultRetailPrice || null;
 
     setSaving(true);
     try {
@@ -1362,9 +1401,10 @@ export default function ProductForm() {
         departmentId:       form.departmentId     ? parseInt(form.departmentId) : null,
         vendorId:           form.vendorId         ? parseInt(form.vendorId)     : null,
         itemCode:           form.itemCode         || null,
-        // Session 40 Phase 1 — send both. Backend validates taxRuleId belongs
-        // to this org, auto-mirrors the rule's appliesTo into taxClass if
-        // taxClass wasn't explicitly changed (backward compat for legacy readers).
+        // Session 56b — `taxRuleId` is the per-product tax-matching FK.
+        // `taxClass` is no longer a tax matcher; it persists only as an
+        // age-policy hint (tobacco/alcohol detection at checkout). Both
+        // are sent independently — backend no longer mirrors between them.
         taxRuleId:          form.taxRuleId ? parseInt(form.taxRuleId) : null,
         taxClass:           form.taxClass,
         taxable:            form.taxable,
@@ -1451,16 +1491,19 @@ export default function ProductForm() {
       }
 
       if (productId) {
-        const sizes = packEnabled
-          ? packRows.map((r, i) => ({
-              label:       r.label || `Pack ${i + 1}`,
-              unitCount:   parseInt(r.unitPack) || 1,
-              packsPerCase: r.packsPerCase ? parseInt(r.packsPerCase) : null,
-              retailPrice:  parseFloat(r.packPrice) || 0,
-              isDefault:   r.isDefault,
-              sortOrder:   i,
-            }))
-          : [];
+        // Session F: packEnabled gate removed. packRows are the additional
+        // pack sizes (Double, Quartars, …) — the primary pack lives on the
+        // master product itself and is no longer stored as a duplicated row.
+        // Empty array clears any stale entries; populated array REPLACE-writes
+        // them via the existing /pack-sizes endpoint.
+        const sizes = packRows.map((r, i) => ({
+          label:       r.label || `Pack ${i + 1}`,
+          unitCount:   parseInt(r.unitPack) || 1,
+          packsPerCase: r.packsPerCase ? parseInt(r.packsPerCase) : null,
+          retailPrice:  parseFloat(r.packPrice) || 0,
+          isDefault:   r.isDefault,
+          sortOrder:   i,
+        }));
         await bulkReplaceProductPackSizes(productId, sizes).catch(() => {});
       }
 
@@ -1502,9 +1545,14 @@ export default function ProductForm() {
   };
 
   // Guarded cancel — ask before discarding unsaved edits.
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (dirty) {
-      const ok = window.confirm('You have unsaved changes. Discard them and leave?');
+      const ok = await confirm({
+        title: 'Discard unsaved changes?',
+        message: 'You have unsaved changes. Discard them and leave?',
+        confirmLabel: 'Discard',
+        danger: true,
+      });
       if (!ok) return;
     }
     navigate('/portal/catalog');
@@ -1520,6 +1568,41 @@ export default function ProductForm() {
   }
 
   const selDept = departments.find(d => d.id === parseInt(form.departmentId));
+
+  // ── Resolved tax preview ────────────────────────────────────────────────
+  // Session 56b — 2-tier resolution (mirrors cashier-app `selectTotals`).
+  // Legacy class matcher (tier 3) was removed entirely:
+  //   1. Per-product FK   (form.taxRuleId pointing at an active rule)
+  //   2. Department-linked (rule's departmentIds[] contains form.departmentId)
+  //   3. None             (rate = 0% — admin sees a warning)
+  // EBT-eligible items skip tax entirely at checkout regardless of rule
+  // (federal SNAP rule, hard-coded in cart). Non-taxable products same.
+  const resolvedTax = useMemo(() => {
+    const active = (taxRules || []).filter(r => r.active !== false);
+
+    // Tier 1 — per-product override
+    if (form.taxRuleId) {
+      const r = active.find(x => String(x.id) === String(form.taxRuleId));
+      if (r) return { rate: Number(r.rate) || 0, source: 'product', rule: r };
+    }
+    // Tier 2 — dept-linked
+    if (form.departmentId) {
+      const did = Number(form.departmentId);
+      const r = active.find(x =>
+        Array.isArray(x.departmentIds) && x.departmentIds.includes(did)
+      );
+      if (r) return { rate: Number(r.rate) || 0, source: 'department', rule: r };
+    }
+    return { rate: 0, source: 'none', rule: null };
+  }, [form.taxRuleId, form.departmentId, taxRules]);
+
+  // Effective tax on a sample $10 sale, accounting for non-taxable +
+  // EBT-eligible hard skips that the cart applies before rule resolution.
+  const sampleTax = useMemo(() => {
+    if (form.taxable === false) return 0;
+    if (form.ebtEligible)       return 0;
+    return Math.round(resolvedTax.rate * 10 * 100) / 100;
+  }, [resolvedTax.rate, form.taxable, form.ebtEligible]);
 
   return (
       <div className="p-page pf-main">
@@ -1689,15 +1772,14 @@ export default function ProductForm() {
                       </select>
                     </div>
 
-                    {/* Session 40 Phase 1 — strict-FK tax dropdown.
-                        Values are rule.id (stable across renames / rate changes).
-                        Shows every ACTIVE rule (no more dedupe by appliesTo —
-                        each rule is its own option). Dept-default option at top;
-                        legacy string class options preserved at the bottom with
-                        "(legacy)" prefix for products that haven't migrated yet.
-                        Stale-rule warning when taxRuleId points at a deleted/
-                        inactive rule (shows an amber "⚠ rule no longer exists"
-                        hint with a link to Tax Rules page). */}
+                    {/* Session 56b — Tax Rule dropdown. Values are rule.id
+                        (stable across renames / rate changes). The default
+                        option means "no per-product override" — at checkout
+                        the cart resolves via the product's department-linked
+                        rule. Pick an explicit rule here only when the dept
+                        default doesn't apply (e.g. a special-rate product
+                        within a normal department). Stale-rule warning when
+                        taxRuleId points at a deleted/inactive rule. */}
                     <div>
                       <label className="pf-label">
                         Tax Rule
@@ -1706,45 +1788,24 @@ export default function ProductForm() {
                         </Link>
                       </label>
                       <select className="form-input pf-full"
-                        value={form.taxRuleId ? `rule:${form.taxRuleId}` : `class:${form.taxClass || ''}`}
+                        value={form.taxRuleId ? String(form.taxRuleId) : ''}
                         onChange={e => {
-                          const val = e.target.value;
-                          if (val.startsWith('rule:')) {
-                            const rid = val.slice(5);
-                            const rule = taxRules.find(r => String(r.id) === rid);
-                            setF('taxRuleId', rid);
-                            // Mirror appliesTo into taxClass so legacy cashier-app
-                            // builds (that only read taxClass) apply the right rate.
-                            if (rule?.appliesTo) setF('taxClass', rule.appliesTo);
-                          } else {
-                            // Legacy class option — clear the FK and set taxClass.
-                            const cls = val.slice(6);
-                            setF('taxRuleId', '');
-                            setF('taxClass', cls);
-                          }
+                          // Empty string = "use department default" → clear the FK
+                          // Non-empty = explicit per-product override → set the FK
+                          setF('taxRuleId', e.target.value || '');
                         }}>
-                        <option value="class:">— Use department / default —</option>
-                        {taxRules.length > 0 && (
-                          <optgroup label="Tax Rules (preferred)">
-                            {taxRules
-                              .filter(r => r.active !== false)
-                              .sort((a, b) => String(a.name).localeCompare(String(b.name)))
-                              .map(r => {
-                                const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
-                                return (
-                                  <option key={r.id} value={`rule:${r.id}`}>
-                                    {r.name}{pct && ` — ${pct}`}
-                                  </option>
-                                );
-                              })}
-                          </optgroup>
-                        )}
-                        <optgroup label="Legacy tax classes">
-                          {TAX_CLASSES.map(t => (
-                            <option key={t.value} value={`class:${t.value}`}>(legacy) {t.label}</option>
-                          ))}
-                          <option value="class:non_taxable">(legacy) Non-Taxable — 0%</option>
-                        </optgroup>
+                        <option value="">— Use department default —</option>
+                        {taxRules.length > 0 && taxRules
+                          .filter(r => r.active !== false)
+                          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+                          .map(r => {
+                            const pct = r.rate != null ? `${(Number(r.rate) * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '';
+                            return (
+                              <option key={r.id} value={String(r.id)}>
+                                {r.name}{pct && ` — ${pct}`}
+                              </option>
+                            );
+                          })}
                       </select>
                       {/* Stale FK warning — product has taxRuleId but that rule
                           is not in the active rules list. Could be soft-deleted
@@ -1763,6 +1824,125 @@ export default function ProductForm() {
                           {' '}to use strict-FK tax linking.
                         </div>
                       )}
+
+                      {/* ── Resolved tax preview ────────────────────────
+                         Live mirror of the cashier-app's checkout-time
+                         resolution. Admin can see EXACTLY which rule will
+                         apply, where it's coming from (per-product /
+                         department / class / none), the effective rate, and
+                         a sample calc on a $10 sale. Updates in real time
+                         as the admin changes Department, Tax Rule, EBT, or
+                         non-taxable. */}
+                      <div className="pf-tax-preview" style={{
+                        marginTop: 10,
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: 8,
+                        background: resolvedTax.source === 'none'
+                          ? 'rgba(245, 158, 11, 0.08)'
+                          : 'var(--brand-05)',
+                        border: `1px solid ${resolvedTax.source === 'none' ? 'rgba(245, 158, 11, 0.3)' : 'var(--brand-20)'}`,
+                        fontSize: '0.78rem',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: '0.65rem', fontWeight: 800,
+                            color: 'var(--text-muted)', letterSpacing: '0.06em',
+                          }}>
+                            AT CHECKOUT
+                          </span>
+
+                          {/* Big rate */}
+                          <span style={{
+                            fontSize: '1.05rem', fontWeight: 900,
+                            color: resolvedTax.source === 'none' ? '#d97706' : 'var(--accent-secondary)',
+                          }}>
+                            {(resolvedTax.rate * 100).toFixed(2).replace(/\.?0+$/, '')}%
+                          </span>
+
+                          {/* Source chip */}
+                          {resolvedTax.source === 'product' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8',
+                              border: '1px solid rgba(99, 102, 241, 0.3)',
+                            }}>★ Per-product override</span>
+                          )}
+                          {resolvedTax.source === 'department' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'var(--brand-10)', color: 'var(--brand-primary)',
+                              border: '1px solid var(--brand-25)',
+                            }}>From department: {selDept?.name || form.departmentId}</span>
+                          )}
+                          {/* Session 56b — `class` source removed (legacy class
+                              matcher gone). Resolution is now product → dept → none. */}
+                          {resolvedTax.source === 'none' && (
+                            <span style={{
+                              fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+                              borderRadius: 6,
+                              background: 'rgba(245, 158, 11, 0.15)', color: '#d97706',
+                              border: '1px solid rgba(245, 158, 11, 0.3)',
+                            }}>No rule matches</span>
+                          )}
+
+                          {/* Rule name */}
+                          {resolvedTax.rule && (
+                            <span style={{
+                              color: 'var(--text-secondary)', fontWeight: 600,
+                              fontSize: '0.74rem',
+                            }}>
+                              · {resolvedTax.rule.name}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Hard-skip notes (these override any rule) */}
+                        {form.ebtEligible && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: '#34d399', display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                            <Info size={10} /> EBT-eligible — tax is waived at checkout regardless of the rule above.
+                          </div>
+                        )}
+                        {form.taxable === false && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                            <Info size={10} /> Marked NON-TAXABLE — tax is always 0.
+                          </div>
+                        )}
+                        {resolvedTax.source === 'none' && !form.ebtEligible && form.taxable !== false && (
+                          <div style={{
+                            marginTop: 6, fontSize: '0.7rem',
+                            color: '#d97706',
+                          }}>
+                            ⚠ Pick a rule, link this product&apos;s department to a rule, or change the class — otherwise the cashier rings up no tax.
+                          </div>
+                        )}
+
+                        {/* Sample calc */}
+                        <div style={{
+                          marginTop: 6, fontSize: '0.7rem',
+                          color: 'var(--text-muted)',
+                          display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                          <span>On a $10.00 sale →</span>
+                          <span style={{
+                            fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+                            color: sampleTax > 0 ? 'var(--text-primary)' : '#34d399',
+                            fontWeight: 700,
+                          }}>
+                            ${sampleTax.toFixed(2)} tax
+                          </span>
+                          <span style={{ opacity: 0.6 }}>
+                            (line total: ${(10 + sampleTax).toFixed(2)})
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -1958,233 +2138,268 @@ export default function ProductForm() {
                   </div>
                 </div>
 
-              {/* ── 2. Pricing ── */}
+              {/* ── 2. Pricing & Packs (Session F: unified table) ──
+                  The previous form had a "Pricing" card + a "Pack Configuration"
+                  card with a Yes/No toggle. The two duplicated the same data
+                  shape (master Unit-Pack/Packs-per-Case = packRow #1's fields)
+                  and the toggle created two-mode UX. Consolidated here:
+                    • One table. First row = the primary pack (★), bound to
+                      master fields (defaultRetailPrice/defaultCasePrice/
+                      defaultUnitPack/defaultPacksPerCase/defaultCostPrice).
+                      Invoice OCR cost-sync writes to MasterProduct =
+                      this row, exactly as the user requested.
+                    • Subsequent rows are ProductPackSize entries.
+                    • "+ Add Pack Size" is always visible — no toggle.
+                    • Single Case Deposit field above the table; per-row DEP/PK
+                      derived from caseDeposit ÷ row.packsPerCase.
+                    • Quick-set margin chips below the table apply to the
+                      currently-focused row (focusedPackIdx === null is the
+                      primary; integer is the packRow index).
+              */}
               <div className="pf-card">
-                <div className="pf-section-title">Pricing</div>
+                <div className="pf-section-title">Pricing &amp; Packs</div>
 
-                {/* Single row: Retail | Case Cost | Unit-Pack | Packs or Case Size | Unit Cost | Margin */}
-                <div className="pf-pricing-row">
-
-                  {/* Retail Price */}
-                  <div>
-                    <label className="pf-label">Retail Price</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className={`form-input pf-dollar-input pf-retail-input${priceWarning ? ' pf-input-error' : ''}`}
-                        value={form.defaultRetailPrice} placeholder="0.00"
-                        onChange={(v) => setF('defaultRetailPrice', v)}
-                        onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))} />
-                    </div>
+                {/* Single product-level Case Deposit input. Drives every row's
+                    DEP/PK column (= caseDeposit ÷ packsPerCase) so the cashier
+                    sees the right deposit per pack at scan time. */}
+                <div className="pf-deposit-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.875rem' }}>
+                  <label className="pf-label" style={{ marginBottom: 0 }}>Case Deposit</label>
+                  <div className="pf-dollar-wrap" style={{ width: 140 }}>
+                    <span className="pf-dollar-sign">$</span>
+                    <PriceInput className="form-input pf-dollar-input"
+                      value={caseDeposit} placeholder="0.00"
+                      onChange={(v) => setCaseDeposit(v)}
+                      onBlur={e => e.target.value && setCaseDeposit(parseFloat(e.target.value).toFixed(2))} />
                   </div>
-
-                  {/* Case Cost — editing auto-fills Unit Cost (Item 21, Level 1) */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Case Cost</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
-                        value={form.defaultCasePrice} placeholder="0.00"
-                        onChange={(v) => {
-                          setF('defaultCasePrice', v);
-                          // Auto-recalc Unit Cost when pack math is complete.
-                          const caseNum = parseFloat(v);
-                          const packsNum = parseFloat(defaultPacksPerCase);
-                          const upNum    = parseFloat(defaultUnitPack) || 1;
-                          if (caseNum > 0 && packsNum > 0 && upNum > 0) {
-                            setF('defaultCostPrice', (caseNum / packsNum / upNum).toFixed(4));
-                          }
-                        }}
-                        onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))} />
-                    </div>
-                  </div>
-
-                  {/* Unit-Pack */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Unit-Pack</label>
-                    <input className="form-input pf-compact-input pf-center-input"
-                      type="number" min="1" step="1"
-                      value={defaultUnitPack} placeholder="1"
-                      onChange={e => setDefaultUnitPack(e.target.value || '1')} />
-                  </div>
-
-                  {/* Packs or Case Size */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Packs or Case Size</label>
-                    <input className="form-input pf-compact-input pf-center-input"
-                      type="number" min="1" step="1"
-                      value={defaultPacksPerCase} placeholder="—"
-                      onChange={e => setDefaultPacksPerCase(e.target.value)} />
-                  </div>
-
-                  {/* Unit Cost — editable; reverse auto-fills Case Cost.
-                      When user types here, Case Cost recomputes = unit × packs × unitPack.
-                      When Case Cost changes above, this field recomputes too.
-                      Latest-edited wins; the other field updates in sync. */}
-                  <div>
-                    <label className="pf-label pf-label-sm">Unit Cost</label>
-                    <div className="pf-dollar-wrap">
-                      <span className="pf-dollar-sign">$</span>
-                      <PriceInput className="form-input pf-dollar-input pf-compact-input"
-                        value={form.defaultCostPrice} placeholder="0.00"
-                        onChange={(v) => {
-                          setF('defaultCostPrice', v);
-                          // Auto-recalc Case Cost when pack math is complete.
-                          const unitNum = parseFloat(v);
-                          const packsNum = parseFloat(defaultPacksPerCase);
-                          const upNum    = parseFloat(defaultUnitPack) || 1;
-                          if (unitNum > 0 && packsNum > 0 && upNum > 0) {
-                            setF('defaultCasePrice', (unitNum * packsNum * upNum).toFixed(2));
-                          }
-                        }}
-                        onBlur={e => e.target.value && setF('defaultCostPrice', parseFloat(e.target.value).toFixed(4))} />
-                    </div>
-                  </div>
-
-                  {/* Margin — inline at end */}
-                  <div className="pf-margin-inline-col">
-                    {margin !== null ? (
-                      <span className="pf-margin-inline-pill" style={{ background: mColor+'20', color: mColor }}>
-                        {fmtPct(margin)}
-                      </span>
-                    ) : (
-                      <span className="pf-margin-inline-empty">—</span>
-                    )}
-                    {depositEnabled && caseDeposit && ppcVal && (
-                      <span className="pf-deposit-inline">
-                        <span className="pf-deposit-inline-label">dep/pk</span>
-                        {fmt$(parseFloat(caseDeposit) / ppcVal)}
-                      </span>
-                    )}
-                  </div>
-
+                  <span className="pf-hint" style={{ fontSize: '0.7rem' }}>
+                    <Info size={10} /> Per-pack deposit auto-derived from case deposit ÷ packs-per-case for each row below.
+                  </span>
                 </div>
+
+                {/* Table header */}
+                <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
+                  <span>Label</span>
+                  <span>Retail Price</span>
+                  <span>Unit-Pack</span>
+                  <span>Packs or Case Size</span>
+                  <span>Case Cost</span>
+                  <span>Unit Cost</span>
+                  <span>Margin</span>
+                  {depositEnabled && <span>Deposit/Pack</span>}
+                  <span></span>
+                </div>
+
+                {/* ── Primary row (master) ── always rendered, always first.
+                    No delete button — the master row can never be removed. */}
+                {(() => {
+                  const ppc = parseFloat(defaultPacksPerCase) || null;
+                  const up  = parseFloat(defaultUnitPack)     || 1;
+                  const cc  = parseFloat(form.defaultCasePrice) || null;
+                  const uc  = unitCostVal;
+                  const r   = parseFloat(form.defaultRetailPrice) || null;
+                  const rowMargin = r && uc ? ((r - uc) / r) * 100 : null;
+                  const rowDeposit = depositEnabled && caseDeposit && ppc
+                    ? parseFloat(caseDeposit) / ppc : null;
+                  const isFocused = focusedPackIdx === null;
+                  return (
+                    <div
+                      className={`pf-pack-row pf-pack-row--primary${depositEnabled ? ' with-deposit' : ''}${isFocused ? ' pf-pack-row--focused' : ''}`}
+                      onClickCapture={() => setFocusedPackIdx(null)}
+                    >
+                      {/* Label cell — primary star + product-name placeholder */}
+                      <div className="pf-pack-primary-cell" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Star size={12} fill="#f59e0b" color="#f59e0b" />
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f59e0b' }}>Primary</span>
+                      </div>
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className={`form-input pf-pack-input pf-dollar-input${priceWarning ? ' pf-input-error' : ''}`}
+                          value={form.defaultRetailPrice} placeholder="0.00"
+                          onChange={(v) => setF('defaultRetailPrice', v)}
+                          onBlur={e => e.target.value && setF('defaultRetailPrice', parseFloat(e.target.value).toFixed(2))}
+                          onFocus={() => setFocusedPackIdx(null)} />
+                      </div>
+                      <input className="form-input pf-pack-input" type="number" min="1" step="1"
+                        value={defaultUnitPack} placeholder="1"
+                        onChange={e => setDefaultUnitPack(e.target.value || '1')}
+                        onFocus={() => setFocusedPackIdx(null)} />
+                      <input className="form-input pf-pack-input" type="number" min="1" step="1"
+                        value={defaultPacksPerCase} placeholder="—"
+                        onChange={e => setDefaultPacksPerCase(e.target.value)}
+                        onFocus={() => setFocusedPackIdx(null)} />
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className="form-input pf-pack-input pf-dollar-input"
+                          value={form.defaultCasePrice} placeholder="0.00"
+                          onChange={(v) => {
+                            setF('defaultCasePrice', v);
+                            const caseNum = parseFloat(v);
+                            const packsNum = parseFloat(defaultPacksPerCase);
+                            const upNum    = parseFloat(defaultUnitPack) || 1;
+                            if (caseNum > 0 && packsNum > 0 && upNum > 0) {
+                              setF('defaultCostPrice', (caseNum / packsNum / upNum).toFixed(4));
+                            }
+                          }}
+                          onBlur={e => e.target.value && setF('defaultCasePrice', parseFloat(e.target.value).toFixed(2))}
+                          onFocus={() => setFocusedPackIdx(null)} />
+                      </div>
+                      <div className="pf-cost-cell">
+                        {uc != null ? fmt$(uc) : '—'}
+                      </div>
+                      <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
+                        {rowMargin != null ? fmtPct(rowMargin) : '—'}
+                      </div>
+                      {depositEnabled && (
+                        <div className="pf-pack-deposit-cell">
+                          {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
+                        </div>
+                      )}
+                      {/* No delete on the primary row — master can never be removed */}
+                      <span style={{ width: 24 }} />
+                    </div>
+                  );
+                })()}
+
+                {/* ── Additional pack rows (ProductPackSize entries) ── */}
+                {packRows.map((row, idx) => {
+                  const ppc       = parseInt(row.packsPerCase)  || null;
+                  const up        = parseFloat(row.unitPack)    || 1;
+                  const pp        = parseFloat(row.packPrice)   || null;
+                  const unitCost  = caseCostVal && ppc ? caseCostVal / ppc / up : null;
+                  const rowMargin = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
+                  const rowDeposit = depositEnabled && caseDeposit && ppc
+                    ? parseFloat(caseDeposit) / ppc : null;
+                  const isFocused = focusedPackIdx === idx;
+                  return (
+                    <div
+                      key={row.id}
+                      className={`pf-pack-row${depositEnabled ? ' with-deposit' : ''}${isFocused ? ' pf-pack-row--focused' : ''}`}
+                      onClickCapture={() => setFocusedPackIdx(idx)}
+                    >
+                      <input className="form-input pf-pack-input"
+                        placeholder='e.g. "Double"'
+                        value={row.label}
+                        onChange={e => updatePackRow(idx, 'label', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      <div className="pf-dollar-wrap">
+                        <span className="pf-dollar-sign">$</span>
+                        <PriceInput className="form-input pf-pack-input pf-dollar-input"
+                          placeholder="0.00"
+                          value={row.packPrice}
+                          onChange={(v) => updatePackRow(idx, 'packPrice', v)}
+                          onFocus={() => setFocusedPackIdx(idx)} />
+                      </div>
+                      <input className="form-input pf-pack-input" type="number" min="1"
+                        placeholder="1"
+                        value={row.unitPack}
+                        onChange={e => updatePackRow(idx, 'unitPack', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      <input className="form-input pf-pack-input" type="number" min="1"
+                        placeholder="—"
+                        value={row.packsPerCase}
+                        onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)}
+                        onFocus={() => setFocusedPackIdx(idx)} />
+                      {/* Case cost — same value across all rows (one product = one
+                          vendor case). Reads master.defaultCasePrice; non-editable
+                          here so cost-sync stays single-source-of-truth. */}
+                      <div className="pf-cost-cell" style={{ opacity: 0.7 }}>
+                        {form.defaultCasePrice ? fmt$(parseFloat(form.defaultCasePrice)) : '—'}
+                      </div>
+                      <div className="pf-cost-cell">
+                        {unitCost != null ? fmt$(unitCost) : '—'}
+                      </div>
+                      <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
+                        {rowMargin != null ? fmtPct(rowMargin) : '—'}
+                      </div>
+                      {depositEnabled && (
+                        <div className="pf-pack-deposit-cell">
+                          {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
+                        </div>
+                      )}
+                      <button type="button" className="pf-pack-delete-btn"
+                        onClick={(e) => { e.stopPropagation(); removePackRow(idx); }}
+                        title="Remove row">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <button type="button" className="pf-pack-add-btn" onClick={addPackRow}>
+                  <Plus size={13} /> Add Pack Size
+                </button>
+
+                {packRows.length > 0 && (
+                  <p className="pf-hint">
+                    <Info size={11} /> {packRows.length + 1} pack{packRows.length === 0 ? '' : 's'} configured — cashier sees a picker modal on scan
+                  </p>
+                )}
 
                 {/* Warnings */}
                 {priceWarning && (
-                  <div className="pf-warn pf-mb-2">
+                  <div className="pf-warn pf-mb-2" style={{ marginTop: '0.5rem' }}>
                     <AlertCircle size={10} /> {priceWarning}
                   </div>
                 )}
                 {!ppcVal && caseCostVal && (
-                  <div className="pf-hint pf-mb-2">
-                    <Info size={10} /> Enter Packs or Case Size to auto-calculate unit cost
+                  <div className="pf-hint pf-mb-2" style={{ marginTop: '0.5rem' }}>
+                    <Info size={10} /> Enter Packs or Case Size on the primary row to auto-calculate unit cost
                   </div>
                 )}
 
-                {/* Quick-set margin */}
-                <div>
-                  <label className="pf-label">Quick-set margin</label>
+                {/* Quick-set margin — applies to focused row (Session F) */}
+                <div style={{ marginTop: '0.875rem' }}>
+                  <label className="pf-label">
+                    Quick-set margin
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>
+                      (applies to {focusedPackIdx === null ? 'Primary' : (packRows[focusedPackIdx]?.label || `Row ${focusedPackIdx + 1}`)})
+                    </span>
+                  </label>
                   <div className="pf-quick-margins">
-                    {MARGIN_PRESETS.map(m => (
-                      <button key={m} type="button"
-                        onClick={() => {
-                          const cost = unitCostVal;
-                          if (!cost) { toast.error('Enter cost price first'); return; }
-                          setF('defaultRetailPrice', (cost / (1 - m / 100)).toFixed(2));
-                        }}
-                        className="pf-margin-preset-btn"
-                        style={{
-                          border: Math.abs((margin||0)-m) < 0.5 ? 'none' : '1px solid var(--border-color)',
-                          background: Math.abs((margin||0)-m) < 0.5 ? mColor : 'var(--bg-tertiary)',
-                          color: Math.abs((margin||0)-m) < 0.5 ? '#fff' : 'var(--text-secondary)'
-                        }}>
-                        {m}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* ── 3. Pack Configuration ── */}
-              <div className="pf-card">
-                <div className="pf-pack-toggle-header" style={{ marginBottom: packEnabled ? '1rem' : 0 }}>
-                  <div className="pf-section-title">Pack Configuration</div>
-                  <Tog value={packEnabled} onChange={v => setPackEnabled(v)} />
-                </div>
-
-                {!packEnabled && (
-                  <div className="pf-muted-hint">
-                    Enable to sell this product in multiple sizes (Single, 6‑Pack, 12‑Pack…).
-                    Cashier sees a picker modal when multiple sizes are configured.
-                  </div>
-                )}
-
-                {packEnabled && (
-                  <>
-                    {/* Table header */}
-                    <div className={`pf-pack-table-header${depositEnabled ? ' with-deposit' : ''}`}>
-                      <span>Label</span>
-                      <span>Retail Price</span>
-                      <span>Unit-Pack</span>
-                      <span>Packs or Case Size</span>
-                      <span>Unit Cost</span>
-                      <span>Margin</span>
-                      {depositEnabled && <span>Deposit/Pack</span>}
-                      <span></span>
-                    </div>
-
-                    {/* Pack rows */}
-                    {packRows.map((row, idx) => {
-                      const ppc       = parseInt(row.packsPerCase)  || null;
-                      const up        = parseFloat(row.unitPack)    || 1;
-                      const pp        = parseFloat(row.packPrice)   || null;
-                      const unitCost  = caseCostVal && ppc ? caseCostVal / ppc / up : null;
-                      const rowMargin = pp && unitCost ? ((pp - unitCost) / pp) * 100 : null;
-                      const rowDeposit = depositEnabled && caseDeposit && ppc
-                        ? parseFloat(caseDeposit) / ppc : null;
+                    {MARGIN_PRESETS.map(m => {
+                      // Compute target retail = unitCost / (1 - m/100). Cost source
+                      // depends on focused row — primary uses unitCostVal (master),
+                      // packRow uses its own caseCost-derived unit cost.
+                      let cost = null;
+                      let activeMargin = null;
+                      if (focusedPackIdx === null) {
+                        cost = unitCostVal;
+                        activeMargin = margin;
+                      } else {
+                        const r = packRows[focusedPackIdx];
+                        if (r) {
+                          const rPpc = parseInt(r.packsPerCase) || null;
+                          const rUp  = parseFloat(r.unitPack)    || 1;
+                          if (caseCostVal && rPpc) cost = caseCostVal / rPpc / rUp;
+                          const rPp = parseFloat(r.packPrice) || null;
+                          activeMargin = rPp && cost ? ((rPp - cost) / rPp) * 100 : null;
+                        }
+                      }
+                      const rowColor = marginColor(activeMargin);
+                      const isActive = activeMargin != null && Math.abs(activeMargin - m) < 0.5;
                       return (
-                        <div key={row.id} className={`pf-pack-row${depositEnabled ? ' with-deposit' : ''}`}>
-                          <input className="form-input pf-pack-input"
-                            placeholder='e.g. "Single"'
-                            value={row.label}
-                            onChange={e => updatePackRow(idx, 'label', e.target.value)} />
-                          <div className="pf-dollar-wrap">
-                            <span className="pf-dollar-sign">$</span>
-                            <PriceInput className="form-input pf-pack-input pf-dollar-input"
-                              placeholder="0.00"
-                              value={row.packPrice}
-                              onChange={(v) => updatePackRow(idx, 'packPrice', v)} />
-                          </div>
-                          <input className="form-input pf-pack-input" type="number" min="1"
-                            placeholder="1"
-                            value={row.unitPack}
-                            onChange={e => updatePackRow(idx, 'unitPack', e.target.value)} />
-                          <input className="form-input pf-pack-input" type="number" min="1"
-                            placeholder="—"
-                            value={row.packsPerCase}
-                            onChange={e => updatePackRow(idx, 'packsPerCase', e.target.value)} />
-                          <div className="pf-cost-cell">
-                            {unitCost != null ? fmt$(unitCost) : '—'}
-                          </div>
-                          <div className="pf-margin-badge" style={{ color: marginColor(rowMargin) }}>
-                            {rowMargin != null ? fmtPct(rowMargin) : '—'}
-                          </div>
-                          {depositEnabled && (
-                            <div className="pf-pack-deposit-cell">
-                              {rowDeposit != null ? `$${rowDeposit.toFixed(3)}` : '—'}
-                            </div>
-                          )}
-                          <button type="button" className="pf-pack-delete-btn"
-                            onClick={() => removePackRow(idx)}
-                            disabled={packRows.length === 1}
-                            title="Remove row">
-                            <X size={13} />
-                          </button>
-                        </div>
+                        <button key={m} type="button"
+                          onClick={() => {
+                            if (!cost) { toast.error('Enter cost price first'); return; }
+                            const newRetail = (cost / (1 - m / 100)).toFixed(2);
+                            if (focusedPackIdx === null) {
+                              setF('defaultRetailPrice', newRetail);
+                            } else {
+                              updatePackRow(focusedPackIdx, 'packPrice', newRetail);
+                            }
+                          }}
+                          className="pf-margin-preset-btn"
+                          style={{
+                            border: isActive ? 'none' : '1px solid var(--border-color)',
+                            background: isActive ? rowColor : 'var(--bg-tertiary)',
+                            color: isActive ? '#fff' : 'var(--text-secondary)'
+                          }}>
+                          {m}%
+                        </button>
                       );
                     })}
-
-                    <button type="button" className="pf-pack-add-btn" onClick={addPackRow}>
-                      <Plus size={13} /> Add Pack Size
-                    </button>
-
-                    {packRows.length > 0 && (
-                      <p className="pf-hint">
-                        <Info size={11} /> {packRows.length} size{packRows.length > 1 ? 's' : ''} configured — cashier sees a picker modal on scan
-                      </p>
-                    )}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
 
               {/* ── 4. Store Deals & Offers ── */}
@@ -2688,10 +2903,13 @@ export default function ProductForm() {
                                 value={editMap.vendorItemCode ?? ''}
                                 placeholder="Item #"
                                 onChange={e => setEditMap(f => ({ ...f, vendorItemCode: e.target.value }))} />
-                              <PriceInput className="form-input" style={{ fontSize:'0.75rem' }}
-                                value={editMap.priceCost ?? ''}
-                                placeholder="0.00"
-                                onChange={(v) => setEditMap(f => ({ ...f, priceCost: v }))} />
+                              <div className="pf-dollar-wrap" style={{ width:'100%' }}>
+                                <span className="pf-dollar-sign" style={{ fontSize:'0.75rem' }}>$</span>
+                                <PriceInput className="form-input pf-dollar-input" style={{ fontSize:'0.75rem' }}
+                                  value={editMap.caseCost ?? ''}
+                                  placeholder="0.00"
+                                  onChange={(v) => setEditMap(f => ({ ...f, caseCost: v }))} />
+                              </div>
                             </div>
                           ) : (
                             <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', minWidth:0 }}>
@@ -2703,11 +2921,18 @@ export default function ProductForm() {
                                   {m.vendorItemCode}
                                 </span>
                               )}
-                              {m.priceCost != null && (
+                              {/* Show case cost first (matches primary vendor card). Fall
+                                  back to legacy per-each priceCost if only that is set
+                                  on existing rows. */}
+                              {m.caseCost != null ? (
+                                <span style={{ marginLeft:'auto', fontSize:'0.7rem', color:'var(--text-muted)' }}>
+                                  {fmt$(m.caseCost)}/case
+                                </span>
+                              ) : m.priceCost != null ? (
                                 <span style={{ marginLeft:'auto', fontSize:'0.7rem', color:'var(--text-muted)' }}>
                                   {fmt$(m.priceCost)}/ea
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           )}
                           {/* Action buttons */}
@@ -2728,7 +2953,11 @@ export default function ProductForm() {
                                 setEditingMapId(m.id);
                                 setEditMap({
                                   vendorItemCode: m.vendorItemCode || '',
-                                  priceCost: m.priceCost != null ? String(m.priceCost) : '',
+                                  // Prefer caseCost (matches primary card) — fall back to
+                                  // legacy per-each priceCost so old data is editable.
+                                  caseCost: m.caseCost != null
+                                    ? String(m.caseCost)
+                                    : (m.priceCost != null ? String(m.priceCost) : ''),
                                 });
                               }}
                                 title="Edit"
@@ -2774,10 +3003,13 @@ export default function ProductForm() {
                               placeholder="Item #"
                               value={newVendor.vendorItemCode}
                               onChange={e => setNewVendor(v => ({ ...v, vendorItemCode: e.target.value }))} />
-                            <PriceInput className="form-input" style={{ fontSize:'0.72rem' }}
-                              placeholder="$/ea"
-                              value={newVendor.priceCost}
-                              onChange={(v) => setNewVendor(val => ({ ...val, priceCost: v }))} />
+                            <div className="pf-dollar-wrap">
+                              <span className="pf-dollar-sign" style={{ fontSize:'0.72rem' }}>$</span>
+                              <PriceInput className="form-input pf-dollar-input" style={{ fontSize:'0.72rem' }}
+                                placeholder="Case cost"
+                                value={newVendor.caseCost}
+                                onChange={(v) => setNewVendor(val => ({ ...val, caseCost: v }))} />
+                            </div>
                           </div>
                           <button type="button" onClick={handleAddVendorMapping}
                             disabled={mapSaving || !newVendor.vendorId}
@@ -2826,7 +3058,7 @@ export default function ProductForm() {
                   </div>
                 </div>
 
-                {packEnabled && packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
+                {packRows.length > 0 && parseFloat(caseDeposit) > 0 && (
                   <div style={{ padding:'0.6rem 0.75rem', background:'#06b6d408', borderRadius:7,
                     border:'1px solid #06b6d425', marginBottom:'0.5rem' }}>
                     <div style={{ fontSize:'0.65rem', fontWeight:700, color:'#06b6d4',

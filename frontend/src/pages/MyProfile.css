@@ -3,14 +3,25 @@
    --text-primary, --text-muted, --border-color, --brand-primary (#3d56b5). */
 
 .mp-wrap {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 1rem;
   color: var(--text-primary);
-  max-width: 720px;
 }
 
-.mp-loading, .mp-error {
+/* Identity header spans both columns; cards below split 50/50 */
+.mp-identity {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .mp-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mp-loading,
+.mp-error {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -29,10 +40,20 @@
   border-color: rgba(239, 68, 68, 0.22);
   flex-wrap: wrap;
 }
-.mp-error strong { color: #991b1b; }
 
-.mp-spin { animation: mp-spin 1s linear infinite; }
-@keyframes mp-spin { to { transform: rotate(360deg); } }
+.mp-error strong {
+  color: #991b1b;
+}
+
+.mp-spin {
+  animation: mp-spin 1s linear infinite;
+}
+
+@keyframes mp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ── Identity card ── */
 .mp-identity {
@@ -232,8 +253,13 @@
   font-size: 0.7rem;
 }
 
-.mp-pw-rule--ok { color: #15803d; }
-.mp-pw-rule--pending { color: var(--text-muted); }
+.mp-pw-rule--ok {
+  color: #15803d;
+}
+
+.mp-pw-rule--pending {
+  color: var(--text-muted);
+}
 
 .mp-pw-dot {
   width: 11px;
@@ -277,7 +303,9 @@
   transition: background 0.15s, opacity 0.15s;
 }
 
-.mp-btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+.mp-btn-primary:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
 
 .mp-btn-primary:disabled {
   background: var(--bg-tertiary);
@@ -299,7 +327,11 @@
   cursor: pointer;
   margin-left: auto;
 }
-.mp-btn-secondary:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+
+.mp-btn-secondary:hover {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+}
 
 .mp-dirty-note {
   font-size: 0.75rem;
@@ -309,6 +341,13 @@
 
 /* Responsive */
 @media (max-width: 640px) {
-  .mp-identity { flex-direction: column; align-items: flex-start; text-align: left; }
-  .mp-pw-rules { grid-template-columns: 1fr; }
+  .mp-identity {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .mp-pw-rules {
+    grid-template-columns: 1fr;
+  }
 }

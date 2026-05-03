@@ -8,6 +8,9 @@ import { toast } from 'react-toastify';
 import {
   getPermissions, listRoles, createRole, updateRole, deleteRole,
 } from '../services/api';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — useConfirmDialog is a shared .jsx file
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/admin.css';
 import './AdminRoles.css';
 
@@ -49,6 +52,7 @@ type ModalState = null | 'create' | Role;
 const EMPTY_FORM: RoleForm = { key: '', name: '', description: '', status: 'active', permissions: [] };
 
 const AdminRoles = () => {
+  const confirm = useConfirm();
   const [scope, setScope] = useState<Scope>('admin');
   const [roles, setRoles] = useState<Role[]>([]);
   const [permsGrouped, setPermsGrouped] = useState<Record<string, Permission[]>>({});
@@ -155,7 +159,12 @@ const AdminRoles = () => {
   const handleDelete = async (role: Role) => {
     if (role.isSystem) { toast.error('System roles cannot be deleted'); return; }
     if (role.userCount > 0) { toast.error(`Role is assigned to ${role.userCount} user(s) — unassign first`); return; }
-    if (!window.confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: `Delete role "${role.name}"?`,
+      message: 'This cannot be undone. Users currently assigned to this role will lose its permissions immediately.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteRole(role.id);
       toast.success('Role deleted');

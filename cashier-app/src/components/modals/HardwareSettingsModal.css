@@ -30,7 +30,7 @@
   right: 16px;
   background: none;
   border: none;
-  color: #6b7280;
+  color: #cbd5e1;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -38,7 +38,7 @@
 
 .hsm-header { margin-bottom: 1.5rem; }
 .hsm-header-title { margin: 0; color: #e8eaf0; font-size: 1.1rem; font-weight: 800; }
-.hsm-header-sub { margin: 4px 0 0; color: #6b7280; font-size: 0.82rem; }
+.hsm-header-sub { margin: 4px 0 0; color: #cbd5e1; font-size: 0.82rem; }
 
 /* Form fields */
 .hsm-field {
@@ -72,7 +72,7 @@
 
 .hsm-label {
   display: block;
-  color: #6b7280;
+  color: #cbd5e1;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -191,7 +191,7 @@
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.06);
-  color: #94a3b8;
+  color: #e8eaf0;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -248,7 +248,7 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: none;
-  color: #6b7280;
+  color: #cbd5e1;
   font-weight: 700;
   cursor: pointer;
 }
@@ -264,7 +264,7 @@
 .hsm-scale-test-header {
   font-size: 0.72rem;
   font-weight: 700;
-  color: #9ca3af;
+  color: #cbd5e1;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
@@ -310,7 +310,7 @@
 }
 .hsm-scale-test-label {
   font-size: 0.72rem;
-  color: #9ca3af;
+  color: #cbd5e1;
   min-width: 80px;
 }
 .hsm-scale-test-value {

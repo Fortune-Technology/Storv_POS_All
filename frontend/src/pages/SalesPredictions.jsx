@@ -956,19 +956,16 @@ export default function SalesPredictions({ embedded }) {
             <p className="p-subtitle">AI-powered forecasting across hourly, daily, weekly, and monthly horizons</p>
           </div>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="p-tabs">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            className={`p-tab${activeTab === t.key ? ' active' : ''}`}
-            onClick={() => setActiveTab(t.key)}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
+        <div className="p-header-actions">
+          {/* S66: Period dropdown replaces inner tab bar to avoid tabs-within-tabs
+               nested layout under AnalyticsHub. */}
+          <label className="sp-period-pill">
+            <span className="sp-period-label">Horizon</span>
+            <select className="sp-period-select" value={activeTab} onChange={(e) => setActiveTab(e.target.value)}>
+              {TABS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
       {/* Tab Content */}

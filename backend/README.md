@@ -48,14 +48,23 @@ backend/
 │   ├── seedTransactions.js→ ~3,900 realistic POS transactions (90 days)
 │   └── seedToday.js       → Seed today's transactions for dashboard testing
 ├── src/
-│   ├── controllers/       → Business logic (30+ controllers)
-│   ├── routes/            → API definitions (30+ route files)
-│   ├── middleware/        → auth (JWT + PIN), scopeToTenant (active-store-derived orgId), rateLimit, requirePermission
-│   ├── rbac/              → permissionCatalog.js (133 keys), permissionService.js
-│   ├── services/          → orderEngine, salesService, emailService, smsService, shiftScheduler, matchingService, weatherService, globalImageService, imageRehostService
-│   ├── utils/             → validators (email/password/phone/price), upc stripping, Holt-Winters predictions
-│   └── server.js          → App entry (starts billing + order + shift schedulers)
-└── uploads/               → Product images, quick-button tiles, invoice uploads
+│   ├── controllers/       → 30+ controllers. Large ones split into per-concern folders (sales/,
+│   │                        shift/, payment/{adminMerchant,adminTerminal,hpp,posSpin}/) with a
+│   │                        1-line shim at the original path. All TypeScript.
+│   ├── routes/            → API definitions
+│   ├── middleware/        → auth (JWT + PIN), scopeToTenant, rateLimit, requirePermission, autoAudit
+│   ├── rbac/              → permissionCatalog.ts (133 keys), permissionService.ts
+│   ├── services/          → Domain folders (Session 55):
+│   │                        ai/ (OpenAI client), notifications/ (email + sms),
+│   │                        sales/ (sales + dailySale), inventory/ (orderEngine + matching + import),
+│   │                        fuel/ (FIFO + topology), weather/ (Open-Meteo + cache),
+│   │                        lottery/, scanData/, dejavoo/, payment/, reconciliation/.
+│   │                        Top-level: auditService, auditDiff, billingService, loyaltyService,
+│   │                        chargeAccountService, marktPOSService, kbService, labelQueueService, etc.
+│   ├── utils/             → validators (email/password/phone/price/fuel/count/alphanumeric),
+│   │                        upc stripping, Holt-Winters predictions, cryptoVault (AES-256-GCM)
+│   └── server.ts          → App entry (starts billing + order + shift + scan-data schedulers)
+└── uploads/               → Product images, quick-button tiles, invoice uploads, scan-data files
 ```
 
 ---
@@ -88,14 +97,22 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 Must match the same value in `ecom-backend/.env`.
 
-### Input Validators
-All shared validators live in `src/utils/validators.js`:
+### Input Validators + Formatters
+All shared validators live in `src/utils/validators.ts`:
 - `validateEmail(email)` — regex + length check
 - `validatePassword(password)` — 8-128 chars, upper/lower/digit/special
 - `validatePhone(phone)` — 7-15 digits, E.164-ish
-- `parsePrice(value, {min, max})` — rejects NaN/Infinity/scientific notation, rounds to 4 decimals for Prisma `Decimal(10,4)`
+- `validateAlphanumeric(value, {minLength, maxLength, allowedSpecials})` — string fields with safe whitelist
+- `parsePrice(value, {min, max})` — money (4 decimals, Prisma `Decimal(10,4)`)
+- `parseFuel(value, {min, max})` — fuel quantity / $/gal (3 decimals)
+- `parseCount(value, {min, max})` — integer-only counts
+- `formatMoney(n)` / `formatFuel(n)` / `formatCount(n)` — output formatters mirrored in
+  `frontend/src/utils/formatters.js`, `cashier-app/src/utils/formatters.js`, and
+  `admin-app/src/utils/formatters.js` so server + client render identically.
 
-Applied throughout `authController`, `customerController`, `catalogController`, `adminController`.
+Applied throughout `authController`, `customerController`, `catalogController`, `adminController`,
+plus the cashier-app + portal `<MoneyInput>`/`<FuelInput>`/`<CountInput>` components
+(scroll/arrow-proof, Session 52).
 
 ---
 

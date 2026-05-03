@@ -121,11 +121,38 @@ export const buildReceiptString = (receipt) => {
     r += line('Savings',     '-$' + Number(receipt.discount).toFixed(2),   W);
   }
 
+  // Session 51 — Dual Pricing surcharge line. Shown only when the saved
+  // transaction recorded a non-zero surcharge (i.e. customer paid by card
+  // on a dual_pricing store). Cash transactions print no surcharge line
+  // even when the store is on dual pricing.
+  const sa = Number(receipt.surchargeAmount || 0);
+  const sat = Number(receipt.surchargeTaxAmount || 0);
+  if (sa > 0.005) {
+    const rate = Number(receipt.surchargeRate || 0);
+    const fee  = Number(receipt.surchargeFixedFee || 0);
+    const lbl  = `Surcharge (${rate.toFixed(2)}%${fee > 0 ? ` + $${fee.toFixed(2)}` : ''})`;
+    r += line(lbl, '$' + sa.toFixed(2), W);
+    if (sat > 0.005) {
+      r += line('  Tax on Surcharge', '$' + sat.toFixed(2), W);
+    }
+  }
+
   r += ESCPOS.BOLD_ON;
   const totalAmt = Number(receipt.total || 0);
   r += line(totalAmt < -0.005 ? 'REFUND DUE' : 'TOTAL',
             (totalAmt < -0.005 ? '-$' : '$') + Math.abs(totalAmt).toFixed(2), W);
   r += ESCPOS.BOLD_OFF;
+
+  // Session 51 — "You saved $X by paying cash" — only on cash receipts when
+  // dual pricing is active and surcharge would have applied to a card payment.
+  // The cashier app passes potentialSavings on the receipt envelope when the
+  // transaction was a cash tender on a dual_pricing store.
+  const savings = Number(receipt.potentialSavings || 0);
+  if (savings > 0.005 && sa < 0.005) {
+    r += ESCPOS.ALIGN_CENTER;
+    r += LF + 'You saved $' + savings.toFixed(2) + ' by paying cash' + LF;
+    r += ESCPOS.ALIGN_LEFT;
+  }
   r += '-'.repeat(W) + LF;
 
   // ── TENDER ──────────────────────────────────────────────────────────────
@@ -156,6 +183,17 @@ export const buildReceiptString = (receipt) => {
   if (receipt.showReturnPolicy && receipt.returnPolicy) {
     r += LF;
     printFooterBlock(receipt.returnPolicy);
+  }
+
+  // Session 51 — Dual Pricing disclosure block. Required by most state laws
+  // when running surcharge or cash-discount programs (NY GBL § 518, etc.).
+  // Always printed when dualPricingDisclosure is set on the receipt envelope,
+  // regardless of tender (the customer needs to see it on cash + card both).
+  if (receipt.dualPricingDisclosure) {
+    r += LF;
+    r += '-'.repeat(W) + LF;
+    printFooterBlock(receipt.dualPricingDisclosure);
+    r += '-'.repeat(W) + LF;
   }
 
   if (receipt.showItemCount && itemCount > 0) {
@@ -300,6 +338,20 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     }
   }
 
+  // ── S67: Department Breakdown (opt-in via store.pos.eodReport.showDepartmentBreakdown) ──
+  if (report.departments?.rows?.length) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'DEPARTMENT BREAKDOWN' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    r += pad('Department', W - 18) + rpad('Tx', 4) + rpad('Net', 14) + LF;
+    r += divider;
+    for (const d of report.departments.rows) {
+      r += pad(d.name, W - 18) + rpad(String(d.txCount), 4) + rpad(money(d.netSales), 14) + LF;
+    }
+    r += divider;
+    r += ESCPOS.BOLD_ON + pad('Total', W - 18) + rpad('—', 4) + rpad(money(report.departments.total), 14) + LF + ESCPOS.BOLD_OFF;
+  }
+
   // ── Section 4: Fuel Sales (only when fuel sales exist) ────────────────
   if (report.fuel?.rows?.length) {
     r += LF + hr;
@@ -318,6 +370,45 @@ export const buildEoDReceiptString = (report, opts = {}) => {
       + rpad(money(report.fuel.totals.amount), 13)
       + LF
       + ESCPOS.BOLD_OFF;
+  }
+
+  // ── Section 5: Dual Pricing (only when store ran dual_pricing) ────────
+  if (report.dualPricing) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'DUAL PRICING SUMMARY' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    r += row('Card Tx Surcharged',    String(report.dualPricing.surchargedTxCount));
+    r += row('Cash/EBT (No Surcharge)', String(report.dualPricing.cashTxOnDualCount));
+    r += row('Surcharge Collected',   money(report.dualPricing.surchargeCollected));
+    if (report.dualPricing.surchargeTaxCollected > 0.005) {
+      r += row('Tax on Surcharge',    money(report.dualPricing.surchargeTaxCollected));
+    }
+    r += divider;
+    r += ESCPOS.BOLD_ON + row('Total Surcharge', money(report.dualPricing.surchargeTotal)) + ESCPOS.BOLD_OFF;
+    if (report.dualPricing.cashSavingsTotal > 0.005) {
+      r += row('Customer Savings',    money(report.dualPricing.cashSavingsTotal));
+    }
+  }
+
+  // ── S67: Standalone Lottery section. Only when settings.lotterySeparateFromDrawer=true. ──
+  if (report.settings?.lotterySeparateFromDrawer && report.reconciliation?.lottery) {
+    const L = report.reconciliation.lottery;
+    const anyActivity = L.ticketMathSales > 0 || L.posLotterySales > 0 ||
+                        L.machineDrawSales > 0 || L.machineCashings > 0 || L.instantCashings > 0;
+    if (anyActivity) {
+      r += LF + hr;
+      r += ESCPOS.BOLD_ON + 'LOTTERY CASH FLOW' + LF + ESCPOS.BOLD_OFF;
+      r += '(separate from drawer)' + LF;
+      r += divider;
+      if (L.ticketMathSales > 0)  r += row('Ticket-math Sales',     money(L.ticketMathSales));
+      if (L.posLotterySales > 0)  r += row('POS-Recorded Sales',    money(L.posLotterySales));
+      if (L.unreportedCash > 0)   r += row('+ Un-rung Tickets',     money(L.unreportedCash));
+      if (L.machineDrawSales > 0) r += row('+ Machine Draw Sales',  money(L.machineDrawSales));
+      if (L.machineCashings > 0)  r += row('- Machine Cashings',    money(L.machineCashings));
+      if (L.instantCashings > 0)  r += row('- Instant Cashings',    money(L.instantCashings));
+      r += divider;
+      r += ESCPOS.BOLD_ON + row('= Net Lottery Cash', money(L.netLotteryCash)) + ESCPOS.BOLD_OFF;
+    }
   }
 
   // ── Reconciliation (shift only) ───────────────────────────────────────

@@ -1,14 +1,19 @@
 /**
  * POSReports — Tabbed hub for transaction history and reports
- * Tabs: Transactions, Event Log, Employee Reports, Payouts, Employees (timesheet)
+ * Tabs: Transactions, Event Log, Payouts, Balancing, Notes
+ *
+ * Notes tab (Session 64) — extracted from the legacy ReportsHub Notes tab.
+ * Mounts <TxNotes embedded /> which lists transactions where the cashier
+ * left a note (price overrides, voided items, customer complaints, etc.).
  */
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Receipt, ClipboardList, ArrowUpCircle, Scale } from 'lucide-react';
+import { Receipt, ClipboardList, ArrowUpCircle, Scale, MessageSquare } from 'lucide-react';
 import Transactions from './Transactions';
 import PosEventLog from './PosEventLog';
 import PayoutsReport from './PayoutsReport';
 import ShiftBalancing from './ShiftBalancing';
+import TxNotes from './reports/TxNotes';
 import '../styles/portal.css';
 import './POSReports.css';
 
@@ -17,6 +22,7 @@ const TABS = [
   { key: 'events',       label: 'Event Log',    icon: <ClipboardList size={14} /> },
   { key: 'payouts',      label: 'Payouts',      icon: <ArrowUpCircle size={14} /> },
   { key: 'balancing',    label: 'Balancing',     icon: <Scale size={14} /> },
+  { key: 'notes',        label: 'Notes',        icon: <MessageSquare size={14} /> },
 ];
 
 export default function POSReports() {
@@ -48,6 +54,7 @@ export default function POSReports() {
       {tab === 'events'       && <PosEventLog embedded />}
       {tab === 'payouts'      && <PayoutsReport embedded />}
       {tab === 'balancing'    && <ShiftBalancing embedded />}
+      {tab === 'notes'        && <TxNotes embedded />}
     </div>
   );
 }

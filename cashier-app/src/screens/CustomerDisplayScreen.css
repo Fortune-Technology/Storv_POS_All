@@ -216,6 +216,23 @@
   flex-shrink: 0;
 }
 
+/* Pack-size chip on the customer-facing display. Sized for legibility
+   across the counter so the customer can confirm at a glance which pack
+   the cashier rang up when the cart has multiple packs of the same
+   product (e.g. "$2 ITEM NT [DOUBLE]" alongside "$2 ITEM NT [SINGLE]"). */
+.cds-line-pack {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(100, 116, 139, 0.18);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
 .cds-line-promo {
   font-size: 0.9rem;
   color: var(--green);
@@ -298,6 +315,42 @@
   color: var(--green);
   font-family: 'Inter', sans-serif;
   letter-spacing: -0.01em;
+}
+
+/* ── Session 51 — Dual Pricing dual-total display ───────────────────── */
+/* Shown when the cart has divergent cash vs card totals (dual_pricing
+   model is active AND a non-zero surcharge applies). Both totals appear
+   stacked so the customer can pick the cheaper path. */
+.cds-grand--dual {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border-light);
+}
+.cds-grand--card {
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+  border-top: none;
+}
+.cds-grand-label--cash { color: var(--green); }
+.cds-grand-label--card { color: #f59e0b; }
+.cds-grand-value--cash {
+  font-size: 2.2rem;
+  color: var(--green);
+}
+.cds-grand-value--card {
+  font-size: 2.2rem;
+  color: #f59e0b;
+}
+.cds-savings-banner {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 8px;
+  text-align: center;
+  color: var(--green);
+  font-weight: 700;
+  font-size: 1.05rem;
 }
 
 /* ── Responsive — preserves big-screen type scale, shrinks

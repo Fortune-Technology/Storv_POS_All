@@ -113,15 +113,26 @@ export const useCartStore = create((set, get) => ({
   // ── Item management ─────────────────────────────────────────────────────
   addProduct: (product) => {
     const { items, promotions } = get();
-    const idx = items.findIndex(i => i.productId === (product.id ?? product.productId));
+    // Dedup key is (productId, packSizeId) — same product picked at the SAME
+    // pack size stacks qty (correct: scanning Single twice = qty 2). Same
+    // product picked at a DIFFERENT pack must be its own line because price /
+    // unit count / deposit-per-unit all differ per pack. Prior to this fix
+    // the dedup was productId-only, which silently collapsed multi-pack picks
+    // into the first-picked pack's line and inherited its price + deposit.
+    const incomingProductId = product.id ?? product.productId;
+    const incomingPackId    = product.packSizeId ?? null;
+    const idx = items.findIndex(i =>
+      i.productId === incomingProductId &&
+      (i.packSizeId ?? null) === incomingPackId
+    );
     let nextItems;
     if (idx >= 0) {
       nextItems = items.map((item, i) => i === idx ? calcLine({ ...item, qty: item.qty + 1 }) : item);
-      db.scanFrequency.put({ productId: product.id ?? product.productId }).catch(() => {});
+      db.scanFrequency.put({ productId: incomingProductId }).catch(() => {});
     } else {
       const newItem = calcLine({
         lineId:           nanoid(8),
-        productId:        product.id ?? product.productId,
+        productId:        incomingProductId,
         upc:              product.upc,
         name:             product.name,
         brand:            product.brand,
@@ -140,15 +151,22 @@ export const useCartStore = create((set, get) => ({
         departmentId:     product.departmentId || null,
         discountEligible: product.discountEligible !== false,
         quantityOnHand:   product.quantityOnHand != null ? Number(product.quantityOnHand) : null,
+        // Pack-size metadata — required for the dedup key above to work on
+        // subsequent adds (otherwise both lines compare null === null and
+        // collide). Also surfaces in the cart UI as a small chip so the
+        // cashier sees which pack was picked.
+        packSizeId:       incomingPackId,
+        packSizeLabel:    product.packSizeLabel || null,
+        unitCount:        product.unitCount != null ? Number(product.unitCount) : null,
         priceOverridden:  false,
         discountType:     null,
         discountValue:    null,
         promoAdjustment:  null,
       });
       nextItems = [...items, newItem];
-      db.scanFrequency.get(product.id).then(row => {
-        if (row) db.scanFrequency.update(product.id, { count: (row.count || 0) + 1, lastAt: Date.now() });
-        else     db.scanFrequency.put({ productId: product.id, count: 1, lastAt: Date.now() });
+      db.scanFrequency.get(incomingProductId).then(row => {
+        if (row) db.scanFrequency.update(incomingProductId, { count: (row.count || 0) + 1, lastAt: Date.now() });
+        else     db.scanFrequency.put({ productId: incomingProductId, count: 1, lastAt: Date.now() });
       }).catch(() => {});
     }
     const { items: promoItems, promoResults } = withPromos(nextItems, promotions);
@@ -266,6 +284,43 @@ export const useCartStore = create((set, get) => ({
       discountValue:    null,
       promoAdjustment:  null,
       notes:            notes || null,
+    };
+    set(s => ({ items: [...s.items, item] }));
+  },
+
+  // Add a single product as a refund line — qty defaults to 1, lineTotal
+  // is forced negative. Mirrors the bottle-return pattern but uses real
+  // product attributes (productId, taxable, ebt) so refund analytics +
+  // inventory sync see them correctly.
+  //
+  // Tax + deposit fields are set to NEGATIVE values so the cart subtotal /
+  // tax / deposit aggregators return the right signed amounts. Existing
+  // negative-grand-total handling in TenderModal (Session 19 — bottle
+  // returns) routes net-negative carts through the "REFUND DUE TO
+  // CUSTOMER" path, which works for refund lines too.
+  addRefundItem: (product, qty = 1) => {
+    if (!product) return;
+    const unitPrice = Number(product.retailPrice) || 0;
+    const q         = Math.max(1, qty);
+    const lineTotal = -(unitPrice * q);
+    const item = {
+      lineId:           nanoid(8),
+      isRefundItem:     true,
+      productId:        product.id,
+      upc:              product.upc || null,
+      name:             `↩ Refund – ${product.name || 'Item'}`,
+      qty:              -q,                       // negative qty so reports see it as a return
+      unitPrice:        unitPrice,
+      effectivePrice:   unitPrice,
+      lineTotal,
+      taxable:          !!product.taxable,
+      ebtEligible:      !!product.ebtEligible,
+      depositAmount:    null,
+      depositTotal:     0,
+      discountEligible: false,
+      discountType:     null,
+      discountValue:    null,
+      promoAdjustment:  null,
     };
     set(s => ({ items: [...s.items, item] }));
   },
@@ -617,18 +672,31 @@ export function computeEffectiveDiscount({ items, customer, orderDiscount, loyal
 
 // ── Derived totals ─────────────────────────────────────────────────────────
 // bagFeeInfo: { bagTotal, ebtEligible, discountable } | null
-export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeInfo = null) {
+//
+// Session 51 — added optional 5th param `dualPricing` (the config block from
+// usePOSConfig). When supplied AND pricingModel === 'dual_pricing', the
+// returned object includes the surcharge math used by TenderModal:
+//   baseSubtotal   — post-discount subtotal (= what tax + surcharge are computed against)
+//   cardSurcharge  — surcharge that WOULD apply if the cashier picks card/debit
+//   cardSurchargeTax — sales tax on the surcharge (when state.surchargeTaxable)
+//   cashGrandTotal — what customer pays with cash/EBT/check
+//   cardGrandTotal — what customer pays with credit/debit
+//   potentialSavings — cardGrandTotal − cashGrandTotal (always >= 0)
+//
+// When dualPricing is null OR pricingModel === 'interchange', these fields
+// equal grandTotal / 0 / 0 / grandTotal / grandTotal / 0 — i.e. no behavioural
+// change for stores that haven't enabled dual pricing.
+export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeInfo = null, dualPricing = null) {
   const subtotal     = round2(items.reduce((s, i) => s + i.lineTotal, 0));
   const depositTotal = round2(items.reduce((s, i) => s + (i.depositTotal || 0), 0));
 
   let taxTotal = 0;
   for (const item of items) {
     if (!item.taxable || item.ebtEligible) continue;
-    // Session 40 Phase 1 resolution order (strict-FK migration):
+    // Session 56b — 2-tier resolution order (legacy class matcher removed):
     //   1. Product-level explicit FK: item.taxRuleId → rule (per-product override)
-    //   2. Department-linked rule via TaxRule.departmentIds[] (Option B)
-    //   3. Legacy string match on appliesTo ↔ item.taxClass
-    //   4. rate = 0 (no rule matched)
+    //   2. Department-linked rule via TaxRule.departmentIds[]
+    //   3. rate = 0 (no rule matched — auditable via the unmapped report)
     // Every tier requires the rule to be `active: true`.
     const productRule = item.taxRuleId
       ? taxRules.find(r => r.active && Number(r.id) === Number(item.taxRuleId))
@@ -636,9 +704,7 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
     const deptRule = !productRule && item.departmentId
       ? taxRules.find(r => r.active && Array.isArray(r.departmentIds) && r.departmentIds.includes(Number(item.departmentId)))
       : null;
-    const rule = productRule
-      || deptRule
-      || taxRules.find(r => r.active && (!r.departmentIds || r.departmentIds.length === 0) && matchTax(r.appliesTo, item.taxClass));
+    const rule = productRule || deptRule || null;
     taxTotal += item.lineTotal * (rule ? parseFloat(rule.rate) : 0);
   }
   taxTotal = round2(taxTotal);
@@ -675,21 +741,86 @@ export function selectTotals(items, taxRules = [], orderDiscount = null, bagFeeI
     return s;
   }, 0));
 
-  return { subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal, promoSaving, bagTotal: effectiveBagTotal };
+  // Session 51 — Dual Pricing math.
+  //
+  // baseSubtotal  = subtotal − discount + bag (what tax + surcharge
+  //                 are computed against). Lottery + fuel + bottle-return
+  //                 lines are NOT excluded here because they're already
+  //                 represented in `subtotal` via lineTotal — the controller-
+  //                 side surcharge tools strip those line types from the
+  //                 baseSubtotal it persists. For UI purposes the TenderModal
+  //                 typically displays the same combined figure.
+  //
+  // The cashGrandTotal == grandTotal when there's no dual pricing — kept as
+  // separate field so consumers can switch by tender without re-doing math.
+  const baseSubtotal = round2(subtotal - discountAmount + effectiveBagTotal);
+
+  let cardSurcharge = 0;
+  let cardSurchargeTax = 0;
+  let surchargeRate = 0;
+  let surchargeFixedFee = 0;
+  let surchargeTaxable = false;
+  let rateSource = 'none';
+
+  if (dualPricing && dualPricing.pricingModel === 'dual_pricing' && baseSubtotal > 0) {
+    // Resolve effective rate (custom > tier > zero) — same priority as backend.
+    const tier        = dualPricing.pricingTier;
+    const customPct   = dualPricing.customSurchargePercent;
+    const customFee   = dualPricing.customSurchargeFixedFee;
+    const usingCustom = customPct != null && customFee != null;
+
+    if (usingCustom) {
+      surchargeRate     = Number(customPct) || 0;
+      surchargeFixedFee = Number(customFee) || 0;
+      rateSource        = 'custom';
+    } else if (tier) {
+      surchargeRate     = Number(tier.surchargePercent)  || 0;
+      surchargeFixedFee = Number(tier.surchargeFixedFee) || 0;
+      rateSource        = 'tier';
+    }
+
+    if (surchargeRate > 0 || surchargeFixedFee > 0) {
+      cardSurcharge = round2((baseSubtotal * surchargeRate) / 100 + surchargeFixedFee);
+      surchargeTaxable = !!dualPricing.state?.surchargeTaxable;
+
+      // Effective tax rate for surcharge — use the cart's blended tax rate so
+      // the surcharge tax matches the rate actually applied to taxable items.
+      // Falls back to 0 when nothing is taxable (no tax to mirror onto surcharge).
+      const taxableSubtotal = items
+        .filter(i => i.taxable && !i.ebtEligible)
+        .reduce((s, i) => s + i.lineTotal, 0);
+      const blendedTaxRate = taxableSubtotal > 0 ? taxTotal / taxableSubtotal : 0;
+      if (surchargeTaxable && blendedTaxRate > 0) {
+        cardSurchargeTax = round2(cardSurcharge * blendedTaxRate);
+      }
+    }
+  }
+
+  const cashGrandTotal = grandTotal;
+  const cardGrandTotal = round2(grandTotal + cardSurcharge + cardSurchargeTax);
+  const potentialSavings = round2(cardGrandTotal - cashGrandTotal);
+
+  return {
+    subtotal, discountAmount, depositTotal, ebtTotal, taxTotal, grandTotal,
+    promoSaving, bagTotal: effectiveBagTotal,
+    // Session 51 — dual pricing
+    baseSubtotal,
+    cardSurcharge,
+    cardSurchargeTax,
+    surchargeRate,
+    surchargeFixedFee,
+    surchargeTaxable,
+    rateSource,
+    cashGrandTotal,
+    cardGrandTotal,
+    potentialSavings,
+  };
 }
 
-// Wildcard rule `appliesTo` values that apply to ANY taxable item. `none` is
-// treated as a wildcard because the default "General Sales Tax" seed ships
-// with `appliesTo='none'` and was historically used as a catch-all. `standard`
-// is the default taxClass on new products, so treating it as a wildcard on
-// rule side too lets retailers create a single rule that catches everything.
-const TAX_RULE_WILDCARDS = new Set(['', 'all', 'any', '*', 'standard', 'none']);
-
-function matchTax(appliesTo, taxClass) {
-  const applied = String(appliesTo || '').toLowerCase().trim();
-  if (TAX_RULE_WILDCARDS.has(applied)) return true;
-  const list = applied.split(',').map(s => s.trim()).filter(Boolean);
-  if (list.includes(String(taxClass || '').toLowerCase().trim())) return true;
-  // If any entry is a wildcard, the rule applies universally
-  return list.some(x => TAX_RULE_WILDCARDS.has(x));
-}
+// Session 56b — `matchTax(appliesTo, taxClass)` and TAX_RULE_WILDCARDS were
+// removed when the legacy class matcher was deleted from the schema. Tax
+// resolution now uses only:
+//   1. Per-line `taxRuleId` (per-product override)
+//   2. Department-linked: rule whose departmentIds[] contains line's deptId
+// To create a "tax everything" catch-all rule, the admin links it to every
+// active department in the org via the multi-select chip UI.

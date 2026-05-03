@@ -11,6 +11,7 @@ on:
       - "admin-app/**"
       - "ecom-backend/**"
       - "storefront/**"
+      - "marketing/**"
       - "packages/**"
       - ".github/workflows/deploy.yml"
 
@@ -19,6 +20,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 0: Detect which paths changed in this push.
+  # Only used to gate the expensive Windows Electron build — every other
+  # job runs unconditionally because the workflow-level `paths:` filter
+  # already covers the broad case.
+  # ──────────────────────────────────────────────────────────────────────────
+  changes:
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      cashier-app: ${{ steps.filter.outputs.cashier-app }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Need history so paths-filter can diff against the base SHA.
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            cashier-app:
+              - 'cashier-app/**'
+              - '.github/workflows/deploy.yml'
+
   # ──────────────────────────────────────────────────────────────────────────
   # Job 1: Deploy web apps + backend to server
   # ──────────────────────────────────────────────────────────────────────────
@@ -73,29 +97,31 @@ jobs:
           # Idempotent — creates missing roles, adds missing permission rows,
           # and syncs legacy `User.role` → UserRole assignments for every user.
           # Must run AFTER migrations so the roles / permissions tables exist.
+          # All seed/backfill scripts are now .ts (Phase 4, April 2026) — must
+          # run via `npx tsx`; plain `node` cannot execute TypeScript.
           echo "→ Running RBAC seed (creates missing system roles + perms)"
-          node prisma/seedRbac.js || echo "  ⚠ seedRbac.js had warnings (non-fatal)"
+          npx tsx prisma/seedRbac.ts || echo "  ⚠ seedRbac.ts had warnings (non-fatal)"
 
           # Session 1 — Sync primary UPC → ProductUpc table for any legacy
           # products created before the merged Barcodes section shipped.
           # Safe: only creates missing default ProductUpc rows; skips products
           # already in sync and logs mismatches for manual review.
           echo "→ Running backfill: primary UPCs → ProductUpc"
-          node prisma/backfillPrimaryUpcs.js || echo "  ⚠ backfillPrimaryUpcs.js had warnings (non-fatal)"
+          npx tsx prisma/backfillPrimaryUpcs.ts || echo "  ⚠ backfillPrimaryUpcs.ts had warnings (non-fatal)"
 
           # Session 4 — Seed alcohol / tobacco / beer / liquor dept attribute
           # presets + backfill Department.category for any fuzzy-matching dept.
           # Idempotent: upserts via (orgId, departmentId, key) unique and never
           # overwrites operator edits to existing attribute rows.
           echo "→ Running dept attributes seed (Wine/Liquor/Beer/Tobacco presets)"
-          node prisma/seedDeptAttributes.js || echo "  ⚠ seedDeptAttributes.js had warnings (non-fatal)"
+          npx tsx prisma/seedDeptAttributes.ts || echo "  ⚠ seedDeptAttributes.ts had warnings (non-fatal)"
 
           # Session 5 — Seed the 3 built-in vendor import templates
           # (AGNE / Sante POS / Pine State). Idempotent via `slug` unique — will
           # skip any template slug that already exists, so operator edits via
           # /admin/vendor-templates are never clobbered by the deploy.
           echo "→ Running vendor templates seed (AGNE / Sante / Pine State)"
-          node prisma/seedVendorTemplates.js || echo "  ⚠ seedVendorTemplates.js had warnings (non-fatal)"
+          npx tsx prisma/seedVendorTemplates.ts || echo "  ⚠ seedVendorTemplates.ts had warnings (non-fatal)"
 
           # PM2 restart — then VERIFY the process actually recycled. The old
           # `|| echo` fallback silently swallowed failures; PM2 would print
@@ -161,7 +187,7 @@ jobs:
           echo "Ecom backend is healthy"
 
       # ── Build all static apps before touching dist ─────────────────────
-      - name: Build frontend + cashier + admin
+      - name: Build frontend + cashier + admin + marketing
         shell: bash
         run: |
           set -e
@@ -180,33 +206,51 @@ jobs:
           rm -f package-lock.json && npm install
           npm run build -- --outDir dist_new
 
+          cd /var/www/Storv_POS_All/marketing
+          rm -f package-lock.json && npm install
+          npm run build -- --outDir dist_new
+
       # ── Swap dist atomically + reload Nginx + cleanup ──────────────────
       - name: Swap builds and reload Nginx
         shell: bash
         run: |
           set -e
-          for app in frontend cashier-app admin-app; do
+          for app in frontend cashier-app admin-app marketing; do
             APP_DIR="/var/www/Storv_POS_All/$app"
 
-            # Nuke anything left over from previous failed deploys
-            rm -rf "$APP_DIR/dist_old" 2>/dev/null || true
+            # Nuke anything left over from previous failed deploys.
+            # sudo because root-owned leftovers from prior partial deploys
+            # silently fail otherwise and break the swap below.
+            sudo rm -rf "$APP_DIR/dist_old"
 
-            # Move current dist out of the way (rename only works if target doesn't exist)
+            # Move current dist out of the way. -T forces target to be the
+            # rename name (not "move into existing dir") so a leftover
+            # dist_old can never cause dist to nest inside it.
             if [ -d "$APP_DIR/dist" ]; then
-              mv "$APP_DIR/dist" "$APP_DIR/dist_old"
+              mv -T "$APP_DIR/dist" "$APP_DIR/dist_old"
             fi
 
             # Promote new build to dist
-            mv "$APP_DIR/dist_new" "$APP_DIR/dist"
+            mv -T "$APP_DIR/dist_new" "$APP_DIR/dist"
           done
 
-          # Reload Nginx so it picks up new files and releases old handles
-          sudo systemctl reload nginx
+          # Reload Nginx so it picks up new files and releases old handles.
+          # Use sudo -n (non-interactive) — requires passwordless sudo configured
+          # on the runner for `systemctl reload nginx`. Falls back to `nginx -s reload`
+          # if the runner user has direct nginx privileges instead.
+          sudo -n systemctl reload nginx || nginx -s reload || {
+            echo "❌ Failed to reload Nginx — neither sudo -n nor direct reload worked."
+            echo "   Configure passwordless sudo for the runner user, e.g. in /etc/sudoers.d/github-runner:"
+            echo "     <runner-user> ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx, /bin/rm"
+            exit 1
+          }
           sleep 5
 
           # Now safe to delete old builds (Nginx has released file handles)
-          for app in frontend cashier-app admin-app; do
-            rm -rf "/var/www/Storv_POS_All/$app/dist_old" 2>/dev/null || true
+          for app in frontend cashier-app admin-app marketing; do
+            sudo -n rm -rf "/var/www/Storv_POS_All/$app/dist_old" 2>/dev/null \
+              || rm -rf "/var/www/Storv_POS_All/$app/dist_old" 2>/dev/null \
+              || true
           done
 
       # ── Storefront (Next.js) ───────────────────────────────────────────
@@ -237,28 +281,30 @@ jobs:
         run: |
           set -e
           echo "Checking all services..."
-          curl -f https://api.storeveu.com/health && echo " ✓ Backend API"
-          curl -f https://storeveu.com && echo " ✓ Dashboard"
-          curl -f https://pos.storeveu.com && echo " ✓ POS"
-          curl -f https://admin.storeveu.com && echo " ✓ Admin"
+          curl -f https://api.storeveu.com/health     && echo " ✓ Backend API"
+          curl -f https://dashboard.storeveu.com      && echo " ✓ Dashboard"
+          curl -f https://pos.storeveu.com            && echo " ✓ POS"
+          curl -f https://admin.storeveu.com          && echo " ✓ Admin"
           curl -f https://shop-api.storeveu.com/health && echo " ✓ Ecom Backend"
-          curl -f https://shop.storeveu.com && echo " ✓ Storefront"
+          curl -f https://shop.storeveu.com           && echo " ✓ Storefront"
+          curl -f https://storeveu.com                && echo " ✓ Marketing"
           pm2 list
 
       - name: Notify success
         if: success()
         shell: bash
         run: |
-          echo "╔══════════════════════════════════════════════╗"
-          echo "║  ✅ Storeveu POS deployed successfully!       ║"
-          echo "╠══════════════════════════════════════════════╣"
-          echo "║  Backend:      https://api.storeveu.com      ║"
-          echo "║  Dashboard:    https://storeveu.com           ║"
-          echo "║  POS:          https://pos.storeveu.com       ║"
-          echo "║  Admin:        https://admin.storeveu.com     ║"
-          echo "║  Ecom Backend: https://shop-api.storeveu.com  ║"
-          echo "║  Storefront:   https://shop.storeveu.com      ║"
-          echo "╚══════════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║  ✅ Storeveu POS deployed successfully!             ║"
+          echo "╠════════════════════════════════════════════════════╣"
+          echo "║  Backend:      https://api.storeveu.com            ║"
+          echo "║  Dashboard:    https://dashboard.storeveu.com      ║"
+          echo "║  POS:          https://pos.storeveu.com            ║"
+          echo "║  Admin:        https://admin.storeveu.com          ║"
+          echo "║  Ecom Backend: https://shop-api.storeveu.com       ║"
+          echo "║  Storefront:   https://shop.storeveu.com           ║"
+          echo "║  Marketing:    https://storeveu.com                ║"
+          echo "╚════════════════════════════════════════════════════╝"
 
       - name: Notify failure
         if: failure()
@@ -273,15 +319,22 @@ jobs:
   # Job 2: Build Electron desktop installer (Windows NSIS)
   # Runs in parallel with deploy. Builds on GitHub-hosted Windows runner,
   # deletes the previous "latest-desktop" release, then uploads the new .exe.
+  #
+  # Skipped when cashier-app/** is unchanged — saves ~5-10 min Windows
+  # runner time per non-cashier deploy. The previous "latest-desktop"
+  # release stays in place, so publish-installer below still re-publishes
+  # the existing .exe to frontend/dist/downloads.
   # ──────────────────────────────────────────────────────────────────────────
   build-electron:
+    needs: changes
+    if: needs.changes.outputs.cashier-app == 'true'
     runs-on: windows-latest
     permissions:
       contents: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python (for node-gyp native modules)
         uses: actions/setup-python@v5
@@ -300,11 +353,49 @@ jobs:
         working-directory: cashier-app
         run: npm install
 
+      # ──────────────────────────────────────────────────────────────────────
+      # Auto-bump patch version using github.run_number.
+      # Strategy:
+      #   • Keep major.minor from package.json (you bump these manually for
+      #     real releases — 1.x → 2.x for breaking changes, 1.0.x → 1.1.x for
+      #     features). They live in source-of-truth git.
+      #   • Replace the patch segment with github.run_number (strictly
+      #     monotonic across the entire workflow — every run increments by 1).
+      #
+      # Why monotonic matters: electron-updater compares versions via semver.
+      # If two pushes resulted in the same version string, the second build
+      # would be invisible to installed apps. Using run_number guarantees
+      # every successful build has a unique, strictly-greater version than
+      # every prior one — installed clients see EVERY push as an update.
+      #
+      # Example: package.json says "1.0.0", current run_number is 195.
+      #   → final version baked into the build: "1.0.195"
+      #   → next push (run_number 196): "1.0.196"
+      #
+      # The bumped version is NOT committed back to the repo — it only lives
+      # inside this workflow's checkout. package.json on main stays at the
+      # "1.0.0" baseline, which is correct: that's the human-readable
+      # "marketing version", and 1.0.195 etc. are CI build numbers.
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Auto-bump patch version using run number
+        working-directory: cashier-app
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const [major, minor] = pkg.version.split('.');
+            const newVersion = major + '.' + minor + '.${{ github.run_number }}';
+            pkg.version = newVersion;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('::notice::Auto-bumped cashier-app version → ' + newVersion);
+          "
+
       - name: Build Vite + Electron installer
         working-directory: cashier-app
         run: npx vite build && npx electron-builder --publish never
 
-      - name: Find installer file
+      - name: Find installer + auto-update artifacts
         id: find-exe
         working-directory: cashier-app/dist-electron
         shell: pwsh
@@ -318,6 +409,23 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
           echo "DATE=$date" >> $env:GITHUB_OUTPUT
 
+          # electron-updater needs `latest.yml` + the per-build `.blockmap`
+          # next to the .exe at runtime. Both are produced by electron-builder
+          # automatically when a publish config is set in package.json (even
+          # with --publish never — only the actual upload step is suppressed).
+          $blockmap = Get-ChildItem -Filter "*.blockmap" | Select-Object -First 1
+          if ($blockmap) {
+            echo "BLOCKMAP_PATH=cashier-app/dist-electron/$($blockmap.Name)" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Warning "No .blockmap found — differential updates will fall back to full download"
+          }
+          if (Test-Path "latest.yml") {
+            echo "LATEST_YML_PATH=cashier-app/dist-electron/latest.yml" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "latest.yml missing — clients won't be able to detect updates"
+            exit 1
+          }
+
       - name: Delete old "latest-desktop" release
         shell: bash
         env:
@@ -325,13 +433,25 @@ jobs:
         run: |
           gh release delete latest-desktop --yes --cleanup-tag 2>/dev/null || true
 
-      - name: Create new "latest-desktop" release with installer
+      - name: Create new "latest-desktop" release with installer + update manifest
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Upload all auto-update artifacts: .exe (installer), latest.yml
+          # (manifest electron-updater polls), and the .blockmap (differential
+          # update map — clients only download changed bytes).
+          # Use a bash array so paths with spaces ("StoreVeu POS Setup X.Y.Z.exe")
+          # don't get word-split when expanded into the gh args.
+          ARTIFACTS=(
+            "${{ steps.find-exe.outputs.EXE_PATH }}"
+            "${{ steps.find-exe.outputs.LATEST_YML_PATH }}"
+          )
+          if [ -n "${{ steps.find-exe.outputs.BLOCKMAP_PATH }}" ]; then
+            ARTIFACTS+=( "${{ steps.find-exe.outputs.BLOCKMAP_PATH }}" )
+          fi
           gh release create latest-desktop \
-            "${{ steps.find-exe.outputs.EXE_PATH }}" \
+            "${ARTIFACTS[@]}" \
             --title "StoreVeu POS Desktop v${{ steps.find-exe.outputs.VERSION }} (${{ steps.find-exe.outputs.DATE }})" \
             --notes "$(cat <<'EOF'
           ## StoreVeu POS — Windows Desktop Installer
@@ -361,40 +481,71 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Job 3: Copy .exe installer to frontend so it's served from the website
-  # Runs AFTER both deploy and build-electron finish successfully.
+  # Runs AFTER deploy finishes. Tolerates a SKIPPED build-electron job —
+  # in that case it re-downloads the existing "latest-desktop" GitHub release
+  # so frontend/dist/downloads stays populated with the previous installer.
+  # Only fails this step if deploy failed OR build-electron actively errored.
   # ──────────────────────────────────────────────────────────────────────────
   publish-installer:
     needs: [deploy, build-electron]
+    if: |
+      always() &&
+      needs.deploy.result == 'success' &&
+      (needs.build-electron.result == 'success' || needs.build-electron.result == 'skipped')
     runs-on: [self-hosted, Linux, X64]
 
     steps:
-      - name: Download installer from GitHub Release
+      - name: Publish installer + auto-update manifest from GitHub Release
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           DOWNLOADS_DIR="/var/www/Storv_POS_All/frontend/dist/downloads"
           mkdir -p "$DOWNLOADS_DIR"
 
-          # Remove old installer(s)
-          rm -f "$DOWNLOADS_DIR"/*.exe
+          # Wipe stale artifacts so removed files don't linger.
+          # `2>/dev/null || true` swallows the "no match" error on first deploy.
+          rm -f "$DOWNLOADS_DIR"/*.exe       2>/dev/null || true
+          rm -f "$DOWNLOADS_DIR"/*.blockmap  2>/dev/null || true
+          rm -f "$DOWNLOADS_DIR"/latest.yml  2>/dev/null || true
 
-          # Get the .exe download URL from the latest-desktop release via API
-          REPO="${{ github.repository }}"
-          API_URL="https://api.github.com/repos/${REPO}/releases/tags/latest-desktop"
-          EXE_URL=$(curl -sf -H "Authorization: token ${GITHUB_TOKEN}" "$API_URL" \
-            | grep -oP '"browser_download_url":\s*"\K[^"]+\.exe')
-
-          if [ -z "$EXE_URL" ]; then
-            echo "⚠ No .exe found in latest-desktop release — skipping"
+          # Pull every asset from the latest-desktop release in one shot.
+          # `gh release download` handles URL-encoding, spaces in filenames,
+          # auth, retries, and partial transfers for us.
+          if ! gh release view latest-desktop >/dev/null 2>&1; then
+            echo "⚠ No latest-desktop release exists yet — nothing to publish."
             exit 0
           fi
 
-          echo "Downloading: $EXE_URL"
-          curl -fSL -H "Authorization: token ${GITHUB_TOKEN}" \
-            -H "Accept: application/octet-stream" \
-            -o "$DOWNLOADS_DIR/StoreVeu-POS-Setup.exe" \
-            "$EXE_URL"
+          echo "→ Downloading all assets from latest-desktop release…"
+          gh release download latest-desktop \
+            --dir "$DOWNLOADS_DIR" \
+            --clobber \
+            --pattern "*.exe" \
+            --pattern "*.blockmap" \
+            --pattern "latest.yml"
 
-          echo "✅ Installer published: $(ls -lh $DOWNLOADS_DIR/StoreVeu-POS-Setup.exe)"
+          # Find the downloaded .exe (filename includes version) and create
+          # a stable alias so the manual-download page link doesn't break
+          # on every version bump. Don't quote the glob — we want the shell
+          # expansion. shopt nullglob makes the loop silent if there's no .exe.
+          shopt -s nullglob
+          installed=0
+          for f in "$DOWNLOADS_DIR"/*.exe; do
+            # Skip the stable-named alias if it already exists from a prior run
+            [ "$(basename "$f")" = "StoreVeu-POS-Setup.exe" ] && continue
+            cp "$f" "$DOWNLOADS_DIR/StoreVeu-POS-Setup.exe"
+            installed=1
+            break
+          done
+          shopt -u nullglob
+
+          if [ "$installed" -eq 0 ]; then
+            echo "⚠ No .exe found in release — manual-download alias not created."
+          else
+            echo "✓ Stable alias: StoreVeu-POS-Setup.exe"
+          fi
+
+          echo "✅ Published artifacts:"
+          ls -lh "$DOWNLOADS_DIR" || true

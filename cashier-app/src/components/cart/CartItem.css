@@ -208,10 +208,20 @@
   letter-spacing: 0.03em;
 }
 
+/* Pack-size label (e.g. "Single", "Double", "Quatars"). Slate so it sits
+   quietly next to the product name and doesn't compete with EBT / Age / OVRD
+   badges that carry stronger semantic meaning. */
+.ci-badge--pack {
+  background: rgba(100, 116, 139, 0.18);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  font-weight: 700;
+}
+
 /* Price sub-line */
 .ci-price-line {
-  font-size: 0.7rem;
-  color: var(--text-muted);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
   margin-top: 1px;
   display: flex;
   align-items: center;
@@ -220,7 +230,7 @@
 
 .ci-price-struck {
   text-decoration: line-through;
-  opacity: 0.55;
+  opacity: 0.75;
 }
 
 .ci-price-effective {
@@ -292,8 +302,8 @@
   letter-spacing: 0.03em;
 }
 .ci-upc-sep {
-  color: var(--text-muted);
-  opacity: 0.4;
+  color: var(--text-secondary);
+  opacity: 0.7;
   margin: 0 2px;
 }
 

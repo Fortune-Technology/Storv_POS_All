@@ -8,15 +8,15 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/analytics/organizations':      'admin_analytics.view',
   '/analytics/stores':             'admin_analytics.view',
   '/analytics/users':              'admin_analytics.view',
-  '/users':                        'admin_users.view',
-  '/organizations':                'admin_organizations.view',
-  '/stores':                       'admin_stores.view',
+  // Unified Org → Store → User drill-down (replaces /users, /organizations, /stores)
+  '/org-store':                    'admin_organizations.view',
   '/roles':                        'admin_roles.view',
   '/merchants':                    'admin_payments.view',
   '/cms':                          'admin_cms.view',
   '/careers':                      'admin_careers.view',
   '/careers/:id/applications':     'admin_careers.view',
   '/tickets':                      'admin_tickets.view',
+  '/notifications':                'admin_system.view',
   '/config':                       'admin_system.view',
   '/billing':                      'admin_billing.view',
   '/chat':                         'admin_chat.view',
@@ -27,6 +27,11 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/ai-kb':                        'ai_assistant.manage',
   '/ai-tours':                     'ai_assistant.manage',
   '/lottery':                      'lottery.manage',
+  // Session 50 — Dual Pricing / Cash Discount per-store config
+  '/payment-models':               'admin_pricing_model.view',
+  '/payment-models/:storeId':      'admin_pricing_model.view',
+  '/pricing-tiers':                'admin_pricing_tiers.view',
+  '/saas-margin':                  'admin_pricing_model.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {

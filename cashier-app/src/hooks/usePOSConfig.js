@@ -56,6 +56,18 @@ export const DEFAULT_POS_CONFIG = {
   couponMaxValueWithoutMgr: 5,    // single-coupon $ ceiling
   couponMaxTotalWithoutMgr: 10,   // cumulative-tx coupon $ ceiling
   couponMaxCountWithoutMgr: 5,    // coupon-count-per-tx ceiling
+  // Session 50/51 — Dual Pricing / Cash Discount config. Populated by the
+  // backend's getPOSConfig handler from the Store + State + PricingTier rows.
+  // Default ('interchange', no surcharge) preserves existing-store behavior.
+  dualPricing: {
+    pricingModel:            'interchange',  // 'interchange' | 'dual_pricing'
+    customSurchargePercent:  null,
+    customSurchargeFixedFee: null,
+    dualPricingDisclosure:   null,
+    refundSurcharge:         false,          // Session 52 — refund-includes-surcharge policy
+    pricingTier:             null,           // { key, name, surchargePercent, surchargeFixedFee }
+    state:                   null,           // { code, surchargeTaxable, maxSurchargePercent, dualPricingAllowed, pricingFraming, surchargeDisclosureText }
+  },
   quickTender: ['card', 'cash', 'ebt'],
   vendorTenderMethods: [
     { id: 'cash',          label: 'Cash',              enabled: true  },
@@ -132,6 +144,18 @@ function mergeConfig(defaults, data) {
       ...defaults.ageLimits,
       ...(data.ageLimits || {}),
     },
+    // Session 50/51 — Deep-merge so partial server payloads don't wipe nested
+    // pricingTier / state objects. When server sends a fresh dualPricing block
+    // (always populated by getPOSConfig) it fully replaces the nested objects;
+    // when missing (legacy server) we keep the interchange default.
+    dualPricing: data.dualPricing
+      ? {
+          ...defaults.dualPricing,
+          ...data.dualPricing,
+          pricingTier: data.dualPricing.pricingTier || null,
+          state:       data.dualPricing.state || null,
+        }
+      : defaults.dualPricing,
     hardware: {
       ...defaults.hardware,
       ...(data.hardware || {}),

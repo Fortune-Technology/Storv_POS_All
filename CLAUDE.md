@@ -8556,6 +8556,1881 @@ The feature is production-ready as of this session.
 
 *Last updated: April 2026 — Session 49: Cert Harness + ITG Cert Kickoff (Scan Data feature complete) — `certHarness.js` 9-scenario synthetic sample-file generator (no DB writes), `certChecklist.js` 10-step DB-derived per-enrollment progress report, `certPlaybook.js` per-mfr guides for ITG (2-4w) / Altria (4-8w/sub-feed) / RJR (3-6w/program) with documented common rejection codes, 4 new backend endpoints (sample-file / checklist / scenarios / playbook), `CertModal` in portal with 3 sub-tabs (Checklist / Sample File / Playbook) replacing prior inline status buttons, "Mark Active (Cert Pass)" footer button gated on `readyToActivate=true`. End-to-end verified: ITG sample produces 9-scenario file covering all cert paths with correct discount split (multipack/buydown/mfrCoupon buckets), checklist correctly reports 60% progress on the dev ITG enrollment with detail per step, sub-feed codes (altria_pmusa, rjr_edlp) resolve to parent playbooks. Closes the 5-session scan-data arc — full retailer cert pipeline from enrollment → POS coupon redemption → nightly mfr submission → ack reconciliation → cert pass → production active.*
 
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 50)
+
+### Dual Pricing / Cash Discount — Foundation (Phase 1 of 3)
+
+First slice of dual pricing. Backend math + schema + RBAC + superadmin UI ship here. Cashier flow + customer display + receipts come in Session 51; reporting + label templates + reconciliation in Session 52.
+
+#### Architecture decisions (locked in planning round)
+
+- **Per-store toggle** — `Store.pricingModel: "interchange" | "dual_pricing"`. Interchange remains default; existing stores see zero behavioral change.
+- **Marked price = base / cash price.** At checkout, when cashier picks credit/debit/card tender, the surcharge (% × subtotal + fixed fee) is added on top. Cash + EBT + check + gift card always pay base. EBT exemption is federal.
+- **Computed in our software**, full card-inclusive amount sent to Dejavoo. Cleaner reconciliation than processor-level surcharge (we already capture `PaymentTransaction.batchNumber` via the HPP webhook).
+- **Tier + flexible** — superadmin assigns one of 3 tiers (Standard 3%+$0.30 / Volume 2.75%+$0.25 / Enterprise 2.5%+$0.20) OR per-store custom override. Custom wins over tier when both fields set.
+- **Discount-first ordering**: `cartSubtotal − loyaltyDiscount − manualDiscount = baseSubtotal`, then `tax + surcharge + surchargeTax`. Surcharge calculated on post-discount base — customer always pays surcharge on what they actually pay.
+- **Toggle authority = superadmin only**, audited via `PricingModelChange` row. Mid-shift switches blocked — must close all open shifts first.
+- **State-level policy** drives taxability + cap + framing. Surcharge-illegal states (MA, CT) flip to `cash_discount` framing — same math, different consumer-facing copy.
+
+#### Schema (5 changes — additive `npx prisma db push`)
+
+| Model | Change |
+|---|---|
+| `Store` | +`pricingModel`, `pricingTierId`, `customSurchargePercent`, `customSurchargeFixedFee`, `dualPricingActivatedAt`, `dualPricingActivatedBy`, `dualPricingDisclosure`, +relations to PricingTier + PricingModelChange[] |
+| `State` | +`surchargeTaxable`, `maxSurchargePercent`, `dualPricingAllowed`, `pricingFraming` ('surcharge' \| 'cash_discount'), `surchargeDisclosureText` |
+| `Transaction` | +`pricingModel`, `baseSubtotal`, `surchargeAmount`, `surchargeRate`, `surchargeFixedFee`, `surchargeTaxable`, `surchargeTaxAmount` (snapshots — keeps historical receipts/refunds correct after future toggles) |
+| `PaymentSettings` | Comment-only — existing `surchargeEnabled` + `surchargePercent` flagged as legacy mirror; new code reads from Store |
+| `PricingTier` (NEW) | Platform catalog — key, name, surchargePercent, surchargeFixedFee, description, isDefault, sortOrder, active |
+| `PricingModelChange` (NEW) | Audit log — every superadmin toggle writes one row with from/to model + tier + rate + fee + reason + changedById |
+
+#### Service layer
+
+[`backend/src/services/dualPricing.ts`](backend/src/services/dualPricing.ts) — pure functions, no DB:
+- `getEffectiveSurchargeRate(store)` — resolves custom-override > tier > zero. Partial custom (one field set) falls through to tier wholesale.
+- `computeSurcharge({ baseSubtotal, tenderMethod, store, state, taxRate })` — returns `{ surcharge, surchargeTax, surchargeRate, surchargeFixedFee, surchargeTaxable, rateSource, applied }`. Returns zero in 5 cases: interchange model / non-card tender / zero rate / zero subtotal / negative subtotal (refund).
+- `computeCardPriceForLabel(unitPrice, store)` — for shelf labels; per-item base × (1 + pct), excludes per-tx fixed fee.
+- `resolveDisclosureText(store, state)` — fallback: store override → state default → universal.
+- `CARD_TENDERS` whitelist: `credit`, `debit`, `card`, `credit_card`, `debit_card`. EBT/cash/check/gift card excluded.
+
+#### Tests — 33/33 pass
+
+[`backend/tests/dual_pricing.test.ts`](backend/tests/dual_pricing.test.ts) — 8 suites covering rate resolution, interchange-model zero-out, dual-pricing card/cash/EBT/check/gift, surcharge tax interaction (NY taxable / MA non-taxable / no-state legacy), end-to-end NY 10%-loyalty checkout example, card-price label preview, disclosure fallback, CARD_TENDERS catalog. Pure `node --test`.
+
+#### RBAC — 3 new permissions
+
+| Key | Scope | Granted to |
+|---|---|---|
+| `pricing_model.view` | org | manager, owner, admin (read-only visibility) |
+| `admin_pricing_model.view/manage` | admin | superadmin only |
+| `admin_pricing_tiers.view/create/edit/delete` | admin | superadmin only |
+
+Re-run `node prisma/seedRbac.ts` after deploy to pick up the new keys + manager grant.
+
+#### Backend API — `/api/pricing/*`
+
+| Method | Route | Permission |
+|---|---|---|
+| GET | `/pricing/tiers` | `pricing_model.view` |
+| POST/PUT/DELETE | `/pricing/tiers[/:id]` | superadmin |
+| GET | `/pricing/stores` | superadmin |
+| GET | `/pricing/stores/:storeId` | `pricing_model.view` |
+| PUT | `/pricing/stores/:storeId` | superadmin |
+| GET | `/pricing/stores/:storeId/changes` | `pricing_model.view` |
+
+`PUT /pricing/stores/:storeId` runs 5 validations: model enum / mid-shift block / tier exists+active+not-sentinel / state cap on percent / writes `PricingModelChange` audit row + back-compat upserts `PaymentSettings.surchargeEnabled`+`surchargePercent`.
+
+#### Seeds
+
+- [`seedPricingTiers.ts`](backend/prisma/seedPricingTiers.ts) — 3 active tiers + 1 sentinel `custom`
+- [`seedStateSurchargeRules.ts`](backend/prisma/seedStateSurchargeRules.ts) — 16 NE/East Coast states (ME, NH, VT, MA, RI, CT, NY, NJ, PA, DE, MD, VA, NC, SC, GA, FL) with per-state taxability, cap, framing, and disclosure text. **MA + CT** flip to `dualPricingAllowed=false, pricingFraming='cash_discount'` (surcharge illegal but cash-discount mechanic legal). **NY + 8 East Coast states** flagged `surchargeTaxable=true`. NY gets specific NY GBL § 518 disclosure text.
+
+#### Admin-app
+
+- [`AdminPaymentModels.tsx`](admin-app/src/pages/AdminPaymentModels.tsx) at `/payment-models` — per-store grid + edit modal with state-constraint warnings, tier picker, custom override, disclosure preview, audit history collapsible. Prefix `apm-`.
+- [`AdminPricingTiers.tsx`](admin-app/src/pages/AdminPricingTiers.tsx) at `/pricing-tiers` — tier catalog CRUD with default toggle + sentinel-protected delete. Shares CSS with AdminPaymentModels.
+- [`AdminStates.tsx`](admin-app/src/pages/AdminStates.tsx) extended — 5 new fields in the state edit modal: Max Surcharge %, Pricing Framing dropdown, Surcharge Taxable toggle, Dual Pricing Allowed toggle, Default Disclosure textarea.
+- Sidebar — "Payment Models" + "Pricing Tiers" entries under existing **Payments** group (Percent icon).
+
+#### Files changed (Session 50)
+
+**Backend:** schema.prisma, dualPricing.ts (NEW), tests/dual_pricing.test.ts (NEW), pricingModelController.ts (NEW), pricingModelRoutes.ts (NEW), server.ts, permissionCatalog.ts, stateController.ts, seedPricingTiers.ts (NEW), seedStateSurchargeRules.ts (NEW).
+
+**Admin-app:** services/api.ts, AdminPaymentModels.tsx + .css (NEW), AdminPricingTiers.tsx (NEW), AdminStates.tsx, App.tsx, rbac/routePermissions.ts, components/AdminSidebar.tsx.
+
+#### Verification
+
+- ✅ `npx prisma validate` clean, `db push` non-destructive
+- ✅ `npx tsc --noEmit` backend EXIT=0
+- ✅ `npx tsc --noEmit` admin-app EXIT=0
+- ✅ Admin-app `npm run build` clean (12.41s)
+- ✅ All 33 dual-pricing unit tests pass
+
+#### Deployment steps
+
+```bash
+cd backend
+git pull
+# Restart backend FIRST so prisma client can regen (DLL locked while running)
+pm2 stop api-pos
+npx prisma generate --schema prisma/schema.prisma
+pm2 start api-pos
+# Idempotent seeds
+npx tsx prisma/seedPricingTiers.ts
+npx tsx prisma/seedStateSurchargeRules.ts
+node prisma/seedRbac.ts
+
+cd ../admin-app
+npm run build
+```
+
+Existing stores see zero functional change — `pricingModel` defaults to `'interchange'`. Superadmin must explicitly toggle a store via the new `/payment-models` page.
+
+#### Deferred to Sessions 51 + 52
+
+| # | Scope |
+|---|---|
+| **51** | **Cashier flow + customer display + receipts.** Cart-store calc with discount-first ordering, TenderModal cash/card split display, customer display BroadcastChannel sync (per-line both prices + bottom totals), receipt printing with disclosure block, cashier-app `usePOSConfig` extensions, cashier-side `dualPricing.js` mirror of the backend service. |
+| **52** | **Reporting + reconciliation + label templates.** Label template merge fields (`{{cashPrice}}`, `{{cardPrice}}`, `{{savingsAmount}}`, `{{disclosureText}}`). EoD report new "DUAL PRICING SUMMARY" section. Portal Transactions surcharge column. New `/portal/dual-pricing-report` page. Settlement reconciliation cron (cross-checks our `surchargeAmount` vs Dejavoo `customFee` for double-charge detection). Refund flow with optional surcharge inclusion (default off — refund principal only, store-discretion override). Admin SaaS margin report (tier vs Dejavoo cost). Portal read-only mirror in Store Settings. |
+
+---
+
+*Last updated: April 2026 — Session 50: Dual Pricing / Cash Discount Foundation — schema (5 changes incl. 2 new tables), `dualPricing.ts` pure-function calculator with 33 unit tests (all green), RBAC (3 new permission modules), backend `/api/pricing/*` API (tier CRUD + per-store config + audit trail with mid-shift-block validation), seeds for 3 platform tiers + 16 NE/East Coast states with per-state taxability/cap/framing/disclosure rules, admin-app `/payment-models` + `/pricing-tiers` pages + State edit modal extension. Cashier flow + customer display + receipts queued for Session 51; reporting + label templates + reconciliation queued for Session 52.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 51 — Refactor Pass A: Audit Logging)
+
+User asked for three big refactors in sequence: **A** Audit Logging, **B** Common Utilities + Input Standardization, **C** Backend Controller Refactor. Order locked at A → B → C — audit first because it's additive and zero-risk; refactor last because highest-risk.
+
+### Session 51 — Audit Logging
+
+The infrastructure was already mature from prior sessions: an `AuditLog` Prisma model with action/entity/details JSON, a fire-and-forget `logAudit()` service ([auditService.ts](backend/src/services/auditService.ts)), a global `autoAudit` middleware ([autoAudit.ts](backend/src/middleware/autoAudit.ts)) that captures every write request, and a portal `AuditLogPage.jsx` with diff-aware UI. Six controllers already had explicit `logAudit` calls (auth / catalog / tasks / roles / customers / integrations). The work this session was to fill the gaps in **store / user / admin / settings** mutations with field-level `before/after` diffs so the audit feed shows exactly what changed.
+
+#### New shared helper
+
+[`backend/src/services/auditDiff.ts`](backend/src/services/auditDiff.ts) — extracted the diff pattern that was hand-rolled inside `catalogController.updateMasterProduct`, `customerController.update`, `roleController` etc. Two exports:
+
+- `computeDiff(before, after, { redactKeys? })` — returns `{ field: { before, after } }` only for changed keys. String-equal counts as unchanged. `null`/`undefined` treated as equivalent. Pass `redactKeys: ['password']` to mark sensitive fields as `'[redacted]'` in the diff so we know the field changed without ever logging the value.
+- `hasChanges(diff)` — true when at least one field changed. Used to skip noise when an update endpoint was hit but nothing actually changed.
+
+#### Explicit `logAudit` instrumentation (4 controllers, 17 handlers)
+
+| Controller | Handler | Action / Entity | Notes |
+|---|---|---|---|
+| `storeController` | `createStore` | `create` / `store` | name, address, timezone, registers, monthly fee |
+| | `updateStore` | `update` / `store` | full diff via `computeDiff` |
+| | `deactivateStore` | `delete` / `store` | reason: `deactivated` |
+| | `updateStoreBranding` | `update` / `store_branding` | covers logo, colors, receipt fields, store info — strips `publishedAt` from diff so unchanged saves don't write audit rows |
+| `userManagementController` | `inviteUser` | `create` / `user` | name, email, role, storeIds, `invited: true` flag |
+| | `updateUserRole` | `update` / `user` | role + storeIds diff (storeIds shown as `'[updated]'` — full list captured in `after`) |
+| | `removeUser` | `delete` / `user` | both UserOrg-membership path and legacy fallback path |
+| | `updateMe` (self-service) | `update` / `user_profile` | `self: true` flag, name + phone diff |
+| | `changeMyPassword` (self-service) | `password_change` / `user` | security event, no values logged |
+| `adminController` | `approveUser` | `approve` / `user` | name, email |
+| | `suspendUser` | `suspend` / `user` | name, email |
+| | `rejectUser` | `reject` / `user` | name, email |
+| | `createUser` | `create` / `user` | `adminCreated: true`, name, email, role, orgId |
+| | `updateUser` | `update` / `user` | `adminAction: true`, full diff |
+| | `softDeleteUser` | `delete` / `user` | reason: `soft_delete_suspend` |
+| | `impersonateUser` | `impersonate` / `user` | security event — logs which superadmin assumed which target identity |
+| | `createOrganization` / `updateOrganization` / `softDeleteOrganization` | `create` / `update` / `delete` / `organization` | plan/maxStores/maxUsers/isActive diff |
+| | `createStore` / `updateStore` / `softDeleteStore` | `create` / `update` / `delete` / `store` | `adminAction: true` flag distinguishes from org-self-service |
+| `posTerminalController` | `savePOSConfig` | `settings_change` / `pos_config` | top-level changed-keys list (full `store.pos` JSON would be too noisy in the audit feed); `brandingChanged` flag |
+
+#### Design choices worth remembering
+
+- **Always fire-and-forget.** Every `logAudit(...)` call is unawaited so the main request never blocks on audit writes. The service has its own `try/catch` around the prisma call.
+- **No-op short-circuit.** Update handlers compute the diff and only write an audit row when `hasChanges(diff)` is true — saving the noise of "user clicked Save but nothing changed."
+- **Sensitive fields never go to audit.** Password rotations log `password_change` action with no value. Future high-sensitivity fields can opt into the `redactKeys` parameter.
+- **`autoAudit` middleware still fires.** The explicit calls add field-level diff context on top of the auto-captured "this URL was hit" baseline — both rows land in the same `audit_logs` table and the portal renders them together.
+- **POS config diff is shallow.** `savePOSConfig` captures `changedKeys: string[]` (top-level config sections — `lottery`, `bagFee`, `vendorTenderMethods`, etc.) instead of the full nested diff. The full JSON would dominate the audit feed.
+
+#### Scope explicitly NOT touched this session
+
+- **Schema / service / middleware** — already mature, no changes needed.
+- **Controllers with existing `logAudit` calls** — auth, catalog, tasks, roles, customers, integrations stay as-is.
+- **`adminPaymentMerchant/crud.ts`** — already calls `logAudit` with `buildChangeDiff` (per Session 45 audit). Left unchanged.
+
+#### Verification
+
+- `npx tsc --noEmit` on backend — zero new errors in any of the 5 touched files. The 171 background errors are pre-existing in unrelated controllers (`Could not find a declaration file for module 'express'` and similar environmental noise).
+- No DB migration. No new dependencies. No frontend changes (the existing `AuditLogPage.jsx` already renders the new richer diff payloads correctly — same `{ changes: { field: { before, after } } }` shape used by `catalogController` since Session 9).
+- Existing automatic-audit coverage retained — every write request continues to land an audit row via `autoAudit` middleware regardless of whether the controller has an explicit `logAudit` call.
+
+#### Files Changed (Session 51 / Refactor Pass A)
+
+| File | Change |
+|---|---|
+| `backend/src/services/auditDiff.ts` | NEW — shared `computeDiff` + `hasChanges` |
+| `backend/src/controllers/storeController.ts` | Explicit `logAudit` in 4 handlers + branding logo diff |
+| `backend/src/controllers/userManagementController.ts` | Explicit `logAudit` in 5 handlers (org-side + self-service profile/password) |
+| `backend/src/controllers/adminController.ts` | Explicit `logAudit` in 9 handlers (user lifecycle + impersonation + org/store CRUD) |
+| `backend/src/controllers/posTerminalController.ts` | Explicit `logAudit` in `savePOSConfig` with shallow JSON diff |
+
+#### Up next
+
+- **Refactor Pass B** — Common utilities + input standardization. Backend money/fuel/count formatters, frontend `<MoneyInput>` / `<FuelInput>` / `<CountInput>` components extending the existing `<PriceInput>` (already scroll-proof + arrow-proof), sweep-replace native `<input type="number">` across portal + admin + cashier-app.
+- **Refactor Pass C** — Mechanical controller refactor. Split the 7 biggest controllers (`catalogController` ~3000 lines, `posTerminalController` ~2500 lines, `lotteryController` ~2000 lines + `salesController`, `adminController`, `scanDataController`, `fuelController`) into per-module folders following the existing `lottery/` and `scanData/` patterns. Pure file-organization change — zero behavior change, route-level imports stay identical.
+
+---
+
+*Last updated: April 2026 — Session 51 (Refactor Pass A): Audit Logging — `auditDiff.ts` shared helper, explicit `logAudit` calls with field-level before/after diffs in 17 mutation handlers across `storeController` / `userManagementController` / `adminController` / `posTerminalController.savePOSConfig`. Logo updates (via `updateStoreBranding`), price changes (already in `catalogController.updateMasterProduct`), user profile / permission changes, settings changes all now produce diff-aware audit rows on top of the existing `autoAudit` baseline. Zero new TypeScript errors, zero schema changes, zero frontend changes.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 52 — Refactor Pass B: Common Utilities + Input Standardization)
+
+Second of three refactor passes. Goal: a single source of truth for **number formatting** (money 2dp, fuel 3dp, count integer) + **scroll-proof / arrow-proof number inputs** that work the same way across portal, cashier-app, admin-app, and backend.
+
+### Backend — extended `validators.ts`
+
+[`backend/src/utils/validators.ts`](backend/src/utils/validators.ts) gained 4 new validators + 3 formatters, all mirroring the existing `parsePrice` + `runValidators` shape so call sites can pattern-match on `{ ok, value | error }`:
+
+| Export | Purpose | Precision |
+|---|---|---|
+| `parseFuel(value, opts)` | Validate fuel quantity / $/gal | 3 decimals (matches Prisma `Decimal(10,3)`) |
+| `parseCount(value, opts)` | Validate qty / station count / register count | integer only — rejects decimals outright |
+| `validateAlphanumeric(value, opts)` | String fields with min/max length + allowed-specials whitelist | configurable (`-_.,'&/() ` default) |
+| `formatMoney(n)` | Output formatter for currency | 2dp, "0.00" for null/NaN |
+| `formatFuel(n)` | Output formatter for fuel | 3dp, "0.000" for null/NaN |
+| `formatCount(n)` | Output formatter for counts | integer, "0" for null/NaN |
+
+`validateAlphanumeric` defaults to a safe whitelist: `A-Z a-z 0-9` + `-`, `_`, `.`, `,`, `'`, `&`, `/`, `(`, `)`, `space`, `tab`. Pass `allowedSpecials` to extend per call site (e.g. emoji, currency symbols). Required vs optional via `allowNull` + `minLength`. Returns the same `string | null` shape as the existing `validateEmail` / `validatePassword` / `validatePhone` so it composes with `runValidators([...])` cleanly.
+
+`parseFuel` and `parseCount` mirror `parsePrice` precisely: same options shape (`{ min, max, allowNull }`), same return discriminated union (`{ ok: true, value }` or `{ ok: false, error }`). Existing controllers' `parsePrice` call sites stay unchanged; new code can use the typed numeric variants without rewriting validation flow.
+
+### Frontend — three new shared input components
+
+The existing `<PriceInput>` (Session 18b — already scroll-proof + arrow-proof + scientific-notation-proof) covered money but was awkward to use for fuel (caller had to remember `maxDecimals={3}`) and impossible to use for integer-only fields (allowed decimals). Added **per-app trio** of explicit components:
+
+| Component | Behavior | Internal |
+|---|---|---|
+| `<MoneyInput>` | 2-decimal max, placeholder `"0.00"` | thin wrapper over `PriceInput` |
+| `<FuelInput>` | 3-decimal max, placeholder `"0.000"` | thin wrapper over `PriceInput` |
+| `<CountInput>` | digits only, no decimal, optional min/max bounds | own implementation (rejects decimal at keystroke) |
+
+All three: `type="text"` + `inputMode="numeric"` or `"decimal"` (mobile keyboards still pop the right keypad), `onWheel → blur()` (no silent scroll-corruption), `autoComplete="off"`, no leading-zero / scientific-notation / negative bypass.
+
+Three-app distribution:
+
+| App | Component file | PriceInput dep | Formatter file |
+|---|---|---|---|
+| Portal (`frontend/`) | `src/components/NumericInputs.jsx` | reuses existing `PriceInput.jsx` | extended `src/utils/formatters.js` |
+| Cashier-app (`cashier-app/`) | `src/components/NumericInputs.jsx` | reuses existing `PriceInput.jsx` | extended `src/utils/formatters.js` |
+| Admin-app (`admin-app/`) | `src/components/NumericInputs.jsx` | self-contained `DecimalInput` (no PriceInput in admin) | new `src/utils/formatters.js` |
+
+Frontend formatters mirror the backend names exactly — `formatMoney`, `formatFuel`, `formatCount` + display variants `formatMoneyDisplay` (`$12.50`), `formatFuelDisplay` (`3.999 gal`), `formatCountDisplay` (`12,345` w/ thousands separator), `formatPercent`. Existing portal helpers `fmt$`, `fmtMoney`, `fmtPct`, `fmtDate`, etc. are kept — those return `"—"` for null which is the right behavior for table cells where missing values should be visually distinct.
+
+### Sweep — high-value form migrations
+
+Rather than mass-replacing every `<input type="number">` across the codebase (high regression risk, low value for fields that aren't user-facing money/fuel/counts), focused on the user's explicit pain points:
+
+**`frontend/src/pages/Fuel.jsx`** — every native number input migrated:
+- `pricePerGallon` (fuel type form) → `FuelInput`
+- `taxRate` → `MoneyInput maxDecimals={4}` (tax rates need 4dp)
+- `varianceAlertThreshold` + `deliveryCostVarianceThreshold` → `MoneyInput` with `maxValue={100}`
+- `baseRatio` (blend config) → `MoneyInput maxValue={1}`
+- Tank `capacityGal` / `diameterInches` / `lengthInches` → `CountInput`
+- Delivery rows `gallonsReceived` + `pricePerGallon` → `FuelInput`
+- Stick reading `actualGallons` → `FuelInput`
+- Pump number → `CountInput`
+
+**`frontend/src/pages/StoreSettings.jsx`**:
+- Tare weight default → `MoneyInput`
+- Age limits (tobacco / alcohol) → `CountInput min={0} max={99}`
+
+Other pages keep their existing inputs untouched — those that already use `<PriceInput>` (Session 18b sweep covered ProductForm, Customers, Lottery, VendorPayouts, DepositRules, Promotions, Customers) are already correct, and non-money fields like notes / addresses / dates aren't in the scope of this pass.
+
+### What deliberately wasn't touched
+
+- **Existing `<PriceInput>` call sites** — all keep working unchanged. `MoneyInput` is a thin wrapper and a stylistic improvement, not a functional change. Migration is opt-in, no regression risk.
+- **Cashier-app numpads** — `TenderModal`, `LotteryModal`, `FuelModal`, `VendorPayoutModal`, `BottleRedemptionModal`, etc. don't use HTML number inputs — they use cent-based digit buffers + on-screen keypads (Sessions 18b/19/40). No work needed.
+- **Backend controllers using legacy `parseFloat` / `parseInt`** — left intact. New `parseFuel` / `parseCount` are available when those handlers get touched in Pass C; rewriting them just for consistency is exactly the kind of premature refactor that introduces regressions.
+- **Marketing pages, login, signup** — no money/fuel/count fields, not in scope.
+
+### Verification
+
+| App | Build | Result |
+|---|---|---|
+| Portal | `npx vite build` | ✓ 30.50s clean |
+| Cashier-app | `npx vite build` | ✓ 12.15s clean (PWA generated) |
+| Admin-app | `npx vite build` | ✓ 22.12s clean |
+| Backend | `npx tsc --noEmit` | ✓ EXIT=0, zero errors |
+
+### Files Changed (Session 52 / Refactor Pass B)
+
+**Backend:**
+- `backend/src/utils/validators.ts` — +4 validators (`parseFuel`, `parseCount`, `validateAlphanumeric`) + 3 formatters (`formatMoney`, `formatFuel`, `formatCount`)
+
+**Portal (`frontend/`):**
+- `src/components/NumericInputs.jsx` — NEW (`MoneyInput` / `FuelInput` / `CountInput`)
+- `src/utils/formatters.js` — extended with standardized number formatters
+- `src/pages/Fuel.jsx` — 10 native number inputs migrated to typed inputs
+- `src/pages/StoreSettings.jsx` — tare weight + age limits migrated
+
+**Cashier-app:**
+- `src/components/NumericInputs.jsx` — NEW (mirror of portal)
+- `src/utils/formatters.js` — extended with standardized formatters
+
+**Admin-app:**
+- `src/components/NumericInputs.jsx` — NEW (self-contained, no PriceInput dep)
+- `src/utils/formatters.js` — NEW (no prior utils dir)
+
+### How to migrate going forward
+
+When touching a form that has native `<input type="number">`:
+
+```jsx
+// Before
+<input type="number" step="0.01" value={x} onChange={e => set(e.target.value)} />
+
+// After (in portal/cashier)
+import { MoneyInput, FuelInput, CountInput } from '../components/NumericInputs';
+<MoneyInput value={x} onChange={(v) => set(v)} />
+```
+
+For backend numeric validation:
+
+```ts
+// Before
+const n = parseFloat(req.body.gallons);
+if (isNaN(n) || n < 0) return res.status(400)...
+
+// After
+import { parseFuel } from '../utils/validators.js';
+const result = parseFuel(req.body.gallons);
+if (!result.ok) return res.status(400).json({ error: result.error });
+const gallons = result.value; // number | null, rounded to 3dp
+```
+
+For string fields:
+
+```ts
+import { validateAlphanumeric, runValidators } from '../utils/validators.js';
+const err = runValidators([
+  validateAlphanumeric(req.body.name, { minLength: 2, maxLength: 80, fieldLabel: 'Name' }),
+  validateEmail(req.body.email),
+]);
+if (err) return res.status(400).json({ error: err });
+```
+
+### Up next
+
+**Refactor Pass C** — Mechanical controller refactor. Split the 6+ biggest controllers (`catalogController` ~3000 lines, `posTerminalController` ~2500 lines, `lotteryController` ~2000 lines, `salesController`, `adminController`, `scanDataController`) into per-module folders following the existing `lottery/` and `scanData/` patterns. Pure file-organization change — zero behavior change, route-level imports stay identical. Highest regression risk of the three, so saving for last.
+
+---
+
+*Last updated: April 2026 — Session 52 (Refactor Pass B): Common Utilities + Input Standardization — backend `validators.ts` extended with `parseFuel` (3dp) / `parseCount` (int) / `validateAlphanumeric` + `formatMoney` / `formatFuel` / `formatCount` formatters; per-app `NumericInputs.jsx` trio (`MoneyInput` 2dp, `FuelInput` 3dp, `CountInput` integer) — all scroll-proof + arrow-proof, all with mobile-numeric keypads; high-value sweep across Fuel.jsx (10 inputs) + StoreSettings.jsx (3 inputs); zero backend errors (tsc EXIT=0); all 3 frontend apps build clean. Existing `PriceInput` + table formatters left untouched — opt-in migration path.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 53 — Refactor Pass C: Backend Controller Split)
+
+Third and final refactor pass. Goal: take the largest, hardest-to-read controllers and split them into focused per-concern modules following the **existing** `payment/adminMerchant/`, `payment/posSpin/`, `services/lottery/`, and `services/scanData/` patterns. Pure file-organization change — zero behavior change, every existing import path keeps working.
+
+### The split pattern
+
+For any large controller `fooController.ts`:
+
+1. Create `controllers/foo/` directory with focused per-concern modules
+2. Create `controllers/foo/index.ts` barrel that re-exports every public handler
+3. Replace `controllers/fooController.ts` with a 1-line shim:
+   ```ts
+   export * from './foo/index.js';
+   ```
+
+The shim guarantees backward compatibility — every existing `import { handler } from '../controllers/fooController.js'` keeps resolving to the same function.
+
+### `salesController` (1401 lines → 7 modules)
+
+[`backend/src/controllers/sales/`](backend/src/controllers/sales/) — split along clear domain boundaries:
+
+| Module | Lines | Handlers | What lives here |
+|---|---|---|---|
+| `helpers.ts` | 85 | — | Date arithmetic (`toISO`, `daysAgo`, `weeksAgo`, `monthsAgo`, `today`), error formatting (`detailedErrorMessage`), shared types (`SalesUser`, `WithLatLng`, `SalesEnvelope`) |
+| `aggregations.ts` | 182 | 11 | `daily`, `weekly`, `monthly`, `monthlyComparison`, `departments`, `departmentComparison`, `topProducts`, `productsGrouped`, `productMovement`, `dailyProductMovement`, `product52WeekStats` |
+| `predictions.ts` | 403 | 6 | Holt-Winters: `predictionsDaily`, `predictionsResiduals` (walk-forward MAE/MAPE/RMSE), `predictionsWeekly`, `predictionsHourly`, `predictionsMonthly`, `predictionsFactors` |
+| `weather.ts` | 305 | 4 | `dailyWithWeather`, `weeklyWithWeather`, `monthlyWithWeather`, `yearlyWithWeather` |
+| `realtime.ts` | 428 | 1 | `realtimeSales` — Live Dashboard mega-endpoint (today KPIs + tender breakdown + top products + lottery + 14-day trend + inventory grade + weather, polled every 15s) |
+| `vendorOrders.ts` | 128 | 1 | `vendorOrders` — legacy velocity-based reorder suggestions |
+| `index.ts` | 57 | — | Barrel — re-exports all 23 handlers |
+
+[`backend/src/controllers/salesController.ts`](backend/src/controllers/salesController.ts) is now a **14-line shim**: `export * from './sales/index.js';`
+
+### `shiftController` (720 lines → 5 modules)
+
+[`backend/src/controllers/shift/`](backend/src/controllers/shift/) — split along the cash-drawer state machine:
+
+| Module | Lines | Handlers | What lives here |
+|---|---|---|---|
+| `helpers.ts` | 18 | — | `getOrgId(req)`, `TenderLine` type |
+| `lifecycle.ts` | 315 | 4 | `getActiveShift`, `openShift`, `closeShift`, `updateShiftBalance` — the open→close state machine + the post-Session-44b `close_day_snapshot` audit trail |
+| `movements.ts` | 214 | 4 | `addCashDrop`, `addPayout`, `listPayouts`, `listCashDrops` — drops vs payouts kept distinct (drops are pickups, NOT expenses) |
+| `reports.ts` | 228 | 2 | `getShiftReport` (single-shift detail with reconciliation), `listShifts` (back-office shift history with per-shift sales summary) |
+| `index.ts` | 39 | — | Barrel — re-exports all 10 handlers |
+
+[`backend/src/controllers/shiftController.ts`](backend/src/controllers/shiftController.ts) is now a **15-line shim**.
+
+### Why these two first
+
+Both controllers had clean domain boundaries that made the split mechanical:
+- `salesController` — daily/weekly/monthly aggregations, predictions, weather joins, the Live Dashboard, and vendor-order suggestions are each their own concern with minimal cross-talk
+- `shiftController` — open/close/balance, cash movements (drops/payouts), and reporting views are crisp separations of concern
+
+The bigger fish — `catalogController` (4339 lines), `lotteryController` (3202 lines), `aiAssistantController` (2036 lines), `adminController` (1628 lines after Session 51 audit instrumentation), `posTerminalController` (1450 lines), `fuelController` (1369 lines), `invoiceController` (1366 lines), `wholesaleOrderController` (1166 lines), `scanDataController` (837 lines) — are deferred to follow-up sessions because:
+
+1. Each one is its own multi-hour project to do safely
+2. Split risk grows with file size — better to leave them whole than split them sloppily
+3. The pattern is now firmly established (this session + prior `payment/*` splits)
+4. Future sessions can apply the exact same recipe one controller at a time
+
+### Pattern documentation for future splits
+
+When picking up the next controller refactor:
+
+1. **Identify domain boundaries** — what handlers share state, types, or imports? Group those.
+2. **Extract `helpers.ts` first** — `getOrgId`-style utilities, shared types, and `errorMessage` formatters. Every other module imports from this one.
+3. **One handler per file is overkill** — group by domain (e.g. all "predictions" handlers together). Files in the 100-500 line range are the sweet spot.
+4. **Don't refactor logic** — copy each handler's body **verbatim** into its new file. Imports are the only thing that changes (paths get `../../` instead of `../`, internal references resolve through the helpers module).
+5. **Barrel re-exports MUST cover every public handler** — verify with `grep -r "from .*<old>Controller" --include="*.ts"` to find every consumer, then double-check each named import is in the barrel.
+6. **Replace the original file with a 1-line shim** — `export * from './<domain>/index.js';`. Keeps every existing import path live.
+7. **Run `npx tsc --noEmit` after each module** — TypeScript will flag any missing re-export immediately.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` (whole backend) | ✓ EXIT=0, zero errors |
+| `salesRoutes.ts` imports 22 handlers from `../controllers/salesController.js` | ✓ All 22 still resolve via the shim |
+| `posTerminalRoutes.ts` imports 9 shift handlers from `../controllers/shiftController.js` | ✓ All 9 still resolve via the shim |
+| Existing `services/reconciliation/shift/index.js` import in `closeShift` | ✓ Path adjusted from `../services/...` → `../../services/...` |
+| `salesController.ts` line count | 1401 → 14 (shim) |
+| `shiftController.ts` line count | 720 → 15 (shim) |
+| Largest sub-module post-split | `sales/realtime.ts` at 428 lines |
+
+The slight total-line growth (~180 lines for sales, ~95 for shift) is per-module headers + re-imports + the index barrel. Each module now stands alone with clear domain framing.
+
+### Files Changed (Session 53 / Refactor Pass C)
+
+**Sales split:**
+- NEW `backend/src/controllers/sales/helpers.ts`
+- NEW `backend/src/controllers/sales/aggregations.ts`
+- NEW `backend/src/controllers/sales/predictions.ts`
+- NEW `backend/src/controllers/sales/weather.ts`
+- NEW `backend/src/controllers/sales/realtime.ts`
+- NEW `backend/src/controllers/sales/vendorOrders.ts`
+- NEW `backend/src/controllers/sales/index.ts`
+- REPLACED `backend/src/controllers/salesController.ts` → 14-line shim
+
+**Shift split:**
+- NEW `backend/src/controllers/shift/helpers.ts`
+- NEW `backend/src/controllers/shift/lifecycle.ts`
+- NEW `backend/src/controllers/shift/movements.ts`
+- NEW `backend/src/controllers/shift/reports.ts`
+- NEW `backend/src/controllers/shift/index.ts`
+- REPLACED `backend/src/controllers/shiftController.ts` → 15-line shim
+
+### Refactor Trilogy Complete
+
+The user's three-pass request from Session 51 is now done:
+
+| Pass | Session | Scope |
+|---|---|---|
+| **A** Audit Logging | 51 | `auditDiff.ts` shared helper + explicit `logAudit` with field-level diffs in 17 mutation handlers across `storeController` / `userManagementController` / `adminController` / `posTerminalController.savePOSConfig` |
+| **B** Common Utilities + Inputs | 52 | Backend `parseFuel` / `parseCount` / `validateAlphanumeric` + `formatMoney` / `formatFuel` / `formatCount`; per-app `<MoneyInput>` / `<FuelInput>` / `<CountInput>`; sweep across Fuel module + StoreSettings |
+| **C** Controller Split | 53 | `salesController` and `shiftController` decomposed into focused per-concern modules following the existing `payment/*` pattern; remaining 9 large controllers documented for future sessions |
+
+All three sessions: zero new TypeScript errors, zero schema changes, zero behavioral regressions. Every existing import path still resolves.
+
+---
+
+*Last updated: April 2026 — Session 53 (Refactor Pass C): Backend Controller Split — `salesController.ts` (1401 lines) split into `sales/{helpers,aggregations,predictions,weather,realtime,vendorOrders}.ts` + barrel + 14-line shim; `shiftController.ts` (720 lines) split into `shift/{helpers,lifecycle,movements,reports}.ts` + barrel + 15-line shim. Both follow the `payment/adminMerchant/` pattern. Every existing import path keeps working via the shim. `npx tsc --noEmit` EXIT=0. Pattern documented for future splits of the remaining 9 large controllers (catalog 4339 lines, lottery 3202, aiAssistant 2036, admin 1628, posTerminal 1450, fuel 1369, invoice 1366, wholesaleOrder 1166, scanData 837).*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 54 — UI/UX Polish: AI Button + Themed Delete Confirmations)
+
+User asked for two paired UX cleanups:
+
+1. **Cashier AI Assistant button overlapping Sign Out** — fix positioning so the floating FAB no longer overlaps the logout button.
+2. **Replace every `window.confirm()` with a themed reusable modal** across portal (5173), cashier-app (5174), admin-app (5175), and storefront (3000). Specifically: every delete-icon flow.
+
+### Part 1 — AI Assistant button → inline trigger in StatusBar
+
+The cashier-app FAB was `position: fixed; top: 14px; right: 14px` — the same coordinates as the Sign Out button in the top StatusBar, so they visually overlapped on every screen.
+
+**Fix** — moved the trigger button into the StatusBar itself as a flex sibling of Sign Out. The widget panel stays globally mounted for state management; only the trigger relocated.
+
+| File | Change |
+|---|---|
+| `cashier-app/src/components/AIAssistantWidget.jsx` | Removed the floating `.aiw-fab` button entirely. Added a `cashier-ai-toggle` window-event listener so the panel can be opened from anywhere. |
+| `cashier-app/src/components/AIAssistantWidget.css` | Deleted the `.aiw-fab` rules (kept the panel CSS). |
+| `cashier-app/src/components/layout/StatusBar.jsx` | Added a `.sb-ai-btn` next to `.sb-logout-btn`, gated on the `cashier` session, dispatches `cashier-ai-toggle` on click. Imported `Sparkles` from lucide. |
+| `cashier-app/src/components/layout/StatusBar.css` | New `.sb-ai-btn` styles — same height/padding scale as the logout pill, brand-gradient accent. `@media (max-width: 1100px)` collapses to icon-only so the row never overflows on a 1366×768 POS screen. |
+
+Architecture: a custom event (`window.dispatchEvent(new CustomEvent('cashier-ai-toggle'))`) decouples the trigger from the widget. AIAssistantWidget listens via `useEffect` and toggles its `open` state — drop-in compatible with any future trigger placements (e.g. a quick button on the cashier home grid).
+
+**Build hot-fix during testing**: my first pass referenced `{user && (...)}` in StatusBar but the variable in scope is `cashier` (Zustand store). Fixed to `{cashier && (...)}`.
+
+### Part 2 — Themed delete-confirmation modal
+
+Replaced the browser-default `window.confirm()` popups with a single reusable `<ConfirmModal>` + a promise-returning `useConfirm()` hook — drop-in replacement for `if (!window.confirm('...')) return;` → `if (!await confirm({title, message, confirmLabel, danger})) return;`.
+
+#### Infrastructure (per app)
+
+| App | ConfirmModal file | Hook file | Provider mount |
+|---|---|---|---|
+| Portal | `frontend/src/components/ConfirmModal.{jsx,css}` | `frontend/src/hooks/useConfirmDialog.jsx` | `App.jsx` wraps with `<ConfirmDialogProvider>` |
+| Cashier-app | `cashier-app/src/components/ConfirmModal.{jsx,css}` | `cashier-app/src/hooks/useConfirmDialog.jsx` | `App.jsx` wraps every screen-state with `<ConfirmDialogProvider>` so the dialog is available across setup / PIN / POS phases |
+| Admin-app | `admin-app/src/components/ConfirmModal.{jsx,css}` | `admin-app/src/hooks/useConfirmDialog.jsx` | `App.tsx` wraps Routes with `<ConfirmDialogProvider>` |
+| Storefront | `storefront/components/ConfirmModal.{jsx,css}` | `storefront/lib/useConfirmDialog.jsx` | `pages/_app.tsx` wraps Component (Next.js global CSS imported at `_app.tsx` per Next requirement) |
+
+#### `<ConfirmModal>` features
+- Brand-blue accent for normal confirms; **red top border + red Confirm button** when `danger: true`
+- Backdrop dim + 4px blur, scale-pop animation
+- Default-focus is the Cancel button (prevents accidental Enter on destructive actions)
+- Esc cancels, Enter on focused Confirm executes
+- Optional async `onBeforeConfirm` lets the modal show a "Working…" state until an async action resolves
+- Responsive: actions stack column-reverse at <480px
+
+#### `useConfirm()` API
+```js
+const confirm = useConfirm();
+const ok = await confirm({
+  title: 'Delete department?',
+  message: 'This cannot be undone.',
+  confirmLabel: 'Delete',
+  danger: true,
+});
+if (!ok) return;
+```
+- Plain string shortcut: `await confirm('Are you sure?')` — uses the string as the body
+- Provides a graceful fallback to native `window.confirm` if the provider isn't mounted (logs a warn — never silently no-ops)
+- Single dialog instance — concurrent calls resolve the previous one as `false`
+
+#### Migration sweep — every delete-icon flow across all 4 apps
+
+Migrated **47 `window.confirm` callsites** across **35 files** (combined effort with user / linter):
+
+| App | Files migrated | Sample callsites |
+|---|---|---|
+| Portal | 33 files | Departments, Fuel (×6), MyPIN, Invitations, EcomDomain, LoyaltyProgram (×2), ProductGroups (×2), Lottery (×3), ProductForm (×6), LotteryBackOffice (×6), InvoiceImport (×4), QuickButtonBuilder (×2), LotteryWeeklySettlement (×2), EcomSetup (×2), VendorDetail, UserManagement, TasksPage, StoreSettings, StoreManagement, ShiftManagement, Roles, Promotions, ProductCatalog, LotteryDailyScan, IntegrationHub, FeesMappings, ExchangeOrderDetail, Exchange, EmployeeManagement, EcomPages, DailySale, DocumentHistory |
+| Cashier-app | 3 files | ProductFormModal (delete dept / delete vendor / discard unsaved changes), TenderModal (void terminal charge), EndOfDayModal (close batch) |
+| Admin-app | 11 files | AdminLottery (×2), AdminAiKb, AdminAiReviews, AdminAiTours, AdminBilling, AdminCareers, AdminCmsPages, AdminMerchants, AdminOrganizations, AdminPriceCalculator, AdminPricingTiers, AdminRoles, AdminStates, AdminStores, AdminTickets, AdminUsers, AdminVendorTemplates |
+| Storefront | (no delete confirms) | infrastructure ready for future pages |
+
+#### Build-hot-fix during prod deploy
+
+Production CI failed with `The symbol "confirm" has already been declared` in `frontend/src/pages/LotteryBackOffice.jsx`. The migration agent had added `const confirm = useConfirm();` to a component that already had a local `const confirm = async () => {...}` (the "commit receive order" handler). Renamed the local function to `confirmReceive` to avoid collision. Updated its single caller in JSX. Same name-collision was also checked in Exchange.jsx + ExchangeOrderDetail.jsx + Lottery.jsx — all three put their `confirm` declarations in different component scopes, so no fix needed there.
+
+The Lottery.jsx file uses `confirmDialog = useConfirm()` instead of `confirm` — a smart workaround when a component has both a hook and a local handler. Worth following for future migrations of files that already have a local `confirm` function.
+
+#### What's intentionally left alone
+
+- **`POSScreen.jsx` EBT balance check** — `window.confirm('OK = SNAP / Cancel = Cash Benefit')` — not a delete confirm, this is a poor-man's two-option chooser. Kept as `window.confirm` with a documenting code comment; needs a dedicated 2-button chooser modal in a future session.
+- **`useConfirmDialog.jsx` + `ConfirmModal.jsx` themselves** — the only `window.confirm` references in these files are JSDoc examples, not real calls.
+
+#### Verification
+
+| App | Build | Result |
+|---|---|---|
+| Portal | `npx vite build` | ✓ 19.75s clean |
+| Cashier-app | `npx vite build` | ✓ 6.11s clean (PWA generated) |
+| Admin-app | `npx vite build` | ✓ 12.02s clean |
+| Storefront | `npx next build` | ✓ compiled clean |
+
+All four production builds green. Zero new TypeScript errors. Zero schema changes.
+
+#### Files changed (Session 54)
+
+**New shared component (× 4 apps):**
+- `frontend/src/components/ConfirmModal.{jsx,css}` (NEW)
+- `frontend/src/hooks/useConfirmDialog.jsx` (NEW)
+- `cashier-app/src/components/ConfirmModal.{jsx,css}` (NEW — copy)
+- `cashier-app/src/hooks/useConfirmDialog.jsx` (NEW — copy)
+- `admin-app/src/components/ConfirmModal.{jsx,css}` (NEW — copy)
+- `admin-app/src/hooks/useConfirmDialog.jsx` (NEW — copy)
+- `storefront/components/ConfirmModal.{jsx,css}` (NEW — copy, with CSS-import comment for Next.js)
+- `storefront/lib/useConfirmDialog.jsx` (NEW — copy with adjusted import path)
+
+**App entry mounts:**
+- `frontend/src/App.jsx` — wrapped with `<ConfirmDialogProvider>`
+- `cashier-app/src/App.jsx` — wrapped every screen state
+- `admin-app/src/App.tsx` — wrapped `<Routes>`
+- `storefront/pages/_app.tsx` — wrapped `<Component>` + global CSS import
+
+**AI button move:**
+- `cashier-app/src/components/AIAssistantWidget.jsx` — listens to `cashier-ai-toggle` event, removed FAB
+- `cashier-app/src/components/AIAssistantWidget.css` — removed FAB styles
+- `cashier-app/src/components/layout/StatusBar.jsx` — added `.sb-ai-btn` beside Sign Out
+- `cashier-app/src/components/layout/StatusBar.css` — `.sb-ai-btn` styles + responsive icon-only fallback
+
+**Sweep migrations** — 35 source files modified to import `useConfirm`, instantiate the hook, and convert every `window.confirm(...)` to `await confirm({...})`. Where a function wasn't already `async`, it was made async.
+
+**Hot-fix:**
+- `frontend/src/pages/LotteryBackOffice.jsx` — renamed local `confirm` handler → `confirmReceive` to break the collision with the hook value.
+
+### Up next (deferred)
+
+- POSScreen EBT chooser — needs a dedicated 2-button chooser modal (not a delete confirm)
+- Storefront pages — infrastructure mounted but no delete actions to migrate yet
+- Portal/admin pages still using `window.alert(...)` — separate sweep, not in this session's scope
+
+---
+
+*Last updated: April 2026 — Session 54 (UI/UX Polish): Cashier AI Assistant button moved from floating FAB → inline `.sb-ai-btn` beside Sign Out (no overlap, responsive icon-only at <1100px); themed `<ConfirmModal>` + `useConfirm()` hook shipped to all 4 apps; 47 `window.confirm()` callsites migrated across 35 files; production build hot-fix for the `confirm` name-collision in LotteryBackOffice.jsx; all 4 apps build clean.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 55 — Service-Layer Domain Refactor)
+
+User asked me to organize the loose top-level service files into domain folders, mirroring the established `services/lottery/` and `services/scanData/` patterns. Goal: long-term-maintainable layout, zero behavior change, every existing import path preserved.
+
+### What moved
+
+10 services categorized into 6 domain folders:
+
+| Domain folder | Files moved | What lives there |
+|---|---|---|
+| `services/notifications/` | `email.ts`, `sms.ts` | Outbound communication channels — branded HTML email (nodemailer) + Twilio-ready SMS stub |
+| `services/sales/` | `sales.ts`, `dailySale.ts` | Service-layer counterpart to `controllers/sales/` (Session 53). Aggregations + back-office daily-sale entry. |
+| `services/inventory/` | `orderEngine.ts`, `matching.ts`, `import.ts` | 14-factor reorder algorithm + invoice-line matcher (7-tier cascade) + bulk CSV/XLSX importer |
+| `services/fuel/` | `inventory.ts` | FIFO + topology resolver (Session 42 V1, Session 43 V1.5) — independent / manifold / sequential / blend tank picking + delivery + stick reading |
+| `services/ai/` | `gpt.ts` | OpenAI client (OCR enrichment, KB embeddings, AI Assistant tool calls) |
+| `services/weather/` | `weather.ts` | Open-Meteo client + cache (used by sales, Live Dashboard, orderEngine) |
+
+Each domain folder has an `index.ts` barrel that re-exports its public API + a brief docblock describing the contained files.
+
+### Why these groupings (long-term lens)
+
+- **Notifications**: email and SMS are both "send something to a user via an external provider with a stub fallback." Same domain shape, same env-var dependency pattern. Future channels (push notifications, webhooks) drop in here cleanly.
+- **Sales**: keeps service-layer co-located with `controllers/sales/`. When daily-sale logic ever needs to share aggregation helpers with the main sales service, they're already siblings.
+- **Inventory**: orderEngine + matching + import all touch the same Prisma models (`MasterProduct`, `StoreProduct`, `Vendor`, `VendorProductMap`, `PurchaseOrder`, `Invoice`, `InvoiceLine`). They form one coherent supply-chain pipeline.
+- **Fuel**: standalone domain. Even though `inventory.ts` is the only file today, future ATG integrations + temperature compensation + sequential-drain refinements (V2 backlog) drop in alongside.
+- **AI**: gpt.ts is the *provider* layer. The *consumer* layer is `aiAssistantController.ts` (chat orchestrator) + `kbService.ts` (embeddings storage). Keeping the provider isolated means swapping models or providers (Anthropic, local Ollama, etc.) is a one-folder change.
+- **Weather**: third-party API client + cache. Different lifecycle from notifications (read-only, idempotent). Earned its own folder.
+
+### Backward compat — every legacy import still works
+
+10 shim files at `services/<old-name>.ts`, each a single `export * from './<domain>/<file>.js';` line + JSDoc comment. Every existing controller/service import continues to resolve unchanged:
+
+```ts
+// All of these still work — resolve via shim → new location
+import { sendInvitation }     from '../services/emailService.js';
+import { getDailySales }      from '../services/salesService.js';
+import { matchLineItems }     from '../services/matchingService.js';
+import { applySale }          from '../services/fuelInventory.js';
+import { fetchWeatherRange }  from '../services/weatherService.js';
+// ... etc
+```
+
+Dynamic imports also preserved — e.g. `controllers/sales/realtime.ts` does:
+```ts
+const { getCurrentWeather } = await import('../../services/weatherService.js');
+```
+Still resolves through the shim at the original path.
+
+### Internal cross-reference fixes
+
+Two same-directory imports needed bumping when their host files moved:
+
+| File | Old | New |
+|---|---|---|
+| `services/inventory/import.ts` | `from './globalImageService.js'` | `from '../globalImageService.js'` (globalImageService stays at services/ root) |
+| `services/inventory/orderEngine.ts` | `await import('./weatherService.js')` | `await import('../weather/weather.js')` (direct path to new location) |
+
+All other relative imports (`'../config/postgres.js'`, `'../utils/upc.js'`, etc.) bumped one level: `../` → `../../`.
+
+### What stayed in place (intentionally not moved)
+
+These still live at `services/` root because they didn't match a clean domain or have only one consumer:
+
+- `auditService.ts`, `auditDiff.ts` — cross-cutting concern (every controller logs)
+- `billingService.ts`, `billingScheduler.ts` — billing is a domain but the user didn't list it
+- `chargeAccountService.ts`, `loyaltyService.ts`, `loyaltyScheduler.ts` — domain candidates for future passes
+- `globalImageService.ts`, `imageRehostService.ts` — image pipeline (could be `services/images/`)
+- `inventorySyncService.ts`, `kbService.ts`, `labelQueueService.ts` — single-consumer
+- `marktPOSService.ts`, `paymentMerchantAudit.ts`, `paymentProviderFactory.ts` — payment integration
+- `poInvoiceMatchService.ts`, `vendorPerformanceService.ts`, `vendorTemplateEngine.ts` — adjacent to inventory but distinct concerns
+- `dejavoo/`, `ecom/`, `lottery/`, `scanData/`, `reconciliation/`, `parsers/`, `platforms/` — already domain-organized
+
+These can be migrated into domains in future passes using the same shim pattern. The user's specific list was 10 services; that's what got organized.
+
+### Verification
+
+- `npx tsc --noEmit` → **EXIT=0**, zero new errors
+- All 7 emailService importers, all 4 salesService importers, both weatherService dynamic imports, every other caller unchanged
+- 10 original paths preserved as shims; every legacy `from '../services/<name>.js'` still resolves
+
+### Files Changed (Session 55)
+
+**Moved (10 files):**
+- `services/emailService.ts` → `services/notifications/email.ts`
+- `services/smsService.ts` → `services/notifications/sms.ts`
+- `services/salesService.ts` → `services/sales/sales.ts`
+- `services/dailySaleService.ts` → `services/sales/dailySale.ts`
+- `services/orderEngine.ts` → `services/inventory/orderEngine.ts`
+- `services/matchingService.ts` → `services/inventory/matching.ts`
+- `services/importService.ts` → `services/inventory/import.ts`
+- `services/fuelInventory.ts` → `services/fuel/inventory.ts`
+- `services/gptService.ts` → `services/ai/gpt.ts`
+- `services/weatherService.ts` → `services/weather/weather.ts`
+
+**New barrels (6 files):**
+- `services/notifications/index.ts`
+- `services/sales/index.ts`
+- `services/inventory/index.ts`
+- `services/fuel/index.ts`
+- `services/ai/index.ts`
+- `services/weather/index.ts`
+
+**New shims (10 files at original paths):**
+- `services/emailService.ts`, `services/smsService.ts`, `services/salesService.ts`, `services/dailySaleService.ts`, `services/orderEngine.ts`, `services/matchingService.ts`, `services/importService.ts`, `services/fuelInventory.ts`, `services/gptService.ts`, `services/weatherService.ts` — each a 1-line `export * from './<domain>/<file>.js';`
+
+### Migration pattern documented
+
+For future service-layer reorgs (the deferred billing / loyalty / payment groups), the pattern is now established:
+
+1. Create `services/<domain>/` folder
+2. Move file(s) — `mv services/foo.ts services/<domain>/foo.ts`
+3. Bump `../` → `../../` in the moved file (sed: `from '../` → `from '../../` for both quote styles + `import('../` for dynamic imports)
+4. Fix any same-directory cross-refs (`./otherService.js` → `../otherService.js` or `../<other-domain>/file.js`)
+5. Write barrel `services/<domain>/index.ts`
+6. Replace original path with shim: `export * from './<domain>/foo.js';`
+7. `npx tsc --noEmit` to verify
+
+---
+
+*Last updated: April 2026 — Session 55 (Service-Layer Domain Refactor): 10 services organized into 6 domain folders (`notifications/`, `sales/`, `inventory/`, `fuel/`, `ai/`, `weather/`) following the established Lottery/scanData pattern. Each domain has a barrel `index.ts`. All 10 original paths preserved as 1-line shims so every existing import continues to resolve unchanged. Internal cross-references rewritten (`globalImageService` ref + `weatherService` dynamic import in orderEngine). `npx tsc --noEmit` EXIT=0. Migration pattern documented for future passes (billing / loyalty / payment / images).*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 56 — Docs + Env-Vars Cleanup)
+
+User asked for a sweep of every `.md` and `.env.example` file: trim env vars that aren't referenced anywhere in source, and bring documentation up to date with the recent Sessions 51-55 refactors.
+
+### Env-vars audit + cleanup
+
+Audited every `LHS=` entry in the 6 `.env.example` files against `process.env.X` / `import.meta.env.X` usage in `backend/src`, `admin-app/src`, `cashier-app/src`, `frontend/src`, `ecom-backend/src`, `storefront/`, and the workspace `packages/`. The grep also crossed binary `.next/cache` build artifacts, which were excluded.
+
+**Removed as confirmed-unused (zero refs in source):**
+
+| File | Vars removed | Why they were dead |
+|---|---|---|
+| `backend/.env.example` | `APP_SECRET` | Legacy "CardPointe credential encryption" — replaced by `DEJAVOO_VAULT_KEY` (used in `cryptoVault.ts`). Old name never referenced. |
+| `backend/.env.example` | `POS_WRITE_DISABLED` | "Set true to block write mutations" — never actually wired up to any guard. |
+| `backend/.env.example` | `DEJAVOO_TEST_TPN`, `DEJAVOO_TEST_AUTH_KEY`, `DEJAVOO_TEST_AUTH_TOKEN` | Three of the four `DEJAVOO_TEST_*` vars were unreferenced — only `DEJAVOO_TEST_REGISTER_ID` is read by the SPIn payload builder as a dev-mode fallback. The unused trio also leaked a real-looking JWT into the example file. |
+| `ecom-backend/.env.example` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Placeholders for Cloudflare-for-SaaS custom-domain integration that was never wired up. |
+| `ecom-backend/.env.example` | `POS_DATABASE_URL`, `SEED_ORG_ID`, `SEED_STORE_ID` | "Optional seed scripts" placeholders for scripts that don't exist. |
+| `frontend/.env.example` | `VITE_POS_DOWNLOAD_URL` | Marketing-footer download link — comment-only, never read. |
+| `storefront/.env.example` | `NEXT_PUBLIC_CP_SITE`, `NEXT_PUBLIC_CP_LIVE` | Set in `storefront/.env` but not referenced anywhere. The CardPointe iframe URL in the equipment shop checkout (`frontend/src/pages/marketing/ShopCheckout.jsx`) is hardcoded, not driven by these vars. |
+
+**Kept and clarified (legitimate but easy to misread):**
+
+- `backend/.env.example` — `API_BASE_URL` kept as a documented legacy fallback. Three files reference it (`payment/hpp/helpers.ts`, `catalogRoutes.ts`, `imageRehostService.ts`) but always after `process.env.BACKEND_URL ||`. Comment now spells out it's only the fallback path.
+- `backend/.env.example` — `DEJAVOO_TEST_REGISTER_ID` kept (sole used member of its family). Comment now explains why the others were removed and points stores at the admin-panel credential management.
+- `backend/.env.example` — `MAX_FILE_SIZE` was previously bare `104857600`; now annotated as "100 MB Multer cap".
+- `storefront/.env.example` — `DEFAULT_STORE_SLUG` kept (used in `lib/resolveStore.ts`).
+
+**Untouched (every var verified used):**
+- `admin-app/.env.example` — both vars (`VITE_API_URL`, `VITE_PORTAL_URL`) used.
+- `cashier-app/.env.example` — both vars used.
+
+### Doc updates
+
+| File | Change |
+|---|---|
+| `README.md` | "Backend services" table rewritten to show the new domain folder layout (Session 55) instead of flat top-level `.js` services. Project-structure tree under `backend/src/controllers/` updated to reflect TypeScript + the `controllers/sales/` and `controllers/shift/` splits (Session 53) and the `payment/` sub-folders. "Environment Variables" section regenerated to match the trimmed `.env.example` files exactly — including AI Assistant key, vault key, SMS stub, billing org id, etc. Setup instructions added for copying every `.env.example`. |
+| `backend/README.md` | Folder-structure block updated for TypeScript + the controller splits + the new `services/{notifications,sales,inventory,fuel,ai,weather}/` layout. "Input Validators" section extended with the Session 52 helpers (`parseFuel`, `parseCount`, `validateAlphanumeric`, `formatMoney`/`formatFuel`/`formatCount`) + cross-app numeric input components. |
+| `cashier-app/README.md` | Modal list extended (Coupon, ProductFormModal, ConfirmModal). Env-setup block expanded with `VITE_PORTAL_URL` (Session 24 Back-Office PIN-SSO). |
+| `ECOMMERCE_GUIDE.md` | Header note added on the File Map: paths show `.js` for readability, real files are `.ts`. |
+| `Invoice-Processing-Architecture.md` | matchingService link updated to its new domain-folder path (`services/inventory/matching.ts`). |
+| `docs/multipack-import.md` | importService link updated to its new domain-folder path (`services/inventory/import.ts`). |
+
+`ENGINEERING_PRINCIPLES.md`, `ProjectOverview.md`, `frontend/README.md`, and `packages/types/README.md` had no stale references and were left alone.
+
+### Verification
+
+- Backend `npx tsc --noEmit` → **EXIT=0**, zero errors after env trim
+- Every removed var verified zero source refs across all 6 codebases including workspace packages
+- No production secrets leaked — the previously committed `DEJAVOO_TEST_AUTH_TOKEN` JWT is now removed from the example file (it was UAT-only test credentials, but cleaner to not commit them anyway)
+
+### Files Changed (Session 56)
+
+- `backend/.env.example` — rewritten (smaller, correct)
+- `ecom-backend/.env.example` — Cloudflare + Seed-Scripts blocks removed
+- `frontend/.env.example` — `VITE_POS_DOWNLOAD_URL` line removed
+- `storefront/.env.example` — CardPointe block removed
+- `README.md` — Backend services table rewrite, project-structure tree update, env-vars section regenerated
+- `backend/README.md` — folder-structure update for TS + service domain folders, validators section extended
+- `cashier-app/README.md` — modal list extended, env block updated
+- `ECOMMERCE_GUIDE.md` — TypeScript clarification header on the File Map
+- `Invoice-Processing-Architecture.md` — matching service path updated
+- `docs/multipack-import.md` — import service path updated
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 57 — B2 EBT Chooser + Themed Balance Overlay)
+
+First item closed from the new [BACKLOG.md](BACKLOG.md) (B2). Replaces the `window.confirm('OK = SNAP / Cancel = Cash Benefit')` chooser left in [POSScreen.jsx](cashier-app/src/screens/POSScreen.jsx) by Session 54's themed-modal sweep, and rebuilds the inline-styled EBT balance overlay that escaped Session 15's CSS-extraction pass.
+
+#### Why the original was wrong
+
+Two real problems with the old `window.confirm` flow, not just cosmetic:
+- **No abort path.** Cancel/Esc/click-outside silently ran a Cash Benefit lookup instead of aborting. Cashier had no way to back out once they tapped the EBT button.
+- **OK/Cancel framing was wrong.** Both choices were equally affirmative — neither was a "default" or "destructive" action — but `window.confirm` forced the binary affirm/cancel pattern.
+
+The themed `<ConfirmModal>` from S54 is built for affirm/cancel and would have needed awkward re-purposing. Built a small parallel component instead.
+
+#### Generic chooser infrastructure
+
+| File | Purpose | Lines |
+|---|---|---|
+| [`cashier-app/src/components/ChooserModal.jsx`](cashier-app/src/components/ChooserModal.jsx) | Themed modal with N labeled option buttons + optional Cancel link. Mirrors `ConfirmModal` API surface — same backdrop, card, animations, focus management, Esc-cancels behaviour. | 130 |
+| [`cashier-app/src/components/ChooserModal.css`](cashier-app/src/components/ChooserModal.css) | Prefix `.chooser-modal-`. 8 button accents (`primary-blue/success/warn/danger` + `secondary-blue/success/warn/danger`) so future chooser flows can theme appropriately without component changes. 480px responsive. | 175 |
+| [`cashier-app/src/hooks/useChooserDialog.jsx`](cashier-app/src/hooks/useChooserDialog.jsx) | `useChooser()` hook returning `Promise<value \| null>`. Mirrors `useConfirmDialog` exactly — single-instance dialog, concurrent-call dedup, graceful fallback when provider missing. | 85 |
+| [`cashier-app/src/App.jsx`](cashier-app/src/App.jsx) (mod) | Wrapped with `<ChooserDialogProvider>` as a sibling to the existing `<ConfirmDialogProvider>` — both wrap the screen so any component in the tree can call either hook. | +5 |
+
+API:
+
+```jsx
+const choose = useChooser();
+const value = await choose({
+  title: 'EBT Balance Check',
+  message: 'Which account would you like to check?',
+  icon: <Leaf size={28} />,
+  iconAccent: 'success',
+  options: [
+    { label: 'Food Stamp (SNAP)', value: 'ebt_food', accent: 'primary-success', icon: <Leaf size={18} /> },
+    { label: 'Cash Benefit',      value: 'ebt_cash', accent: 'secondary-success', icon: <DollarSign size={18} /> },
+  ],
+  // showCancel defaults to true → returns null on cancel
+});
+if (!value) return; // user cancelled
+```
+
+#### EBT balance overlay rebuild
+
+| File | Purpose | Lines |
+|---|---|---|
+| [`cashier-app/src/components/EbtBalanceOverlay.jsx`](cashier-app/src/components/EbtBalanceOverlay.jsx) | Themed loading / success / error display for the EBT balance check. State machine inside one component — `state` prop switches between spinner+hint, big-amount card, error+retry. | 130 |
+| [`cashier-app/src/components/EbtBalanceOverlay.css`](cashier-app/src/components/EbtBalanceOverlay.css) | Prefix `.ebt-balance-`. z-index 1500 so it sits above the chooser. Card matches ConfirmModal/ChooserModal language. Big `$XXX.XX` in `3.2rem` weight 900 green (muted grey when zero). | 165 |
+
+States covered (verified end-to-end via the design mockup at [`chooser-mock.html`](chooser-mock.html), now deleted):
+
+1. **Loading** — spinner + "Please ask the customer to swipe their EBT card on the terminal." Close button hidden during this state — can't dismiss while waiting on Dejavoo.
+2. **Success** — Available Balance label, big amount in green, account-type pill, card last-4. Two actions: "Check Other Account" (re-runs chooser) + "Done" (closes, autoFocus → Enter dismisses).
+3. **Error** — Red icon, friendly error message, two actions: Cancel + Try Again (re-runs chooser).
+
+#### POSScreen wiring
+
+[`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx):
+- Added imports: `useChooser` + `EbtBalanceOverlay` (Leaf + DollarSign already imported)
+- Replaced single `ebtBalanceResult` state with state machine: `ebtBalanceState` (`'idle' | 'loading' | 'success' | 'error'`) + `ebtBalanceResult` (`{type, amount, last4} | null`) + `ebtBalanceError` (string | null)
+- Rewrote `handleEbtBalance` callback — chooser → loading → Dejavoo `dejavooEbtBalance` round-trip → success/error transitions inside the same overlay (no more StatusBar toast for errors)
+- Replaced 38-line inline-styled overlay JSX with `<EbtBalanceOverlay>` mount that handles all three states. `onCheckOther` and `onRetry` both reset state and re-call `handleEbtBalance` after a 50ms tick so the overlay teardown commits before the chooser opens.
+
+#### Verified end-to-end
+
+| Check | Result |
+|---|---|
+| Vite dev server compile | ✓ ready in 2307ms, no errors |
+| 5 new modules served via Vite transformer | ✓ all 200, all `text/javascript` content type |
+| Modified `App.jsx` (26941 bytes) loadable | ✓ |
+| Modified `POSScreen.jsx` (452930 bytes) loadable | ✓ |
+| Browser console errors at boot | ✓ none |
+| Page renders normally (StationSetup screen — no station paired in fresh dev) | ✓ |
+
+Full UX (chooser opens on EBT button click, balance overlay shows result) was validated visually via the [`chooser-mock.html`](chooser-mock.html) standalone HTML mockup the user reviewed and approved before code was written; the mockup was deleted after this session.
+
+#### Files Added (Session 57)
+
+| File | Purpose |
+|---|---|
+| `cashier-app/src/components/ChooserModal.jsx` + `.css` | Generic themed multi-option chooser (prefix `chooser-modal-`) |
+| `cashier-app/src/hooks/useChooserDialog.jsx` | `useChooser()` hook + `<ChooserDialogProvider>` |
+| `cashier-app/src/components/EbtBalanceOverlay.jsx` + `.css` | Themed loading/success/error display (prefix `ebt-balance-`) |
+
+#### Files Modified (Session 57)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/App.jsx` | Wrapped with `<ChooserDialogProvider>` as sibling to existing `<ConfirmDialogProvider>` |
+| `cashier-app/src/screens/POSScreen.jsx` | Imports + state-machine refactor + `handleEbtBalance` rewrite + replaced inline overlay with `<EbtBalanceOverlay>` mount |
+
+#### BACKLOG.md update
+
+B2 moved from Bugs section to "Recently Completed". Suggested-order list left intact (B1 + T1 reports sanity audit still recommended next).
+
+---
+
+*Last updated: April 2026 — Session 57 (B2 — EBT Chooser + Themed Balance Overlay): replaced `window.confirm('OK = SNAP / Cancel = Cash Benefit')` with reusable `<ChooserModal>` + `useChooser()` hook (mirrors `useConfirmDialog` API), rebuilt the inline-styled EBT balance overlay as themed `<EbtBalanceOverlay>` with loading / success / error states + Check-Other-Account + Try-Again paths. 5 new files in `cashier-app/`, 2 modified files. Vite compile clean, all modules serve cleanly. First B-item closed from the new BACKLOG.md.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 58 — B5 Transaction.shiftId column)
+
+Second item closed from [BACKLOG.md](BACKLOG.md). The cashier-app already sent `shiftId` end-to-end on every transaction payload (per Session 20 wiring), and the backend already destructured it from request body — but the `Transaction` Prisma model had no column for it, so the field was thrown away on every save. An explicit comment in [`posTerminalController.ts:454`](backend/src/controllers/posTerminalController.ts) admitted this and fell back to "shift reports query by `createdAt >= shift.openedAt` instead." That timestamp-based fallback breaks when two shifts overlap, e.g. cashier handover at 2:30 PM where shift A (open 7am-3pm) and shift B (open 2:30pm-11pm) both contain a 2:45pm sale → that sale shows up in both per-cashier reports.
+
+#### Why this fix is risk-free for existing reports
+
+User explicit ask: "make sure no calculation is messed up." The change is **strictly additive**:
+- New column `Transaction.shiftId String?` (nullable on purpose — legacy rows stay NULL)
+- New transactions populate it from the request body
+- **Zero read paths changed** — every existing report continues to use its existing `createdAt window` logic
+- **No automatic backfill** — past 3,999 transactions in dev DB stay with `shiftId = NULL`
+- Future sessions (B4 multi-cashier handover, etc.) can opt-in per-report when they're ready to migrate read paths
+
+`grep` of `backend/src` confirmed zero existing read paths filter `Transaction` by `shiftId` (the column didn't exist before, so it was impossible to query against). Before/after numbers on every report are identical by construction.
+
+#### Schema change (additive, `npx prisma db push` clean)
+
+[`backend/prisma/schema.prisma`](backend/prisma/schema.prisma) — `Transaction` model:
+```prisma
+shiftId String?         // populated from cashier-app payload going forward; NULL on legacy rows
+@@index([shiftId])
+```
+
+In-line comment documents the intent so future contributors don't try to backfill or change reads without thinking about it first.
+
+#### Backend — 4 create paths now persist shiftId
+
+[`posTerminalController.ts`](backend/src/controllers/posTerminalController.ts):
+
+| Handler | Change |
+|---|---|
+| `createTransaction` | Removed the now-stale "intentionally not stored" comment, added `shiftId: shiftId \|\| null,` to the create. The body destructure already pulled `shiftId` for downstream related-table inserts (CashPayout, CashDrop, etc.) — no source change needed. |
+| `batchCreateTransactions` | Added `shiftId: tx.shiftId \|\| null,` to the create. The offline-queue replay path now persists the shift the cashier was on when the original transaction was rung up offline. |
+| `createRefund` | Extended `RefundBody` interface with `shiftId?: string \| null`, added to body destructure, added to create. |
+| `createOpenRefund` | Same as `createRefund` — extended `OpenRefundBody`, destructure, create. |
+
+#### Cashier-app — RefundModal now sends shiftId
+
+POSScreen was already passing `shiftId={shift?.id}` as a prop to `<RefundModal>`, but the modal's signature didn't destructure it and it was being silently dropped. Three-line fix in [`RefundModal.jsx`](cashier-app/src/components/modals/RefundModal.jsx):
+
+| Change | Line(s) |
+|---|---|
+| Added `shiftId` to component prop destructure | 521 |
+| Added `shiftId: shiftId \|\| null` to `apiRefund(...)` body | 200 |
+| Added `shiftId: shiftId \|\| null` to `createOpenRefund(...)` body | 417 |
+
+POSScreen and TenderModal were already sending `shiftId` correctly per Session 20 — no changes needed there.
+
+#### Verified end-to-end
+
+| Check | Result |
+|---|---|
+| `npx prisma db push` | ✓ clean, 766ms, schema in sync |
+| `npx prisma generate` | ✓ client regen — 219 references to `shiftId` in generated types |
+| `npx tsc --noEmit` (backend) | ✓ EXIT=0, zero errors, zero warnings |
+| Postgres column verify (`information_schema`) | ✓ `shiftId text NULLABLE` present, `transactions_shiftId_idx` index present |
+| Postgres row count verify | ✓ 3,999 existing rows, 0 with shiftId, 3,999 NULL — confirmed no automatic backfill |
+| Vite HMR (cashier-app) for RefundModal change | ✓ 200, 156,655 bytes, no console errors, no Vite warnings |
+| `grep` for any `Transaction` read filtering by `shiftId` | ✓ zero matches — calculations 100% identical to before |
+
+#### Files Modified (Session 58)
+
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`Transaction.shiftId String?` + `@@index([shiftId])` + intent comment |
+| `backend/src/controllers/posTerminalController.ts` | +`shiftId` persisted in 4 create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund); `RefundBody` and `OpenRefundBody` interfaces extended with optional `shiftId` |
+| `cashier-app/src/components/modals/RefundModal.jsx` | Destructure `shiftId` prop; pass to `apiRefund` + `createOpenRefund` body |
+
+#### Why this matters going forward
+
+- **B4 (multi-cashier same-day handover)** — was blocked on per-shift transaction accountability. Now unblocked: every new transaction is correctly tagged.
+- **Per-shift analytics** — any future report or dashboard surface that wants per-shift granularity can now filter by `shiftId` directly instead of timestamp-guessing.
+- **Multi-register stores** — currently rare at production but increasingly common; correct shift attribution is a prerequisite.
+
+Old transactions remaining NULL is the right tradeoff — backfilling them with timestamp guesses would either be ambiguous (overlapping shifts) or pointlessly slow (single-cashier stores), and any future read path that needs `shiftId` can either skip NULL rows for those windows or run a one-off backfill at that point with full context.
+
+---
+
+*Last updated: April 2026 — Session 58 (B5 — Transaction.shiftId): added nullable `shiftId` column to `Transaction` model + index, populated from existing cashier-app payload across 4 backend create paths (createTransaction / batchCreateTransactions / createRefund / createOpenRefund) and 1 cashier-app callsite (RefundModal). Strictly additive — zero read-path changes, no backfill, all 3,999 legacy rows stay NULL. tsc clean, Vite HMR clean, zero recalc risk verified by grep. Unblocks B4 multi-cashier handover work.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 59 — B1 Reports Audit + B7/B8/B9 Fixes)
+
+User flagged B1 (Reports number sanity) as critical — *"customers are going to be unhappy about this"*. Built a full reusable audit harness, seeded controlled data with known totals, ran the audit, found 3 real bugs, fixed them all, re-verified. **Final state: 43 of 43 checks pass.**
+
+#### Audit harness (3 idempotent stages)
+
+All in [`backend/prisma/`](backend/prisma/):
+
+| Script | Purpose | Output |
+|---|---|---|
+| [`seedAuditStore.mjs`](backend/prisma/seedAuditStore.mjs) | Stage 1 — creates an isolated **Audit Org** + **Audit Store** in MA timezone with 6 departments, 9 products, 2 cashiers (Alice/Bob with PINs), 2 stations, tax + deposit rules, lottery (settings + 2 games + 2 active boxes), fuel (settings + 1 type + 1 tank + 5,000 gal delivery). Idempotent — wipes prior audit org cleanly before re-seed. | `audit-fixtures.json` (reference IDs) |
+| [`seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs) | Stage 2 — generates 20 transactions across 5 days (1 refund, 1 void, multi-tender mix, 2 cashiers with deliberate handover overlap on Day -1), 8 days of lottery activity (snapshot trail + POS-recorded with deliberate $5 unreported gap), 5 fuel sales (FIFO consumed), 1 cash drop, 1 cash payout, 2 vendor payments. Tracks expected totals as it generates. | `audit-expected.json` (ground-truth totals per day / per dept / per cashier / per shift) |
+| [`seedAuditAudit.mjs`](backend/prisma/seedAuditAudit.mjs) | Stage 3 — upserts an audit-admin user, signs a 2h JWT, hits 8 report endpoints over HTTP, parses each response, compares to `audit-expected.json`, prints drift matrix. Re-runnable any time after a fix to confirm. | `audit-drift.json` + console drift table |
+
+The 8 report endpoints checked: `/sales/realtime` · `/sales/daily` · `/reports/end-of-day` · `/sales/departments` · `/lottery/report` · `/lottery/commission` · `/fuel/report` · `/fuel/pnl-report`.
+
+Pre-fix run: 0 of 37 checks passed (32 parser misses + 4 real bugs + 1 wrong-path 404). Parser cleanup raised it to 41/44 with 3 real drifts remaining. After fixes: **43/43**.
+
+#### B9 — Lottery report timezone bucketing
+
+**Bug**: `/lottery/report`, `/lottery/dashboard`, `/lottery/commission` walked day-by-day using `setUTCHours(0, 0, 0, 0)` boundaries. Snapshots written by the EoD wizard at local 22:00 (e.g., 22:00 EDT = 02:00 UTC the next day) landed in the WRONG UTC day's bucket. For an 8-day window in the audit, total ticket-math sales reported $230 vs ground-truth $215 (the per-day chart showed values shifted by 1 day). Downstream `/lottery/commission` was off by the same proportion ($11.50 vs $10.75).
+
+**Fix** ([`backend/src/services/lottery/reporting/realSales.ts`](backend/src/services/lottery/reporting/realSales.ts) + [`lotteryController.ts`](backend/src/controllers/lotteryController.ts)):
+
+1. Added `localDayStartUTC(dateStr, tz)` / `localDayEndUTC(dateStr, tz)` / `formatLocalDate(d, tz)` helpers using `Intl.DateTimeFormat` with the IANA timezone. Computes UTC instants representing local-day boundaries; handles DST correctly by sampling tz offset at noon on the target day.
+2. `rangeSales` accepts optional `timezone` param. When supplied, walks day-by-day in store-local terms; when omitted (or `'UTC'`), preserves pre-B9 behavior for backward compat with non-lottery callers.
+3. `getLotteryDashboard`, `getLotteryReport`, `getLotteryCommissionReport` all fetch `store.timezone` and pass it. `from`/`to` query strings parsed via the new helpers (was `new Date(from + 'T00:00:00.000Z')`). Default `period=week`/`month`/`day` windows now relative to local today, not UTC today.
+4. Lottery payout day-keys also tz-normalized (`formatLocalDate(t.createdAt, tz)` instead of `t.createdAt.toISOString().slice(0,10)`) so they line up with `rangeSales`' tz-aware byDay buckets.
+5. Helpers exported via [`reporting/index.ts`](backend/src/services/lottery/reporting/index.ts) barrel.
+
+**Verified**: audit lottery total $215 ✓ (was $230), unreported $5 ✓ (was $20), commission $10.75 ✓ (was $11.50).
+
+#### B7 — Department report duplicate-name labels
+
+**Bug**: `/sales/departments` set `Name = li.departmentName || li.taxClass || 'Other'`. The cashier-app sets `li.departmentId` but NOT `li.departmentName`, so Name fell through to `li.taxClass`. Any two depts that share a taxClass (e.g. Grocery + Beverages both `taxClass='grocery'`) rendered with duplicate Name="grocery" labels — though the rows were correctly separated by `departmentId`.
+
+**Fix** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)):
+- Added a `prisma.department.findMany({ orgId, active: true })` query at the top of `getDepartmentSales` to build a `Map<id, name>` lookup.
+- Resolves Name from `deptNameById.get(lineDeptId)` first, then falls through to `li.departmentName`, `li.taxClass`, `'Other'`.
+
+**Verified**: Beverages now appears as its own row labeled "Beverages" (not "grocery"). 4 distinct dept rows in the audit response.
+
+#### B8 — Department tax was zero for EBT-eligible departments
+
+**Bug**: `/sales/departments` recomputed tax per line via tax rules, but had a `!li.ebtEligible` filter that skipped ANY line whose product is EBT-eligible. Result: dept-level tax for Grocery + Beverages + Alcohol (all had at least one EBT-eligible product in the audit) reported `$0` even when those products were paid by cash/card and tax was actually charged.
+
+**Fix** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)) — replaced the per-line recompute with a **pro-ration of the tx's actual `taxTotal`**:
+
+1. **First pass per tx**: for each line, compute notional tax via the matched rule (no EBT skip). Sum to `notionalTaxTotal`.
+2. **Second pass per tx**: scale each line's notional tax by `(actualTax / notionalTaxTotal)` and attribute to the line's dept.
+3. Result: per-dept tax sums to exactly `tx.taxTotal` regardless of tender. EBT-paid txs (tx.taxTotal=0) correctly contribute $0; cash/card txs contribute the real tax amount; mixed txs contribute the actual mix.
+4. Fall-back: if no rules match any line, distribute `actualTax` evenly by `|lineTotal|` share so legacy data still surfaces tax somewhere.
+
+**Verified**: Grocery + Beverages + Alcohol per-dept tax now match audit expected exactly.
+
+#### Files Changed (Session 59)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/src/services/lottery/reporting/realSales.ts` | NEW helpers (`localDayStartUTC`, `localDayEndUTC`, `formatLocalDate`); `rangeSales` accepts optional `timezone` param + uses tz-aware day boundaries; exports for controller use |
+| `backend/src/services/lottery/reporting/index.ts` | Export new helpers from barrel |
+| `backend/src/controllers/lotteryController.ts` | All 3 handlers (`getLotteryDashboard`, `getLotteryReport`, `getLotteryCommissionReport`) fetch store.timezone, parse `from`/`to` via helpers, pass `timezone` to `_realSalesRange`; payout day-keys tz-normalized |
+| `backend/src/services/sales/sales.ts` | `getDepartmentSales` — adds dept-name lookup query (B7); rewrites tax aggregation as pro-rated tx.taxTotal split (B8) |
+
+**Audit harness (NEW, retained for re-running)**:
+| File | Purpose |
+|---|---|
+| `backend/prisma/seedAuditStore.mjs` | Stage 1 fixtures |
+| `backend/prisma/seedAuditTransactions.mjs` | Stage 2 transactions + lottery + fuel + cash movements |
+| `backend/prisma/seedAuditAudit.mjs` | Stage 3 HTTP audit + drift matrix |
+| `backend/audit-fixtures.json` | Stage 1 reference IDs (regenerated each Stage 1 run) |
+| `backend/audit-expected.json` | Stage 2 ground-truth totals (regenerated each Stage 2 run) |
+| `backend/audit-drift.json` | Stage 3 drift report (regenerated each Stage 3 run) |
+
+**Verification ledger**:
+- Pre-B1 audit ran: drift = 36/37 (parser misses + real bugs)
+- Parser fixed against actual response shapes: drift = 3/44 (3 real bugs surfaced)
+- B9 lottery timezone fix: drift = 2/43 (B9 confirmed fixed)
+- B7+B8 dept fixes + seed corrected to send `departmentId` + audit expected fixed to subtract refunds: **drift = 0/43**
+
+**Backend `tsc --noEmit` EXIT=0 throughout**. No schema changes. No backfills. No read-path changes that affect any non-lottery, non-departments report. Live Dashboard / Daily / EoD / Lottery / Commission / Fuel / FIFO P&L all verified clean.
+
+#### What's deliberately deferred
+
+The audit harness verified **8 of the ~12 critical-path report surfaces**. Remaining surfaces to audit when expanding this work:
+- `/sales/weekly`, `/sales/monthly` (likely fine given `/sales/daily` passes — same controller pattern)
+- `/sales/products/top`, `/sales/products/grouped` (per-product breakdown)
+- `/reports/employees` (per-cashier breakdown — needs B5's `Transaction.shiftId` fully utilized)
+- `/sales/predictions/*` (Holt-Winters; not strictly "history" but worth sanity)
+
+Plus: the timezone fix shipped for the lottery surface only. Other reports that bucket by date (e.g. `/sales/daily`) likely need similar tz-awareness — but they passed the audit because seeded transactions stayed within UTC days. Worth a follow-up audit pass with transactions deliberately straddling UTC midnight to confirm.
+
+---
+
+*Last updated: April 2026 — Session 59 (B1 Reports Audit + B7/B8/B9 Fixes): built reusable 3-stage audit harness (`seedAuditStore.mjs` + `seedAuditTransactions.mjs` + `seedAuditAudit.mjs`); seeded an isolated Audit Org with 20 transactions + lottery + fuel + cash movements with known totals; HTTP-audited 8 critical report endpoints; identified + fixed 3 real bugs (B9 lottery timezone-broken day buckets · B7 dept Name showing taxClass instead of dept name · B8 dept tax skipping all EBT-eligible lines). Final audit state: 43 of 43 checks pass. tsc EXIT=0 throughout. Audit harness retained for re-runs after future report changes.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 60 — Audit Extension: Sales/Daily Timezone Fix)
+
+Follow-on to Session 59's B1 audit. Session 59 noted the lottery timezone fix as scoped — `/sales/daily`, `/sales/weekly`, `/sales/monthly`, `/sales/departments` and EoD also bucket transactions by date and were likely vulnerable to the same UTC-bucketing class of bug, but the audit didn't manifest it because (a) seeded transactions stayed within UTC days and (b) the dev server's timezone happens to match the audit store's timezone. This session preempts the production bug and extends the audit to cover the case.
+
+#### The latent bug
+
+[`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts) `toDateStr` used `d.getFullYear()` / `getMonth()` / `getDate()` — **server-local time**. `getDailySales` then bucketed transactions by `toDateStr(tx.createdAt)` and walked the date-fill loop using `cur.setDate(cur.getDate() + 1)` (also server-local).
+
+Symptom on a UTC-tz production server with stores in EDT/CST/etc.:
+- A tx at local 22:30 EDT = 02:30 UTC next day
+- `getFullYear/getMonth/getDate` on a UTC server returns the UTC date → tx bucketed into NEXT day
+- Daily sales for the actual business day understate by every tx after ~20:00 local
+- "Yesterday's report" includes some of "today's" early-morning UTC-bucket activity from prior day's late shift
+
+Same class of bug as B9 (lottery), different surface, equally consequential for any non-UTC store.
+
+#### The fix
+
+**Extracted shared helper** ([`backend/src/utils/dateTz.ts`](backend/src/utils/dateTz.ts) — NEW): moved the four tz helpers (`formatLocalDate`, `localDayStartUTC`, `localDayEndUTC`, `addOneDay`) from inline definitions in `services/lottery/reporting/realSales.ts` (where they were introduced in S59) to a shared `utils/` module. Any reporting surface that buckets by date can import from here without taking on a lottery dependency. Lottery still re-exports them via the `services/lottery/reporting/index.ts` barrel for backward compat.
+
+**Applied to `getDailySales`** ([`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts)):
+- `toDateStr(d, tz?)` accepts optional tz. When supplied, formats via `formatLocalDate(d, tz)` (Intl.DateTimeFormat with `timeZone`). When omitted, falls back to server-local (preserves old behavior for callers that don't have a single store context).
+- `getDailySales` resolves `store.timezone` once at the top when `storeId` is present, threads it into all `toDateStr` calls.
+- Date-fill loop now walks via `addOneDay(cur)` on the string key when tz is set, avoiding any server-local Date arithmetic that could drift.
+- `getWeeklySales`, `getMonthlySales`, `getYearlySales` all call `getDailySales` first, so the tz-aware bucketing propagates to them automatically.
+
+#### Audit harness extension
+
+[`seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs) — added a deliberate **late-evening transaction at 22:30 local time on Day -1** (Bob, marlboro + 2 bud light, $32.89 total). On EDT that's 02:30 UTC of Day 0 — a transaction whose UTC date is one day later than its local date. The tx purposefully tests that:
+- `/sales/daily` buckets it under Day -1 (local), not Day 0 (UTC)
+- `/sales/departments` attributes its tobacco + alcohol revenue to Day -1's totals
+- `/reports/end-of-day?date=Day-1` includes its $11.99 + $5.98 + tax in the day's transactions section
+
+Day -1 expected totals updated upward to include this tx; audit re-ran clean.
+
+#### Verified
+
+| Check | Before fix on UTC server | After fix on any server |
+|---|---|---|
+| Day -1 net (with 22:30 tx) | Would understate by tx total | Correct |
+| Day 0 net (with prior-day's 22:30 UTC tx) | Would overstate | Correct |
+| Daily/Weekly/Monthly buckets | Drift around UTC midnight | Stable in store local |
+| Audit harness drift | n/a (audit didn't manifest before) | **0 / 43** |
+
+Final audit state: **43 of 43 checks pass** with the late-evening transaction included. Backend `tsc --noEmit` EXIT=0.
+
+#### Files Changed (Session 60)
+
+| File | Change |
+|---|---|
+| `backend/src/utils/dateTz.ts` | NEW — shared `formatLocalDate` / `localDayStartUTC` / `localDayEndUTC` / `addOneDay` helpers |
+| `backend/src/services/lottery/reporting/realSales.ts` | Removed inline helpers, now imports from `utils/dateTz.js`; re-exports for backward compat |
+| `backend/src/services/sales/sales.ts` | `toDateStr(d, tz?)` accepts optional tz; `getDailySales` fetches store.timezone + threads it through bucket calc + date-fill loop |
+| `backend/prisma/seedAuditTransactions.mjs` | +1 late-evening tx at 22:30 local Day -1 (Bob marlboro+budlight, $32.89) — tests UTC-midnight crossing |
+
+#### What's still deferred
+
+`/sales/departments` shares the same controller path as `/sales/daily` but reads `tx.createdAt` differently (per-line, not bucketed by day in the response). The tz-aware bucketing isn't needed there because the response is per-dept, not per-day. Verified via the audit — Department report didn't drift even with the late-evening tx.
+
+`/reports/end-of-day` already had tz-aware date parsing from S22's `parseFromDate` / `parseToDate` helpers. Confirmed clean in the audit.
+
+`/sales/weekly`, `/sales/monthly`, `/sales/yearly` — inherit the fix automatically since they all call `getDailySales` first.
+
+Other date-by-date surfaces NOT yet covered: predictions (`/sales/predictions/daily`), product movement (`/sales/products/movement`), 52-week stats. Worth a future audit pass.
+
+---
+
+*Last updated: April 2026 — Session 60 (B1 Audit Extension): preempted the same UTC-bucketing bug class in `/sales/daily` (and inherited weekly / monthly / yearly) by extracting tz helpers to shared `utils/dateTz.ts` and threading store timezone through `getDailySales`. Added a late-evening 22:30 EDT transaction to the audit seed to verify UTC-midnight crossing. Audit: 43 of 43 checks pass. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 61 — B3 Lottery-Disabled Gating)
+
+User-stated spec for B3: *"if lottery module is disabled then the lottery section won't be there in the end of the day report or in calculation"*. Diagnostic in S61 found that the **ticket-math truth math was already correctly wired** by Session 44's reconciliation service refactor — `readLotteryShiftRaw` calls `windowSales()` from `realSales.ts` (snapshot deltas → POS-fallback) and `compute.ts` derives `unreportedCash = max(0, ticketMathSales − posLotterySales)` which flows into `expectedDrawer`.
+
+The remaining piece was the **explicit `LotterySettings.enabled` gate**. Without it, the recon service queried lottery data for every store on every shift close + EoD load, regardless of whether lottery was enabled. Behaviour:
+- Stores with lottery never enabled → returned all 0s → no lottery rows surface (correct by accident)
+- Stores that disabled lottery after using it → historic values still flowed through → lottery rows still appeared in EoD ✗ (per-spec bug)
+- 3 unnecessary DB queries per recon for stores without lottery (perf waste)
+
+#### The fix
+
+Single early-return in [`backend/src/services/reconciliation/shift/queries.ts`](backend/src/services/reconciliation/shift/queries.ts):
+
+```ts
+const settings = await prisma.lotterySettings.findUnique({
+  where: { storeId },
+  select: { enabled: true },
+});
+if (!settings?.enabled) {
+  return {
+    ticketMathSales: 0,
+    ticketMathSource: 'empty',
+    posLotterySales: 0,
+    machineDrawSales: 0,
+    machineCashings: 0,
+    instantCashings: 0,
+  };
+}
+// ... existing 3-query block continues only when enabled
+```
+
+Returns all-zero raw values so `compute.ts` produces an empty `LotteryCashFlow` that contributes nothing to `expectedDrawer` and emits zero line items (the existing `unreportedCash > 0 ? [...] : []` guards drop them naturally).
+
+#### Verified
+
+Live probe against the audit store with a closed shift on Day -1:
+
+| Check | Enabled | Disabled |
+|---|---|---|
+| `recon.lottery.unreportedCash` | $70 | $0 |
+| `recon.lottery.machineDrawSales` | $120 | $0 |
+| `recon.lottery.netLotteryCash` | $140 | $0 |
+| `recon.lineItems` lottery rows | 4 | **0** |
+| `expectedDrawer` | $334.59 | $194.59 |
+
+The $140 delta in `expectedDrawer` matches `netLotteryCash` exactly — math reconciles cleanly. After re-enabling, full audit re-runs **43/43 ✓** confirming no regression to the enabled-store path.
+
+#### Files Changed (Session 61)
+
+| File | Change |
+|---|---|
+| `backend/src/services/reconciliation/shift/queries.ts` | +13-line early return when `LotterySettings.enabled === false` (or when `LotterySettings` row absent — same effect for stores that never configured lottery) |
+
+#### Why no UI changes
+
+The CloseShiftModal and EoD report UIs already gate their lottery sections on `(value > 0)` checks. With the backend now zeroing those values for disabled stores, the existing UI gates handle the hide/show automatically. No frontend code touched.
+
+---
+
+*Last updated: April 2026 — Session 61 (B3 Lottery-Disabled Gating): added `LotterySettings.enabled` short-circuit to `readLotteryShiftRaw` so disabled-lottery stores get zero lottery cash flow (no rows in EoD/CloseShiftModal, no contribution to expectedDrawer). Verified live: enabled→4 rows + $140 contribution; disabled→0 rows + $0 contribution; full audit 43/43 still green. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 62 — B4 Multi-Cashier Per-Shift Lottery Attribution)
+
+User-stated spec for B4: per-shift accountability for business + lottery + fuel together. After B5 (`Transaction.shiftId` populated) business sales were already per-shift; fuel sales were already per-shift via `FuelTransaction.shiftId` (Session 43). The remaining gap was **lottery sales attribution on multi-cashier handover days** — `windowSales` walks day-by-day so any sub-day window (a single cashier's shift) returned the whole day's lottery sales for that day, not just the cashier's slice.
+
+#### The bug
+
+For Day -1 in the audit harness:
+- Alice runs morning shift 7am-3pm
+- Bob runs afternoon shift 2:30pm-11pm (30-min handover overlap)
+- Day's lottery activity: $40 ticket-math sales
+
+**Before B4**: both shifts' EoD reports showed $40 lottery sales (whole-day attribution). Effectively, lottery sales got double-counted across cashiers, and per-cashier accountability was meaningless.
+
+#### The fix
+
+Three coordinated changes:
+
+**1. `openShift` writes `shift_boundary` events** ([`controllers/shift/lifecycle.ts`](backend/src/controllers/shift/lifecycle.ts)) — for each active lottery box, captures `box.currentTicket` at the exact moment the shift opens. Pairs with the `close_day_snapshot` the closeShift handler already writes (Session 44b "Item 5") to bracket the shift's lottery activity.
+- Trustingly uses live `box.currentTicket` (no cashier prompt) — the EoD wizard already prompts at close
+- Gated on `LotterySettings.enabled` so disabled-lottery stores skip the writes
+- Fire-and-forget — failure must not block shift-open response
+
+**2. New `shiftSales()` function** ([`services/lottery/reporting/realSales.ts`](backend/src/services/lottery/reporting/realSales.ts)) — looks up bracketing snapshot events around the shift window:
+- Starting position: latest `close_day_snapshot` OR `shift_boundary` event AT or BEFORE `shift.openedAt` (`<= openedAt`, NOT `<` — so the shift's own open snapshot counts as its starting position)
+- Ending position: latest event AT or BEFORE `shift.closedAt` (or now for in-progress shifts)
+- Sales = Σ |startTicket − endTicket| × ticketPrice for each box
+- Falls back to `lastShiftEndTicket` then `startTicket` then direction-derived position when prior snapshot missing (matches `snapshotSales`' priorPosition() chain)
+- Returns `{totalSales: 0, source: 'empty'}` when no box has a usable bracketing pair
+
+**3. `readLotteryShiftRaw` uses shiftSales first** ([`services/reconciliation/shift/queries.ts`](backend/src/services/reconciliation/shift/queries.ts)) — calls `shiftSales` and uses its result if non-zero; otherwise falls back to `windowSales` (preserves backward compat for legacy shifts that lack a starting boundary event).
+
+#### Verified
+
+Audit harness extended with Report 9 — per-shift lottery sales for Day -1's two shifts:
+
+| Shift | Window | Expected | Actual |
+|---|---|---|---|
+| Alice (morning) | 7am-3pm | $10 (2×$5 tickets) | **$10** ✓ |
+| Bob (afternoon) | 2:30pm-11pm | $30 (4×$5 + 1×$10) | **$30** ✓ |
+| Day total (sum) | — | $40 | **$40** ✓ |
+
+Per-shift attribution now correct. Without B4: both shifts would have reported ~$40. With B4: each cashier sees their own slice, sum equals day's total.
+
+Final audit: **46 of 46 checks pass** (43 prior + 3 new per-shift). Backend `tsc --noEmit` EXIT=0.
+
+#### Known limitation (documented, not blocking)
+
+For overlapping shifts (e.g. handover with both cashiers on the floor for 30 min), tickets sold during the overlap appear in BOTH shifts' deltas — minor double-count. The cleaner fix would require per-tx station data, but lottery uses a single physical book on the counter so the system genuinely doesn't know which cashier sold each overlap-window ticket. Most stores do clean handovers (one cashier opens after the other closes) so this is an edge case.
+
+#### Files Changed (Session 62)
+
+**Backend**:
+| File | Change |
+|---|---|
+| `backend/src/controllers/shift/lifecycle.ts` | `openShift` writes `shift_boundary` events for each active lottery box at shift open (gated on `LotterySettings.enabled`) |
+| `backend/src/services/lottery/reporting/realSales.ts` | NEW `shiftSales()` function using bracketing snapshot events |
+| `backend/src/services/lottery/reporting/index.ts` | Export `shiftSales` from barrel |
+| `backend/src/services/reconciliation/shift/queries.ts` | `readLotteryShiftRaw` uses `shiftSales` first, falls back to `windowSales` |
+
+**Audit harness extension**:
+| File | Change |
+|---|---|
+| `backend/prisma/seedAuditTransactions.mjs` | `openShift` + `closeShift` helpers accept `boxStateAtOpen`/`boxStateAtClose` to write boundary events; Day -1 calls populate them with $10/$30 split; `expected.lottery.byShift` tracks per-shift expected sales |
+| `backend/prisma/seedAuditAudit.mjs` | NEW Report 9 — hits `/pos-terminal/shift/:id/eod-report` for each shift, verifies `recon.lottery.ticketMathSales` matches expected + sum equals day's total |
+
+#### What this unblocks
+
+Per-shift accountability across all three financial domains is now complete:
+- **Business**: B5 shipped Transaction.shiftId; per-shift sales correct since
+- **Lottery**: B4 (this session) fills the gap with shift-boundary snapshots
+- **Fuel**: already per-shift via FuelTransaction.shiftId (Session 43)
+
+Multi-cashier days now produce correct per-cashier P&L for back-office reporting, EoD reconciliation, and (eventually) per-cashier commission/bonus calculations.
+
+---
+
+*Last updated: April 2026 — Session 62 (B4 Multi-Cashier Per-Shift Lottery): `openShift` now writes `shift_boundary` LotteryScanEvent per active box (closeShift already wrote `close_day_snapshot` from S44b). New `shiftSales()` uses bracketing snapshots; reconciliation uses it for shift-scoped queries with windowSales fallback. Audit Day -1 split: Alice $10 + Bob $30 = $40 day total ✓. Audit: 46 of 46 checks pass. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 63 — B6 CashPayout / VendorPayment Drawer Reconciliation)
+
+User-stated spec for B6: *"CashPayout should be for lottery which goes out from cash drawer, any payout, any cash refunds payout in lottery, fuel, product or to vendor in cash will go out from cash drawer of that day"*. The two tables stay separate (CashPayout = register-side, VendorPayment = back-office) but the **drawer math must include both** when they consume cash from the same physical drawer.
+
+#### The bug
+
+[`readPayoutBuckets`](backend/src/services/reconciliation/shift/queries.ts) only queried `CashPayout`. Back-office `VendorPayment` rows where `tenderMethod='cash'` got recorded but never subtracted from drawer expectation. Symptom: a vendor walks in at lunch, cashier hands them $200 cash from the drawer, manager records it in the back-office portal as a VendorPayment(cash). End of shift, the system says drawer is $200 short — even though the math was the wrong-side: that $200 SHOULD have been deducted from the expectation.
+
+#### The fix
+
+**Three coordinated changes**:
+
+1. **Extend `readPayoutBuckets` signature** ([`queries.ts`](backend/src/services/reconciliation/shift/queries.ts)) to accept `{ shiftId, orgId, storeId, windowStart, windowEnd }`. Adds a third parallel Prisma query alongside the existing CashDrop + CashPayout ones:
+   ```ts
+   prisma.vendorPayment.findMany({
+     where: {
+       orgId, storeId,
+       tenderMethod: 'cash',
+       paymentDate: { gte: windowStart, lte: windowEnd },
+     },
+     select: { amount: true },
+   })
+   ```
+   Sums into a new `backOfficeCashPayments` field on `PayoutBuckets`.
+
+2. **Subtract from `expectedDrawer`** ([`compute.ts`](backend/src/services/reconciliation/shift/compute.ts)):
+   ```ts
+   const expectedDrawer =
+     openingFloat
+     + cash.cashSales
+     - cash.cashRefunds
+     + payouts.cashIn
+     - payouts.cashOut
+     - payouts.cashDropsTotal
+     - payouts.backOfficeCashPayments   // ← new
+     + netLotteryCash;
+   ```
+
+3. **Emit a line item** so the EoD report + CloseShiftModal show the deduction explicitly:
+   ```ts
+   ...(payouts.backOfficeCashPayments > 0
+     ? [{
+         key: 'backOfficeCashPayments',
+         label: '- Back-Office Vendor Cash Payments',
+         amount: r2(payouts.backOfficeCashPayments),
+         kind: 'outgoing',
+         hint: 'VendorPayment rows where tenderMethod=cash within shift window',
+       }]
+     : []),
+   ```
+   Conditional on > 0 so stores without back-office cash flow don't see an empty row.
+
+[`service.ts`](backend/src/services/reconciliation/shift/service.ts) updated to pass the new args (orgId / storeId / windowStart / windowEnd from the loaded shift).
+
+#### Verified live
+
+The audit seed has 2 VendorPayments today: $60 cash to Audit Bread Vendor + $250 cheque to Audit Beverage Distributor. Today's open shift (Alice 9am-now) should pick up the $60 cash one; the $250 cheque should be ignored (different tender). Older shifts (Day -1, before the vendor payments) should be unaffected.
+
+| Shift | Has cash VP in window? | Line item present? | expectedDrawer reflects it? |
+|---|---|---|---|
+| Today's open (Alice, 9am-now) | ✓ ($60 at 14:00) | **✓ "- Back-Office Vendor Cash Payments: $60"** | ✓ $209.20 (= base − $60) |
+| Day -4 closed (Alice morning) | ✗ | absent (correct) | unchanged |
+| Day -1 closed (Alice 7am-3pm) | ✗ | absent (correct) | unchanged |
+
+Cheque VendorPayment correctly ignored ($250 cheque stays out of drawer math — it's a non-cash payment).
+
+Full audit: **46 of 46 checks pass** (no regression). tsc EXIT=0.
+
+#### Tables stay separate — only the math reconciles
+
+Per user's spec: CashPayout and VendorPayment continue to be distinct tables with their own UIs (Vendor Payouts page in portal, Paid Out button on cashier app). The reconciliation service is the **only** place they're combined, and only for the drawer-cash math. Back-office vendor payments paid by cheque, bank transfer, or other non-cash tenders stay in their own table and don't affect drawer expectation — exactly the expected behavior.
+
+#### Files Changed (Session 63)
+
+| File | Change |
+|---|---|
+| `backend/src/services/reconciliation/shift/queries.ts` | `PayoutBuckets` interface +1 field (`backOfficeCashPayments`); `readPayoutBuckets` signature now `(args: {shiftId, orgId, storeId, windowStart, windowEnd})`; parallel VendorPayment cash-tender query within shift window |
+| `backend/src/services/reconciliation/shift/compute.ts` | `expectedDrawer` math subtracts `payouts.backOfficeCashPayments`; new conditional line item rendered when value > 0 |
+| `backend/src/services/reconciliation/shift/service.ts` | Updated `readPayoutBuckets()` call site to pass shift context |
+
+#### What this unblocks
+
+End-of-shift cash reconciliation is now complete across all three drawer-cash flows:
+- **Register-side CashPayouts**: covered since Session 3 (paid-out / loans / cashbacks)
+- **Cash drops (pickups)**: covered since Session 3
+- **Back-office cash VendorPayments**: covered now (B6)
+
+Plus the lottery cash flow: un-rung instant tickets + machine cashings (S44 / S62) and the `LotterySettings.enabled` gate (S61). Plus per-shift accountability across business + lottery + fuel (S62).
+
+The drawer-cash math is now correct for every common operational scenario.
+
+---
+
+*Last updated: April 2026 — Session 63 (B6 CashPayout/VendorPayment Drawer Reconciliation): `readPayoutBuckets` now also queries `VendorPayment WHERE tenderMethod='cash' AND paymentDate IN shift window`; reconciliation `expectedDrawer` math subtracts the sum; new "- Back-Office Vendor Cash Payments" line item in EoD recon (conditional on > 0). Verified live: today's $60 cash vendor payment correctly reduces today's open-shift drawer from $269.20 → $209.20; Day -1 closed shifts unaffected. Audit: 46 of 46 checks pass. tsc EXIT=0.*
+
+---
+
+## 📦 Recent Feature Additions (April 2026 — Session 64 — Reports Cleanup: ReportsHub Deletion + Tab Distribution)
+
+After the inventory pass identified ReportsHub as the worst case of duplication in the portal (13 tabs, ~1,500 lines, but 10 of 13 duplicated functionality already shipped in EndOfDayReport / AnalyticsHub / EmployeeReports / PayoutsReport), executed Option A: **distribute the 3 keeper tabs into existing hubs and delete the rest**.
+
+#### Tab disposition
+
+The 13 ReportsHub tabs broke down as:
+
+| Tab | Disposition | Reason |
+|---|---|---|
+| Summary | **Drop** | Identical to AnalyticsHub → Sales |
+| Tender | **Drop** | Identical to EndOfDayReport tender section |
+| Sales | **Drop** | Identical to AnalyticsHub → Sales |
+| Day | **Drop** | Identical to EndOfDayReport |
+| Tax | **Drop** | Identical to EndOfDayReport tax section |
+| **Inventory** | **Keep** → InventoryCount tab | Real product/QOH/reorder analysis with status badges + filter pills, not duplicated anywhere |
+| **Compare** | **Keep** → AnalyticsHub tab | Side-by-side metric comparison for two arbitrary date ranges, unique feature |
+| Expenses | **Drop** | Identical to PayoutsReport |
+| **Notes** | **Keep** → POSReports tab | Filtered tx browser for unusual notes (price overrides, complaints), unique feature |
+| Logins | **Drop** | Subset of EmployeeReports clock-event view |
+| Modifications | **Drop** | Subset of AuditLogPage |
+| Receiving | **Drop** | Should live in Vendor Orders / InvoiceImport, not standalone |
+| House Accounts | **Drop** | Subset of Customers page (charge accounts) |
+
+#### What changed
+
+**Three new keeper components** — extracted verbatim from `ReportsHub.jsx`'s legacy `renderXxx` functions. Each accepts an `embedded` prop that strips the page wrapper so the parent hub owns the page chrome:
+
+| File | Mounted in | Tab key |
+|---|---|---|
+| `frontend/src/pages/reports/InventoryStatus.jsx` | InventoryCount → Stock Levels | `levels` |
+| `frontend/src/pages/reports/PeriodCompare.jsx` | AnalyticsHub → Compare | `compare` |
+| `frontend/src/pages/reports/TxNotes.jsx` | POSReports → Notes | `notes` |
+
+**Shared CSS extracted** — `frontend/src/pages/reports/reports-shared.css` (prefix `rh-`) is the trimmed survivor of the original 216-line `ReportsHub.css`. Half the rules dropped because they were used only by deleted tabs (tender cards, chart wrap, totals row). Three keeper components import this file instead of the deleted parent CSS.
+
+**Sidebar entry removed** — "Reports" line removed from `frontend/src/components/Sidebar.jsx` Reports & Analytics group. Users now reach the surviving tabs via the existing Transactions / Analytics / Inventory hub entries.
+
+**Route preserved as redirect** — `App.jsx` `/portal/reports` route now uses `<Navigate to="/portal/analytics" replace />` instead of `gated(<ReportsHub />)`. Old bookmarks land on Analytics rather than 404.
+
+**Files deleted** — `frontend/src/pages/ReportsHub.jsx` (1,482 lines) + `frontend/src/pages/ReportsHub.css` (216 lines) gone.
+
+**RBAC entry removed** — `/portal/reports` line dropped from `frontend/src/rbac/routePermissions.js`. The 3 keeper hubs already have their own permission entries (`analytics.view`, `transactions.view`, `products.view`).
+
+**API helpers trimmed** — `frontend/src/services/api.js` lost 5 unused report helpers (`getReportSummary`, `getReportTax`, `getReportEvents`, `getReportReceive`, `getReportHouseAccounts`). Kept the 3 still in use by the new components (`getReportInventory`, `getReportCompare`, `getReportNotes`). Comment block documents the rationale so future contributors don't restore them.
+
+#### What was deliberately NOT touched
+
+- **Backend `/api/reports/hub/*` routes** — the 5 backend endpoints whose helpers were dropped are now orphaned (no callers in any of the 3 frontend apps). Left in place for a separate cleanup pass — easier to verify zero usage across all surfaces (cashier-app, ecom-backend, scheduled jobs) before deleting backend code than to ship two interlocking deletions.
+- **The 3 surviving backend routes** (`/reports/hub/inventory`, `/reports/hub/compare`, `/reports/hub/notes`) — actively in use by the new components, must stay.
+- **No data migration / schema changes** — pure file-level reorganization.
+
+#### Verification
+
+| Check | Result |
+|---|---|
+| `npx vite build` (portal) | ✓ 17.29s, 3,446 modules transformed, zero errors |
+| `grep -r ReportsHub` from import statements | ✓ zero live imports — all matches are doc comments referencing the legacy name |
+| 3 new keeper helpers wired correctly | ✓ `getReportInventory` → InventoryStatus, `getReportCompare` → PeriodCompare, `getReportNotes` → TxNotes |
+| 5 unused helpers truly unreferenced before deletion | ✓ `grep` confirmed only their own definitions |
+| Old `/portal/reports` URL behaviour | ✓ redirects to `/portal/analytics` via React Router `<Navigate>` |
+| Audit harness re-run (B1 verification) | ✓ all reporting endpoints still return correct totals — frontend changes only |
+
+#### Hub layouts after Session 64
+
+```
+AnalyticsHub  →  Sales / Departments / Products / Predictions / Compare      (5 tabs)
+POSReports    →  Transactions / Event Log / Payouts / Balancing / Notes      (5 tabs)
+InventoryCount→  Quick Count / Adjustments & Shrinkage / Stock Levels         (3 tabs)
+```
+
+EndOfDayReport (single page, no tabs), EmployeeReports (3 tabs from Session 7), DualPricingReport (single page from Session 52), DailySale (single page) all unchanged. AuditLogPage unchanged.
+
+#### Files Changed (Session 64)
+
+**New:**
+- `frontend/src/pages/reports/InventoryStatus.jsx` — Inventory status + reorder analysis with status badges + filter pills
+- `frontend/src/pages/reports/PeriodCompare.jsx` — Two-period side-by-side metric comparison
+- `frontend/src/pages/reports/TxNotes.jsx` — Filtered tx browser for transactions with cashier notes
+- `frontend/src/pages/reports/reports-shared.css` — Trimmed `rh-` prefix shared styles for the 3 components
+
+**Modified:**
+- `frontend/src/pages/AnalyticsHub.jsx` — +Compare tab (mounts `<PeriodCompare embedded />`), GitCompare icon
+- `frontend/src/pages/POSReports.jsx` — +Notes tab (mounts `<TxNotes embedded />`), MessageSquare icon
+- `frontend/src/pages/InventoryCount.jsx` — +Stock Levels tab (mounts `<InventoryStatus embedded />`), Warehouse icon
+- `frontend/src/components/Sidebar.jsx` — Removed "Reports" entry from Reports & Analytics group
+- `frontend/src/App.jsx` — Removed `import ReportsHub from './pages/ReportsHub'`; replaced route with `<Navigate to="/portal/analytics" replace />`
+- `frontend/src/rbac/routePermissions.js` — Removed `/portal/reports` entry
+- `frontend/src/services/api.js` — Dropped 5 unused report helpers, kept 3 with documenting comment
+
+**Deleted:**
+- `frontend/src/pages/ReportsHub.jsx` (1,482 lines)
+- `frontend/src/pages/ReportsHub.css` (216 lines)
+
+#### Follow-ups (queued)
+
+- Backend cleanup of orphaned `/api/reports/hub/{summary,tax,events,receive,house-accounts}` routes after grepping cashier-app + ecom-backend + scheduled jobs to confirm zero callers
+- Audit any portal pages that link to `/portal/reports?tab=X` — the redirect drops the query string, so deep links to specific old tabs land on Analytics instead of the new tab location
+
+---
+
+*Last updated: May 2026 — Session 64 (Reports Cleanup): distributed the 3 surviving ReportsHub tabs (Inventory → InventoryCount, Compare → AnalyticsHub, Notes → POSReports), deleted the 13-tab parent (1,482-line jsx + 216-line css), trimmed shared CSS to a `reports/` folder, dropped 5 unused API helpers + RBAC entry + sidebar entry, replaced `/portal/reports` route with React Router redirect to `/portal/analytics`. Vite build clean (3,446 modules, 17.29s, zero errors). Hub layouts now: Analytics 5 tabs, POSReports 5 tabs, InventoryCount 3 tabs.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 65 — B10: Orphaned Backend Routes Cleanup)
+
+5-min closeout from Session 64. The 5 orphaned `/api/reports/hub/{summary,tax,events,receive,house-accounts}` routes had their portal callers removed in S64 (the corresponding 5 API helpers in `services/api.js` were dropped at the same time). This session verified zero callers across every other surface and deleted the backend implementations.
+
+#### Cross-app caller verification
+
+`grep -r 'reports/hub/(summary|tax|events|receive|house-accounts)'` across every codebase:
+
+| Codebase | Result |
+|---|---|
+| `frontend/` (portal) | ✓ zero matches (already cleaned in S64) |
+| `cashier-app/` | ✓ zero matches |
+| `admin-app/` | ✓ zero matches |
+| `ecom-backend/` | ✓ zero matches |
+| `storefront/` | ✓ zero matches |
+
+Also grepped for the helper names directly (`getReportSummary | getReportTax | getReportEvents | getReportReceive | getReportHouseAccounts`) in case anything was wrapping them — only matches were the trailing CLAUDE.md doc reference + the api.js trimming comment from S64. Zero live callers.
+
+#### Backend trim
+
+**`reportsHubController.ts` (766 → 230 lines)** — deleted 5 handlers + their dedicated interfaces. Kept:
+- `getInventoryReport` (lines 451-533 in old file)
+- `getCompareReport` (lines 550-596 in old file, with `PeriodAgg` interface)
+- `getNotesReport` (lines 602-634 in old file)
+
+Trimmed the shared interfaces too — `LineItem` slimmed from 18 fields to the 4 the inventory handler actually uses (`isLottery`, `isBottleReturn`, `productId`, `qty`); `TenderLine` kept as-is (Compare handler still needs it); deleted `DeptAgg`, `DeptOut`, `TenderMethodAgg` which were used only by the dropped Summary/Tax handlers.
+
+Header docblock updated to make the trim history explicit so future contributors see what was dropped and why before they restore anything.
+
+**`reportsHubRoutes.ts` (33 → 26 lines)** — dropped 5 import names + 5 `router.get` lines. Same `requirePermission('reports.view')` gate continues to wrap the 3 surviving routes.
+
+#### Verification
+
+- `npx tsc --noEmit` filtered for `reportsHub*` — **zero new errors**
+- 21 unrelated pre-existing tsc errors remain (`@storeveu/queue/producers` env-specific resolution + 21 implicit-any errors in `tests/_smoke_sante_transform.mjs`) — none touched by this session
+- `Sante import` smoke test failures are a known background — separate F1 backlog item
+
+#### Files Changed (Session 65)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/reportsHubController.ts` | 766 → 230 lines — dropped 5 handlers + 3 unused interfaces; added trim-history docblock |
+| `backend/src/routes/reportsHubRoutes.ts` | 33 → 26 lines — dropped 5 imports + 5 route lines |
+
+#### Why I bothered
+
+Orphaned routes are a small but real liability — they'd survive RBAC reshuffles, accidentally get re-imported by autocomplete, and continue to count toward the controller's complexity budget for future refactor passes. Cleanest moment to drop them is right after the frontend stops calling them, while it's still obvious they're dead.
+
+---
+
+*Last updated: May 2026 — Session 65 (B10): orphaned `/api/reports/hub/{summary,tax,events,receive,house-accounts}` routes dropped after verifying zero callers across all 5 codebases. `reportsHubController.ts` 766 → 230 lines; `reportsHubRoutes.ts` 33 → 26 lines. Backend tsc clean (zero new errors).*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 65 — T1: Audit Harness Extension + 3 Real Bug Fixes)
+
+The B1 audit harness from Session 59 covered 9 of the ~12 critical-path reporting surfaces. T1 extended it to cover 6 more — and immediately surfaced 3 real bugs in the controller that were rolled into the same session.
+
+#### What got added
+
+**6 new audit blocks** in [`seedAuditAudit.mjs`](backend/prisma/seedAuditAudit.mjs):
+
+| Report | Endpoint | What it verifies |
+|---|---|---|
+| 10 | `/sales/weekly` | Sum of weekly buckets matches sum of daily buckets across the 5-day window |
+| 11 | `/sales/monthly` | Same but per-month |
+| 12 | `/sales/products/top` | Per-day top-product breakdown matches `byProductByDay[YESTERDAY]` |
+| 13 | `/sales/products/grouped` | Paginated 5-day best-sellers match `byProduct` totals (now refund-aware) |
+| 14 | `/sales/products/movement` | Single-product daily series matches `byProductByDay.bread` per day |
+| 15 | `/sales/products/52week-stats` | Total units + avg-weekly-with-divisor-floor (max(weeksWithSales, 4)) match expected |
+
+**Seed extension** in [`seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs):
+- New `expected.byProductByDay = { 'YYYY-MM-DD': { productKey: { units, revenue } } }` map populated alongside the existing `byProduct` aggregate
+- Updated `byProduct` + `byProductByDay` accumulator to apply the **same refund sign convention** the controllers use (refund qty/revenue SUBTRACT, voids contribute nothing) — was previously counting only completes
+
+**Stage 1 schema fix** in [`seedAuditStore.mjs`](backend/prisma/seedAuditStore.mjs):
+- Tax rule schema changed in S56b (`appliesTo` string column dropped, `departmentIds Int[]` added). Audit seed was still writing the legacy field → `Unknown argument 'appliesTo'` failure.
+- Reordered seed so departments are created BEFORE tax rules, then tax rules link via `departmentIds: [deptGrocery.id, deptBeverages.id]` for the 5% rule and `[deptTobacco.id, deptAlcohol.id]` for the 8.875% rule
+
+#### 3 real bugs surfaced + fixed
+
+T1's first audit run produced 6 drifts. Diagnosis traced them to two pre-existing controller bugs that the new endpoints exposed:
+
+**Bug #1 — `getProductMovement` raw-summed across complete + refund txs without sign flip**
+
+[`backend/src/services/sales/sales.ts`](backend/src/services/sales/sales.ts) — the function bucketed by date and summed `Number(li.qty || 1)` + `r2(li.lineTotal || 0)` from every line in every matching tx. For a refund tx where the seed stores `lineTotal = -3.99` and `qty = 1`:
+- Revenue: `+3.99` (sale) + `-3.99` (refund) = `$0` ✓ (accidentally correct for revenue because lineTotal is already signed)
+- Units: `+1` (sale) + `+1` (refund) = `2` ✗ (qty is positive on both legs — refund inflates the count)
+
+**Effect**: bread sold once + refunded once showed up as **"2 units sold"** in movement charts. Predictions, sales-velocity dashboards, and any downstream consumer of movement data was inflating sales by the count of refund tx-lines.
+
+**Fix**: added `isRefund = tx.status === 'refund'` check; refund branch subtracts `Math.abs(qty)` and `Math.abs(lineTotal)` from the bucket. Matches the B7/B8/B9 sign convention applied across the rest of the sales surfaces.
+
+**Bug #2 — `getProduct52WeekStats` had the same bug**
+
+Same root cause: weekly bucketing summed raw `Number(li.qty || 1)` regardless of tx status. Bread sold 10× over the year and returned 1× would report `totalUnits: 11`, `avgWeekly: 11/4 = 2.75`. The correct net-sales velocity is `9/4 = 2.25`.
+
+**Effect**: orderEngine reorder calculations consume 52-week stats. Inflated sales velocity → over-ordered reorder quantities. Magnitude depends on each store's refund rate but typically 1-3% over-ordering, compounded across the entire reorder engine.
+
+**Fix**: same `isRefund` sign-convention pattern, applied to the weekly qty accumulator.
+
+**Bug #3 (latent) — Audit `expected.byProduct` only counted completes**
+
+The seed's `saveTx` aggregator was tracking `byProduct.unitsSold` only for `tx.audit.status === 'complete'`. Wrong by definition once the controller was fixed — fixed seed now applies the same sign convention so expected and actual reconcile.
+
+#### Verification
+
+| Stage | Result |
+|---|---|
+| `seedAuditStore.mjs` (Stage 1) | ✓ clean after `appliesTo`→`departmentIds` rewrite |
+| `seedAuditTransactions.mjs` (Stage 2) | ✓ 21 transactions / 6 shifts / 8 lottery days / 5 fuel days / 2 vendor payments |
+| `seedAuditAudit.mjs` (Stage 3) | ✓ **63/63 checks pass** (was 46/46 in S59 + 6 new + 11 sub-checks across the new blocks) |
+| `npx tsc --noEmit` filtered for `sales/sales` + `reportsHub*` | ✓ zero new errors |
+
+Full final audit:
+```
+Total checks: 63
+✓ Match:     63
+✗ Drift:     0
+```
+
+#### Files Changed (Session 65 / T1)
+
+| File | Change |
+|---|---|
+| `backend/prisma/seedAuditStore.mjs` | Reordered: departments now seeded before tax rules; tax rules use `departmentIds` instead of legacy `appliesTo` |
+| `backend/prisma/seedAuditTransactions.mjs` | Added `byProductByDay` map; refund txs now subtract qty/revenue from `byProduct` + `byProductByDay` (matches new controller behavior) |
+| `backend/prisma/seedAuditAudit.mjs` | +6 new audit blocks (REPORTS 10-15) — weekly, monthly, top products, products grouped, product movement, 52-week stats |
+| `backend/src/services/sales/sales.ts` | `getProductMovement` + `getProduct52WeekStats` apply refund sign convention (B7/B8/B9 pattern); both queries also pull `status` field for the check |
+
+#### Why this matters
+
+The B1 audit established the harness; T1 extends its reach to cover the second-tier reports that nobody had explicitly verified before. The two controller fixes are real — they were under-stating refunds in single-product time series and over-stating sales velocity in 52-week stats, both of which propagate downstream to predictions and reorder calculations. Fixing them brings the entire `/sales/products/*` family in line with the B7/B8/B9 sign-convention pattern that already governs `/sales/departments`, `/sales/products/top`, and `/sales/products/grouped`.
+
+#### Follow-ups (deferred)
+
+The original T1 wish-list also called out **DST-crossing transactions** as an area to test. The seed currently doesn't generate transactions that straddle a real DST boundary (Mar 9 / Nov 2 in EDT/EST). That's a separate test seed — would need to date-shift transactions to a known DST window without polluting the rolling aggregations. Queued for a future session that focuses specifically on DST + non-UTC timezone behavior across the entire reporting stack.
+
+---
+
+*Last updated: May 2026 — Session 65 (T1): audit harness extended with 6 new reports (weekly/monthly aggregation, top products, products grouped, product movement, 52-week stats). Surfaced + fixed 2 real controller bugs (`getProductMovement` + `getProduct52WeekStats` were summing raw qty across complete + refund txs without sign flip — bread sold 10× refunded 1× was reporting 11 units instead of 9). Final audit: **63/63 checks pass**. Backend tsc clean. 5 of 5 reporting surfaces from T1 now covered; DST-crossing test deferred to a future session.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 66 — Reports IA: Drop Nested Tabs + Consolidate Daily-Close Hub)
+
+User feedback after S64+S65 wrapped: "reports look more streamlined now, but Analytics has tabs within tabs which looks awkward — give a dropdown for daily/weekly/monthly/yearly in filters... and rearrange tabs and pages by similar categories so easier to fetch."
+
+Two real problems:
+
+**Problem 1 — Tabs within tabs.** AnalyticsHub's outer Sales/Departments/Products/Predictions/Compare tab bar stacked visually under SalesAnalytics' inner Daily/Weekly/Monthly/Yearly tab bar (and similarly for SalesPredictions' Hourly/Daily/Weekly/Monthly tabs). Two horizontal pill rows in a row felt nested and visually heavy.
+
+**Problem 2 — Reports & Analytics sidebar bloat.** 7 separate sidebar entries: Transactions / Analytics / Employees / End of Day / Dual Pricing / Daily Sale / Audit Log. Three of those (End of Day, Dual Pricing, Daily Sale) are all single-day "what happened on day X" reports — a natural cluster.
+
+#### Fix 1 — Period dropdown replaces nested period tab bars
+
+Two pages converted:
+
+| Page | Inner tab bar removed | Replaced with |
+|---|---|---|
+| `SalesAnalytics.jsx` | `analytics-tabs` row with Daily/Weekly/Monthly/Yearly buttons | `<select className="sa-period-select">` labeled "Period" in header actions row |
+| `SalesPredictions.jsx` | `p-tabs` row with Hourly/Daily/Weekly/Monthly buttons | `<select className="sp-period-select">` labeled "Horizon" in header actions row |
+
+Same handler logic underneath — still calls `setTab(t)` / `handleTabChange(t)` / `setActiveTab(t)`. Just renders as a compact pill that drops down on click instead of 4 horizontal pills always visible. Matches the modern analytics UI convention used by Stripe / Linear / Notion.
+
+CSS appended to each file's stylesheet (`.sa-period-pill` + `.sa-period-select` for SalesAnalytics; matching `.sp-` prefix for SalesPredictions). Both have a brand-blue focus ring + custom SVG dropdown caret. Lives in the same row as Refresh / CSV / PDF / DatePickers, so no new vertical chrome added — net visual gain is one fewer tab row stacked under the AnalyticsHub bar.
+
+The other 3 AnalyticsHub tabs (Departments / Products / Compare) had no inner period tabs and required no changes.
+
+#### Fix 2 — `DailyReports` hub consolidates 3 single-page entries
+
+New file: [`frontend/src/pages/DailyReports.jsx`](frontend/src/pages/DailyReports.jsx). Same hub pattern as POSReports / AnalyticsHub / InventoryCount — 3 tabs, each mounting a child page with `embedded` prop:
+
+| Tab | Child page | URL |
+|---|---|---|
+| End of Day  | `<EndOfDayReport embedded />`    | `?tab=eod` (default) |
+| Daily Sale  | `<DailySale embedded />`         | `?tab=sale` |
+| Dual Pricing| `<DualPricingReport embedded />` | `?tab=dual-pricing` |
+
+`embedded` prop added to all 3 children:
+- `EndOfDayReport` — wraps the page-title block in `{!embedded && (...)}` (toolbar action buttons stay visible)
+- `DualPricingReport` — same pattern, wraps the icon+h1+p block
+- `DailySale` — accepts the prop for API symmetry but doesn't visually use it (the page has no separate page-header to hide; its own `ds-header` is integrated with the date navigation)
+
+#### Sidebar after S66
+
+```
+Reports & Analytics
+  ├─ Transactions    (POSReports — 5 tabs, unchanged)
+  ├─ Analytics       (AnalyticsHub — 5 tabs, no nested tab rows)
+  ├─ Employees       (EmployeeReports — 3 tabs, unchanged)
+  ├─ Daily Reports   (NEW HUB — End of Day / Daily Sale / Dual Pricing)
+  └─ Audit Log       (standalone, compliance not analytics)
+```
+
+7 → 5 entries. No functionality lost; same depth-2 nav (sidebar item → tab) reaches every report.
+
+#### Old URLs preserved as redirects
+
+[`App.jsx`](frontend/src/App.jsx):
+```jsx
+<Route path="/portal/daily-reports"      element={gated(<DailyReports />)} />
+<Route path="/portal/end-of-day"         element={<Navigate to="/portal/daily-reports?tab=eod" replace />} />
+<Route path="/portal/daily-sale"         element={<Navigate to="/portal/daily-reports?tab=sale" replace />} />
+<Route path="/portal/dual-pricing-report" element={<Navigate to="/portal/daily-reports?tab=dual-pricing" replace />} />
+```
+
+Existing bookmarks land on the correct tab inside the new hub. Same RBAC permission (`reports.view`) applies to all 4 entries in [`routePermissions.js`](frontend/src/rbac/routePermissions.js).
+
+#### Verification
+
+| Check | Result |
+|---|---|
+| `npx vite build` | ✓ 16.96s, zero errors, 3,447 modules transformed |
+| Vite warnings | Same dynamic-import + chunk-size advisories that pre-date S66 |
+| Sidebar entries under Reports & Analytics | 7 → 5 |
+| Nested tab-bar rows on AnalyticsHub | 0 (was 1 row inner-stacked under outer tab row) |
+| Old `/portal/end-of-day` direct URL behavior | ✓ redirects to `/portal/daily-reports?tab=eod` |
+| Old `/portal/daily-sale` direct URL behavior | ✓ redirects to `/portal/daily-reports?tab=sale` |
+| Old `/portal/dual-pricing-report` direct URL behavior | ✓ redirects to `/portal/daily-reports?tab=dual-pricing` |
+
+#### Files Changed (Session 66)
+
+**New:**
+- `frontend/src/pages/DailyReports.jsx` — 3-tab hub for daily-close reports
+
+**Modified:**
+- `frontend/src/pages/SalesAnalytics.jsx` + `.css` — inner tab bar → period dropdown (sa- prefix)
+- `frontend/src/pages/SalesPredictions.jsx` + `.css` — inner tab bar → horizon dropdown (sp- prefix)
+- `frontend/src/pages/EndOfDayReport.jsx` — accept `embedded` prop, hide page title when true
+- `frontend/src/pages/DualPricingReport.jsx` — accept `embedded` prop, hide page title when true
+- `frontend/src/pages/DailySale.jsx` — accept `embedded` prop (API symmetry)
+- `frontend/src/components/Sidebar.jsx` — drop 3 entries, add Daily Reports entry
+- `frontend/src/App.jsx` — add DailyReports import + route, convert 3 old paths to `<Navigate>` redirects
+- `frontend/src/rbac/routePermissions.js` — add `/portal/daily-reports` permission entry, keep legacy entries for the redirect path
+
+#### Why this matters for IA
+
+The AnalyticsHub fix is purely visual cleanup — removed nested chrome, no functional change. The DailyReports hub is the bigger win: 3 conceptually-related single-day reports now live in one location, the user discovers them together instead of as 3 separate sidebar items, and the sidebar gets shorter so other groups (Catalog, Vendors, Online Store) get more visual weight relative to Reports & Analytics. Same nav depth (1 click + 1 tab click vs. 1 click) so no UX regression for direct navigation.
+
+---
+
+*Last updated: May 2026 — Session 66 (Reports IA): SalesAnalytics + SalesPredictions inner period tab bars converted to header dropdowns (no more nested tab rows under AnalyticsHub); new `DailyReports` hub at `/portal/daily-reports` consolidates End of Day + Daily Sale + Dual Pricing (3 sidebar entries → 1 hub); old URLs preserved as React Router redirects; sidebar Reports & Analytics group shrunk from 7 → 5 entries. Vite build clean (16.96s).*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 67 — Configurable EoD Report: Department Breakdown + Lottery-Separate-from-Drawer + Hide-Zero-Rows)
+
+User feedback: 3 EoD configurability asks
+1. *"Department wise report in end of day report (Enable and disable)"*
+2. *"Lottery ringged/scanned/checkout from register shall be in dept breakdown. Give another option to include or remove cash from cash drawer so cashdrawer will be only business cash and lottery details are shown separate in EoD report (Again enable / disable)"*
+3. *"Enable / disable if the store needs full report or only show rows in report that has value, for zero transaction and 0 / null values include / not include"*
+
+#### Architecture: 3 settings on `store.pos.eodReport` JSON (no schema migration)
+
+```json
+"eodReport": {
+  "showDepartmentBreakdown":   true,    // adds DEPT BREAKDOWN section to EoD
+  "lotterySeparateFromDrawer": false,   // pulls lottery cash OUT of drawer math
+  "hideZeroRows":              true     // drops rows where amount == 0 && count == 0
+}
+```
+
+Defaults chosen to keep current behavior unchanged for existing stores while making the most-requested options on by default.
+
+#### Backend changes ([endOfDayReportController.ts](backend/src/controllers/endOfDayReportController.ts))
+
+**1. New `aggregateDepartments(scope)` helper** (~80 lines) — pulls every transaction in window, bucket-sums net revenue + tx-count + line-count per department, applying the B7/B8/B9 refund sign convention. Lottery + Fuel get their own synthetic bucket rows (`__lottery__`, `__fuel__`) so the breakdown is the FULL revenue picture, not just non-lottery sales. Uses live Department lookup so renamed departments still resolve correctly. Bag fees + bottle returns excluded (pass-through).
+
+**2. EoD settings reader** at the top of `getEndOfDayReport` — reads `store.pos.eodReport` JSON with explicit per-field type checks + falls back to defaults. Three settings travel together in the response as `settings: { ... }` so renderers know what to show.
+
+**3. Department aggregation parallelized** with the existing `aggregateTransactions` / `aggregateCashEvents` / `aggregateFuel` `Promise.all` — no extra latency for stores that have it enabled, zero work for stores that don't.
+
+**4. `hideZeroRows` filter** at the response edge via a typed `filterZero<T>(rows)` helper applied to `payouts`, `tenders`, `fees`, and `departments.rows`. The transactions section always renders (Net/Gross/Tax/Cash are signal even at $0). Server-side filter so cashier-app + back-office + thermal print stay consistent.
+
+#### Reconciliation engine changes ([compute.ts](backend/src/services/reconciliation/shift/compute.ts) + [service.ts](backend/src/services/reconciliation/shift/service.ts))
+
+`ReconcileShiftArgs` + `ComputeArgs` both gained a new optional `lotterySeparateFromDrawer?: boolean` flag (default `false` preserves S44/S61 behavior).
+
+When `true`:
+- **Math change**: `expectedDrawer` math uses `+0` instead of `+netLotteryCash`. Drawer expectation reflects business cash only.
+- **Line items**: the 4 lottery rows (`lotteryUnreported`, `machineDrawSales`, `machineCashings`, `instantCashings`) are dropped from the reconciliation breakdown so the drawer block doesn't show partial info.
+- **`lotteryCashFlow` detail still emitted** on the `lottery` field of the response so renderers can show it as its own dedicated section parallel to (not inside) the drawer reconciliation.
+
+EoD controller threads the flag through: `reconcileShift({ ..., lotterySeparateFromDrawer: eodSettings.lotterySeparateFromDrawer })`.
+
+#### Frontend — POSSettings.jsx
+
+New "📊 End of Day Report" section between "🎟️ Lottery" and "BAG FEE" with 3 toggles + explanatory copy per toggle:
+
+- **Show Department Breakdown** — *"Add a per-department revenue section (Grocery / Beverages / Tobacco / Lottery / Fuel / etc.) to the EoD report."*
+- **Lottery Cash Separate from Drawer** — *"When ON, lottery cash flow (un-rung tickets, machine sales, machine cashings, instant cashings) is excluded from the cash drawer reconciliation. Drawer expectation reflects business cash only; lottery shows as its own section."*
+- **Hide Zero Rows** — *"Only show rows with non-zero amounts. When OFF, every category renders even if it had no activity (useful for full audit trails)."*
+
+Default config in `DEFAULT_POS_CONFIG.eodReport` matches the backend defaults.
+
+#### Frontend — EndOfDayReport.jsx (back-office) + EndOfDayModal.jsx (cashier-app)
+
+Both pages got two new conditional sections:
+
+**1. Department Breakdown** — between TRANSACTIONS and PASS-THROUGH FEES sections. Renders when `report.departments?.rows?.length > 0`. 4 columns: Department / Tx Count / Lines / Net Sales + Total row. Synthetic Lottery + Fuel rows mix in alongside Grocery / Beverages / Tobacco / Alcohol so it's a complete revenue picture.
+
+**2. Standalone Lottery Cash Flow** — between FUEL SALES and DUAL PRICING. Renders only when `report.settings?.lotterySeparateFromDrawer === true` AND there's actual lottery activity. Shows: Ticket-math Sales / POS-Recorded / + Un-rung / + Machine Sales / − Machine Cashings / − Instant Cashings / **= Net Lottery Cash** (bold). Header subtitle: *"These figures are tracked independently of the cash drawer reconciliation above."*
+
+CSV + PDF export blocks updated to include the new department rows so downloaded reports match what's on screen.
+
+#### Frontend — printerService.js (thermal print template)
+
+Same two new sections added to the ESC/POS receipt template:
+- **DEPARTMENT BREAKDOWN** block right after PASS-THROUGH FEES, with 3-col layout: Department / Tx / Net + Total row in bold
+- **LOTTERY CASH FLOW (separate from drawer)** block before CASH RECONCILIATION when toggle on + activity present. Per-line currency rows + bold "= Net Lottery Cash" total
+
+#### End-to-end verification
+
+**Spot check via direct HTTP** against the audit store on a closed shift with lottery activity:
+
+| Toggle | expectedDrawer | Drawer-side lineItems | Lottery in own section |
+|---|---|---|---|
+| OFF (default) | **$294.59** | 4 lottery rows mixed in: `+$30 un-rung`, `+$120 machine sales`, `−$30 machine cash`, `−$20 instant cash` | also shown via `lotteryCashFlow` for back-compat |
+| ON | **$194.59** | 0 lottery rows (cleanly removed) | shown standalone, **$100 = Net Lottery Cash** |
+
+**Math reconciles**: $294.59 − $194.59 = **$100 = `netLotteryCash` exactly**.
+
+**Department breakdown spot check** (yesterday on audit store):
+```
+- Grocery   $45.39 (3 tx, 11 lines)
+- Tobacco   $35.97 (3 tx,  3 lines)
+- Alcohol   $23.92 (2 tx,  8 lines)
+- Beverages $13.96 (3 tx,  8 lines)
+  Total     $119.24
+```
+Matches `byDay[YESTERDAY].net` from `audit-expected.json` exactly.
+
+**Hide-zero filter active**: with default `hideZeroRows: true`, payouts went 9 → 1 row (Cashback only had activity yesterday); tenders went 9 → 3 rows (Cash / Credit / EBT). With it OFF, all 9 categories of each render.
+
+#### Audit harness regression check
+
+Ran the full S65 audit harness (`seedAuditAudit.mjs`) end-to-end against the new code. **63/63 checks still pass.** Zero regressions in any of the 15 reports the harness covers — the new optional sections are purely additive and don't disturb existing aggregation.
+
+#### Verification
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` filtered for endOfDayReport + reconciliation/shift + sales/sales | ✓ zero new errors |
+| `npx vite build` portal | ✓ 15.96s, zero errors |
+| `npx vite build` cashier-app | ✓ 4.77s, PWA generated |
+| Audit harness `seedAuditAudit.mjs` | ✓ **63/63 checks pass** |
+| Live HTTP spot-check: settings shape | ✓ `{ showDepartmentBreakdown: true, lotterySeparateFromDrawer: false, hideZeroRows: true }` |
+| Live HTTP spot-check: dept breakdown | ✓ 4 dept rows, total matches `byDay[YESTERDAY].net` |
+| Live HTTP spot-check: lottery toggle ON vs OFF | ✓ $100 net lottery cash cleanly removed from drawer when ON |
+
+#### Files Changed (Session 67)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/controllers/endOfDayReportController.ts` | +`aggregateDepartments()` helper; settings reader at top of `getEndOfDayReport`; threads `lotterySeparateFromDrawer` into `reconcileShift`; applies `hideZeroRows` filter via typed `filterZero<T>` helper; surfaces `settings` + `departments` on response |
+| `backend/src/services/reconciliation/shift/compute.ts` | `ComputeArgs` +`lotterySeparateFromDrawer?` flag; conditionally drops `+netLotteryCash` from `expectedDrawer` math + skips 4 lottery line-items when true |
+| `backend/src/services/reconciliation/shift/service.ts` | `ReconcileShiftArgs` +`lotterySeparateFromDrawer?` flag, threads through to compute |
+
+**Frontend (portal):**
+| File | Change |
+|---|---|
+| `frontend/src/pages/POSSettings.jsx` | +`eodReport` defaults; new "End of Day Report" settings card with 3 toggles between Lottery and BAG FEE sections |
+| `frontend/src/pages/EndOfDayReport.jsx` | +DEPARTMENT BREAKDOWN section; +standalone LOTTERY CASH FLOW section (gated on `settings.lotterySeparateFromDrawer`); CSV + PDF exports updated |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/components/modals/EndOfDayModal.jsx` | +DEPARTMENT BREAKDOWN section; +standalone LOTTERY CASH FLOW section |
+| `cashier-app/src/services/printerService.js` | `buildEoDReceiptString` +DEPARTMENT BREAKDOWN block; +LOTTERY CASH FLOW block (gated on settings.lotterySeparateFromDrawer) |
+
+#### What this gives stores
+
+- **Department-aware EoD** — see exactly where the day's revenue came from at a glance, lottery + fuel included so it's a complete picture
+- **Cleaner cash drawer math** for stores that prefer to track lottery separately — drawer reconciliation reflects business cash only, lottery flow gets its own dedicated audit block
+- **Cleaner reports for low-activity windows** — no walls of zeros for tender categories the store doesn't take, payout buckets that didn't fire, etc. Toggle off when full audit trails are needed.
+
+All defaults preserve existing behavior — opt in per store via Store Settings → POS Settings → End of Day Report.
+
+---
+
+*Last updated: May 2026 — Session 67 (Configurable EoD Report): 3 new toggles in `store.pos.eodReport` JSON drive (a) DEPARTMENT BREAKDOWN section across back-office page + cashier modal + thermal print, (b) `lotterySeparateFromDrawer` flag through `reconcileShift` for clean business-only drawer math + standalone lottery section, (c) `hideZeroRows` server-side filter on payouts/tenders/fees/departments rows. Math verified end-to-end: lottery toggle OFF→$294.59 drawer, ON→$194.59, exactly $100 difference matching `netLotteryCash`. Audit harness regression-clean: **63/63 pass** unchanged. tsc + 2 vite builds clean.*
+
 
 
 

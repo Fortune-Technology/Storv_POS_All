@@ -42,6 +42,8 @@ export default function ActionBar({
   onFuelSale,
   onFuelRefund,
   onCoupon,
+  onRefundMode,         // toggles "next scan = refund" (Session D)
+  refundModeActive = false,   // visual state for the toggle button
   onScanCamera,
   onHardwareSettings,
   onAdminPortal,
@@ -196,6 +198,22 @@ export default function ActionBar({
           {onCoupon && (
             <>
               <ACT icon={ScanLine} label="Coupon" onClick={onCoupon} color="#7c3aed" />
+              <Divider />
+            </>
+          )}
+          {onRefundMode && (
+            <>
+              {/* Refund Mode — manager-gated toggle. Active state visualised
+                  via brighter color + label change so the cashier can see
+                  at a glance that the next scan will be recorded as a refund.
+                  Auto-clears after one scan (handled in POSScreen). */}
+              <ACT
+                icon={RotateCcw}
+                label={refundModeActive ? 'Cancel Refund' : 'Refund Mode'}
+                onClick={refundModeActive ? onRefundMode : mgr('Refund Mode', onRefundMode)}
+                color={refundModeActive ? '#fbbf24' : '#ef4444'}
+                locked={!refundModeActive && !valid}
+              />
               <Divider />
             </>
           )}

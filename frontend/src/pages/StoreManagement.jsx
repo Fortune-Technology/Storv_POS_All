@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './analytics.css';
 import './StoreManagement.css';
 import {
@@ -391,6 +392,7 @@ function StoreModal({ store, onClose, onSaved, onLimitHit }) {
 
 /* ── Store card ──────────────────────────────────────────────────────────── */
 function StoreCard({ store, onEdit, onDeactivate }) {
+  const confirm = useConfirm();
   const [removing, setRemoving] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const { activeStoreId, switchStore } = useStore();
@@ -410,7 +412,12 @@ function StoreCard({ store, onEdit, onDeactivate }) {
   const posColor = POS_COLOR[posType];
 
   const handleDeactivate = async () => {
-    if (!window.confirm(`Deactivate "${store.name}"? It can be reactivated later.`)) return;
+    if (!await confirm({
+      title: 'Deactivate store?',
+      message: `Deactivate "${store.name}"? It can be reactivated later.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    })) return;
     setRemoving(true);
     try {
       await deactivateStore(store.id);

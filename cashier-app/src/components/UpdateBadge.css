@@ -1,0 +1,96 @@
+/* UpdateBadge — sits on the PIN login screen, footer area. Prefix: update-badge- */
+
+.update-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+
+.update-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.update-badge-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.update-badge-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.update-badge--available .update-badge-btn {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.32);
+}
+.update-badge--available .update-badge-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8, #4338ca);
+}
+
+.update-badge--ready .update-badge-btn {
+  background: linear-gradient(135deg, #16a34a, #059669);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.32);
+}
+.update-badge--ready .update-badge-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #15803d, #047857);
+}
+
+.update-badge--error .update-badge-btn {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.update-badge-icon { display: inline-block; }
+.update-badge-icon--spin { display: inline-block; animation: ub-spin 1s linear infinite; }
+@keyframes ub-spin { to { transform: rotate(360deg); } }
+
+.update-badge-hint {
+  font-size: 10px;
+  color: #94a3b8;
+  letter-spacing: 0.2px;
+}
+.update-badge-hint--err {
+  color: #fca5a5;
+  max-width: 320px;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.update-badge-version {
+  font-size: 10px;
+  color: #64748b;
+  font-feature-settings: 'tnum';
+  letter-spacing: 0.4px;
+}
+
+.update-badge-progress {
+  width: 200px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.update-badge-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 999px;
+  transition: width 200ms ease;
+}

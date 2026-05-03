@@ -28,6 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import { CheckCircle2, Info, Loader2, Lock, Plus, ScanLine, Ticket, Wallet, X } from 'lucide-react';
 import {
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
@@ -41,6 +42,7 @@ const fmtMoney = (n) => n == null ? '$0.00' : `$${Number(n).toFixed(2)}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function LotteryDailyScan() {
+  const confirm = useConfirm();
   const [date, setDate]                   = useState(todayStr());
   const [inventory, setInventory]         = useState(null);
   const [onlineTotal, setOnlineTotal]     = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
@@ -91,13 +93,15 @@ export default function LotteryDailyScan() {
   };
 
   const runCloseDay = async () => {
-    if (!window.confirm(
-      `Close the lottery day for ${date}?\n\n` +
-      '• Saves any unsaved machine totals\n' +
-      '• Executes scheduled book moves\n' +
-      '• Snapshots active books to audit log\n\n' +
-      'Safe to re-run.'
-    )) return;
+    if (!await confirm({
+      title: 'Close lottery day?',
+      message: `Close the lottery day for ${date}?\n\n` +
+        '• Saves any unsaved machine totals\n' +
+        '• Executes scheduled book moves\n' +
+        '• Snapshots active books to audit log\n\n' +
+        'Safe to re-run.',
+      confirmLabel: 'Close Day',
+    })) return;
     setClosing(true);
     try {
       await upsertLotteryOnlineTotal({ date, ...onlineTotal }).catch(() => {});

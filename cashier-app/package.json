@@ -15,6 +15,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5174 && cross-env NODE_ENV=development electron electron/main.cjs\"",
+    "electron:dev:simulate-update": "concurrently \"vite\" \"wait-on http://localhost:5174 && cross-env NODE_ENV=development UPDATER_SIMULATE=1 electron electron/main.cjs\"",
     "electron:build": "vite build && electron-builder",
     "electron:build:local": "vite build --mode development && electron-builder",
     "electron:pack": "electron-builder --dir",
@@ -24,6 +25,7 @@
     "axios": "^1.7.7",
     "date-fns": "^3.6.0",
     "dexie": "^4.0.8",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.454.0",
     "nanoid": "^5.0.7",
     "react": "^18.3.1",
@@ -60,6 +62,14 @@
       "node_modules/serialport/**/*",
       "node_modules/@serialport/**/*"
     ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/Fortune-Technology/Storv_POS_All/releases/download/latest-desktop",
+        "channel": "latest",
+        "useMultipleRangeRequest": false
+      }
+    ],
     "win": {
       "target": [
         {
@@ -69,7 +79,8 @@
           ]
         }
       ],
-      "icon": "public/icon.ico"
+      "icon": "public/icon.ico",
+      "artifactName": "StoreVeu.POS.Setup.${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

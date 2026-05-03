@@ -229,6 +229,24 @@ function TxReceipt({ tx, storeInfo }) {
           <span className="txn-receipt-val">{fmt$(tx.depositTotal)}</span>
         </div>
       )}
+      {/* Session 52 — Dual Pricing surcharge line.
+          Shown on every receipt that recorded a non-zero surcharge,
+          regardless of refund vs sale (the sign tells the story). */}
+      {tx.surchargeAmount && Math.abs(Number(tx.surchargeAmount)) > 0.005 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">
+            Surcharge ({Number(tx.surchargeRate || 0).toFixed(2)}%
+            {Number(tx.surchargeFixedFee || 0) > 0 ? ` + $${Number(tx.surchargeFixedFee).toFixed(2)}` : ''})
+          </span>
+          <span className="txn-receipt-val">{fmt$(Math.abs(Number(tx.surchargeAmount)))}</span>
+        </div>
+      )}
+      {tx.surchargeTaxAmount && Math.abs(Number(tx.surchargeTaxAmount)) > 0.005 && (
+        <div className="txn-receipt-two-col">
+          <span className="txn-receipt-label">  Tax on Surcharge</span>
+          <span className="txn-receipt-val">{fmt$(Math.abs(Number(tx.surchargeTaxAmount)))}</span>
+        </div>
+      )}
 
       <div className="txn-receipt-grand">
         <span>TOTAL</span>
@@ -1044,6 +1062,7 @@ export default function Transactions({ embedded }) {
                 <SortSpan sort={sort} k="stationId"   label="Station" />
                 <SortSpan sort={sort} k="itemCount"   label="Items" />
                 <SortSpan sort={sort} k="tender"      label="Payment" />
+                <span style={{ textAlign: 'right' }}>Surcharge</span>
                 <SortSpan sort={sort} k="total"       label="Total" align="right" />
               </div>
 
@@ -1078,6 +1097,16 @@ export default function Transactions({ embedded }) {
                         {METHOD_LABELS[m] || m}
                       </span>
                     ))}
+                  </div>
+                  {/* Session 52 — Surcharge column. Shows the surcharge + tax
+                      (combined) for txs that paid one. Muted "—" for cash /
+                      EBT / interchange txs. */}
+                  <div className={`txn-cell-surcharge${
+                    Math.abs(Number(tx.surchargeAmount || 0)) > 0.005 ? '' : ' txn-cell-surcharge--none'
+                  }`}>
+                    {Math.abs(Number(tx.surchargeAmount || 0)) > 0.005
+                      ? fmt$(Math.abs(Number(tx.surchargeAmount || 0)) + Math.abs(Number(tx.surchargeTaxAmount || 0)))
+                      : '—'}
                   </div>
                   <div className="txn-cell-total">
                     {tx.status === 'voided'

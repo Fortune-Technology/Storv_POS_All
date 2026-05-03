@@ -64,6 +64,8 @@ import api from '../api/client.js';
 import { nanoid } from 'nanoid';
 import { playErrorBeep } from '../utils/sound.js';
 import ChangeDueOverlay from '../components/pos/ChangeDueOverlay.jsx';
+import EbtBalanceOverlay from '../components/EbtBalanceOverlay.jsx';
+import { useChooser } from '../hooks/useChooserDialog.jsx';
 
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
@@ -74,6 +76,7 @@ import { usePOSConfig }      from '../hooks/usePOSConfig.js';
 import { useFuelSettings }   from '../hooks/useFuelSettings.js';
 import { useHardware }       from '../hooks/useHardware.js';
 import { useCustomerDisplayPublisher } from '../hooks/useBroadcastSync.js';
+import { useTerminalCartSync } from '../hooks/useTerminalCartSync.js';
 import { useCartStore, selectTotals, computeEffectiveDiscount } from '../stores/useCartStore.js';
 import { useManagerStore }   from '../stores/useManagerStore.js';
 import { useShiftStore }     from '../stores/useShiftStore.js';
@@ -84,6 +87,8 @@ import { db, searchProducts, getActivePromotions, getHeldTransactions } from '..
 import { evaluatePromotions }  from '../utils/promoEngine.js';
 import { fmt$ }              from '../utils/formatters.js';
 import { getSmartCashPresets } from '../utils/cashPresets.js';
+import UpdatePill            from '../components/UpdatePill.jsx';
+import { useUpdaterState }   from '../hooks/useUpdaterState.js';
 import './POSScreen.css';
 
 export default function POSScreen() {
@@ -109,6 +114,15 @@ export default function POSScreen() {
   const applyCouponAction = useCartStore(s => s.applyCoupon);
   const removeCouponAction = useCartStore(s => s.removeCoupon);
 
+  // Refund Mode (Session D) — when true, the next product scan adds a
+  // negative-qty refund line instead of a sale line. Auto-clears after one
+  // scan. Manager-PIN gated when toggling on. Mirrored into a ref so the
+  // useCallback handleScan can read the latest value without re-creating.
+  const addRefundItem  = useCartStore(s => s.addRefundItem);
+  const [refundMode, setRefundMode] = useState(false);
+  const refundModeRef  = useRef(false);
+  useEffect(() => { refundModeRef.current = refundMode; }, [refundMode]);
+
   // Watch catalog sync timestamp so promos reload after every sync
   const catalogSyncedAt   = useSyncStore(s => s.catalogSyncedAt);
   const isOnline          = useSyncStore(s => s.isOnline);
@@ -129,6 +143,11 @@ export default function POSScreen() {
   const storeId = station?.storeId;
   const { shift, loading: shiftLoading, loadActiveShift } = useShiftStore();
   const logout = useAuthStore(s => s.logout);
+
+  // Auto-update — used to know whether the AGE POLICY row should render
+  // when no age policy is configured. The row stays for the right-aligned
+  // pill if (and only if) there's an actionable update.
+  const { isActionable: updateActionable } = useUpdaterState();
 
   // ── Lottery store ────────────────────────────────────────────────────────
   const {
@@ -152,14 +171,26 @@ export default function POSScreen() {
   // triggers a temporal-dead-zone ReferenceError on first render.
   const [terminalLookupBusy, setTerminalLookupBusy] = useState(false);
   const [dejavooEbtEnabled, setDejavooEbtEnabled]   = useState(false);
-  const [ebtBalanceResult, setEbtBalanceResult]     = useState(null); // { amount, type } or null
+  // Whether a Dejavoo terminal is configured + active for this store. Drives
+  // the customer-display features (live cart push, welcome banner, thank-you
+  // print). Distinct from `dejavooEbtEnabled` because we want Cart push even
+  // when the merchant is credit-only.
+  const [hasDejavooConfigured, setHasDejavooConfigured] = useState(false);
+  // EBT balance flow — state machine: 'idle' → 'loading' → 'success' | 'error'
+  const [ebtBalanceState, setEbtBalanceState]       = useState('idle');
+  const [ebtBalanceResult, setEbtBalanceResult]     = useState(null); // { type, amount, last4 }
+  const [ebtBalanceError, setEbtBalanceError]       = useState(null); // string
 
   // ── Shared receipt print helper — used by auto-print, ask-prompt, reprint, history ──
   const handlePrintTx = useCallback((tx) => {
     if (!hasReceiptPrinter || !tx) return;
     const allItems = [
       ...(tx.lineItems || []).map(i => ({
-        name:           i.name,
+        // Append pack label to the printed name (e.g. "$2 ITEM NT (Double)")
+        // so the customer's receipt makes it clear which pack was rung up
+        // when the cart had multiple packs of the same product. Falls back
+        // to plain name for non-pack items + legacy txs without the field.
+        name:           i.packSizeLabel ? `${i.name} (${i.packSizeLabel})` : i.name,
         qty:            i.qty,
         unitPrice:      i.unitPrice,
         lineTotal:      i.lineTotal,
@@ -209,6 +240,31 @@ export default function POSScreen() {
       authCode:       tx.authCode,
       cardType:       tx.cardType,
       lastFour:       tx.lastFour,
+      // Session 51 — Dual Pricing receipt fields. The surcharge line is
+      // printed only when surchargeAmount > 0 (i.e. a card tender on a
+      // dual_pricing store). The disclosure block prints whenever the
+      // store is on dual_pricing — required by most state laws on every
+      // tender (cash receipts must also disclose the cash discount).
+      surchargeAmount:        tx.surchargeAmount || 0,
+      surchargeTaxAmount:     tx.surchargeTaxAmount || 0,
+      surchargeRate:          tx.surchargeRate || 0,
+      surchargeFixedFee:      tx.surchargeFixedFee || 0,
+      // For cash tenders on dual_pricing stores, compute "you saved $X" by
+      // diffing baseSubtotal × rate (what the customer would have paid card).
+      potentialSavings: (() => {
+        if (tx.pricingModel !== 'dual_pricing') return 0;
+        if (Number(tx.surchargeAmount || 0) > 0.005) return 0;
+        const base = Number(tx.baseSubtotal || tx.subtotal || 0);
+        const rate = Number(tx.surchargeRate || 0);
+        const fee  = Number(tx.surchargeFixedFee || 0);
+        if (base <= 0 || (rate <= 0 && fee <= 0)) return 0;
+        return Math.round((base * rate / 100 + fee) * 100) / 100;
+      })(),
+      dualPricingDisclosure:  tx.pricingModel === 'dual_pricing'
+        ? (posConfig.dualPricing?.dualPricingDisclosure
+            || posConfig.dualPricing?.state?.surchargeDisclosureText
+            || null)
+        : null,
     }).catch((err) => {
       // Receipt printer failure — surface to cashier via scan-error toast
       // so they know the receipt didn't print (common issue: offline USB / wrong IP).
@@ -217,7 +273,7 @@ export default function POSScreen() {
       if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
       scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
     });
-  }, [hasReceiptPrinter, printReceipt, storeBranding, cashier]);
+  }, [hasReceiptPrinter, printReceipt, storeBranding, cashier, posConfig.dualPricing]);
 
   // ── No Sale — open drawer + log event ─────────────────────────────────────
   const handleNoSale = useCallback(() => {
@@ -291,14 +347,30 @@ export default function POSScreen() {
     }
   }, [terminalLookupBusy, station, setCustomer]);
 
-  // Load Dejavoo merchant status once so we know whether to show EBT button
+  // Load Dejavoo merchant status — drives EBT button visibility AND the
+  // customer-display features (cart sync, welcome banner, thank-you print).
+  // Pass storeId via header so the backend can resolve the right merchant.
+  // Without it, /merchant-status returns { configured: false } and we'd
+  // mistakenly treat the terminal as not configured.
   useEffect(() => {
-    posApi.dejavooMerchantStatus()
-      .then(s => setDejavooEbtEnabled(!!(s?.configured && s?.provider === 'dejavoo' && s?.ebtEnabled)))
-      .catch(() => setDejavooEbtEnabled(false));
-  }, []);
+    posApi.dejavooMerchantStatus(storeId)
+      .then(s => {
+        const configured = !!(s?.configured && s?.provider === 'dejavoo' && s?.hasTpn);
+        setHasDejavooConfigured(configured);
+        setDejavooEbtEnabled(configured && !!s?.ebtEnabled);
+      })
+      .catch(() => {
+        setHasDejavooConfigured(false);
+        setDejavooEbtEnabled(false);
+      });
+  }, [storeId]);
 
   // ── EBT Balance check — prompts customer on terminal to swipe EBT card ───
+  // Flow: ChooserModal (SNAP vs Cash Benefit) → EbtBalanceOverlay (loading →
+  // success | error). Errors render in the same overlay (not a StatusBar
+  // toast) so the cashier can hit Try Again without re-tapping the EBT button.
+  const choose = useChooser();
+
   const handleEbtBalance = useCallback(async () => {
     if (!station?.id) {
       setScanError({ upc: 'No station — cannot check EBT balance', ts: Date.now() });
@@ -306,29 +378,45 @@ export default function POSScreen() {
       scanErrorTimer.current = setTimeout(() => setScanError(null), 3000);
       return;
     }
-    // Ask which account to check
-    const choice = window.confirm('EBT Balance Check:\n\nOK = Food Stamp (SNAP)\nCancel = Cash Benefit');
-    const paymentType = choice ? 'ebt_food' : 'ebt_cash';
+
+    // Ask which account to check via the themed chooser modal. SNAP gets
+    // visual prominence (filled green, autoFocus → Enter triggers); Cash
+    // Benefit is the outlined secondary; explicit Cancel returns null.
+    const account = await choose({
+      title: 'EBT Balance Check',
+      message: 'Which account would you like to check?',
+      icon: <Leaf size={28} />,
+      iconAccent: 'success',
+      options: [
+        { label: 'Food Stamp (SNAP)', value: 'ebt_food', accent: 'primary-success', icon: <Leaf size={18} /> },
+        { label: 'Cash Benefit',      value: 'ebt_cash', accent: 'secondary-success', icon: <DollarSign size={18} /> },
+      ],
+    });
+    if (!account) return; // cashier cancelled
+
+    setEbtBalanceState('loading');
+    setEbtBalanceResult(null);
+    setEbtBalanceError(null);
+
     try {
-      const r = await posApi.dejavooEbtBalance({ stationId: station.id, paymentType });
+      const r = await posApi.dejavooEbtBalance({ stationId: station.id, paymentType: account });
       const amt = r?.result?.totalAmount ?? r?.result?.amount;
       if (r?.success && amt != null) {
+        setEbtBalanceState('success');
         setEbtBalanceResult({
-          type: paymentType === 'ebt_food' ? 'SNAP / Food Stamp' : 'Cash Benefit',
+          type: account === 'ebt_food' ? 'Food Stamp (SNAP)' : 'Cash Benefit',
           amount: amt,
           last4: r.result?.last4,
         });
       } else {
-        setScanError({ upc: r?.result?.message || 'Could not read EBT balance', ts: Date.now() });
-        if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
-        scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+        setEbtBalanceState('error');
+        setEbtBalanceError(r?.result?.message || 'Could not read EBT balance');
       }
     } catch (err) {
-      setScanError({ upc: err?.response?.data?.error || err.message || 'EBT balance failed', ts: Date.now() });
-      if (scanErrorTimer.current) clearTimeout(scanErrorTimer.current);
-      scanErrorTimer.current = setTimeout(() => setScanError(null), 4000);
+      setEbtBalanceState('error');
+      setEbtBalanceError(err?.response?.data?.error || err.message || 'EBT balance failed');
     }
-  }, [station]);
+  }, [station, choose]);
 
   // Load active shift on mount. Once load completes and shift is null → auto-show OpenShiftModal.
   const [shiftChecked, setShiftChecked] = useState(false);
@@ -575,8 +663,24 @@ export default function POSScreen() {
     ebtEligible:  posConfig.bagFee?.ebtEligible  || false,
     discountable: posConfig.bagFee?.discountable || false,
   } : null;
-  const totals       = selectTotals(items, taxRules, effectiveDiscount, bagFeeInfo);
+  // Session 51 — pass dualPricing so totals.cardGrandTotal / cardSurcharge /
+  // potentialSavings are populated. Cart panel + customer display read these.
+  const totals       = selectTotals(items, taxRules, effectiveDiscount, bagFeeInfo, posConfig.dualPricing);
   const selectedItem = items.find(i => i.lineId === selectedLineId);
+
+  // ── Live cart push to customer-facing terminal screen ───────────────────
+  // Debounced (500ms by default), gated on having a Dejavoo terminal
+  // configured + online + station paired. Shows line items + totals on
+  // the P17 customer-facing screen as the cashier scans, so the customer
+  // can verify the order in real time before the card prompt fires.
+  // All failures are silent — terminal display flakes never block a sale.
+  useTerminalCartSync({
+    items,
+    totals,
+    stationId: station?.id,
+    hasDejavoo: hasDejavooConfigured,
+    isOnline,
+  });
 
   // ── Broadcast to customer display ───────────────────────────────────────
   useEffect(() => {
@@ -652,13 +756,24 @@ export default function POSScreen() {
 
   const handlePackSizeSelect = useCallback((product, size) => {
     setPackPickerProduct(null);
+    // Per-pack deposit (Session F). The product carries `depositPerBaseUnit`
+    // (one base unit's deposit, e.g. $0.05 per single bottle); a Double pack
+    // with unitCount=2 should bill 2× that. When `depositPerBaseUnit` isn't
+    // available (legacy products synced before this change), fall back to
+    // the master `depositAmount` so behaviour matches today.
+    const baseDep = product.depositPerBaseUnit;
+    const units   = Number(size.unitCount) || 1;
+    const depositAmount = baseDep != null
+      ? Math.round(Number(baseDep) * units * 10000) / 10000
+      : product.depositAmount;
     addWithAgeCheck({
       ...product,
       retailPrice: Number(size.retailPrice),
       qty: 1,
       packSizeLabel: size.label,
       packSizeId: size.id,
-      unitCount: size.unitCount,
+      unitCount: units,
+      depositAmount,
     });
     flash('hit');
   }, [addWithAgeCheck, flash]);
@@ -681,12 +796,22 @@ export default function POSScreen() {
     // Single pack → apply silently
     if (Array.isArray(product.packSizes) && product.packSizes.length === 1) {
       const size = product.packSizes[0];
+      // Match the picker path's deposit-per-pack scaling — even though there
+      // is only one pack, the user may still have configured a non-master
+      // unitCount, in which case master `depositAmount` (computed for master
+      // unitPack) wouldn't match.
+      const baseDep = product.depositPerBaseUnit;
+      const units   = Number(size.unitCount) || 1;
+      const depositAmount = baseDep != null
+        ? Math.round(Number(baseDep) * units * 10000) / 10000
+        : product.depositAmount;
       addWithAgeCheck({
         ...product,
         retailPrice: Number(size.retailPrice),
         packSizeLabel: size.label,
         packSizeId: size.id,
-        unitCount: size.unitCount,
+        unitCount: units,
+        depositAmount,
       });
       flash('hit');
       return;
@@ -722,6 +847,18 @@ export default function POSScreen() {
       showScanError(raw);
       return;
     }
+
+    // Refund Mode (Session D) — when active, the scan adds a negative-qty
+    // refund line and the flag auto-clears so the very next scan goes back
+    // to normal sale. Skips the by-weight + pack-size pickers since refunds
+    // assume "I'm returning the same thing the customer scanned in".
+    if (refundModeRef.current) {
+      addRefundItem(product, 1);
+      setRefundMode(false);
+      flash('hit');
+      return;
+    }
+
     // By-weight branch lives only on the scanner path because it needs the
     // physical scale reading. Tile / search clicks fall through to the
     // shared addProductFromCatalog (which honors pack sizes).
@@ -739,7 +876,7 @@ export default function POSScreen() {
       return;
     }
     addProductFromCatalog(product);
-  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale, addProductFromCatalog]);
+  }, [scanMode, lookup, addWithAgeCheck, flash, showScanError, scale, addProductFromCatalog, addRefundItem]);
 
   useBarcodeScanner(handleScan, scanMode === 'normal');
 
@@ -791,15 +928,30 @@ export default function POSScreen() {
   const [pendingAfterLottery, setPendingAfterLottery] = useState(null); // null | 'closeShift' | 'endOfDay'
 
   const handleLotteryShiftSave = async (data) => {
-    await saveLotteryShiftReport(data);
+    // Apr 2026 — capture + return the response so the wizard can surface
+    // any per-box update / snapshot insert failures the backend reports.
+    // Previously the response was discarded and silent failures left the
+    // cashier thinking everything saved when in fact some boxes weren't
+    // updated (causing the back-office "ticket numbers not updated" bug).
+    const resp = await saveLotteryShiftReport(data);
+    // Don't auto-dismiss the wizard if the response has warnings — the
+    // wizard's confirm step will display them and let the cashier dismiss
+    // explicitly. For clean saves, dismiss as before.
+    if (!resp?.warnings) {
+      setShowLotteryShift(false);
+    }
     setLotteryShiftDone(true);
-    setShowLotteryShift(false);
-    // If reconciliation was triggered by a gated action, proceed now.
-    const next = pendingAfterLottery;
-    setPendingAfterLottery(null);
-    setPendingShiftClose(false);  // legacy alias
-    if (next === 'closeShift')    setShowCloseShift(true);
-    else if (next === 'endOfDay') setShowEndOfDay(true);
+    // If reconciliation was triggered by a gated action, proceed now —
+    // but only if the save was clean. With warnings, hold off so the
+    // cashier can review them first.
+    if (!resp?.warnings) {
+      const next = pendingAfterLottery;
+      setPendingAfterLottery(null);
+      setPendingShiftClose(false);
+      if (next === 'closeShift')    setShowCloseShift(true);
+      else if (next === 'endOfDay') setShowEndOfDay(true);
+    }
+    return resp;
   };
 
   // Opens LotteryShiftModal after refreshing active boxes (standalone button)
@@ -970,7 +1122,49 @@ export default function POSScreen() {
     // the canonical default view. Cashier may have drilled into the Catalog
     // during the sale; this resets them for the next customer.
     if (hasQuickButtons) setQuickTab('buttons');
-  }, [hasCashDrawer, hasReceiptPrinter, openDrawer, publishDisplay, storeBranding, handlePrintTx, hasQuickButtons]);
+
+    // ── Customer-facing terminal: thank-you message + clear cart ─────────
+    // Push a "Thank You, <Customer>!" banner to the P17 printer so the
+    // customer gets an immediate branded acknowledgement, then clear the
+    // cart display so the next customer sees a fresh "Listening" screen
+    // instead of stale line items. Both are fire-and-forget; failures
+    // surface in console only and never block / toast the cashier.
+    if (hasDejavooConfigured && station?.id && isOnline) {
+      // Find the integrated card line so we can show last-4 + auth code
+      // on the thank-you slip. Manual / cash tenders won't have these.
+      const cardLine = (tx.tenderLines || []).find(
+        l => l.provider === 'dejavoo' || l.provider === 'pax' || l.lastFour
+      );
+      // Extract a friendly first name when a customer is attached.
+      const firstName = (tx.customer?.firstName || tx.customer?.name || '')
+        .toString()
+        .trim()
+        .split(/\s+/)[0] || undefined;
+
+      posApi.dejavooPushThankYou({
+        stationId:    station.id,
+        customerName: firstName,
+        total:        Number(tx.grandTotal),
+        lastFour:     cardLine?.lastFour,
+        authCode:     cardLine?.authCode,
+      }).catch(err => {
+        console.warn('[POSScreen] thank-you push failed', err?.message);
+      });
+
+      // NOTE: we used to fire a 3-second-delayed `dejavooClearDisplay` here
+      // to wipe the cart from the terminal screen. Removed in live-test
+      // round 2 because:
+      //   1. useTerminalCartSync detects empty cart (after clearCart() runs
+      //      in TenderModal.complete) and pushes its own clear within ~500ms
+      //   2. The 3s timer raced with the cart-sync clear and produced a
+      //      brief flicker (cart → cleared → cleared-again)
+      //   3. Cashier feedback was that the terminal should always re-show
+      //      the new cart as soon as the next sale begins; sync-driven path
+      //      handles that automatically without a separate timer.
+      // The single sync-driven path is cleaner and matches "as long as
+      // products are in POS cart, terminal shows products."
+    }
+  }, [hasCashDrawer, hasReceiptPrinter, openDrawer, publishDisplay, storeBranding, handlePrintTx, hasQuickButtons, hasDejavooConfigured, station?.id, isOnline]);
 
   // Quick-cash submit — bypasses TenderModal entirely.
   // Used by on-screen quick-cash buttons and the plain CASH button (exact total).
@@ -1059,6 +1253,17 @@ export default function POSScreen() {
       ...(customer?.id ? { customerId: customer.id } : {}),
       ...(loyaltyRedemption ? { loyaltyPointsRedeemed: loyaltyRedemption.pointsCost } : {}),
       ...totals,
+      // Session 51 — Dual Pricing snapshot. quickCashSubmit is always cash,
+      // so surchargeAmount is always 0 even when the store is on dual_pricing.
+      // Snapshot the pricingModel + rate fields so the Transaction row records
+      // the policy at sale time (matters for receipt reprints + EoD reports).
+      pricingModel:       posConfig.dualPricing?.pricingModel || 'interchange',
+      baseSubtotal:       totals.baseSubtotal,
+      surchargeAmount:    0,
+      surchargeTaxAmount: 0,
+      surchargeRate:      totals.surchargeRate || 0,
+      surchargeFixedFee:  totals.surchargeFixedFee || 0,
+      surchargeTaxable:   !!totals.surchargeTaxable,
     };
 
     let savedTx = payload;
@@ -1077,7 +1282,7 @@ export default function POSScreen() {
 
     clearCart();
     handleSaleCompleted(savedTx, change);
-  }, [items, totals, storeId, bagCount, bagPrice, posConfig.bagFee, customer, loyaltyRedemption, couponRedemptions, isOnline, enqueueTx, clearCart, handleSaleCompleted]);
+  }, [items, totals, storeId, bagCount, bagPrice, posConfig.bagFee, posConfig.dualPricing, customer, loyaltyRedemption, couponRedemptions, isOnline, enqueueTx, clearCart, handleSaleCompleted]);
 
   // Flash animation — driven by the className on `.pos-left-pane`
   // (see POSScreen.css keyframes). The previous inline-style copy was
@@ -1100,6 +1305,16 @@ export default function POSScreen() {
   const isPureLotteryCart = lotteryCashOnlyActive && nonLotteryLineTotal < 0.005 && lotteryLineTotal > 0;
   // Legacy alias — only TRULY block card when the cart is 100% lottery.
   const cashOnlyEnforced = isPureLotteryCart;
+  // Integrated card / EBT need a live backend round-trip (Dejavoo cloud
+  // round-trip via /payment/dejavoo/sale). When offline these can't possibly
+  // succeed, so disable the quick-tender buttons instead of letting the
+  // cashier discover it after a request times out.
+  const cardDisabled = cashOnlyEnforced || !isOnline;
+  const cardDisabledReason = cashOnlyEnforced
+    ? 'Lottery items — cash only'
+    : !isOnline
+      ? 'Offline — Card / EBT need a live connection'
+      : null;
 
   // ── Layout preset config ──────────────────────────────────────────────────
   // Resolve the active layout for THIS register: station-level override wins
@@ -1176,20 +1391,53 @@ export default function POSScreen() {
         </div>
       )}
 
-      {/* ── Age verification policy chips (store-level) ──────────────────── */}
-      {(posConfig.ageLimits?.tobacco > 0 || posConfig.ageLimits?.alcohol > 0) && (
+      {/* Refund Mode banner (Session D) — bright red strip so the cashier
+          can't miss that the next scan will be a refund, not a sale. Click
+          to cancel without needing to hunt for the action-bar button. */}
+      {refundMode && (
+        <div
+          className="pos-refund-mode-banner"
+          onClick={() => setRefundMode(false)}
+          style={{
+            background: '#ef4444', color: '#fff',
+            padding: '10px 16px', fontWeight: 800,
+            fontSize: '0.85rem', letterSpacing: '0.04em',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer', textTransform: 'uppercase',
+          }}
+          title="Click to cancel refund mode"
+        >
+          <span>Refund Mode — next scan will be recorded as a refund</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>Click to cancel</span>
+        </div>
+      )}
+
+      {/* ── Age verification policy chips (store-level) + update pill ────────
+            Renders only when an age policy is configured OR there's an
+            actionable update. Right side hosts the UpdatePill which itself
+            auto-hides on idle/checking/no-update. */}
+      {(posConfig.ageLimits?.tobacco > 0 || posConfig.ageLimits?.alcohol > 0 || updateActionable) && (
         <div className="pos-age-policy">
-          <span className="pos-age-policy-label">Age Policy:</span>
           {posConfig.ageLimits?.tobacco > 0 && (
-            <span className="pos-age-chip pos-age-chip--tobacco">
-              Tobacco {posConfig.ageLimits.tobacco}+
-            </span>
+            <>
+              <span className="pos-age-policy-label">Age Policy:</span>
+              <span className="pos-age-chip pos-age-chip--tobacco">
+                Tobacco {posConfig.ageLimits.tobacco}+
+              </span>
+            </>
           )}
           {posConfig.ageLimits?.alcohol > 0 && (
-            <span className="pos-age-chip pos-age-chip--alcohol">
-              Alcohol {posConfig.ageLimits.alcohol}+
-            </span>
+            <>
+              {!(posConfig.ageLimits?.tobacco > 0) && (
+                <span className="pos-age-policy-label">Age Policy:</span>
+              )}
+              <span className="pos-age-chip pos-age-chip--alcohol">
+                Alcohol {posConfig.ageLimits.alcohol}+
+              </span>
+            </>
           )}
+          <div className="pos-age-policy-spacer" />
+          <UpdatePill />
         </div>
       )}
 
@@ -1530,19 +1778,28 @@ export default function POSScreen() {
                       gap: 8,
                     }}>
                       <button
-                        onClick={() => !cashOnlyEnforced && openTender('card')}
-                        disabled={cashOnlyEnforced}
-                        title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
-                        style={{ height: 56, borderRadius: 12, background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)', border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`, color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cashOnlyEnforced ? 0.45 : 1 }}
+                        onClick={() => !cardDisabled && openTender('card')}
+                        disabled={cardDisabled}
+                        title={cardDisabledReason || undefined}
+                        style={{ height: 56, borderRadius: 12, background: cardDisabled ? 'var(--bg-input)' : 'rgba(99,179,237,.12)', border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(99,179,237,.3)'}`, color: cardDisabled ? 'var(--text-muted)' : 'var(--blue)', fontWeight: 800, fontSize: '0.8rem', cursor: cardDisabled ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cardDisabled ? 0.45 : 1 }}
                       >
                         <CreditCard size={16} /><span>CARD</span>
+                        {!isOnline && !cashOnlyEnforced && <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>}
                       </button>
                       <button onClick={() => openTender('cash')} style={{ height: 56, borderRadius: 12, background: 'rgba(122,193,67,.12)', border: '1px solid rgba(122,193,67,.3)', color: 'var(--green)', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(122,193,67,.2)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(122,193,67,.12)'; }}>
                         <Banknote size={16} /><span>CASH</span>
                       </button>
                       {showEbtButton && (
-                        <button onClick={() => openTender('ebt')} style={{ height: 56, borderRadius: 12, background: 'rgba(52,211,153,.1)', border: '1px solid rgba(52,211,153,.3)', color: '#34d399', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s' }} onMouseEnter={e => { e.currentTarget.style.background = 'rgba(52,211,153,.18)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'rgba(52,211,153,.1)'; }}>
+                        <button
+                          onClick={() => !cardDisabled && openTender('ebt')}
+                          disabled={cardDisabled}
+                          title={cardDisabledReason || undefined}
+                          style={{ height: 56, borderRadius: 12, background: cardDisabled ? 'var(--bg-input)' : 'rgba(52,211,153,.1)', border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(52,211,153,.3)'}`, color: cardDisabled ? 'var(--text-muted)' : '#34d399', fontWeight: 800, fontSize: '0.8rem', cursor: cardDisabled ? 'not-allowed' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'background .1s', opacity: cardDisabled ? 0.45 : 1 }}
+                          onMouseEnter={e => { if (!cardDisabled) e.currentTarget.style.background = 'rgba(52,211,153,.18)'; }}
+                          onMouseLeave={e => { if (!cardDisabled) e.currentTarget.style.background = 'rgba(52,211,153,.1)'; }}
+                        >
                           <Leaf size={16} /><span>EBT</span>
+                          {!isOnline && !cashOnlyEnforced && <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>}
                         </button>
                       )}
                     </div>
@@ -1901,31 +2158,31 @@ export default function POSScreen() {
                     gridTemplateColumns: showEbtButton ? '1fr 1fr 1fr' : '1fr 1fr',
                     gap: 8,
                   }}>
-                    {/* CARD — disabled when lottery cash-only is enforced */}
+                    {/* CARD — disabled when lottery cash-only is enforced or offline */}
                     <button
-                      onClick={() => !cashOnlyEnforced && openTender('card')}
-                      disabled={cashOnlyEnforced}
-                      title={cashOnlyEnforced ? 'Lottery items — cash only' : undefined}
+                      onClick={() => !cardDisabled && openTender('card')}
+                      disabled={cardDisabled}
+                      title={cardDisabledReason || undefined}
                       style={{
                         height: 56, borderRadius: 12,
-                        background: cashOnlyEnforced ? 'var(--bg-input)' : 'rgba(99,179,237,.12)',
-                        border: `1px solid ${cashOnlyEnforced ? 'var(--border)' : 'rgba(99,179,237,.3)'}`,
-                        color: cashOnlyEnforced ? 'var(--text-muted)' : 'var(--blue)',
+                        background: cardDisabled ? 'var(--bg-input)' : 'rgba(99,179,237,.12)',
+                        border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(99,179,237,.3)'}`,
+                        color: cardDisabled ? 'var(--text-muted)' : 'var(--blue)',
                         fontWeight: 800, fontSize: '0.8rem',
-                        cursor: cashOnlyEnforced ? 'not-allowed' : 'pointer',
+                        cursor: cardDisabled ? 'not-allowed' : 'pointer',
                         display: 'flex', flexDirection: 'column',
                         alignItems: 'center', justifyContent: 'center', gap: 2,
-                        opacity: cashOnlyEnforced ? 0.45 : 1,
+                        opacity: cardDisabled ? 0.45 : 1,
                         transition: 'background .1s, border-color .1s',
                       }}
                       onMouseEnter={e => {
-                        if (!cashOnlyEnforced) {
+                        if (!cardDisabled) {
                           e.currentTarget.style.background = 'rgba(99,179,237,.2)';
                           e.currentTarget.style.borderColor = 'rgba(99,179,237,.5)';
                         }
                       }}
                       onMouseLeave={e => {
-                        if (!cashOnlyEnforced) {
+                        if (!cardDisabled) {
                           e.currentTarget.style.background = 'rgba(99,179,237,.12)';
                           e.currentTarget.style.borderColor = 'rgba(99,179,237,.3)';
                         }
@@ -1933,6 +2190,9 @@ export default function POSScreen() {
                     >
                       <CreditCard size={16} />
                       <span>CARD</span>
+                      {!isOnline && !cashOnlyEnforced && (
+                        <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>
+                      )}
                     </button>
 
                     {/* CASH — opens TenderModal for manual amount entry + split payments */}
@@ -1962,32 +2222,43 @@ export default function POSScreen() {
                       <span>CASH</span>
                     </button>
 
-                    {/* EBT — only shown when cart has EBT-eligible items */}
+                    {/* EBT — only shown when cart has EBT-eligible items;
+                        disabled when cash-only enforced or offline */}
                     {showEbtButton && (
                       <button
-                        onClick={() => openTender('ebt')}
+                        onClick={() => !cardDisabled && openTender('ebt')}
+                        disabled={cardDisabled}
+                        title={cardDisabledReason || undefined}
                         style={{
                           height: 56, borderRadius: 12,
-                          background: 'rgba(52,211,153,.1)',
-                          border: '1px solid rgba(52,211,153,.3)',
-                          color: '#34d399',
+                          background: cardDisabled ? 'var(--bg-input)' : 'rgba(52,211,153,.1)',
+                          border: `1px solid ${cardDisabled ? 'var(--border)' : 'rgba(52,211,153,.3)'}`,
+                          color: cardDisabled ? 'var(--text-muted)' : '#34d399',
                           fontWeight: 800, fontSize: '0.8rem',
-                          cursor: 'pointer',
+                          cursor: cardDisabled ? 'not-allowed' : 'pointer',
                           display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center', gap: 2,
+                          opacity: cardDisabled ? 0.45 : 1,
                           transition: 'background .1s, border-color .1s',
                         }}
                         onMouseEnter={e => {
-                          e.currentTarget.style.background = 'rgba(52,211,153,.18)';
-                          e.currentTarget.style.borderColor = 'rgba(52,211,153,.5)';
+                          if (!cardDisabled) {
+                            e.currentTarget.style.background = 'rgba(52,211,153,.18)';
+                            e.currentTarget.style.borderColor = 'rgba(52,211,153,.5)';
+                          }
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.background = 'rgba(52,211,153,.1)';
-                          e.currentTarget.style.borderColor = 'rgba(52,211,153,.3)';
+                          if (!cardDisabled) {
+                            e.currentTarget.style.background = 'rgba(52,211,153,.1)';
+                            e.currentTarget.style.borderColor = 'rgba(52,211,153,.3)';
+                          }
                         }}
                       >
                         <Leaf size={16} />
                         <span>EBT</span>
+                        {!isOnline && !cashOnlyEnforced && (
+                          <span style={{ fontSize: '0.55rem', fontWeight: 700, opacity: 0.85 }}>OFFLINE</span>
+                        )}
                       </button>
                     )}
                   </div>
@@ -2042,6 +2313,8 @@ export default function POSScreen() {
         fuelEnabled={fuel.settings?.enabled === true}
         fuelRefundsEnabled={fuel.settings?.allowRefunds !== false}
         onCoupon={() => setShowCoupon(true)}
+        onRefundMode={() => setRefundMode(m => !m)}
+        refundModeActive={refundMode}
         onBottleReturn={() => setShowBottleReturn(true)}
         onHardwareSettings={() => setShowHardwareSettings(true)}
         onAdminPortal={() => {
@@ -2106,44 +2379,33 @@ export default function POSScreen() {
       {/* Manager PIN (always mounted, renders when pendingAction is set) */}
       <ManagerPinModal />
 
-      {/* EBT Balance result overlay (auto-dismiss on click) */}
-      {ebtBalanceResult && (
-        <div
-          onClick={() => setEbtBalanceResult(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1500,
-            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
+      {/* EBT Balance overlay — themed loading / success / error display */}
+      {/* sits above ChooserModal (z 1500 vs 1100) so the Dejavoo round-trip */}
+      {/* takes over the screen after the cashier picks an account. */}
+      {ebtBalanceState !== 'idle' && (
+        <EbtBalanceOverlay
+          state={ebtBalanceState}
+          result={ebtBalanceResult}
+          error={ebtBalanceError}
+          onCheckOther={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceResult(null);
+            setEbtBalanceError(null);
+            // Re-run the chooser by re-calling the handler. Defer one tick
+            // so the overlay teardown commits before the chooser opens.
+            setTimeout(() => handleEbtBalance(), 50);
           }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: 14, padding: '2rem 2.5rem',
-              textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,.3)',
-              minWidth: 320,
-            }}
-          >
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: 8 }}>
-              EBT Balance
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#475569', marginBottom: 4 }}>
-              {ebtBalanceResult.type}
-            </div>
-            {ebtBalanceResult.last4 && (
-              <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 12 }}>
-                Card •••• {ebtBalanceResult.last4}
-              </div>
-            )}
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#16a34a', letterSpacing: '-0.02em' }}>
-              ${Number(ebtBalanceResult.amount).toFixed(2)}
-            </div>
-            <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 16 }}>
-              Tap anywhere to close
-            </div>
-          </div>
-        </div>
+          onRetry={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceError(null);
+            setTimeout(() => handleEbtBalance(), 50);
+          }}
+          onClose={() => {
+            setEbtBalanceState('idle');
+            setEbtBalanceResult(null);
+            setEbtBalanceError(null);
+          }}
+        />
       )}
 
       {showHardwareSettings && (
@@ -2173,6 +2435,7 @@ export default function POSScreen() {
           bagFeeInfo={bagFeeInfo}
           bagCount={bagCount}
           bagPrice={bagPrice}
+          dualPricing={posConfig.dualPricing}
           onClose={closeTender}
           onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
           onComplete={(tx, change) => handleSaleCompleted(tx, change)}
@@ -2295,7 +2558,7 @@ export default function POSScreen() {
       )}
 
       {showRefund && (
-        <RefundModal storeId={storeId} onClose={() => setShowRefund(false)} />
+        <RefundModal storeId={storeId} dualPricing={posConfig.dualPricing} onClose={() => setShowRefund(false)} />
       )}
 
       {showEndOfDay && (
@@ -2308,7 +2571,28 @@ export default function POSScreen() {
         <OpenShiftModal
           storeId={storeId}
           onClose={shift ? () => setShowOpenShift(false) : null}
-          onOpened={() => setShowOpenShift(false)}
+          onOpened={() => {
+            setShowOpenShift(false);
+            // ── Customer-facing terminal: welcome banner at shift open ──
+            // First action of the shift — push a branded "Welcome to <Store>!"
+            // slip to the P17 printer + clear any stale cart display from the
+            // prior cashier's last sale. Both fire-and-forget; failures
+            // surface in console only and never block the shift-open flow.
+            // Same gates as the post-sale thank-you push.
+            if (hasDejavooConfigured && station?.id && isOnline) {
+              // Clear first so the new shift's screen doesn't briefly show
+              // residue from the previous shift.
+              posApi.dejavooClearDisplay({ stationId: station.id }).catch(err => {
+                console.warn('[POSScreen] open-shift clear failed', err?.message);
+              });
+              // Then push the branded welcome slip. Backend resolves store
+              // name + address + phone from the station's Store row, so the
+              // cashier-app doesn't need to know its own store metadata.
+              posApi.dejavooPushWelcome({ stationId: station.id }).catch(err => {
+                console.warn('[POSScreen] welcome push failed', err?.message);
+              });
+            }
+          }}
         />
       )}
 

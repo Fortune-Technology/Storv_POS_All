@@ -156,6 +156,11 @@ export default function StationSetupScreen() {
   const [password,     setPassword]     = useState('');
   const [showPw,       setShowPw]       = useState(false);
   const [managerToken, setManagerToken] = useState('');
+  // If the user clicks "Skip login", `skippedLogin` flips true. We then jump
+  // to step 2 with no stores fetched — step 2 falls back to a manual storeId
+  // text input. Backend accepts station-register without a JWT (see route
+  // comments in posTerminalRoutes.ts).
+  const [skippedLogin, setSkippedLogin] = useState(false);
 
   // Step 2 — store
   const [stores,       setStores]       = useState([]);
@@ -667,34 +672,85 @@ export default function StationSetupScreen() {
             <button type="submit" disabled={loading || !email || !password} className={`sss-btn sss-btn--full ${!loading && !!email && !!password ? 'sss-btn--active' : 'sss-btn--disabled'}`}>
               {loading ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <>Continue <ChevronRight size={15} /></>}
             </button>
+            {/*
+              Skip login — advanced / re-pair path. Used when re-pairing the
+              SAME machine (the most common reset case) where the admin
+              doesn't want to dig out the manager password every time.
+              Goes straight to step 2 with a manual Store ID text input.
+            */}
+            <button
+              type="button"
+              onClick={() => { setSkippedLogin(true); setError(''); setStores([]); setStep(2); }}
+              style={{
+                marginTop: 12, width: '100%', padding: '0.65rem',
+                background: 'transparent', border: '1px solid rgba(255,255,255,.08)',
+                borderRadius: 10, color: '#94a3b8', cursor: 'pointer', fontSize: '0.83rem',
+              }}
+            >
+              Skip login — I have the Store ID
+            </button>
           </form>
         )}
 
         {/* ── STEP 2: Store ── */}
+        {/*
+          Two render paths:
+            - Logged-in flow (stores fetched) → list of selectable store
+              buttons (the original UI)
+            - Skip-login flow (no stores)     → manual Store ID text input
+              (admin pastes the cuid from the back-office)
+        */}
         {step === 2 && (
           <div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 6 }}>Select Store</div>
-            <div style={{ color: '#6b7280', fontSize: '0.84rem', marginBottom: '1.25rem' }}>Which store location is this register in?</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1.5rem' }}>
-              {stores.map(s => {
-                const id = s.id || s._id; const active = storeId === id;
-                return (
-                  <button key={id} onClick={() => setStoreId(id)} style={{
-                    padding: '1rem 1.25rem', borderRadius: 12, textAlign: 'left',
-                    background: active ? 'rgba(61,86,181,.12)' : 'rgba(255,255,255,.04)',
-                    border: `2px solid ${active ? '#3d56b5' : 'rgba(255,255,255,.08)'}`,
-                    color: '#e8eaf0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    transition: 'border-color .15s',
-                  }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{s.name}</div>
-                      {s.address && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: 2 }}>{s.address}</div>}
-                    </div>
-                    {active && <Check size={16} color="#4ade80" />}
-                  </button>
-                );
-              })}
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e8eaf0', marginBottom: 6 }}>
+              {skippedLogin ? 'Store ID' : 'Select Store'}
             </div>
+            <div style={{ color: '#6b7280', fontSize: '0.84rem', marginBottom: '1.25rem' }}>
+              {skippedLogin
+                ? 'Paste the Store ID for this location. Find it in the back-office under Account → Stores.'
+                : 'Which store location is this register in?'}
+            </div>
+
+            {skippedLogin ? (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label className="sss-label">Store ID</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={storeId}
+                  onChange={e => setStoreId(e.target.value.trim())}
+                  placeholder="e.g. cmoa3b2c0000h5k3psylas8r"
+                  className="sss-field"
+                  style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace' }}
+                />
+                <div style={{ color: '#4b5563', fontSize: '0.71rem', marginTop: 5 }}>
+                  Server validates the ID — if it's wrong you'll see an error on the next step.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1.5rem' }}>
+                {stores.map(s => {
+                  const id = s.id || s._id; const active = storeId === id;
+                  return (
+                    <button key={id} onClick={() => setStoreId(id)} style={{
+                      padding: '1rem 1.25rem', borderRadius: 12, textAlign: 'left',
+                      background: active ? 'rgba(61,86,181,.12)' : 'rgba(255,255,255,.04)',
+                      border: `2px solid ${active ? '#3d56b5' : 'rgba(255,255,255,.08)'}`,
+                      color: '#e8eaf0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      transition: 'border-color .15s',
+                    }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{s.name}</div>
+                        {s.address && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: 2 }}>{s.address}</div>}
+                      </div>
+                      {active && <Check size={16} color="#4ade80" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             <button onClick={() => { setError(''); setStep(3); }} disabled={!storeId} className={`sss-btn sss-btn--full ${storeId ? 'sss-btn--active' : 'sss-btn--disabled'}`}>
               Continue <ChevronRight size={15} />
             </button>

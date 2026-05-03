@@ -7,6 +7,7 @@
  *      GET /api/reports/employees/list
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   getClockEvents, createClockSession, updateClockEventEntry, deleteClockEventEntry, getStoreEmployees,
 } from '../services/api';
@@ -115,6 +116,7 @@ function ShiftForm({ employees, initialData, saving, error, onSave, onCancel }) 
 
 /* ── Main Component ──────────────────────────────────────────────────────── */
 export default function ShiftManagement({ embedded }) {
+  const confirm = useConfirm();
   const user    = (() => { try { return JSON.parse(localStorage.getItem('user')); } catch { return null; } })();
   const storeId = localStorage.getItem('activeStoreId') || user?.storeId;
 
@@ -228,7 +230,12 @@ export default function ShiftManagement({ embedded }) {
 
   // Delete session
   const handleDelete = async (session) => {
-    if (!window.confirm(`Delete this shift for ${session.userName}? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: 'Delete shift?',
+      message: `Delete this shift for ${session.userName}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       if (session.inEventId)  await deleteClockEventEntry(session.inEventId);
       if (session.outEventId) await deleteClockEventEntry(session.outEventId);

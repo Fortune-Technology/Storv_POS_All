@@ -47,15 +47,43 @@ export function ShiftReportBody({ report }) {
   const balanced = Math.abs(variance) < 0.005;
   const over = variance > 0;
 
-  const rows = [
-    { label: 'Opening Float',  value: report.openingAmount,  color: 'var(--text-primary)' },
-    { label: '+ Cash Sales',   value: report.cashSales,      color: 'var(--green)' },
-    { label: '- Cash Refunds', value: report.cashRefunds,    color: 'var(--red)' },
-    { label: '- Cash Drops',   value: report.cashDropsTotal, color: 'var(--amber)' },
-    { label: '- Paid Outs',    value: report.payoutsTotal,   color: 'var(--amber)' },
-    { label: 'Expected Total', value: report.expectedAmount, color: 'var(--text-primary)', bold: true },
-    { label: 'Counted Total',  value: report.closingAmount,  color: 'var(--text-primary)', bold: true },
-  ];
+  // Map reconciliation kind → display color. Pure lookup, zero math —
+  // the math is server-side in services/reconciliation/shift/.
+  const KIND_COLOR = {
+    opening:  'var(--text-primary)',
+    incoming: 'var(--green)',
+    outgoing: 'var(--amber)',
+    subtotal: 'var(--text-primary)',
+  };
+
+  // Prefer the unified reconciliation when present (closeShift response,
+  // post-Session 45). The `lineItems` array is pre-rendered server-side
+  // — order, sign, label, kind are all already correct, lottery rows
+  // included. Fall back to the legacy hardcoded rows for shift reports
+  // persisted before the unified service shipped.
+  const recon = report.reconciliation;
+  const rows = (recon?.lineItems?.length)
+    ? [
+        ...recon.lineItems.map((li) => ({
+          label: li.label,
+          value: li.amount,
+          color: KIND_COLOR[li.kind] || 'var(--text-primary)',
+          bold:  li.kind === 'subtotal' || li.kind === 'opening',
+          hint:  li.hint,
+        })),
+        // Counted Total isn't a server-derived line — it's what the cashier
+        // typed. Always append after the server's "Expected" line.
+        { label: 'Counted Total', value: report.closingAmount, color: 'var(--text-primary)', bold: true },
+      ]
+    : [
+        { label: 'Opening Float',  value: report.openingAmount,  color: 'var(--text-primary)' },
+        { label: '+ Cash Sales',   value: report.cashSales,      color: 'var(--green)' },
+        { label: '- Cash Refunds', value: report.cashRefunds,    color: 'var(--red)' },
+        { label: '- Cash Drops',   value: report.cashDropsTotal, color: 'var(--amber)' },
+        { label: '- Paid Outs',    value: report.payoutsTotal,   color: 'var(--amber)' },
+        { label: 'Expected Total', value: report.expectedAmount, color: 'var(--text-primary)', bold: true },
+        { label: 'Counted Total',  value: report.closingAmount,  color: 'var(--text-primary)', bold: true },
+      ];
 
   return (
     <div className="csm-report-content">
@@ -74,11 +102,56 @@ export function ShiftReportBody({ report }) {
       <div className="csm-breakdown">
         {rows.map((r, i) => r.value != null && (
           <div key={i} className={`csm-breakdown-row${i % 2 === 0 ? ' csm-breakdown-row--even' : ' csm-breakdown-row--odd'}${r.bold ? ' csm-breakdown-row--bold' : ''}`}>
-            <span className={`csm-breakdown-label${r.bold ? ' csm-breakdown-label--bold' : ''}`}>{r.label}</span>
+            <div className="csm-breakdown-cell">
+              <span className={`csm-breakdown-label${r.bold ? ' csm-breakdown-label--bold' : ''}`}>{r.label}</span>
+              {r.hint && <span className="csm-breakdown-hint">{r.hint}</span>}
+            </div>
             <span className={`csm-breakdown-value${r.bold ? ' csm-breakdown-value--bold' : ''}`} style={{ color: r.color }}>{fmt(r.value)}</span>
           </div>
         ))}
       </div>
+
+      {/* Lottery cash-flow detail panel — only when the shift had any
+          lottery activity. Surfaces the un-rung cash + machine numbers
+          the new reconciliation captures. */}
+      {recon?.lottery && (recon.lottery.unreportedCash > 0
+        || recon.lottery.machineDrawSales > 0
+        || recon.lottery.machineCashings > 0
+        || recon.lottery.instantCashings > 0) && (
+        <div className="csm-lottery-detail">
+          <div className="csm-lottery-detail-title">Lottery Cash Flow</div>
+          <div className="csm-lottery-detail-rows">
+            {recon.lottery.unreportedCash > 0 && (
+              <div className="csm-lottery-detail-row">
+                <span>Un-rung instant cash <small>(ticket-math {fmt(recon.lottery.ticketMathSales)} − rung-up {fmt(recon.lottery.posLotterySales)})</small></span>
+                <strong>+{fmt(recon.lottery.unreportedCash)}</strong>
+              </div>
+            )}
+            {recon.lottery.machineDrawSales > 0 && (
+              <div className="csm-lottery-detail-row">
+                <span>Machine draw sales</span>
+                <strong>+{fmt(recon.lottery.machineDrawSales)}</strong>
+              </div>
+            )}
+            {recon.lottery.machineCashings > 0 && (
+              <div className="csm-lottery-detail-row">
+                <span>Machine cashings</span>
+                <strong>-{fmt(recon.lottery.machineCashings)}</strong>
+              </div>
+            )}
+            {recon.lottery.instantCashings > 0 && (
+              <div className="csm-lottery-detail-row">
+                <span>Instant cashings (online)</span>
+                <strong>-{fmt(recon.lottery.instantCashings)}</strong>
+              </div>
+            )}
+            <div className="csm-lottery-detail-total">
+              <span>Net lottery cash to drawer</span>
+              <strong>{recon.lottery.netLotteryCash >= 0 ? '+' : ''}{fmt(recon.lottery.netLotteryCash)}</strong>
+            </div>
+          </div>
+        </div>
+      )}
 
       {report.drops?.length > 0 && (
         <div>
@@ -119,6 +192,26 @@ export function ShiftReportBody({ report }) {
 
 function ShiftReportPrintable({ report }) {
   const variance = Number(report.variance) || 0;
+  const recon = report.reconciliation;
+
+  // Drive the thermal print from the same `lineItems` array the on-screen
+  // breakdown uses — guarantees print matches screen, including the
+  // lottery cash-flow rows when the shift had any. Falls back to the
+  // legacy hardcoded rows for shift reports persisted before the unified
+  // service shipped.
+  const rows = (recon?.lineItems?.length)
+    ? [
+        ...recon.lineItems.map((li) => [li.label, li.amount]),
+        ['Counted',  report.closingAmount],
+        ['VARIANCE', variance],
+      ]
+    : [
+        ['Opening Float', report.openingAmount], ['Cash Sales', report.cashSales],
+        ['Cash Refunds', report.cashRefunds], ['Cash Drops', report.cashDropsTotal],
+        ['Paid Outs', report.payoutsTotal], ['Expected', report.expectedAmount],
+        ['Counted', report.closingAmount], ['VARIANCE', variance],
+      ];
+
   return (
     <div className="csm-print-content">
       <h2>SHIFT REPORT</h2>
@@ -127,16 +220,55 @@ function ShiftReportPrintable({ report }) {
       <hr />
       <table>
         <tbody>
-          {[
-            ['Opening Float', report.openingAmount], ['Cash Sales', report.cashSales],
-            ['Cash Refunds', report.cashRefunds], ['Cash Drops', report.cashDropsTotal],
-            ['Paid Outs', report.payoutsTotal], ['Expected', report.expectedAmount],
-            ['Counted', report.closingAmount], ['VARIANCE', variance],
-          ].map(([label, val], i) => val != null && (
+          {rows.map(([label, val], i) => val != null && (
             <tr key={i}><td>{label}</td><td>${Number(val).toFixed(2)}</td></tr>
           ))}
         </tbody>
       </table>
+      {/* Lottery cash flow on its own block so the thermal receipt has a
+          dedicated section for the un-rung / online numbers. Only printed
+          when the shift had non-zero lottery activity. */}
+      {recon?.lottery && (recon.lottery.unreportedCash > 0
+        || recon.lottery.machineDrawSales > 0
+        || recon.lottery.machineCashings > 0
+        || recon.lottery.instantCashings > 0) && (
+        <>
+          <hr />
+          <p><strong>LOTTERY CASH FLOW</strong></p>
+          <table>
+            <tbody>
+              {recon.lottery.unreportedCash > 0 && (
+                <tr>
+                  <td>+ Un-rung instant</td>
+                  <td>${Number(recon.lottery.unreportedCash).toFixed(2)}</td>
+                </tr>
+              )}
+              {recon.lottery.machineDrawSales > 0 && (
+                <tr>
+                  <td>+ Machine sales</td>
+                  <td>${Number(recon.lottery.machineDrawSales).toFixed(2)}</td>
+                </tr>
+              )}
+              {recon.lottery.machineCashings > 0 && (
+                <tr>
+                  <td>- Machine cashings</td>
+                  <td>${Number(recon.lottery.machineCashings).toFixed(2)}</td>
+                </tr>
+              )}
+              {recon.lottery.instantCashings > 0 && (
+                <tr>
+                  <td>- Instant cashings</td>
+                  <td>${Number(recon.lottery.instantCashings).toFixed(2)}</td>
+                </tr>
+              )}
+              <tr>
+                <td><strong>Net lottery cash</strong></td>
+                <td><strong>{recon.lottery.netLotteryCash >= 0 ? '+' : ''}${Number(recon.lottery.netLotteryCash).toFixed(2)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      )}
       <hr />
       <p><strong>{Math.abs(variance) < 0.005 ? 'BALANCED' : variance > 0 ? `OVER $${variance.toFixed(2)}` : `SHORT $${Math.abs(variance).toFixed(2)}`}</strong></p>
       {report.closedAt && <p>Closed: {new Date(report.closedAt).toLocaleString()}</p>}

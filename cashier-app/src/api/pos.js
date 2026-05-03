@@ -55,11 +55,21 @@ export const getPosBranding = (storeId) =>
 
 // ── Station management ────────────────────────────────────────────────────
 
-// Register this physical terminal (manager's token sent as Bearer)
-export const registerStation = (body, managerToken) =>
-  api.post('/pos-terminal/station-register', body, {
-    headers: { Authorization: `Bearer ${managerToken}` },
-  }).then(r => r.data);
+// Register this physical terminal.
+//
+// `managerToken` is OPTIONAL: if provided, sent as a Bearer token (preserves
+// the legacy authenticated-pair flow). If omitted, the request goes through
+// without an Authorization header — the backend route is unguarded for the
+// "Reset this register → re-pair without login" flow. The backend still
+// scopes by storeId (looks up the Store row to derive orgId).
+export const registerStation = (body, managerToken) => {
+  const headers = managerToken
+    ? { Authorization: `Bearer ${managerToken}` }
+    : undefined;
+  return api
+    .post('/pos-terminal/station-register', body, headers ? { headers } : undefined)
+    .then(r => r.data);
+};
 
 // Verify station token is still valid (used on boot)
 export const verifyStation = (stationToken) =>
@@ -298,6 +308,36 @@ export const upsertLotteryOnlineTotal = (data) =>
 export const getLotteryOnlineTotal = (date) =>
   api.get('/lottery/online-total', { params: { date } }).then(r => r.data);
 
+// Per-box yesterday-close map for the EoD wizard's YESTERDAY column.
+// Returns { closes: { [boxId]: { ticket, ticketsSold, closedAt } } }
+// keyed off the most recent close_day_snapshot before the given date's
+// local midnight. Mirrors the back-office Counter snapshot data so the
+// wizard's "Yesterday" column matches what the owner sees.
+export const getLotteryYesterdayCloses = (params) =>
+  api.get('/lottery/yesterday-closes', { params }).then(r => r.data?.closes ?? r.data);
+
+// Store-level lottery settings (sellDirection, commissionRate, etc.).
+// Used by the EoD wizard so its soldout-math can match the backend's
+// (sentinel = -1 for desc, totalTickets for asc).
+export const getLotterySettings = (storeId) =>
+  api.get('/lottery/settings', { params: { storeId } })
+    .then(r => r.data?.data ?? r.data);
+
+// Aggregate sales for a single date — same number the back-office shows
+// in the Daily page's "Instant Sales" / "Today Sold" fields. The EoD
+// wizard's confirm screen reads this AFTER save so the cashier sees the
+// authoritative recorded number, eliminating wizard-vs-back-office drift.
+export const getDailyLotteryInventory = (params) =>
+  api.get('/lottery/daily-inventory', { params }).then(r => r.data?.data ?? r.data);
+
+// Latest LotteryShiftReport closed today excluding this shift. Used by
+// the EoD wizard to compute Shift 2+'s INCREMENTAL online deltas (Shift
+// 2's Daily Due = (this shift's online readings − previous shift's saved
+// readings) + this shift's instant scan delta). Without this, Shift 2
+// double-counts Shift 1's online activity into its drawer reconciliation.
+export const getPreviousShiftReadings = (params) =>
+  api.get('/lottery/previous-shift-readings', { params }).then(r => r.data);
+
 // ── Fuel ──────────────────────────────────────────────────────────────────────
 export const getFuelTypes = (storeId) =>
   api.get('/fuel/types', { params: { storeId } })
@@ -361,42 +401,102 @@ export const getPaymentSettings = () => Promise.resolve(null);
 // ── Dejavoo SPIn — In-Store Terminal Payments ────────────────────────────────
 // All Dejavoo card-on-terminal operations. The backend proxies to SPIn REST API.
 // Multi-tenant: backend resolves credentials from stationId → store → PaymentMerchant.
+//
+// IMPORTANT — terminal-call timeouts:
+//   The default axios client has an 8-second timeout (api/client.js) which is
+//   correct for normal CRUD calls but CATASTROPHIC for terminal calls.
+//   A real card sale legitimately takes 30-120 seconds end-to-end:
+//     * Dejavoo cloud routes the request to the physical terminal (~1-3s)
+//     * Customer reads prompt, presents card (~5-30s, can be longer)
+//     * Card chip/contactless processing + EMV exchange (~3-10s)
+//     * Processor authorization (~2-15s)
+//     * Receipt generation + response back through cloud (~1-3s)
+//   The Theneo SPIn spec defaults to 120s for SPInProxyTimeout.
+//   We use 150s here so the client window is slightly wider than the backend's
+//   so the backend response always arrives before the client gives up.
+//
+// What the 8s bug used to cause: terminal approved real card (APPROVAL TASxxx
+// shown to customer), backend got the response, but cashier-app's axios threw
+// `timeout of 8000ms exceeded` at the 8-second mark — POS marked the sale as
+// declined while the customer's card was actually charged. Money taken, no
+// transaction record. Fixed by setting a per-call timeout for every terminal
+// endpoint below.
+const TERMINAL_TIMEOUT_MS = 150_000; // 150 seconds — wider than backend's 120s
 
 /** Process a card-present sale on the Dejavoo terminal. */
 export const dejavooSale = (body) =>
-  api.post('/payment/dejavoo/sale', body).then(r => r.data);
+  api.post('/payment/dejavoo/sale', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Process a return/refund on the Dejavoo terminal. */
 export const dejavooRefund = (body) =>
-  api.post('/payment/dejavoo/refund', body).then(r => r.data);
+  api.post('/payment/dejavoo/refund', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Void a previous Dejavoo transaction. */
 export const dejavooVoid = (body) =>
-  api.post('/payment/dejavoo/void', body).then(r => r.data);
+  api.post('/payment/dejavoo/void', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check EBT balance (SNAP or Cash Benefit). */
 export const dejavooEbtBalance = (body) =>
-  api.post('/payment/dejavoo/ebt-balance', body).then(r => r.data);
+  api.post('/payment/dejavoo/ebt-balance', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Abort an in-flight transaction on the terminal (cashier cancels). */
 export const dejavooCancel = (body) =>
-  api.post('/payment/dejavoo/cancel', body).then(r => r.data);
+  api.post('/payment/dejavoo/cancel', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check if the Dejavoo terminal is connected and reachable. */
 export const dejavooTerminalStatus = (body) =>
-  api.post('/payment/dejavoo/terminal-status', body).then(r => r.data);
+  api.post('/payment/dejavoo/terminal-status', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Check status of a specific transaction by referenceId. */
 export const dejavooTransactionStatus = (body) =>
-  api.post('/payment/dejavoo/status', body).then(r => r.data);
+  api.post('/payment/dejavoo/status', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 /** Settle / close the current batch on the terminal. */
 export const dejavooSettle = (body) =>
-  api.post('/payment/dejavoo/settle', body).then(r => r.data);
+  api.post('/payment/dejavoo/settle', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
-/** Get read-only merchant status for the store (no secrets exposed). */
-export const dejavooMerchantStatus = () =>
-  api.get('/payment/dejavoo/merchant-status').then(r => r.data);
+// ── Customer-facing display ─────────────────────────────────────────────────
+// Display methods route to /payment/dejavoo/display/* on the backend. They
+// push cart state / branded messages to the P17's customer-facing screen
+// and printer. None of them move money so they're shorter-timeout (15s) and
+// callers should treat their failures as fire-and-forget — display flakes
+// must never block a sale or surface as a cashier error.
+const DISPLAY_TIMEOUT_MS = 15_000;
+
+/** Push live cart updates so the customer sees items on the terminal screen. */
+export const dejavooPushCart = (body) =>
+  api.post('/payment/dejavoo/display/cart', body, { timeout: DISPLAY_TIMEOUT_MS }).then(r => r.data);
+
+/** Print a "Welcome to <Store>" banner on the terminal printer. */
+export const dejavooPushWelcome = (body) =>
+  api.post('/payment/dejavoo/display/welcome', body, { timeout: DISPLAY_TIMEOUT_MS }).then(r => r.data);
+
+/** Print a "Thank You" message on the terminal printer after a sale. */
+export const dejavooPushThankYou = (body) =>
+  api.post('/payment/dejavoo/display/thank-you', body, { timeout: DISPLAY_TIMEOUT_MS }).then(r => r.data);
+
+/** Print a full branded transaction receipt on the terminal printer. */
+export const dejavooPushBrandedReceipt = (body) =>
+  api.post('/payment/dejavoo/display/receipt', body, { timeout: DISPLAY_TIMEOUT_MS }).then(r => r.data);
+
+/** Reset the customer-facing display to empty between transactions. */
+export const dejavooClearDisplay = (body) =>
+  api.post('/payment/dejavoo/display/clear', body, { timeout: DISPLAY_TIMEOUT_MS }).then(r => r.data);
+
+/**
+ * Get read-only merchant status for THIS cashier's store.
+ *
+ * The backend reads `storeId` from the `X-Store-Id` header. Without it, it
+ * returns `{ configured: false, reason: 'no_active_store' }` — which makes
+ * the cashier-app think no terminal is configured and silently fall through
+ * to the manual-approval path. ALWAYS pass storeId.
+ *
+ * @param {string} storeId  The active cashier's storeId.
+ */
+export const dejavooMerchantStatus = (storeId) =>
+  api.get('/payment/dejavoo/merchant-status', {
+    headers: storeId ? { 'X-Store-Id': storeId } : undefined,
+  }).then(r => r.data);
 
 /**
  * Prompt the customer on the Dejavoo terminal to enter their phone number,
@@ -409,10 +509,12 @@ export const dejavooLookupCustomer = (body) =>
   api.post('/payment/dejavoo/lookup-customer', body).then(r => r.data);
 
 // ── Legacy PAX POSLINK (backward compat for un-migrated stations) ──────────
-export const paxSale   = (body) => api.post('/payment/pax/sale',   body).then(r => r.data);
-export const paxVoid   = (body) => api.post('/payment/pax/void',   body).then(r => r.data);
-export const paxRefund = (body) => api.post('/payment/pax/refund', body).then(r => r.data);
-export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }).then(r => r.data);
+// Same 150s timeout for the same reason — PAX terminals also need ~30-90s
+// for a real card-present sale end-to-end.
+export const paxSale   = (body) => api.post('/payment/pax/sale',   body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxVoid   = (body) => api.post('/payment/pax/void',   body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxRefund = (body) => api.post('/payment/pax/refund', body, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
+export const paxTest   = (ip, port) => api.post('/payment/pax/test', { ip, port }, { timeout: TERMINAL_TIMEOUT_MS }).then(r => r.data);
 
 // ── AI Support Assistant ───────────────────────────────────────────────────
 export const listAiConversations   = ()            => api.get('/ai-assistant/conversations').then(r => r.data);

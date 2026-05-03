@@ -28,6 +28,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   ArrowLeft, Save, Send, Trash2, X, Check, AlertTriangle, Search,
   Plus, Minus, DollarSign, Edit2, Package, Clock, FileText,
@@ -52,6 +53,7 @@ const STATUS_COLORS = {
 };
 
 export default function ExchangeOrderDetail() {
+  const confirm = useConfirm();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === 'new';
@@ -203,7 +205,12 @@ export default function ExchangeOrderDetail() {
   };
 
   const deleteDraft = async () => {
-    if (!window.confirm('Delete this draft?')) return;
+    if (!await confirm({
+      title: 'Delete draft?',
+      message: 'Delete this draft?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await deleteWholesaleDraft(order.id);
       navigate('/portal/exchange');

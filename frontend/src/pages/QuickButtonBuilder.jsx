@@ -17,6 +17,7 @@
  * hides the "Folder" palette button so users can't create them there.
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 // react-grid-layout@2.x restructured the main-entry API — props like
 // `rowHeight`, `cols`, `margin`, `compactType`, `preventCollision`,
 // `draggableCancel` moved INTO `gridConfig`/`dragConfig` objects. The
@@ -95,6 +96,7 @@ function nextFreePosition(tree, cols, w = 1, h = 1) {
 }
 
 export default function QuickButtonBuilder() {
+  const confirm = useConfirm();
   const [stores,   setStores]   = useState([]);
   const [storeId,  setStoreId]  = useState(localStorage.getItem('activeStoreId') || '');
   const [loading,  setLoading]  = useState(false);
@@ -329,7 +331,12 @@ export default function QuickButtonBuilder() {
   };
 
   const handleReset = async () => {
-    if (!window.confirm('Reset to empty layout? This will clear all tiles for this store.')) return;
+    if (!await confirm({
+      title: 'Reset layout?',
+      message: 'Reset to empty layout? This will clear all tiles for this store.',
+      confirmLabel: 'Reset',
+      danger: true,
+    })) return;
     try {
       await clearQuickButtonLayout(storeId);
       toast.success('Layout cleared');
@@ -362,11 +369,17 @@ export default function QuickButtonBuilder() {
           <select
             className="qbb-store-select"
             value={storeId}
-            onChange={e => {
+            onChange={async e => {
               // If switching stores with unsaved changes, confirm — the
               // beforeunload warning only fires on full navigations.
-              if (dirty && !window.confirm('Discard unsaved changes and switch stores?')) return;
-              setStoreId(e.target.value);
+              const newId = e.target.value;
+              if (dirty && !await confirm({
+                title: 'Discard unsaved changes?',
+                message: 'Discard unsaved changes and switch stores?',
+                confirmLabel: 'Discard',
+                danger: true,
+              })) return;
+              setStoreId(newId);
             }}
           >
             <option value="">— Select store —</option>

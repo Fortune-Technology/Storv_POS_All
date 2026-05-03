@@ -23,6 +23,28 @@ router.use(requireInternalApiKey);
  * Body:
  *   { orderId, storeId, status: 'approved' | 'declined' | 'voided' | 'pending',
  *     paymentTransactionId, amount, last4, cardType, authCode }
+ *
+ * iPOSpays HPP response-code → our status enum (per
+ * https://docs.ipospays.com/hosted-payment-page/apidocs):
+ *
+ *   200 — approved    → paymentStatus='paid',   status='confirmed'
+ *   400 — declined    → paymentStatus='failed', status='cancelled'  (e.g. insufficient funds, CVV mismatch)
+ *   401 — cancelled   → paymentStatus='failed', status='cancelled'  (customer aborted on hosted page)
+ *   402 — rejected    → paymentStatus='failed', status='cancelled'  (customer rejected on hosted page)
+ *   any other         → 'pending'  (no-op — webhook will re-fire when iPOSpays settles)
+ *
+ * Edge-case coverage:
+ *   • Duplicate webhook    — idempotency check on line below short-circuits
+ *                            re-processing without re-firing customer email.
+ *   • Network timeout      — handled by iPOSpays' built-in retry policy; this
+ *                            handler must respond fast (we ack with 200 even
+ *                            on idempotent calls so iPOSpays stops retrying).
+ *   • Pending limbo        — order shows "Confirming…" on the order page.
+ *                            Stays hidden from admin list (see listOrders'
+ *                            paymentMethod='card' AND paymentStatus='paid' filter).
+ *   • Reversal / refund    — separate iPOSpays endpoint, NOT this webhook.
+ *                            When wired, calls a different handler that maps
+ *                            to paymentStatus='refunded'.
  */
 router.post('/payment-status', async (req, res) => {
   try {

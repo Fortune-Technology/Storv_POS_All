@@ -1,0 +1,126 @@
+/* ==============================================================
+   reports-shared.css — rh- prefix
+   Shared styles for the surviving report sub-components extracted
+   from the legacy ReportsHub (Session 64): InventoryStatus,
+   PeriodCompare, TxNotes. Trimmed copy of the original
+   ReportsHub.css — only classes still in use are kept.
+   Colors use design-system variables from index.css.
+============================================================== */
+
+/* -- Date Controls Bar ------------------------------------ */
+.rh-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.rh-controls .p-field {
+  margin-bottom: 0;
+  min-width: 140px;
+  flex: 0 0 auto;
+}
+
+.rh-controls .p-btn {
+  align-self: flex-end;
+}
+
+/* -- Section headers ------------------------------------- */
+.rh-section {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.rh-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+/* -- Export row ------------------------------------------- */
+.rh-export-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  justify-content: flex-end;
+}
+
+/* -- Compare period inputs ------------------------------- */
+.rh-compare-periods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.rh-period-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.rh-period-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.625rem;
+}
+
+.rh-period-dates {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.rh-period-dates .p-input {
+  width: auto;
+  flex: 1;
+}
+
+/* -- Change arrows --------------------------------------- */
+.rh-change-up {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.rh-change-down {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.rh-change-flat {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* -- Inventory sub-filter buttons ------------------------ */
+.rh-inv-filters {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.rh-inv-filters .p-btn {
+  font-size: 0.76rem;
+}
+
+.rh-inv-filters .p-btn.rh-filter-active {
+  background: var(--accent-gradient);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+/* -- Responsive ------------------------------------------ */
+@media (max-width: 768px) {
+  .rh-controls { flex-direction: column; align-items: stretch; }
+  .rh-compare-periods { grid-template-columns: 1fr; }
+}

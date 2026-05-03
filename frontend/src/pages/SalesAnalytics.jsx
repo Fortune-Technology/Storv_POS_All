@@ -389,6 +389,14 @@ export default function SalesAnalytics({ embedded }) {
             </div>
           </div>
           <div className="p-header-actions">
+            {/* S66: Period dropdown replaces the inner Daily/Weekly/Monthly/Yearly tab bar
+                 to avoid the visual "tabs within tabs" stack under AnalyticsHub. */}
+            <label className="sa-period-pill">
+              <span className="sa-period-label">Period</span>
+              <select className="sa-period-select" value={tab} onChange={(e) => handleTabChange(e.target.value)}>
+                {TABS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
             <DatePicker label="From" value={range.from}
               onChange={(v) => setRange(r => ({ ...r, from: v }))} maxDate={range.to} />
             <DatePicker label="To" value={range.to}
@@ -403,15 +411,6 @@ export default function SalesAnalytics({ embedded }) {
               <FileText size={13} /> PDF
             </button>
           </div>
-        </div>
-
-        {/* ── Tabs ── */}
-        <div className="analytics-tabs">
-          {TABS.map((t) => (
-            <button key={t} className={`analytics-tab${tab === t ? ' active' : ''}`} onClick={() => handleTabChange(t)}>
-              {t}
-            </button>
-          ))}
         </div>
 
         {/* ── Weather setup banner ── */}

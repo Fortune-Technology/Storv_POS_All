@@ -12,13 +12,13 @@ import {
   createCatalogDepartment,
   updateCatalogDepartment,
   deleteCatalogDepartment,
-  getCatalogTaxRules,
 } from '../services/api';
 import {
   Plus, Edit2, Trash2, RotateCcw, X, Check,
-  ShieldAlert, Leaf, Layers, GripVertical,
+  ShieldAlert, AlertTriangle, Leaf, Layers, GripVertical,
   Search, ToggleLeft, ToggleRight, Package, Monitor, Copy,
 } from 'lucide-react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 // ─── ID Chip (click to copy) ──────────────────────────────────────────────────
 function IdChip({ id }) {
@@ -64,41 +64,26 @@ const TAX_CLASS_FALLBACK = [
   { value: 'non_taxable',  label: 'Non-Taxable' },
 ];
 
-// Human label for a bare `appliesTo` category value. TaxRule.appliesTo can
-// be comma-separated ("grocery,alcohol"); we split and pretty-print each.
+// Session 56b — `Department.taxClass` is now purely an age-policy hint
+// (tobacco / alcohol detection at checkout). It is no longer used for tax
+// matching. The dropdown options below are the canonical small set of
+// age-relevant categories. Previous version built options dynamically from
+// `TaxRule.appliesTo` strings — that column was removed.
 const CATEGORY_LABEL = {
   grocery: 'Grocery', alcohol: 'Alcohol', tobacco: 'Tobacco',
   hot_food: 'Hot Food', standard: 'Standard', non_taxable: 'Non-Taxable',
-  all: 'All products',
 };
 const prettyCategory = (key) => CATEGORY_LABEL[key] || key.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 
-// Build the dropdown options from active TaxRules. Each category produced
-// by splitting comma-separated appliesTo values becomes one option with
-// its rate annotated ("Grocery — 5.50%"). Duplicate categories collapse.
-function buildTaxClassOptionsFromRules(rules) {
-  const active = (rules || []).filter(r => r.active !== false);
-  if (active.length === 0) return TAX_CLASS_FALLBACK;
-
-  const map = new Map();  // category → { rate, ruleName }
-  active.forEach(rule => {
-    const ratePct = Number(rule.rate || 0) * 100;
-    String(rule.appliesTo || '')
-      .split(',').map(s => s.trim()).filter(Boolean)
-      .forEach(cat => {
-        // First rule that mentions this category wins the label; if
-        // another rule adds the same category with a different rate,
-        // we keep the earlier one (usually there shouldn't be dupes).
-        if (!map.has(cat)) map.set(cat, { rate: ratePct, ruleName: rule.name });
-      });
-  });
-
+function buildTaxClassOptionsFromRules() {
   return [
-    { value: '', label: 'None / Default' },
-    ...Array.from(map.entries()).map(([cat, info]) => ({
-      value: cat,
-      label: `${prettyCategory(cat)} — ${info.rate.toFixed(2)}%`,
-    })),
+    { value: '',            label: 'None / Default' },
+    { value: 'grocery',     label: 'Grocery' },
+    { value: 'alcohol',     label: 'Alcohol (21+)' },
+    { value: 'tobacco',     label: 'Tobacco (21+)' },
+    { value: 'hot_food',    label: 'Hot Food / Prepared' },
+    { value: 'standard',    label: 'Standard' },
+    { value: 'non_taxable', label: 'Non-Taxable' },
   ];
 }
 
@@ -129,6 +114,32 @@ const CATEGORY_OPTIONS = [
   { value: 'beer',    label: 'Beer (Style, Container, ABV…)' },
   { value: 'tobacco', label: 'Tobacco / Vape (Type, Nicotine, Flavour…)' },
 ];
+
+// Cascadable fields = fields that exist on BOTH Department and MasterProduct
+// and are safe to overwrite at the product level when an admin opts in via
+// the cascade-edit modal. Mirror of the backend allowlist in
+// `catalogController.CASCADABLE_DEPT_FIELDS` — keep in sync.
+const CASCADABLE_FIELDS = [
+  { key: 'taxClass',    label: 'Category (age policy)' },
+  { key: 'ageRequired', label: 'Age Required' },
+  { key: 'ebtEligible', label: 'EBT Eligible' },
+];
+
+// Detect which cascadable fields changed between the existing dept record
+// and the form payload. Used to drive the cascade-prompt modal.
+function detectCascadableChanges(prev, next) {
+  const out = [];
+  for (const { key, label } of CASCADABLE_FIELDS) {
+    const a = prev?.[key];
+    const b = next?.[key];
+    // Normalize empty/null/undefined so "" === null comparisons work.
+    const norm = (v) => (v === '' || v === undefined || v === null) ? null : v;
+    if (norm(a) !== norm(b)) {
+      out.push({ field: key, label, before: norm(a), after: norm(b) });
+    }
+  }
+  return out;
+}
 
 // Same auto-guess as the backend — used to suggest a category when the user
 // types a dept name so retailers get a sensible default without clicking.
@@ -558,6 +569,184 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
   );
 }
 
+// ─── Cascade Modal ─────────────────────────────────────────────────────────
+// Shown when the admin saves a dept edit that changed one of the cascadable
+// fields (taxClass / ageRequired / ebtEligible). Three outcomes:
+//   • Cancel             — back out of save entirely (admin keeps editing)
+//   • Save dept only     — persist dept changes, leave products untouched
+//   • Apply to all       — persist dept changes AND overwrite the changed
+//                          fields on every product in the dept
+function CascadePromptModal({ deptName, productCount, changes, onCancel, onSaveOnly, onApplyAll, saving }) {
+  // Pretty-print a single field's before/after value
+  const formatVal = (v) => {
+    if (v === null || v === undefined || v === '') return <em style={{ color: 'var(--text-muted)' }}>none</em>;
+    if (v === true)  return 'Yes';
+    if (v === false) return 'No';
+    return String(v);
+  };
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '1rem',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(540px, 100%)',
+          background: '#ffffff',
+          borderRadius: 14,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '1rem 1.25rem',
+          borderBottom: '1px solid var(--border-color, #e5e7eb)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: 'rgba(245, 158, 11, 0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <ShieldAlert size={18} color="#d97706" />
+          </div>
+          <div>
+            <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+              Apply changes to all products?
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+              Department: <strong>{deptName}</strong> · {productCount} product{productCount === 1 ? '' : 's'}
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: '0.85rem', color: '#334155', marginBottom: 10 }}>
+            You changed these fields on this department:
+          </div>
+
+          {/* Field changes table */}
+          <div style={{
+            border: '1px solid #e2e8f0', borderRadius: 8,
+            background: '#f8fafc', overflow: 'hidden',
+          }}>
+            {changes.map((c, i) => (
+              <div key={c.field} style={{
+                padding: '0.55rem 0.85rem',
+                borderTop: i === 0 ? 'none' : '1px solid #e2e8f0',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto 16px auto',
+                alignItems: 'center', gap: 10,
+                fontSize: '0.82rem',
+              }}>
+                <span style={{ fontWeight: 700, color: '#0f172a' }}>{c.label}</span>
+                <span style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', textDecoration: 'line-through' }}>
+                  {formatVal(c.before)}
+                </span>
+                <span style={{ color: '#94a3b8' }}>→</span>
+                <span style={{ color: '#0f172a', fontFamily: 'ui-monospace, monospace', fontWeight: 700 }}>
+                  {formatVal(c.after)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Warning */}
+          <div style={{
+            marginTop: 12,
+            padding: '0.6rem 0.85rem',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            borderRadius: 8,
+            fontSize: '0.78rem',
+            color: '#92400e',
+            display: 'flex', alignItems: 'flex-start', gap: 6,
+          }}>
+            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Choosing <strong>Apply to all products</strong> overwrites these fields on every product in this
+              department — including products where these fields were customised individually.
+            </span>
+          </div>
+        </div>
+
+        {/* Actions — visual hierarchy: SAFE choice is loud, destructive
+            choice is subtle. Layout right-to-left: Cancel (most subtle) is
+            leftmost, "Save department only" (PRIMARY — solid brand colour
+            with default focus) is rightmost so it's where the user's hand
+            lands. "Apply to all products" sits in the middle as an amber
+            outlined button — clearly a deliberate choice, not the default. */}
+        <div style={{
+          padding: '0.85rem 1.25rem',
+          borderTop: '1px solid var(--border-color, #e5e7eb)',
+          display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap',
+        }}>
+          {/* Cancel — most subtle, leftmost */}
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            style={{
+              padding: '0.5rem 1rem', borderRadius: 8,
+              background: 'transparent', border: '1px solid #cbd5e1',
+              color: '#475569', fontWeight: 600, fontSize: '0.85rem',
+              cursor: saving ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          {/* Apply to all — destructive, amber outlined ghost so it never
+              looks like the default action. Smaller, lower-contrast text. */}
+          <button
+            type="button"
+            onClick={onApplyAll}
+            disabled={saving}
+            style={{
+              padding: '0.5rem 0.9rem', borderRadius: 8,
+              background: 'transparent',
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              color: '#b45309', fontWeight: 600, fontSize: '0.8rem',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            {saving ? 'Applying…' : <><AlertTriangle size={12} /> Apply to all products</>}
+          </button>
+          {/* Save department only — DEFAULT, primary brand button. autoFocus
+              so a stray Enter keypress hits the safe action, not the cascade. */}
+          <button
+            type="button"
+            onClick={onSaveOnly}
+            disabled={saving}
+            autoFocus
+            style={{
+              padding: '0.55rem 1.4rem', borderRadius: 8,
+              background: saving ? '#94a3b8' : 'var(--accent-primary, #3d56b5)',
+              border: 'none',
+              color: '#fff', fontWeight: 800, fontSize: '0.9rem',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              boxShadow: saving ? 'none' : '0 2px 8px rgba(61, 86, 181, 0.35)',
+            }}
+          >
+            {saving ? 'Saving…' : <><Check size={14} strokeWidth={3} /> Save department only</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Departments() {
@@ -583,20 +772,13 @@ export default function Departments() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Load departments + tax rules in parallel. If tax rules fail (e.g.
-      // permission denied for this role) we silently keep the fallback
-      // list — user can still edit departments, they just won't see
-      // store-specific rates in the dropdown.
-      const [deptRes, rulesRes] = await Promise.all([
-        getCatalogDepartments({ includeInactive: showInactive ? 'true' : 'false' }),
-        getCatalogTaxRules().catch(() => null),
-      ]);
+      // Session 56b — taxClass dropdown options are now a static canonical
+      // set (age-policy categories), so we no longer fetch tax rules here.
+      const deptRes = await getCatalogDepartments({ includeInactive: showInactive ? 'true' : 'false' });
       const list = deptRes?.data || deptRes || [];
       setDepts(Array.isArray(list) ? list : []);
       setOrderDirty(false);
-
-      const rules = Array.isArray(rulesRes) ? rulesRes : (rulesRes?.data || []);
-      setTaxClassOptions(buildTaxClassOptionsFromRules(rules));
+      setTaxClassOptions(buildTaxClassOptionsFromRules());
     } catch {
       toast.error('Failed to load departments');
     } finally {
@@ -654,24 +836,67 @@ export default function Departments() {
     }
   };
 
+  // Cascade-prompt state — set when the admin saves a dept edit and one of
+  // the three fields that exist on both Department and MasterProduct
+  // (taxClass / ageRequired / ebtEligible) actually changed. The 3-button
+  // modal asks: cancel / save dept only / save AND apply to all products.
+  const [cascadePrompt, setCascadePrompt] = useState(null);
+  // Shape: { payload, changes: [{ field, label, before, after }], productCount }
+
   // ── Save form ──────────────────────────────────────────────────────────────
   const handleSave = async (form) => {
     if (!form.name.trim()) return;
+    const payload = {
+      ...form,
+      ageRequired: form.ageRequired === '' ? null : parseInt(form.ageRequired),
+      code:        form.code?.toUpperCase() || null,
+    };
+
+    // CREATE — no cascade question (no products linked yet by definition).
+    if (!panelDept?.id) {
+      await persistDeptSave(payload, false);
+      return;
+    }
+
+    // EDIT — detect which cascadable fields changed. If any did AND the dept
+    // has products, prompt the admin. Otherwise save silently.
+    const changes = detectCascadableChanges(panelDept, payload);
+    const productCount = panelDept._count?.products ?? 0;
+    if (changes.length > 0 && productCount > 0) {
+      setCascadePrompt({ payload, changes, productCount, deptName: form.name });
+      return;
+    }
+
+    // No cascadable change OR dept has zero products — save plain.
+    await persistDeptSave(payload, false);
+  };
+
+  // Actually hits the API. `cascade` true = also overwrite the changed fields
+  // on every product in this dept. Always called via either `handleSave`
+  // directly (no cascade) or via the cascade modal's confirm path.
+  const persistDeptSave = async (payload, cascade) => {
     setSaving(true);
     try {
-      const payload = {
-        ...form,
-        ageRequired: form.ageRequired === '' ? null : parseInt(form.ageRequired),
-        code:        form.code?.toUpperCase() || null,
-      };
       if (panelDept?.id) {
-        await updateCatalogDepartment(panelDept.id, payload);
-        toast.success(`"${form.name}" updated`);
+        const fields = cascade
+          ? detectCascadableChanges(panelDept, payload).map(c => c.field)
+          : [];
+        const res = await updateCatalogDepartment(panelDept.id, {
+          ...payload,
+          ...(cascade && fields.length > 0 ? { cascadeToProducts: true, cascadedFields: fields } : {}),
+        });
+        const productsUpdated = res?.productsUpdated || res?.data?.productsUpdated || 0;
+        toast.success(
+          cascade && productsUpdated > 0
+            ? `"${payload.name}" updated · ${productsUpdated} product${productsUpdated === 1 ? '' : 's'} cascaded`
+            : `"${payload.name}" updated`,
+        );
       } else {
         await createCatalogDepartment(payload);
-        toast.success(`"${form.name}" created`);
+        toast.success(`"${payload.name}" created`);
       }
       setPanelDept(undefined);
+      setCascadePrompt(null);
       load();
     } catch (err) {
       toast.error(err?.response?.data?.error || 'Failed to save department');
@@ -880,6 +1105,21 @@ export default function Departments() {
         {attrsDept && (
           <AttrsPanel dept={attrsDept} onClose={() => setAttrsDept(null)} />
         )}
+        {/* Cascade-edit prompt — fires when a dept edit changes a field that
+            also exists on its products (taxClass / ageRequired / ebtEligible)
+            and the dept has at least one product. Three outcomes: cancel /
+            save dept only / save AND apply to all products. */}
+        {cascadePrompt && (
+          <CascadePromptModal
+            deptName={cascadePrompt.deptName}
+            productCount={cascadePrompt.productCount}
+            changes={cascadePrompt.changes}
+            saving={saving}
+            onCancel={() => setCascadePrompt(null)}
+            onSaveOnly={() => persistDeptSave(cascadePrompt.payload, false)}
+            onApplyAll={() => persistDeptSave(cascadePrompt.payload, true)}
+          />
+        )}
       </div>
   );
 }
@@ -887,6 +1127,7 @@ export default function Departments() {
 // ─── Manage Attributes side panel ─────────────────────────────────────────────
 
 function AttrsPanel({ dept, onClose }) {
+  const confirm = useConfirm();
   const [attrs, setAttrs]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [addForm, setAddForm] = useState({ key: '', label: '', dataType: 'text', unit: '', placeholder: '', options: '', required: false });
@@ -939,7 +1180,12 @@ function AttrsPanel({ dept, onClose }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this attribute? Any values already stored on products will become freeform "Other Details".')) return;
+    if (!await confirm({
+      title: 'Delete attribute?',
+      message: 'Any values already stored on products will become freeform "Other Details".',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       const api = await import('../services/api');
       await api.deleteDepartmentAttribute(id);

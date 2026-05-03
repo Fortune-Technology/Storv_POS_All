@@ -124,6 +124,14 @@ app.whenReady().then(() => {
   mainWin.once('ready-to-show', () => {
     createCustomerDisplay();
   });
+
+  // Auto-update — registers IPC handlers + auto-checks on launch (packaged only).
+  // See electron/updater.cjs for the full state machine.
+  try {
+    require('./updater.cjs').init();
+  } catch (err) {
+    console.warn('[Updater] init failed:', err.message);
+  }
 });
 
 app.on('window-all-closed', () => {

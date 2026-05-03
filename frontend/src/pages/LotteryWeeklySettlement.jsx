@@ -19,6 +19,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import { X, CheckCircle2, Printer, DollarSign, RotateCcw, Lock, Info } from 'lucide-react';
 import {
   listLotterySettlements, getLotterySettlement,
@@ -228,6 +229,7 @@ function Line({ label, value, muted }) {
  * Edit Modal — adjust bonus / svc charge / adjustments + finalize + pay
  * ──────────────────────────────────────────────────────────────────── */
 function SettlementEditModal({ initial, lookup = {}, onClose, onSaved }) {
+  const confirm = useConfirm();
   const weekKey = toIsoDate(initial.weekStart);
   const [row, setRow] = useState(initial);
   const [form, setForm] = useState({
@@ -310,7 +312,11 @@ function SettlementEditModal({ initial, lookup = {}, onClose, onSaved }) {
   };
 
   const finalize = async () => {
-    if (!window.confirm(`Finalize this settlement? It will lock the numbers and mark all ${row.settledBookIds?.length || 0} settled books as settled.`)) return;
+    if (!await confirm({
+      title: 'Finalize settlement?',
+      message: `Finalize this settlement? It will lock the numbers and mark all ${row.settledBookIds?.length || 0} settled books as settled.`,
+      confirmLabel: 'Finalize',
+    })) return;
     setSaving(true); setErr('');
     try {
       await save(); // save first to persist current adjustments
@@ -325,7 +331,11 @@ function SettlementEditModal({ initial, lookup = {}, onClose, onSaved }) {
   };
 
   const markPaid = async () => {
-    if (!window.confirm(`Mark this settlement as paid?${form.paidRef ? `\nRef: ${form.paidRef}` : ''}`)) return;
+    if (!await confirm({
+      title: 'Mark settlement as paid?',
+      message: `Mark this settlement as paid?${form.paidRef ? `\nRef: ${form.paidRef}` : ''}`,
+      confirmLabel: 'Mark Paid',
+    })) return;
     setSaving(true); setErr('');
     try {
       const saved = await markLotterySettlementPaid(weekKey, { paidRef: form.paidRef || null });

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import '../styles/portal.css';
 import './EmployeeManagement.css';
 import {
@@ -493,6 +494,7 @@ function PinModal({ userId, userName, onClose, onDone }) {
    Main: EmployeeManagement
 ══════════════════════════════════════════════════════════════════════ */
 function TeamTab() {
+  const confirm = useConfirm();
   const embedded = true; // always embedded inside the tab wrapper
   const [users, setUsers]           = useState([]);
   const [stores, setStores]         = useState([]);
@@ -527,7 +529,12 @@ function TeamTab() {
 
   /* ── Handlers ── */
   const handleRemove = async (userId, name) => {
-    if (!window.confirm(`Remove ${name} from the organisation? This cannot be undone.`)) return;
+    if (!await confirm({
+      title: 'Remove employee?',
+      message: `Remove ${name} from the organisation? This cannot be undone.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })) return;
     setRemovingId(userId);
     try {
       await removeUser(userId);

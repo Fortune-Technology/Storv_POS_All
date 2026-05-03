@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { toast } from 'react-toastify';
+import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import './EcomPages.css';
 
 const API = '/api/ecom';
@@ -49,6 +50,7 @@ const TEMPLATES = {
 const PAGE_TYPES = ['home', 'about', 'contact', 'custom'];
 
 export default function EcomPages() {
+  const confirm = useConfirm();
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // null | 'create' | page object
@@ -83,7 +85,12 @@ export default function EcomPages() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this page?')) return;
+    if (!await confirm({
+      title: 'Delete page?',
+      message: 'Delete this page?',
+      confirmLabel: 'Delete',
+      danger: true,
+    })) return;
     try {
       await api('DELETE', `/manage/pages/${id}`);
       toast.success('Page deleted');

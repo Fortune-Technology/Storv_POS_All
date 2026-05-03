@@ -57,6 +57,11 @@
   color: var(--text-muted);
   text-transform: uppercase;
 }
+/* Pushes the right-aligned children (UpdatePill) to the far end of the row */
+.pos-age-policy-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .pos-age-chip {
   display: inline-flex;
   align-items: center;
@@ -246,7 +251,7 @@
 
 .pos-quick-tab--inactive {
   border-bottom: 2px solid transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── Category panel wrapper ── */
@@ -279,9 +284,9 @@
 
 .pos-item-strip-meta {
   margin-left: 8px;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .pos-strip-btn {
@@ -448,8 +453,8 @@
 .pos-cart-empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: var(--text-muted);
-  opacity: 0.35;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
 .pos-cart-empty-icon {
