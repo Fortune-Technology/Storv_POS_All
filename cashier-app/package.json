@@ -65,7 +65,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://updates.storeveu.com/cashier-app",
+        "url": "https://pos.storeveu.com/downloads",
         "channel": "latest"
       }
     ],

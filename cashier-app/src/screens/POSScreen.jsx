@@ -87,6 +87,8 @@ import { db, searchProducts, getActivePromotions, getHeldTransactions } from '..
 import { evaluatePromotions }  from '../utils/promoEngine.js';
 import { fmt$ }              from '../utils/formatters.js';
 import { getSmartCashPresets } from '../utils/cashPresets.js';
+import UpdatePill            from '../components/UpdatePill.jsx';
+import { useUpdaterState }   from '../hooks/useUpdaterState.js';
 import './POSScreen.css';
 
 export default function POSScreen() {
@@ -141,6 +143,11 @@ export default function POSScreen() {
   const storeId = station?.storeId;
   const { shift, loading: shiftLoading, loadActiveShift } = useShiftStore();
   const logout = useAuthStore(s => s.logout);
+
+  // Auto-update — used to know whether the AGE POLICY row should render
+  // when no age policy is configured. The row stays for the right-aligned
+  // pill if (and only if) there's an actionable update.
+  const { isActionable: updateActionable } = useUpdaterState();
 
   // ── Lottery store ────────────────────────────────────────────────────────
   const {
@@ -1405,20 +1412,32 @@ export default function POSScreen() {
         </div>
       )}
 
-      {/* ── Age verification policy chips (store-level) ──────────────────── */}
-      {(posConfig.ageLimits?.tobacco > 0 || posConfig.ageLimits?.alcohol > 0) && (
+      {/* ── Age verification policy chips (store-level) + update pill ────────
+            Renders only when an age policy is configured OR there's an
+            actionable update. Right side hosts the UpdatePill which itself
+            auto-hides on idle/checking/no-update. */}
+      {(posConfig.ageLimits?.tobacco > 0 || posConfig.ageLimits?.alcohol > 0 || updateActionable) && (
         <div className="pos-age-policy">
-          <span className="pos-age-policy-label">Age Policy:</span>
           {posConfig.ageLimits?.tobacco > 0 && (
-            <span className="pos-age-chip pos-age-chip--tobacco">
-              Tobacco {posConfig.ageLimits.tobacco}+
-            </span>
+            <>
+              <span className="pos-age-policy-label">Age Policy:</span>
+              <span className="pos-age-chip pos-age-chip--tobacco">
+                Tobacco {posConfig.ageLimits.tobacco}+
+              </span>
+            </>
           )}
           {posConfig.ageLimits?.alcohol > 0 && (
-            <span className="pos-age-chip pos-age-chip--alcohol">
-              Alcohol {posConfig.ageLimits.alcohol}+
-            </span>
+            <>
+              {!(posConfig.ageLimits?.tobacco > 0) && (
+                <span className="pos-age-policy-label">Age Policy:</span>
+              )}
+              <span className="pos-age-chip pos-age-chip--alcohol">
+                Alcohol {posConfig.ageLimits.alcohol}+
+              </span>
+            </>
           )}
+          <div className="pos-age-policy-spacer" />
+          <UpdatePill />
         </div>
       )}
 

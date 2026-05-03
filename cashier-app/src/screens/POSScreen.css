@@ -57,6 +57,11 @@
   color: var(--text-muted);
   text-transform: uppercase;
 }
+/* Pushes the right-aligned children (UpdatePill) to the far end of the row */
+.pos-age-policy-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .pos-age-chip {
   display: inline-flex;
   align-items: center;
