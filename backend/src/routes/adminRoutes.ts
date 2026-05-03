@@ -93,6 +93,11 @@ import {
 import { downloadBackup } from '../controllers/backupController.js';
 import { rehostBatch, getRehostStatus } from '../services/imageRehostService.js';
 import { getSaasMarginReport } from '../controllers/saasMarginController.js';
+import {
+  adminBroadcastNotification,
+  adminListBroadcasts,
+  adminRecallBroadcast,
+} from '../controllers/notificationController.js';
 
 const router = Router();
 
@@ -156,6 +161,11 @@ router.put('/tickets/:id',          updateSupportTicket);
 router.delete('/tickets/:id',       deleteSupportTicket);
 router.post('/tickets/:id/reply',   addAdminTicketReply);
 router.put('/tickets/:id/assign',   assignTicket);
+
+// Notifications — superadmin broadcast (audience: platform / org / store / user)
+router.get(   '/notifications',     adminListBroadcasts);
+router.post(  '/notifications',     adminBroadcastNotification);
+router.delete('/notifications/:id', adminRecallBroadcast);
 
 // System config
 router.get('/config',             getSystemConfig);

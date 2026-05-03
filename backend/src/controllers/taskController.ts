@@ -8,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import { logAudit } from '../services/auditService.js';
 import { tryParseDate } from '../utils/safeDate.js';
+import { emitNotification } from '../services/notifications/notify.js';
 
 // ── Recurring schedule helpers ───────────────────────────────────────────────
 
@@ -250,6 +251,25 @@ export const createTask = async (req: Request, res: Response, next: NextFunction
     });
 
     await logAudit(req, 'create', 'task', task.id, { title, assignedTo: assigneeName || assignedTo });
+
+    // Notify the assignee in their notification bell. Best-effort — failure
+    // must not block the create. assignedTo is a userId when valid.
+    if (assignedTo) {
+      emitNotification({
+        source:       'task',
+        createdById:  req.user?.id ?? null,
+        title:        'Task assigned to you',
+        message:      `${title}${dd.value ? ` — due ${new Date(dd.value).toLocaleDateString()}` : ''}`,
+        linkUrl:      '/portal/tasks',
+        iconKey:      'task',
+        priority:     priority === 'urgent' ? 'urgent' : priority === 'high' ? 'high' : 'normal',
+        type:         'info',
+        audience:     'user',
+        targetUserId: assignedTo,
+        dedupeKey:    `task-assigned:${task.id}`,
+      }).catch((err: Error) => console.warn('emitNotification(task assigned):', err.message));
+    }
+
     res.status(201).json(task);
   } catch (err) { next(err); }
 };

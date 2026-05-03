@@ -1,6 +1,11 @@
 /**
  * Global ecom order notifier — polls for new orders every 15 seconds
  * regardless of which portal page is active. Shows toast + plays sound.
+ *
+ * The "last seen order ID" is persisted to localStorage keyed by user, so:
+ *   • Sound plays exactly once per ORDER (not once per session per order)
+ *   • Logging out and logging back in does NOT replay the alert
+ *   • Switching users on the same browser keeps each user's history isolated
  */
 
 import { useEffect, useRef } from 'react';
@@ -9,6 +14,19 @@ import { useNavigate } from 'react-router-dom';
 import './EcomOrderNotifier.css';
 
 const POLL_INTERVAL = 15000;
+
+// localStorage key for the highest-seen order id, namespaced per user.
+function lastSeenKey(userId, storeId) {
+  return `ecomOrderNotifier:lastSeen:${userId || 'anon'}:${storeId || 'all'}`;
+}
+function readLastSeen(userId, storeId) {
+  try { return localStorage.getItem(lastSeenKey(userId, storeId)) || null; }
+  catch { return null; }
+}
+function writeLastSeen(userId, storeId, value) {
+  try { localStorage.setItem(lastSeenKey(userId, storeId), String(value)); }
+  catch { /* ignore */ }
+}
 
 let _audio = null;
 let _audioUnlocked = false;
@@ -75,18 +93,38 @@ function playNotifSound() {
   }
 }
 
-function getHeaders() {
+function getAuthContext() {
   const u = JSON.parse(localStorage.getItem('user') || '{}');
   const storeId = localStorage.getItem('activeStoreId') || '';
   return {
-    Authorization: `Bearer ${u.token}`,
-    'X-Store-Id': storeId,
-    'X-Org-Id': u.orgId || u.tenantId || '',
+    userId: u.id || null,
+    storeId,
+    headers: {
+      Authorization: `Bearer ${u.token || ''}`,
+      'X-Store-Id': storeId,
+      'X-Org-Id': u.orgId || u.tenantId || '',
+    },
   };
 }
 
+/**
+ * Pick the highest-id-equivalent value from an order list. Most ecom orders
+ * use createdAt timestamps as a stable monotonic ordering. Falls back to
+ * id strings (lexical compare) when createdAt is missing.
+ */
+function highWatermark(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return null;
+  let best = null;
+  for (const o of orders) {
+    const candidate = o.createdAt || o.id || null;
+    if (!candidate) continue;
+    if (!best || String(candidate) > String(best)) best = candidate;
+  }
+  return best ? String(best) : null;
+}
+
 export default function EcomOrderNotifier() {
-  const lastCountRef = useRef(null);
+  const initializedRef = useRef(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -94,28 +132,48 @@ export default function EcomOrderNotifier() {
 
     const check = async () => {
       try {
-        const headers = getHeaders();
+        const { userId, storeId, headers } = getAuthContext();
         if (!headers.Authorization || headers.Authorization === 'Bearer ') return;
 
         const r = await fetch('/api/ecom/manage/orders', { headers });
         if (!r.ok) return;
         const data = await r.json();
-        const count = data.total ?? (data.data?.length || 0);
+        const orders = Array.isArray(data?.data) ? data.data : [];
+        const newest = highWatermark(orders);
+        if (!newest) return;
 
-        if (lastCountRef.current !== null && count > lastCountRef.current) {
-          const diff = count - lastCountRef.current;
+        const lastSeen = readLastSeen(userId, storeId);
+
+        // First poll on a fresh user/store: silently seed the marker —
+        // this is the bug the user flagged ("voice triggers on every login").
+        // Only orders STRICTLY NEWER than the seeded marker should ever play sound.
+        if (!lastSeen) {
+          writeLastSeen(userId, storeId, newest);
+          initializedRef.current = true;
+          return;
+        }
+
+        // Count how many orders are strictly newer than the marker. This is
+        // both more accurate than the old total-count delta (which could shift
+        // from refunds/voids) and idempotent across logins.
+        const newerOrders = orders.filter((o) => {
+          const ord = o.createdAt || o.id || '';
+          return ord && String(ord) > String(lastSeen);
+        });
+
+        if (newerOrders.length > 0) {
           playNotifSound();
           toast.info(
             <div onClick={() => navigate('/portal/ecom/orders')} className="eon-toast">
               <strong>New Order Received!</strong>
               <div className="eon-toast-detail">
-                {diff} new order{diff > 1 ? 's' : ''} — click to view
+                {newerOrders.length} new order{newerOrders.length > 1 ? 's' : ''} — click to view
               </div>
             </div>,
             { autoClose: 10000 }
           );
+          writeLastSeen(userId, storeId, newest);
         }
-        lastCountRef.current = count;
       } catch {}
     };
 

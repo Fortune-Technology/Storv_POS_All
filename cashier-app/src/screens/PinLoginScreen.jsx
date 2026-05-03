@@ -8,6 +8,7 @@ import { Delete } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore.js';
 import { useStationStore } from '../stores/useStationStore.js';
 import { clockInOut } from '../api/pos.js';
+import UpdateBadge from '../components/UpdateBadge.jsx';
 import './PinLoginScreen.css';
 
 const PAD = [
@@ -262,6 +263,9 @@ export default function PinLoginScreen() {
           )}
         </>
       )}
+
+      {/* Auto-update — Electron only */}
+      <UpdateBadge />
 
       {/* Reset station */}
       <div className="pls-reset-section">

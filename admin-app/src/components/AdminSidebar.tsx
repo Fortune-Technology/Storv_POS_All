@@ -22,6 +22,7 @@ import {
   Calculator,
   MapPin,
   Sparkles,
+  Megaphone,
   BookOpen,
   Compass,
   Percent,
@@ -112,6 +113,7 @@ const adminMenuGroups: MenuGroup[] = [
     items: [
       { name: 'Chat',          icon: <MessageSquare size={13} />, path: '/chat' },
       { name: 'Tickets',       icon: <Ticket size={13} />,        path: '/tickets' },
+      { name: 'Notifications', icon: <Megaphone size={13} />,     path: '/notifications' },
       { name: 'AI Review Queue', icon: <Sparkles size={13} />,    path: '/ai-reviews' },
       { name: 'AI Knowledge Base', icon: <BookOpen size={13} />,  path: '/ai-kb' },
       { name: 'AI Product Tours',  icon: <Compass size={13} />,   path: '/ai-tours' },

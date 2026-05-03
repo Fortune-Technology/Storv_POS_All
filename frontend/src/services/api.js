@@ -824,4 +824,11 @@ export const escalateAiConversation = (id, subject, priority = 'normal') =>
 export const getAiTourBySlug   = (slug) => api.get(`/ai-assistant/tours/${slug}`).then(r => r.data);
 export const listPublicAiTours = ()     => api.get('/ai-assistant/tours').then(r => r.data);
 
+// ── NOTIFICATIONS (current user's bell) ───────────────────────────────────
+export const listMyNotifications  = (params) => api.get('/notifications', { params }).then(r => r.data);
+export const getUnreadNotifCount  = ()       => api.get('/notifications/count').then(r => r.data);
+export const markNotifRead        = (id)     => api.put(`/notifications/${id}/read`).then(r => r.data);
+export const markAllNotifsRead    = ()       => api.put('/notifications/read-all').then(r => r.data);
+export const dismissNotif         = (id)     => api.delete(`/notifications/${id}`).then(r => r.data);
+
 export default api;

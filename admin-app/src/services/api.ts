@@ -463,6 +463,42 @@ export const syncAdminLotteryCatalog = (state: string): Promise<{
 }> =>
   api.post('/lottery/catalog/sync', { state }).then(r => r.data);
 
+// ── Admin Notifications (broadcast / history / recall) ──────────────────────
+export interface AdminNotificationBroadcastInput {
+  title:         string;
+  message:       string;
+  audience:      'platform' | 'org' | 'store' | 'user';
+  targetOrgId?:   string | null;
+  targetStoreId?: string | null;
+  targetUserId?:  string | null;
+  priority?:     'low' | 'normal' | 'high' | 'urgent';
+  type?:         'info' | 'success' | 'warning' | 'error';
+  linkUrl?:      string | null;
+  expiresAt?:    string | null;
+}
+export interface AdminNotificationRow {
+  id:            string;
+  source:        string;
+  title:         string;
+  message:       string;
+  linkUrl:       string | null;
+  priority:      string;
+  type:          string;
+  audience:      string;
+  targetOrgId:   string | null;
+  targetStoreId: string | null;
+  targetUserId:  string | null;
+  expiresAt:     string | null;
+  createdAt:     string;
+  deliveryCount: number;
+}
+export const adminBroadcastNotification = (data: AdminNotificationBroadcastInput): Promise<{ success: boolean; notificationId: string | null; deliveryCount: number; deduped: boolean }> =>
+  api.post('/admin/notifications', data).then(r => r.data);
+export const adminListBroadcasts = (params?: Params): Promise<PaginatedResponse<AdminNotificationRow>> =>
+  api.get('/admin/notifications', { params }).then(r => r.data);
+export const adminRecallBroadcast = (id: string): Promise<SuccessResponse> =>
+  api.delete(`/admin/notifications/${id}`).then(r => r.data);
+
 export default api;
 
 // Re-export types for consumers — makes `import { AdminUser } from '../services/api'` work too.
