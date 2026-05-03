@@ -403,12 +403,17 @@ jobs:
           # Upload all auto-update artifacts: .exe (installer), latest.yml
           # (manifest electron-updater polls), and the .blockmap (differential
           # update map — clients only download changed bytes).
-          ARTIFACTS="${{ steps.find-exe.outputs.EXE_PATH }} ${{ steps.find-exe.outputs.LATEST_YML_PATH }}"
+          # Use a bash array so paths with spaces ("StoreVeu POS Setup X.Y.Z.exe")
+          # don't get word-split when expanded into the gh args.
+          ARTIFACTS=(
+            "${{ steps.find-exe.outputs.EXE_PATH }}"
+            "${{ steps.find-exe.outputs.LATEST_YML_PATH }}"
+          )
           if [ -n "${{ steps.find-exe.outputs.BLOCKMAP_PATH }}" ]; then
-            ARTIFACTS="$ARTIFACTS ${{ steps.find-exe.outputs.BLOCKMAP_PATH }}"
+            ARTIFACTS+=( "${{ steps.find-exe.outputs.BLOCKMAP_PATH }}" )
           fi
           gh release create latest-desktop \
-            $ARTIFACTS \
+            "${ARTIFACTS[@]}" \
             --title "StoreVeu POS Desktop v${{ steps.find-exe.outputs.VERSION }} (${{ steps.find-exe.outputs.DATE }})" \
             --notes "$(cat <<'EOF'
           ## StoreVeu POS — Windows Desktop Installer
