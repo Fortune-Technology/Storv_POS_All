@@ -69,6 +69,8 @@ const adminMenuGroups: MenuGroup[] = [
     label: 'Management',
     items: [
       { name: 'Organization / Store', icon: <Building2 size={13} />, path: '/org-store' },
+      { name: 'Vendor Onboardings', icon: <FileText size={13} />, path: '/vendor-onboardings' },
+      { name: 'Contracts',          icon: <FileText size={13} />, path: '/contracts' },
       { name: 'States',           icon: <MapPin size={13} />,    path: '/states' },
       { name: 'Vendor Templates', icon: <FileText size={13} />,  path: '/vendor-templates' },
       { name: 'Roles',            icon: <Shield size={13} />,    path: '/roles' },

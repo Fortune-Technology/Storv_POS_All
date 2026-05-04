@@ -32,6 +32,11 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/payment-models/:storeId':      'admin_pricing_model.view',
   '/pricing-tiers':                'admin_pricing_tiers.view',
   '/saas-margin':                  'admin_pricing_model.view',
+  // S77 — Vendor onboarding review queue (reuses admin_organizations since
+  // it gates org creation prerequisites).
+  '/vendor-onboardings':           'admin_organizations.view',
+  // S77 Phase 2 — Contract management
+  '/contracts':                    'admin_organizations.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {

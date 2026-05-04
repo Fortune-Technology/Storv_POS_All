@@ -53,6 +53,11 @@ async function main() {
       role:     'superadmin',
       status:   'active',
       orgId:    defaultOrg.id,
+      // S77 — bypass vendor onboarding gate (superadmin already bypasses on the
+      // frontend, but this keeps the DB row consistent with seeded users).
+      onboardingSubmitted: true,
+      contractSigned:      true,
+      vendorApproved:      true,
     },
   });
 

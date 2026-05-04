@@ -38,6 +38,10 @@ import AdminLottery         from './pages/AdminLottery';
 import AdminPaymentModels   from './pages/AdminPaymentModels';
 import AdminPricingTiers    from './pages/AdminPricingTiers';
 import AdminSaasMargin      from './pages/AdminSaasMargin';
+// S77 — Vendor onboarding review queue
+import AdminVendorOnboardings from './pages/AdminVendorOnboardings';
+// S77 Phase 2 — Contracts pipeline
+import AdminContracts from './pages/AdminContracts';
 
 import PermissionRoute from './components/PermissionRoute';
 
@@ -89,6 +93,10 @@ function App() {
         <Route path="/payment-models" element={<ProtectedRoute><AdminLayout><AdminPaymentModels /></AdminLayout></ProtectedRoute>} />
         <Route path="/pricing-tiers"  element={<ProtectedRoute><AdminLayout><AdminPricingTiers /></AdminLayout></ProtectedRoute>} />
         <Route path="/saas-margin"    element={<ProtectedRoute><AdminLayout><AdminSaasMargin /></AdminLayout></ProtectedRoute>} />
+        {/* S77 — Vendor onboarding review queue */}
+        <Route path="/vendor-onboardings" element={<ProtectedRoute><AdminLayout><AdminVendorOnboardings /></AdminLayout></ProtectedRoute>} />
+        {/* S77 Phase 2 — Contracts pipeline */}
+        <Route path="/contracts"          element={<ProtectedRoute><AdminLayout><AdminContracts /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

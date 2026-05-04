@@ -123,6 +123,10 @@ const alice = await p.user.create({
     role: 'cashier',
     organization: { connect: { id: org.id } },
     status: 'active',
+    // S77 — bypass vendor onboarding gate for audit-test cashiers
+    onboardingSubmitted: true,
+    contractSigned: true,
+    vendorApproved: true,
   },
 });
 
@@ -135,6 +139,10 @@ const bob = await p.user.create({
     role: 'cashier',
     organization: { connect: { id: org.id } },
     status: 'active',
+    // S77 — bypass vendor onboarding gate for audit-test cashiers
+    onboardingSubmitted: true,
+    contractSigned: true,
+    vendorApproved: true,
   },
 });
 

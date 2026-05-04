@@ -12,6 +12,10 @@ import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.js';
 import { autoAudit } from './middleware/autoAudit.js';
 import authRoutes from './routes/authRoutes.js';
+// S77 — Vendor Onboarding (Phase 1)
+import vendorOnboardingRoutes, { adminRouter as vendorOnboardingAdminRoutes } from './routes/vendorOnboardingRoutes.js';
+// S77 — Contracts (Phase 2)
+import { vendorContractRoutes, adminContractRoutes, adminTemplateRoutes } from './routes/contractRoutes.js';
 import tenantRoutes from './routes/tenantRoutes.js';
 import storeRoutes from './routes/storeRoutes.js';
 import userManagementRoutes from './routes/userManagementRoutes.js';
@@ -132,6 +136,12 @@ app.use('/api', autoAudit({ logFailures: true }));
 
 // API routes
 app.use('/api/auth',         authRoutes);
+// S77 — vendor onboarding self-service (must be reachable by `pending` users,
+// see auth middleware allowlist). Admin review router mounted further down.
+app.use('/api/vendor-onboarding', vendorOnboardingRoutes);
+// S77 Phase 2 — vendor contract self-service (sign + view own contract).
+// Same pending-user allowlist applies.
+app.use('/api/contracts', vendorContractRoutes);
 app.use('/api/tenants',      tenantRoutes);
 app.use('/api/stores',       storeRoutes);
 app.use('/api/users',        userManagementRoutes);
@@ -162,6 +172,11 @@ app.use('/api/loyalty',      loyaltyRoutes);
 app.use('/api/payment/dejavoo/hpp', dejavooHppRoutes);
 app.use('/api/payment/dejavoo',     dejavooPaymentRoutes);
 app.use('/api/admin',        adminRoutes);
+// S77 — Admin review queue for vendor onboarding submissions
+app.use('/api/admin/vendor-onboardings', vendorOnboardingAdminRoutes);
+// S77 Phase 2 — Admin contract management + template library
+app.use('/api/admin/contracts',         adminContractRoutes);
+app.use('/api/admin/contract-templates', adminTemplateRoutes);
 app.use('/api/price-scenarios', priceScenarioRoutes);
 app.use('/api/states',          stateRoutes);
 app.use('/api/pricing',         pricingModelRoutes);

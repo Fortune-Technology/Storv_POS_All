@@ -648,6 +648,53 @@ export async function sendTicketReplyToAssignee(
   return sendMail(to, `[Storeveu] New reply — ${ticket.subject}`, html);
 }
 
+// ─── S77 Phase 2 — Contract emails ───────────────────────────────────────
+export interface ContractReadyPayload {
+  signerName: string;
+  templateName: string;
+  contractId: string;
+  signingToken: string;
+  generatedByName?: string | null;
+}
+
+export async function sendContractReady(
+  to: string,
+  { signerName, templateName, contractId, signingToken, generatedByName }: ContractReadyPayload,
+): Promise<boolean> {
+  const url = `${PORTAL_URL()}/vendor-contract/${contractId}?token=${encodeURIComponent(signingToken)}`;
+  const inviter = generatedByName ? `<strong>${escapeHtml(generatedByName)}</strong> from the StoreVeu team` : 'Our team';
+  const html = wrap('Your contract is ready to sign', `
+    <h2>Hi ${escapeHtml(signerName || 'there')},</h2>
+    <p>${inviter} has prepared your <strong>${escapeHtml(templateName)}</strong> for review and signature.</p>
+    <p>Once signed, your application moves to the final activation step. You'll be notified the moment your account is live.</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Review &amp; Sign Contract</a></p>
+    <p class="muted">This link is unique to your account. Don't share it.</p>
+    <p class="muted" style="word-break:break-all;">Or copy this link: ${url}</p>
+  `);
+  return sendMail(to, `[StoreVeu] Sign your ${templateName}`, html);
+}
+
+export interface ContractActivatedPayload {
+  signerName: string;
+  pricingTierName?: string | null;
+}
+
+export async function sendContractActivated(
+  to: string,
+  { signerName, pricingTierName }: ContractActivatedPayload,
+): Promise<boolean> {
+  const url = `${PORTAL_URL()}/login`;
+  const tierLine = pricingTierName ? `<p>You've been assigned the <strong>${escapeHtml(pricingTierName)}</strong> plan.</p>` : '';
+  const html = wrap('Your account is activated', `
+    <h2>Welcome aboard, ${escapeHtml(signerName || 'merchant')}!</h2>
+    <p>Your contract has been counter-signed by our team and your StoreVeu account is now <strong>active</strong>.</p>
+    ${tierLine}
+    <p>Sign in to start setting up your organisation, stores, and registers:</p>
+    <p style="text-align:center"><a class="btn" href="${url}">Sign In</a></p>
+  `);
+  return sendMail(to, '[StoreVeu] Your account is activated', html);
+}
+
 // Minimal HTML escape for template interpolation
 function escapeHtml(s: unknown): string {
   if (s == null) return '';

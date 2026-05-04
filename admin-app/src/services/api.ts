@@ -499,6 +499,142 @@ export const adminListBroadcasts = (params?: Params): Promise<PaginatedResponse<
 export const adminRecallBroadcast = (id: string): Promise<SuccessResponse> =>
   api.delete(`/admin/notifications/${id}`).then(r => r.data);
 
+// ── S77 Vendor Onboarding (admin review queue) ──────────────────────────
+export interface VendorOnboardingRecord {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  businessLegalName: string | null;
+  dbaName: string | null;
+  businessAddress: string | null;
+  businessCity: string | null;
+  businessState: string | null;
+  businessZip: string | null;
+  businessType: string | null;
+  ein: string | null;
+  yearsInBusiness: string | null;
+  industry: string | null;
+  numStoresRange: string | null;
+  numStoresExact: number | null;
+  numRegistersPerStore: number | null;
+  monthlyVolumeRange: string | null;
+  avgTxPerDay: number | null;
+  currentPOS: string | null;
+  goLiveTimeline: string | null;
+  requestedModules: string[];
+  hardwareNeeds: Record<string, number | boolean | null>;
+  hearAboutUs: string | null;
+  referralSource: string | null;
+  specialRequirements: string | null;
+  agreedToTerms: boolean;
+  status: string;
+  currentStep: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewedById: string | null;
+  rejectionReason: string | null;
+  adminNotes: string | null;
+  suggestedPricingTierId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string; name: string; email: string; phone: string | null;
+    status: string; createdAt: string;
+    onboardingSubmitted?: boolean; contractSigned?: boolean; vendorApproved?: boolean;
+  };
+  reviewedBy?: { id: string; name: string; email: string } | null;
+}
+
+export const adminListVendorOnboardings = (params?: Params): Promise<{ onboardings: VendorOnboardingRecord[]; countsByStatus: Record<string, number> }> =>
+  api.get('/admin/vendor-onboardings', { params }).then(r => r.data);
+export const adminGetVendorOnboarding    = (id: string): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.get(`/admin/vendor-onboardings/${id}`).then(r => r.data);
+export const adminGetVendorOnboardingByUser = (userId: string): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.get(`/admin/vendor-onboardings/by-user/${userId}`).then(r => r.data);
+
+// ── S77 Phase 2 — Contracts (admin) ─────────────────────────────────────
+export interface ContractRecord {
+  id: string;
+  vendorOnboardingId: string | null;
+  userId: string;
+  organizationId: string | null;
+  templateId: string;
+  templateVersionId: string;
+  bodyHtmlSnapshot: string;
+  mergeValues: Record<string, any>;
+  status: string;
+  signingToken: string;
+  createdById: string;
+  sentAt: string | null;
+  viewedAt: string | null;
+  signedAt: string | null;
+  cancelledAt: string | null;
+  expiresAt: string | null;
+  cancelReason: string | null;
+  signerName: string | null;
+  signerTitle: string | null;
+  signerEmail: string | null;
+  signerIp: string | null;
+  signedPdfPath: string | null;
+  assignedPricingTierId: string | null;
+  activatedAt: string | null;
+  activatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: { id: string; name: string; email: string; status: string } | null;
+  template?: { id: string; name: string; slug?: string } | null;
+  templateVersion?: { id: string; versionNumber: number; mergeFields: any } | null;
+  events?: Array<{ id: string; eventType: string; createdAt: string; meta?: any; actorId?: string | null; actorRole?: string | null }>;
+  createdBy?: { id: string; name: string; email: string } | null;
+}
+export interface ContractTemplateRecord {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  active: boolean;
+  versions: Array<{
+    id: string;
+    versionNumber: number;
+    status: string;
+    publishedAt: string | null;
+    changeNotes: string | null;
+    bodyHtml?: string;
+    mergeFields?: any;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const adminListContracts    = (params?: Params): Promise<{ contracts: ContractRecord[]; countsByStatus: Record<string, number> }> =>
+  api.get('/admin/contracts', { params }).then(r => r.data);
+export const adminGetContract      = (id: string): Promise<{ contract: ContractRecord; renderedHtml: string }> =>
+  api.get(`/admin/contracts/${id}`).then(r => r.data);
+export const adminCreateContract   = (body: { vendorOnboardingId?: string; userId: string; templateId?: string; mergeValues: Record<string, any> }): Promise<{ contract: ContractRecord }> =>
+  api.post('/admin/contracts', body).then(r => r.data);
+export const adminUpdateContract   = (id: string, body: { mergeValues: Record<string, any> }): Promise<{ contract: ContractRecord }> =>
+  api.patch(`/admin/contracts/${id}`, body).then(r => r.data);
+export const adminSendContract     = (id: string): Promise<{ contract: ContractRecord; emailSent: boolean }> =>
+  api.post(`/admin/contracts/${id}/send`).then(r => r.data);
+export const adminResendContract   = (id: string): Promise<{ emailSent: boolean; recipientEmail: string }> =>
+  api.post(`/admin/contracts/${id}/resend`).then(r => r.data);
+export const adminCancelContract   = (id: string, reason?: string): Promise<{ contract: ContractRecord }> =>
+  api.post(`/admin/contracts/${id}/cancel`, { reason }).then(r => r.data);
+export const adminActivateContract = (id: string, pricingTierId: string | null): Promise<{ contract: ContractRecord }> =>
+  api.post(`/admin/contracts/${id}/activate`, { pricingTierId }).then(r => r.data);
+export const adminDownloadContractPdfUrl = (id: string): string =>
+  `${api.defaults.baseURL}/admin/contracts/${id}/pdf`;
+
+export const adminListContractTemplates = (): Promise<{ templates: ContractTemplateRecord[] }> =>
+  api.get('/admin/contract-templates').then(r => r.data);
+export const adminGetContractTemplate   = (id: string): Promise<{ template: ContractTemplateRecord }> =>
+  api.get(`/admin/contract-templates/${id}`).then(r => r.data);
+export const adminUpdateVendorOnboarding = (id: string, data: Record<string, unknown>): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
+
 export default api;
 
 // Re-export types for consumers — makes `import { AdminUser } from '../services/api'` work too.
@@ -516,3 +652,4 @@ export type {
   PriceScenario, SystemConfig,
   ImageRehostStatus, ImageRehostResult,
 };
+// S77 — VendorOnboardingRecord is already exported at its declaration above.

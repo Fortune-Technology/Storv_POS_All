@@ -1,0 +1,244 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Vendor Awaiting screen — S77 Phase 1 (light brand theme)
+   Prefix: va-
+   ────────────────────────────────────────────────────────────────────────── */
+
+.va-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 30% 0%, var(--brand-08) 0%, transparent 50%),
+    var(--bg-primary, #f8fafc);
+  padding: 32px 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.va-card {
+  width: 100%;
+  max-width: 640px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  animation: va-fade 250ms ease-out;
+}
+@keyframes va-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.va-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+.va-actions { display: flex; gap: 8px; }
+.va-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.va-icon-btn:hover { background: var(--brand-08); color: var(--brand-primary); border-color: var(--brand-25); }
+.va-icon-btn--logout { color: #dc2626; }
+.va-icon-btn--logout:hover { background: rgba(254,226,226,0.5); color: #b91c1c; border-color: rgba(220,38,38,0.3); }
+.va-spin { animation: va-spin-anim 800ms linear infinite; }
+@keyframes va-spin-anim { to { transform: rotate(360deg); } }
+
+.va-hero {
+  text-align: center;
+  padding: 8px 0 28px;
+}
+.va-hero-icon {
+  width: 80px; height: 80px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--brand-08);
+  border: 2px solid var(--brand-25);
+  color: var(--brand-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.va-hero--action .va-hero-icon,
+.va-hero-icon--action {
+  background: rgba(34,197,94,0.12);
+  border-color: rgba(34,197,94,0.4);
+  color: #16a34a;
+}
+.va-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  margin-top: 18px;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: #ffffff;
+  border: 1px solid rgba(22,163,74,0.3);
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(22,163,74,0.18);
+  transition: all 150ms;
+}
+.va-cta-btn:hover { background: linear-gradient(135deg, #15803d, #16a34a); transform: translateY(-1px); }
+
+.va-hero h2 {
+  margin: 0 0 8px;
+  color: var(--text-primary, #0f172a);
+  font-size: 1.5rem;
+}
+.va-hero-msg {
+  color: var(--text-secondary, #475569);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+/* ── Stages ── */
+.va-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-tertiary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 24px 0;
+}
+.va-stage {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 10px 0;
+  position: relative;
+}
+.va-stage:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 30px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--border-color, #e2e8f0);
+}
+.va-stage.is-done:not(:last-child)::before {
+  background: rgba(34,197,94,0.4);
+}
+.va-stage-marker {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-muted, #94a3b8);
+  flex-shrink: 0;
+  z-index: 1;
+}
+.va-stage.is-done .va-stage-marker {
+  background: rgba(34,197,94,0.12);
+  color: #16a34a;
+  border-color: rgba(34,197,94,0.4);
+}
+.va-stage.is-current .va-stage-marker {
+  background: var(--brand-08);
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 4px var(--brand-15);
+}
+.va-stage-empty {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted, #cbd5e1);
+}
+.va-stage-content { flex: 1; }
+.va-stage-label {
+  color: var(--text-secondary, #475569);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+.va-stage.is-done .va-stage-label { color: var(--text-primary, #0f172a); font-weight: 600; }
+.va-stage-current {
+  color: var(--brand-primary);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+/* ── Info row ── */
+.va-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  font-size: 0.84rem;
+  color: var(--text-muted, #64748b);
+  padding: 14px 0;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
+.va-info strong { color: var(--text-secondary, #475569); font-weight: 600; margin-right: 4px; }
+
+.va-help {
+  margin-top: 14px;
+  font-size: 0.84rem;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+.va-help a { color: var(--brand-primary); text-decoration: none; font-weight: 600; }
+.va-help a:hover { text-decoration: underline; }
+
+/* ── Rejected variant ── */
+.va-rejected {
+  text-align: center;
+  padding: 14px 0;
+}
+.va-rejected-icon {
+  width: 80px; height: 80px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: rgba(239,68,68,0.08);
+  border: 2px solid rgba(239,68,68,0.4);
+  color: #dc2626;
+  display: flex; align-items: center; justify-content: center;
+}
+.va-rejected h2 {
+  color: var(--text-primary, #0f172a);
+  margin: 0 0 10px;
+}
+.va-rejected-msg {
+  color: var(--text-secondary, #475569);
+  font-size: 0.92rem;
+  margin: 0 auto 20px;
+  max-width: 440px;
+}
+.va-rejected-reason {
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #b91c1c;
+  font-size: 0.86rem;
+  margin: 16px auto;
+  text-align: left;
+  max-width: 520px;
+}
+.va-rejected-reason strong { color: #991b1b; margin-right: 6px; }
+
+@media (max-width: 480px) {
+  .va-card { padding: 22px 18px; }
+  .va-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+  .va-hero h2 { font-size: 1.25rem; }
+}

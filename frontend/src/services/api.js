@@ -853,4 +853,20 @@ export const markNotifRead        = (id)     => api.put(`/notifications/${id}/re
 export const markAllNotifsRead    = ()       => api.put('/notifications/read-all').then(r => r.data);
 export const dismissNotif         = (id)     => api.delete(`/notifications/${id}`).then(r => r.data);
 
+// ── VENDOR ONBOARDING (S77 — Phase 1 questionnaire) ─────────────────────
+export const getMyVendorOnboarding    = ()     => api.get('/vendor-onboarding/me').then(r => r.data);
+export const updateMyVendorOnboarding = (data) => api.put('/vendor-onboarding/me', data).then(r => r.data);
+export const submitMyVendorOnboarding = (data) => api.post('/vendor-onboarding/me/submit', data).then(r => r.data);
+
+// ── VENDOR ONBOARDING (admin review queue) ──
+export const adminListVendorOnboardings  = (params)   => api.get('/admin/vendor-onboardings', { params }).then(r => r.data);
+export const adminGetVendorOnboarding    = (id)       => api.get(`/admin/vendor-onboardings/${id}`).then(r => r.data);
+export const adminUpdateVendorOnboarding = (id, data) => api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
+
+// ── VENDOR CONTRACTS (Phase 2 — vendor self-service) ──────────────────
+export const listMyContracts    = ()           => api.get('/contracts/me').then(r => r.data);
+export const getMyContract      = (id, token)  => api.get(`/contracts/me/${id}`, { params: token ? { token } : undefined }).then(r => r.data);
+export const signMyContract     = (id, data)   => api.post(`/contracts/me/${id}/sign`, data).then(r => r.data);
+export const downloadMyContract = (id)         => `${api.defaults.baseURL}/contracts/me/${id}/pdf`;
+
 export default api;

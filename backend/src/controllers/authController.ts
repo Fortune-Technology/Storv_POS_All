@@ -103,6 +103,10 @@ export const signup = async (req: Request, res: Response, next: NextFunction): P
       phone: user.phone,
       role: user.role,
       status: user.status,
+      // S77 — gate flags so the Signup page can route into the questionnaire.
+      onboardingSubmitted: user.onboardingSubmitted,
+      contractSigned:      user.contractSigned,
+      vendorApproved:      user.vendorApproved,
       token: generateToken(user.id, { name: user.name, email: user.email, role: user.role, orgId: user.orgId }),
     });
   } catch (error) {
@@ -146,14 +150,19 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
-    // Check user account status
+    // Check user account status.
+    // S77 — pending users are NO LONGER blocked at login; they need to log
+    // back in to reach the vendor onboarding wizard / awaiting screen. The
+    // protect middleware still gates them away from the actual portal API.
+    // Suspended users are still blocked here.
     if (user.status === 'pending') {
       await logAudit(
         auditCtx(req, { id: user.id, name: user.name, email: user.email, role: user.role }, user.orgId || 'unknown'),
-        'login_blocked', 'auth', user.id, { reason: 'pending_approval' },
+        'login', 'auth', user.id,
+        { email: user.email, role: user.role, note: 'pending_user_login' },
       );
-      res.status(403).json({ error: 'Your account is pending approval. Please wait for an administrator to activate your account.' });
-      return;
+      // Fall through and issue a token — the frontend ProtectedRoute will
+      // redirect to /vendor-onboarding or /vendor-awaiting based on flags.
     }
     if (user.status === 'suspended') {
       await logAudit(
@@ -184,6 +193,12 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       orgId:            user.orgId,
       tenantId:         user.orgId, // legacy alias used by Onboarding page
       permissions,                  // effective permission keys (union of all roles)
+      // S77 — vendor onboarding gate flags. Frontend ProtectedRoute uses these
+      // to redirect into the questionnaire / awaiting-review screens before
+      // the portal is reachable.
+      onboardingSubmitted: user.onboardingSubmitted,
+      contractSigned:      user.contractSigned,
+      vendorApproved:      user.vendorApproved,
       token: generateToken(user.id, { name: user.name, email: user.email, role: user.role, orgId: user.orgId }),
     });
   } catch (error) {

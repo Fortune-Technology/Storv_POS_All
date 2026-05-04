@@ -160,10 +160,14 @@ const AdminDashboard = () => {
           <>
             {/* ── Stat Cards ──────────────────────────────── */}
             <div className="admin-stats-grid">
-              <StatCard icon={<Users size={18} />}        label="Total Users"      value={stats?.totalUsers}   color="#3b82f6" onClick={() => navigate('/users')} />
-              <StatCard icon={<Clock size={18} />}         label="Pending Approval" value={stats?.pendingUsers} color="#f59e0b" onClick={() => navigate('/users?status=pending')} />
-              <StatCard icon={<Building2 size={18} />}     label="Organizations"    value={stats?.totalOrgs}    color="var(--accent-primary)" onClick={() => navigate('/organizations')} />
-              <StatCard icon={<CheckCircle size={18} />}   label="Active Orgs"      value={stats?.activeOrgs}   color="#10b981" />
+              {/* S77 — replaced legacy /users + /organizations routes with the
+                  unified /org-store drill-down. The Pending Approval card jumps
+                  straight to the Vendor Onboardings review queue since that's
+                  where pending signups now live. */}
+              <StatCard icon={<Users size={18} />}        label="Total Users"      value={stats?.totalUsers}   color="#3b82f6" onClick={() => navigate('/org-store')} />
+              <StatCard icon={<Clock size={18} />}         label="Pending Approval" value={stats?.pendingUsers} color="#f59e0b" onClick={() => navigate('/vendor-onboardings?status=submitted')} />
+              <StatCard icon={<Building2 size={18} />}     label="Organizations"    value={stats?.totalOrgs}    color="var(--accent-primary)" onClick={() => navigate('/org-store')} />
+              <StatCard icon={<CheckCircle size={18} />}   label="Active Orgs"      value={stats?.activeOrgs}   color="#10b981" onClick={() => navigate('/org-store')} />
               <StatCard icon={<Ticket size={18} />}        label="Open Tickets"     value={stats?.openTickets}  color="#ef4444" onClick={() => navigate('/tickets')} />
             </div>
 

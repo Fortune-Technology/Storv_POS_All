@@ -1,0 +1,404 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Vendor Onboarding Wizard — S77 Phase 1 (light brand theme)
+   Prefix: vob-
+   Aligns with portal CSS variables (--brand-primary, --bg-secondary, etc.)
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vob-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 20% 0%, var(--brand-08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, var(--brand-sec-10) 0%, transparent 50%),
+    var(--bg-primary, #f8fafc);
+  padding: 32px 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.vob-card {
+  width: 100%;
+  max-width: 880px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  animation: vob-fade 250ms ease-out;
+}
+
+@keyframes vob-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vob-loading {
+  padding: 80px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--brand-primary);
+}
+
+.vob-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.vob-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.vob-save-btn:hover { background: var(--brand-08); color: var(--brand-primary); border-color: var(--brand-25); }
+.vob-save-btn:disabled { opacity: 0.6; cursor: wait; }
+
+/* ── Step indicator ── */
+.vob-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 28px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.vob-step-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.vob-step-dot {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-muted, #64748b);
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem;
+  transition: all 200ms;
+}
+.vob-step-dot.is-active {
+  background: var(--accent-gradient, linear-gradient(135deg, #3d56b5 0%, #7b95e0 100%));
+  border-color: var(--brand-primary);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px var(--brand-15);
+}
+.vob-step-dot.is-done {
+  background: rgba(34,197,94,0.12);
+  border-color: rgba(34,197,94,0.4);
+  color: #16a34a;
+}
+.vob-step-label {
+  font-size: 0.72rem;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+/* ── Step head ── */
+.vob-step-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.vob-step-icon {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: var(--brand-08);
+  border: 1px solid var(--brand-25);
+  color: var(--brand-primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.vob-step-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+.vob-step-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+.vob-step-desc {
+  color: var(--text-secondary, #475569);
+  margin: 0 0 18px 0;
+  font-size: 0.9rem;
+}
+
+/* ── Field grid ── */
+.vob-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+.vob-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.vob-field:has(.vob-textarea) {
+  grid-column: 1 / -1;
+}
+.vob-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.vob-req { color: #dc2626; }
+.vob-hint {
+  margin-left: auto;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 400;
+  font-size: 0.72rem;
+}
+
+.vob-input {
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #cbd5e1);
+  color: var(--text-primary, #0f172a);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 120ms, box-shadow 120ms;
+  /* Native select dropdowns inherit the same colors so options remain
+     readable in light browsers (Chrome respects the page color for the
+     <select> control but the popup uses native styling per OS). */
+  color-scheme: light;
+}
+.vob-input:focus {
+  outline: none;
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 3px var(--brand-15);
+}
+/* Force <select> options to render with explicit light colors so they
+   stay readable on any platform — issue #2 from S77 P2 hot-fix. */
+.vob-input option {
+  background: #ffffff;
+  color: #0f172a;
+}
+.vob-textarea {
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+}
+.vob-field-error {
+  color: #dc2626;
+  font-size: 0.74rem;
+  margin: 2px 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Modules ── */
+.vob-modules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.vob-module {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.vob-module:hover { border-color: var(--brand-30); background: var(--brand-05); }
+.vob-module.is-checked {
+  background: var(--brand-08);
+  border-color: var(--brand-primary);
+}
+.vob-module.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.vob-module input[type="checkbox"] {
+  width: 16px; height: 16px;
+  margin-top: 2px;
+  accent-color: var(--brand-primary);
+  cursor: inherit;
+}
+.vob-module-name {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vob-req-pill {
+  background: rgba(34,197,94,0.18);
+  color: #16a34a;
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.vob-module-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+/* ── Hardware ── */
+.vob-hardware {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vob-hw-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+}
+.vob-hw-label {
+  color: var(--text-primary, #0f172a);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+.vob-hw-input {
+  width: 80px;
+  text-align: center;
+}
+.vob-hw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-secondary, #475569);
+  font-size: 0.86rem;
+}
+.vob-hw-toggle input { accent-color: var(--brand-primary); }
+
+/* ── Summary block ── */
+.vob-summary {
+  background: var(--brand-05);
+  border: 1px solid var(--brand-25);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin: 18px 0;
+}
+.vob-summary-title {
+  color: var(--brand-primary);
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.vob-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  font-size: 0.86rem;
+  color: var(--text-secondary, #475569);
+}
+
+/* ── Terms ── */
+.vob-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--text-secondary, #475569);
+  line-height: 1.5;
+}
+.vob-terms.has-error {
+  border-color: rgba(220,38,38,0.5);
+  background: rgba(254,226,226,0.5);
+}
+.vob-terms input { margin-top: 3px; accent-color: var(--brand-primary); }
+.vob-terms-error { margin-top: 6px; }
+
+/* ── Footer / nav ── */
+.vob-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
+.vob-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.vob-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.vob-btn-back {
+  background: var(--bg-secondary, #ffffff);
+  border-color: var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
+}
+.vob-btn-back:hover:not(:disabled) { background: var(--bg-tertiary, #f1f5f9); }
+.vob-btn-primary {
+  background: var(--accent-gradient, linear-gradient(135deg, #3d56b5 0%, #7b95e0 100%));
+  color: #ffffff;
+  border-color: var(--brand-primary);
+}
+.vob-btn-primary:hover:not(:disabled) { background: var(--brand-dark, #2d3f8a); }
+.vob-btn-submit {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: #ffffff;
+  border-color: #16a34a;
+}
+.vob-btn-submit:hover:not(:disabled) { background: linear-gradient(135deg, #15803d, #16a34a); }
+
+.vob-spinner { animation: vob-spin 800ms linear infinite; }
+@keyframes vob-spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .vob-card { padding: 20px 18px; }
+  .vob-grid, .vob-modules, .vob-summary-grid { grid-template-columns: 1fr; }
+  .vob-step-label { display: none; }
+  .vob-step-title { font-size: 1.1rem; }
+}
+@media (max-width: 480px) {
+  .vob-page { padding: 16px 8px; }
+  .vob-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+}

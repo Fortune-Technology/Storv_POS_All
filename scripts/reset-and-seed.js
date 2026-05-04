@@ -47,10 +47,17 @@ async function main() {
   run('npx prisma db push --force-reset --accept-data-loss', path.join(ROOT, 'ecom-backend'));
 
   // Step 3: Seed POS data
+  // Phase 4 TS migration: backend/prisma/seed.js was renamed to seed.ts.
+  // Run via tsx so the new TypeScript imports resolve cleanly.
   console.log('\n━━━ Step 3: Seed POS Data ━━━');
-  run('node prisma/seed.js', path.join(ROOT, 'backend'));
+  run('npx tsx prisma/seed.ts', path.join(ROOT, 'backend'));
+
+  // Step 3b: Seed default contract template (S77 Phase 2)
+  console.log('\n━━━ Step 3b: Seed Default Contract Template ━━━');
+  run('npx tsx prisma/seedContractTemplates.ts', path.join(ROOT, 'backend'));
 
   // Step 4: Seed Ecom data (auto-detects org/store from POS database)
+  // ecom-backend seed is still plain JS — keep node invocation.
   console.log('\n━━━ Step 4: Seed E-Commerce Data ━━━');
   run('node prisma/seed.js', path.join(ROOT, 'ecom-backend'));
 
