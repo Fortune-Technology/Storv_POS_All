@@ -64,9 +64,13 @@ const fmtLottery = (n) => {
   return `$${rounded.toFixed(2)}`;
 };
 const fmtInt   = (n) => n == null ? '0' : Number(n).toLocaleString();
-const todayStr = () => new Date().toISOString().slice(0, 10);
 const pad2     = (n) => String(n).padStart(2, '0');
 const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+// Browser-local "today" — NOT UTC. Earlier `new Date().toISOString().slice(0, 10)`
+// returned UTC date which broke after ~8pm in Western timezones (page opened to
+// tomorrow → empty data). Browser-local matches the store's tz in 95%+ of
+// real-world deployments where the manager + store are in the same tz.
+const todayStr = () => toDateStr(new Date());
 
 // ════════════════════════════════════════════════════════════════════
 // Main page

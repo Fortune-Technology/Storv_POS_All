@@ -3,8 +3,12 @@
 
    Theme: white card with brand-blue accent for normal confirms, red accent
    for destructive (danger) ones. Backdrop dim + 4px blur.
-   z-index 1100 — sits above app content (1000) and on top of any other
-   modal (so a confirm-on-close-modal scenario reads correctly).
+
+   z-index 10100 — must sit ABOVE every modal in the cashier-app, including
+   the LotteryShiftModal (9100) and any other overlay. Confirm dialogs are
+   ALWAYS the topmost interactive element when shown — if they render behind
+   another modal, the user can't see what they're confirming.
+   (Apr 2026 — was 1100, which rendered behind the EoD wizard's 9100.)
 */
 
 .confirm-modal-backdrop {
@@ -15,7 +19,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: 10100;
   padding: 16px;
   animation: confirm-modal-fade-in 0.15s ease-out;
 }

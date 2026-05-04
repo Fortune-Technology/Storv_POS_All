@@ -53,7 +53,12 @@ import './LotteryWeeklySettlement.css';
 const fmt = (n) => n == null ? 'N/A' : `$${Number(n).toFixed(2)}`;
 const fmtNum = (n) => n == null ? 'N/A' : Number(n).toLocaleString();
 
-const toDateStr = (d) => d.toISOString().slice(0, 10);
+// Browser-local date string — NOT UTC. Earlier `d.toISOString().slice(0, 10)`
+// returned UTC date which broke after ~8pm in Western timezones (Reports tab
+// opened with `dateTo = tomorrow` → next day shown empty). Browser-local
+// matches the store's tz in 95%+ of real-world deployments.
+const pad2 = (n) => String(n).padStart(2, '0');
+const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const todayStr = () => toDateStr(new Date());
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
 

@@ -5,8 +5,10 @@
    brand backdrop, pop+fade animation) but renders N option buttons instead
    of a binary confirm/cancel.
 
-   z-index 1100 — same as ConfirmModal so a confirm-on-chooser stack reads
-   correctly. Sits above app content (1000) and below EbtBalanceOverlay (1500). */
+   z-index 10100 — same as ConfirmModal so a confirm-on-chooser stack reads
+   correctly. Must sit ABOVE every other modal in the cashier-app
+   including LotteryShiftModal (9100). (Apr 2026 — was 1100, rendered
+   behind the EoD wizard.) */
 
 .chooser-modal-backdrop {
   position: fixed;
@@ -16,7 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: 10100;
   padding: 16px;
   animation: chooser-modal-fade-in 0.15s ease-out;
 }

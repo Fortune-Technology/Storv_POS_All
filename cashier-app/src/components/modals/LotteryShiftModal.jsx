@@ -42,7 +42,17 @@ const fmtL = (n) => {
 
 const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
 const numInput = (v) => String(v || '').replace(/[^0-9]/g, '');
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Browser-local "today" — NOT UTC. Earlier `new Date().toISOString().slice(0, 10)`
+// returned UTC date which broke after ~8pm in Western timezones — the wizard
+// would stamp LotteryOnlineTotal under tomorrow's date and fetch authoritative
+// total for tomorrow (returning $0 while local Step 1 sum showed actual sales).
+// Browser-local matches the back-office in 95%+ of real-world deployments
+// where the cashier register and back-office are in the same tz.
+const _pad2 = (n) => String(n).padStart(2, '0');
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
+};
 
 // Slot-number comparator used for the EoD wizard's counter list. Books
 // without a slot number fall to the end. Tiebreak by gameNumber + bookNumber
@@ -623,9 +633,16 @@ export default function LotteryShiftModal({
                     </div>
                     {boxData.map(b => (
                       <div key={b.id} className={`lsm-book-row ${b.rowComplete ? 'lsm-book-row--done' : ''} ${b.isSoldout ? 'lsm-book-row--soldout' : ''}`}>
+                        {/* Apr 2026 — book number gets visual priority so the
+                            cashier can quickly cross-reference the physical
+                            book against this row. Game name kept secondary
+                            since slot+book# is what cashiers scan against. */}
                         <span className="lsm-book-game">
-                          <strong>{b.game?.name || 'Unknown'}</strong>
-                          <small>Book {b.boxNumber || '—'}{b.slotNumber ? ` · Slot ${b.slotNumber}` : ''}</small>
+                          <strong className="lsm-book-no">
+                            #{b.boxNumber || '—'}
+                            {b.slotNumber ? <span className="lsm-book-slot"> · slot {b.slotNumber}</span> : null}
+                          </strong>
+                          <small>{b.game?.name || 'Unknown'}</small>
                         </span>
                         <span className="lsm-book-price">{fmt(b.price)}</span>
                         <span className="lsm-book-yest">{b.yesterdayEnd}</span>

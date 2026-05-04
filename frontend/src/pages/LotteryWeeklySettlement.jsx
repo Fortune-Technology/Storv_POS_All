@@ -28,7 +28,14 @@ import {
 } from '../services/api';
 
 const fmt = (n) => n == null ? '$0.00' : `$${Number(n).toFixed(2)}`;
-const toIsoDate = (d) => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10);
+// Browser-local date string — NOT UTC. Earlier `.toISOString().slice(0, 10)`
+// returned UTC date which broke the settlement week calendar after ~8pm in
+// Western timezones (page opened to next day's week).
+const _pad2 = (n) => String(n).padStart(2, '0');
+const toIsoDate = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${_pad2(dt.getMonth() + 1)}-${_pad2(dt.getDate())}`;
+};
 const formatDate = (d) => {
   if (!d) return '';
   const dt = d instanceof Date ? d : new Date(d);

@@ -245,6 +245,10 @@ export const getCatalogSnapshot = async (req: Request, res: Response): Promise<v
         depositRuleId:  pp.depositRuleId,
         departmentId:   p.departmentId,
         departmentName: p.department?.name || null,
+        // Session 56b — included so the cashier-app's promo engine can match
+        // group-level promotions (Promotion.productGroupIds[]) at checkout.
+        // null when the product isn't in any group.
+        productGroupId: p.productGroupId,
         active:         sp ? sp.active : p.active,
         inStock:        sp ? sp.inStock : true,
         // Pack sizes for the cashier picker.

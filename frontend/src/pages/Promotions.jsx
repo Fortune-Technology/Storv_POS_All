@@ -25,6 +25,7 @@ import {
   deleteCatalogPromotion,
   getMasterProducts,
   getDepartments,
+  listProductGroups,
 } from '../services/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ const BLANK_FORM = {
   description: '',
   productIds: [],
   departmentIds: [],
+  productGroupIds: [],
   dealConfig: {},
   badgeLabel: '',
   badgeColor: '#f59e0b',
@@ -133,6 +135,7 @@ export default function Promotions() {
   // Scope selectors
   const [products, setProducts] = useState([]);
   const [depts, setDepts] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [prodSearch, setProdSearch] = useState('');
 
   // ── Load ────────────────────────────────────────────────────────────────────
@@ -147,7 +150,7 @@ export default function Promotions() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Load products + departments for scope picker
+  // Load products + departments + product groups for scope picker
   useEffect(() => {
     getMasterProducts({ limit: 500, active: true })
       .then(r => setProducts(Array.isArray(r) ? r : (r?.data || [])))
@@ -155,6 +158,9 @@ export default function Promotions() {
     getDepartments()
       .then(r => setDepts(Array.isArray(r) ? r : (r?.data || [])))
       .catch(() => { });
+    listProductGroups()
+      .then(r => setGroups(Array.isArray(r) ? r : (r?.data || [])))
+      .catch(() => { /* groups optional */ });
   }, []);
 
   // ── Panel helpers ───────────────────────────────────────────────────────────
@@ -175,6 +181,7 @@ export default function Promotions() {
       description: p.description || '',
       productIds: p.productIds || [],
       departmentIds: p.departmentIds || [],
+      productGroupIds: p.productGroupIds || [],
       dealConfig: p.dealConfig || {},
       badgeLabel: p.badgeLabel || '',
       badgeColor: p.badgeColor || '#f59e0b',
@@ -463,7 +470,7 @@ export default function Promotions() {
               <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
                 {[
                   { id: 'details', label: 'Details' },
-                  { id: 'scope', label: `Scope${form.productIds.length + form.departmentIds.length > 0 ? ` (${form.productIds.length + form.departmentIds.length})` : ''}` },
+                  { id: 'scope', label: `Scope${form.productIds.length + form.departmentIds.length + form.productGroupIds.length > 0 ? ` (${form.productIds.length + form.departmentIds.length + form.productGroupIds.length})` : ''}` },
                 ].map(t => (
                   <button key={t.id} onClick={() => setFormTab(t.id)} style={{
                     flex: 1, padding: '0.65rem 0.5rem',
@@ -583,6 +590,10 @@ export default function Promotions() {
                         cfg={cfg}
                         setCfg={setCfg}
                         products={products}
+                        hasDeptOrGroupScope={
+                          (form.departmentIds?.length || 0) > 0 ||
+                          (form.productGroupIds?.length || 0) > 0
+                        }
                       />
 
                       {/* Date range — lives in the Deal Config column */}
@@ -615,12 +626,13 @@ export default function Promotions() {
                     }}>
                       <AlertCircle size={13} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
                       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        Leave both empty to apply to <strong>all items</strong>.
-                        Select departments and/or specific products to narrow scope.
+                        Leave all three empty to apply to <strong>all items</strong>.
+                        Pick departments, product groups, and/or specific products to narrow scope —
+                        a line qualifies if it matches <strong>any</strong> of the selected scopes.
                       </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, alignItems: 'start' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 16, alignItems: 'start' }}>
                       {/* Departments */}
                       <Field label={`Departments (${form.departmentIds.length} selected)`}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 420, overflowY: 'auto', padding: 2 }}>
@@ -645,6 +657,43 @@ export default function Promotions() {
                             );
                           })}
                         </div>
+                      </Field>
+
+                      {/* Product Groups (Session 56b) — applies to every product
+                          currently or future-tagged with the selected group(s).
+                          Useful for promos that span depts ("Holiday Specials"
+                          across Wine + Beer + Snacks) or for slow-rotating
+                          curated groups (Top Sellers, Local). */}
+                      <Field label={`Product Groups (${form.productGroupIds.length} selected)`}>
+                        {groups.length === 0 ? (
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            No product groups yet. Create groups in <strong>Catalog → Product Groups</strong> then
+                            use them here.
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 420, overflowY: 'auto', padding: 2 }}>
+                            {groups.map(g => {
+                              const sel = form.productGroupIds.includes(g.id);
+                              return (
+                                <button key={g.id}
+                                  onClick={() => setF('productGroupIds', sel
+                                    ? form.productGroupIds.filter(x => x !== g.id)
+                                    : [...form.productGroupIds, g.id]
+                                  )}
+                                  style={{
+                                    padding: '0.3rem 0.7rem', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600,
+                                    background: sel ? 'rgba(99, 102, 241, 0.14)' : 'var(--bg-card,var(--bg-secondary))',
+                                    border: `1px solid ${sel ? '#6366f1' : 'var(--border-color)'}`,
+                                    color: sel ? '#6366f1' : 'var(--text-muted)', cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: 4,
+                                  }}>
+                                  {sel && <Check size={10} />}
+                                  {g.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </Field>
 
                       {/* Products */}
@@ -810,12 +859,41 @@ function PromoRow({ promo, onEdit, onDelete, onToggle, deleting, isExpired, isUp
 }
 
 // ─── DealConfigForm ──────────────────────────────────────────────────────────
-function DealConfigForm({ promoType, cfg, setCfg, products }) {
+function DealConfigForm({ promoType, cfg, setCfg, products, hasDeptOrGroupScope }) {
   const setC = (k, v) => setCfg(c => ({ ...c, [k]: v }));
+
+  // S69 (C11c) — minPurchaseAmount: only valid when the promo's scope
+  // includes at least one department OR product group. Pure product-level
+  // promos already trigger per-line; a "min spend" doesn't make sense there.
+  const MinPurchaseField = hasDeptOrGroupScope ? (
+    <div style={{
+      padding: '0.7rem 0.85rem',
+      background: 'rgba(245, 158, 11, 0.06)',
+      border: '1px dashed #f59e0b',
+      borderRadius: 8,
+    }}>
+      <Field label="Minimum Purchase to Trigger (optional)">
+        <PriceInput
+          value={cfg.minPurchaseAmount ?? ''}
+          onChange={(v) => setC('minPurchaseAmount', v)}
+          placeholder="0.00"
+          maxValue={1000000}
+          style={inputStyle}
+        />
+      </Field>
+      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+        Promo only fires when the qualifying-line subtotal hits this minimum
+        (e.g. "$20 minimum on Beer Group → 10% off the qualifying tab").
+        Subtotal counts <strong>only</strong> products in the scope above —
+        out-of-scope cart items don't add toward the threshold.
+      </div>
+    </div>
+  ) : null;
 
   if (promoType === 'sale') return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InfoBox>Apply a discount when an item qualifies. Choose % off, $ off, or set a fixed sale price.</InfoBox>
+      {MinPurchaseField}
       <Field label="Discount Type">
         <div style={{ display: 'flex', gap: 8 }}>
           {[
@@ -857,6 +935,7 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
   if (promoType === 'bogo') return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InfoBox>Buy X, get Y at a discount. The cheapest qualifying units get the deal first.</InfoBox>
+      {MinPurchaseField}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <Field label="Buy Qty">
           <input type="number" min="1" step="1" value={cfg.buyQty} onChange={e => setC('buyQty', parseInt(e.target.value) || 1)} style={inputStyle} />
@@ -881,6 +960,7 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
   if (promoType === 'volume') return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InfoBox>Add tiers — the highest matching tier applies to all qualifying units in the cart.</InfoBox>
+      {MinPurchaseField}
       {(cfg.tiers || []).map((tier, i) => (
         <div key={i} style={{ padding: '0.875rem', background: 'var(--bg-card,var(--bg-secondary))', border: '1px solid var(--border-color)', borderRadius: 9 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -924,6 +1004,7 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
   if (promoType === 'mix_match') return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InfoBox>Any N items from the scoped products/departments together for a flat bundle price.</InfoBox>
+      {MinPurchaseField}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Group Size (# of items)">
           <input type="number" min="2" step="1" value={cfg.groupSize}
@@ -945,6 +1026,7 @@ function DealConfigForm({ promoType, cfg, setCfg, products }) {
   if (promoType === 'combo') return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <InfoBox>Customer must buy all required product groups to unlock the combo discount.</InfoBox>
+      {MinPurchaseField}
       {(cfg.requiredGroups || []).map((group, gi) => (
         <div key={gi} style={{ padding: '0.875rem', background: 'var(--bg-card,var(--bg-secondary))', border: '1px solid var(--border-color)', borderRadius: 9 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>

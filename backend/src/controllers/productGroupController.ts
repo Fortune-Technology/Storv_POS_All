@@ -110,6 +110,7 @@ interface GroupBody {
   saleStart?: string | Date | null;
   saleEnd?: string | Date | null;
   autoSync?: boolean;
+  allowMixMatch?: boolean;
   active?: boolean;
 }
 
@@ -154,7 +155,9 @@ export const createProductGroup = async (req: Request, res: Response): Promise<v
         salePrice: salePrice != null ? parseFloat(String(salePrice)) : null,
         saleStart: ss.value,
         saleEnd:   se.value,
-        autoSync, active,
+        autoSync,
+        allowMixMatch: req.body.allowMixMatch !== undefined ? Boolean(req.body.allowMixMatch) : true,
+        active,
       },
     });
 
@@ -232,6 +235,34 @@ export const updateProductGroup = async (req: Request, res: Response): Promise<v
     }
     if (autoSync !== undefined) updateData.autoSync = autoSync;
     if (active !== undefined) updateData.active = active;
+
+    // S69 (C11b) — flipping allowMixMatch from true→false orphans existing
+    // mix_match promotions that target this group. Refuse with a 400 telling
+    // the admin which promos need to be removed/disabled first; otherwise
+    // the engine would silently apply promos against a flag that says "no".
+    if (req.body.allowMixMatch !== undefined) {
+      const next = Boolean(req.body.allowMixMatch);
+      if (next === false && existing.allowMixMatch === true) {
+        const conflictingPromos = await prisma.promotion.findMany({
+          where: {
+            orgId,
+            active: true,
+            promoType: 'mix_match',
+            productGroupIds: { has: existing.id },
+          },
+          select: { id: true, name: true },
+        });
+        if (conflictingPromos.length > 0) {
+          res.status(400).json({
+            success: false,
+            error: `Cannot disable mix-and-match — this group is targeted by ${conflictingPromos.length} active mix_match promotion(s): ${conflictingPromos.map((p: { name: string }) => `"${p.name}"`).join(', ')}. Remove or deactivate those promotions first, then disable mix-and-match.`,
+            conflictingPromotions: conflictingPromos,
+          });
+          return;
+        }
+      }
+      updateData.allowMixMatch = next;
+    }
 
     const group = await prisma.productGroup.update({ where: { id }, data: updateData });
 

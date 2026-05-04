@@ -116,6 +116,22 @@ export default function EndOfDayReport({ embedded = false } = {}) {
       header('PASS-THROUGH FEES (not revenue / not profit)');
       report.fees.forEach(f => rows.push({ Section: '', Type: f.label, Count: f.count, Amount: (f.amount || 0).toFixed(2) }));
     }
+    if (report.lottery?.rows?.length) {
+      rows.push({ Section: '', Type: '', Count: '', Amount: '' });
+      header('LOTTERY SUMMARY');
+      report.lottery.rows.forEach(r => rows.push({
+        Section: '',
+        Type:    `${r.gameName} — ${r.saleCount} sale / ${r.payoutCount} payout`,
+        Count:   r.saleCount + r.payoutCount,
+        Amount:  Number(r.netCash).toFixed(2),
+      }));
+      rows.push({
+        Section: '',
+        Type:    'Total Lottery Cash (sale − payouts)',
+        Count:   report.lottery.totals.saleCount + report.lottery.totals.payoutCount,
+        Amount:  Number(report.lottery.totals.netCash).toFixed(2),
+      });
+    }
     if (report.fuel?.rows?.length) {
       rows.push({ Section: '', Type: '', Count: '', Amount: '' });
       header('FUEL SALES');
@@ -160,6 +176,20 @@ export default function EndOfDayReport({ embedded = false } = {}) {
       report.departments.rows.forEach(d => rows.push({
         Section: 'Department', Type: d.name, Count: d.txCount, Amount: `$${Number(d.netSales).toFixed(2)}`,
       }));
+    }
+    if (report.lottery?.rows?.length) {
+      report.lottery.rows.forEach(r => rows.push({
+        Section: 'Lottery',
+        Type:    `${r.gameName} — ${r.saleCount} sale / ${r.payoutCount} payout`,
+        Count:   r.saleCount + r.payoutCount,
+        Amount:  `$${Number(r.netCash).toFixed(2)}`,
+      }));
+      rows.push({
+        Section: 'Lottery',
+        Type:    'Total Net Cash (sale − payouts)',
+        Count:   report.lottery.totals.saleCount + report.lottery.totals.payoutCount,
+        Amount:  `$${Number(report.lottery.totals.netCash).toFixed(2)}`,
+      });
     }
     if (report.fuel?.rows?.length) {
       report.fuel.rows.forEach(r => rows.push({
@@ -415,9 +445,55 @@ export default function EndOfDayReport({ embedded = false } = {}) {
             </div>
           )}
 
-          {/* S67 — Standalone Lottery section. Renders when lottery cash is
-               configured to be separate from the drawer (settings.lotterySeparateFromDrawer)
-               AND the shift had any lottery activity. */}
+          {/* LOTTERY SUMMARY — accountant-friendly ledger view. Per-game
+              rows + totals: sale / payouts / net cash. Mirror of the fuel
+              block. Always shown when there's lottery activity. (The more
+              detailed cash-flow block below — ticket-math truth + machine
+              flow — only renders when `lotterySeparateFromDrawer` is on.) */}
+          {report.lottery && (report.lottery.rows?.length > 0) && (
+            <div className="eod-section">
+              <h3 className="eod-section-title">LOTTERY SUMMARY</h3>
+              <table className="eod-table eod-fuel-table">
+                <thead>
+                  <tr>
+                    <th>Game</th>
+                    <th className="eod-num">Sales</th>
+                    <th className="eod-num">Sales $</th>
+                    <th className="eod-num">Payouts</th>
+                    <th className="eod-num">Payouts $</th>
+                    <th className="eod-num">Net Cash</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.lottery.rows.map((r) => (
+                    <tr key={r.gameId || r.gameName}>
+                      <td>{r.gameName}</td>
+                      <td className="eod-num">{r.saleCount}</td>
+                      <td className="eod-num">{fmt$(r.saleAmount)}</td>
+                      <td className="eod-num">{r.payoutCount}</td>
+                      <td className="eod-num">{fmt$(r.payoutAmount)}</td>
+                      <td className="eod-num"><strong>{fmt$(r.netCash)}</strong></td>
+                    </tr>
+                  ))}
+                  <tr className="eod-row-strong">
+                    <td>Total</td>
+                    <td className="eod-num">{report.lottery.totals.saleCount}</td>
+                    <td className="eod-num">{fmt$(report.lottery.totals.saleAmount)}</td>
+                    <td className="eod-num">{report.lottery.totals.payoutCount}</td>
+                    <td className="eod-num">{fmt$(report.lottery.totals.payoutAmount)}</td>
+                    <td className="eod-num">{fmt$(report.lottery.totals.netCash)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* S67 — Standalone Lottery cash-flow detail section. Renders when
+              lottery cash is configured to be separate from the drawer
+              (settings.lotterySeparateFromDrawer) AND the shift had any
+              lottery activity. This is the cash-drawer-math view (ticket-math
+              truth, machine flow, unreported instants) — distinct from the
+              simple Lottery Summary block above which always shows. */}
           {report.settings?.lotterySeparateFromDrawer && report.reconciliation?.lottery && (
             (() => {
               const L = report.reconciliation.lottery;

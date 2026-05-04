@@ -41,6 +41,8 @@ import {
   Gift, ShoppingBag, Zap, Calendar, Edit2, AlertCircle, Barcode, Layers,
   Copy, Users as UsersIcon, Upload, Image, Link2, Star,
 } from 'lucide-react';
+import InheritedPromosBanner from '../components/InheritedPromosBanner.jsx';
+import '../components/InheritedPromosBanner.css';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -2404,6 +2406,15 @@ export default function ProductForm() {
 
               {/* ── 4. Store Deals & Offers ── */}
               <div className="pf-card">
+                {/* S69 (C11a) — surface dept/group-level promos that affect
+                    this product even though no per-product deal is set */}
+                {isEdit && id && (
+                  <InheritedPromosBanner
+                    productId={Number(id)}
+                    productGroupId={form.productGroupId ? Number(form.productGroupId) : null}
+                    departmentId={form.departmentId ? Number(form.departmentId) : null}
+                  />
+                )}
                 <div className="pf-deals-header">
                   <div className="pf-section-title">Store Deals &amp; Offers</div>
                   <button type="button" onClick={() => { setDealForm({ ...DEAL_BLANK }); setEditDealIdx(null); }}

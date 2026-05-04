@@ -45,6 +45,11 @@ export function evaluatePromotions(items, promos) {
     const qualifying = getQualifyingItems(promo, items);
     if (!qualifying.length) continue;
 
+    // S69 (C11c) — minPurchaseAmount gate. Only fires when present + > 0.
+    // Subtotal is computed across the qualifying lines (NOT the whole cart),
+    // so "Spend $20 on Beer → 10% off Beer" only counts beer toward the min.
+    if (!meetsMinPurchase(qualifying, cfg)) continue;
+
     let result = null;
     switch (promo.promoType) {
       case 'sale':      result = applySale(promo, qualifying, cfg);      break;
@@ -83,14 +88,43 @@ export function evaluatePromotions(items, promos) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * S69 (C11c) — minimum purchase gate. Returns false when the promo has a
+ * positive `minPurchaseAmount` AND the qualifying-line subtotal is below it.
+ * Returns true when the promo has no minimum or the threshold is met.
+ *
+ * Subtotal uses unitPrice × qty (raw retail), NOT effective price after
+ * other promos. Two reasons: (a) the engine evaluates promos in priority
+ * order so we don't yet know what "effective" price would be, and (b) the
+ * intent is "spend $20 on these items" — what they actually pay isn't the
+ * threshold, what they're buying is.
+ */
+function meetsMinPurchase(qualifying, cfg) {
+  const min = Number(cfg?.minPurchaseAmount || 0);
+  if (!Number.isFinite(min) || min <= 0) return true;
+  let subtotal = 0;
+  for (const item of qualifying) {
+    subtotal += Number(item.unitPrice || 0) * Number(item.qty || 0);
+  }
+  return subtotal + Number.EPSILON >= min;
+}
+
 function getQualifyingItems(promo, items) {
   return items.filter(item => {
     if (item.discountEligible === false) return false;
-    const hasProductScope = promo.productIds?.length > 0;
-    const hasDeptScope    = promo.departmentIds?.length > 0;
-    if (!hasProductScope && !hasDeptScope) return true; // no scope = all items
+    // Session 56b — Three OR'd scope types. Each scope is independent: a
+    // line qualifies if its productId is in productIds[], OR its
+    // departmentId is in departmentIds[], OR its productGroupId is in
+    // productGroupIds[]. When ALL three arrays are empty the promo is
+    // org-wide (every line qualifies).
+    const hasProductScope = promo.productIds?.length      > 0;
+    const hasDeptScope    = promo.departmentIds?.length   > 0;
+    const hasGroupScope   = promo.productGroupIds?.length > 0;
+    if (!hasProductScope && !hasDeptScope && !hasGroupScope) return true;
     if (hasProductScope && promo.productIds.includes(item.productId)) return true;
     if (hasDeptScope    && promo.departmentIds.includes(item.departmentId)) return true;
+    if (hasGroupScope   && item.productGroupId != null
+        && promo.productGroupIds.includes(item.productGroupId)) return true;
     return false;
   });
 }

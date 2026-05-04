@@ -20,6 +20,7 @@ function withPromos(items, promotions) {
     lineId:           i.lineId,
     productId:        i.productId,
     departmentId:     i.departmentId || null,
+    productGroupId:   i.productGroupId || null,
     qty:              i.qty,
     unitPrice:        i.unitPrice,
     discountEligible: i.discountEligible !== false,
@@ -149,6 +150,9 @@ export const useCartStore = create((set, get) => ({
         depositAmount:    product.depositAmount || null,
         depositRuleId:    product.depositRuleId || null,
         departmentId:     product.departmentId || null,
+        // Session 56b — productGroupId carried through so the promo engine
+        // can match group-level promotions (Promotion.productGroupIds[]).
+        productGroupId:   product.productGroupId ?? null,
         discountEligible: product.discountEligible !== false,
         quantityOnHand:   product.quantityOnHand != null ? Number(product.quantityOnHand) : null,
         // Pack-size metadata — required for the dedup key above to work on

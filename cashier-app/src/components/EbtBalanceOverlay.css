@@ -2,9 +2,9 @@
    EBT balance check flow.
    Prefix: .ebt-balance-
 
-   z-index 1500 — sits above ConfirmModal/ChooserModal (1100) so the
-   Dejavoo round-trip card takes over the screen after the cashier picks
-   which account to check. */
+   z-index 10200 — sits above ConfirmModal/ChooserModal (10100) and
+   above LotteryShiftModal (9100) so the Dejavoo round-trip card takes
+   over the screen. (Apr 2026 — was 1500, rendered behind the EoD wizard.) */
 
 .ebt-balance-backdrop {
   position: fixed;
@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1500;
+  z-index: 10200;
   padding: 16px;
   animation: ebt-balance-fade-in 0.15s ease-out;
 }

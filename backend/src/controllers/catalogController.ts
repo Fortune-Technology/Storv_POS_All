@@ -108,6 +108,42 @@ const getOrgId = (req: Request): string | undefined =>
   req.tenantId || req.user?.orgId || undefined;
 const getStoreId = (req: Request): string | undefined => req.storeId || undefined;
 
+// ── S69 (C11c) — Promotion dealConfig validator ───────────────────────────
+// `minPurchaseAmount` triggers a promo only when the qualifying-line subtotal
+// meets the threshold. Allowed only when the promo has at least one
+// dept/group scope; pure product-level promos already trigger per-line.
+function validateDealConfig(
+  raw: unknown,
+  scope: { productIds: number[]; departmentIds: number[]; productGroupIds: number[] },
+): { error?: string; value?: Record<string, unknown> } {
+  if (raw == null) return { value: {} };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { error: 'dealConfig must be an object.' };
+  }
+  const cfg = { ...(raw as Record<string, unknown>) };
+
+  const minRaw = cfg.minPurchaseAmount;
+  if (minRaw != null && minRaw !== '') {
+    const n = Number(minRaw);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+      return { error: 'minPurchaseAmount must be a positive number under $1,000,000.' };
+    }
+    const hasDeptOrGroup =
+      scope.departmentIds.length > 0 || scope.productGroupIds.length > 0;
+    if (!hasDeptOrGroup) {
+      return {
+        error:
+          'minPurchaseAmount is only available for promotions targeting a Department or Product Group. Pure product-level promos trigger per-line and do not need a minimum.',
+      };
+    }
+    cfg.minPurchaseAmount = Math.round(n * 100) / 100;
+  } else {
+    delete cfg.minPurchaseAmount;
+  }
+
+  return { value: cfg };
+}
+
 // ── Permissive prisma row shapes (the same workaround as lottery + posTerminal:
 // `prisma` resolves to `any` from the JS postgres.js wrapper, so callbacks
 // see implicit-any unless we cast each findMany result).
@@ -3786,6 +3822,7 @@ export const createPromotion = async (req: Request, res: Response): Promise<void
       description,
       productIds,
       departmentIds,
+      productGroupIds,
       dealConfig,
       badgeLabel,
       badgeColor,
@@ -3804,15 +3841,45 @@ export const createPromotion = async (req: Request, res: Response): Promise<void
     const ed = tryParseDate(res, endDate, 'endDate');
     if (!ed.ok) return;
 
+    // S69 (C11b) — block mix_match promos that target groups with allowMixMatch=false
+    const groupIdsArr: number[] = Array.isArray(productGroupIds) ? productGroupIds.map(Number) : [];
+    if (promoType === 'mix_match' && groupIdsArr.length > 0) {
+      const blockingGroups = await prisma.productGroup.findMany({
+        where: { orgId, id: { in: groupIdsArr }, allowMixMatch: false },
+        select: { id: true, name: true },
+      });
+      if (blockingGroups.length > 0) {
+        res.status(400).json({
+          success: false,
+          error: `Mix-and-match is disabled for ${blockingGroups.length} of the selected group(s): ${blockingGroups.map((g: { name: string }) => `"${g.name}"`).join(', ')}. Either pick a different scope, choose a different promo type, or enable mix-and-match on the group.`,
+          blockingGroups,
+        });
+        return;
+      }
+    }
+
+    // S69 (C11c) — minPurchaseAmount only valid when scope is group OR dept
+    // (not strictly product-only). Validate dealConfig before persisting.
+    const validatedDealConfig = validateDealConfig(dealConfig, {
+      productIds: Array.isArray(productIds) ? productIds.map(Number) : [],
+      departmentIds: Array.isArray(departmentIds) ? departmentIds.map(Number) : [],
+      productGroupIds: groupIdsArr,
+    });
+    if (validatedDealConfig.error) {
+      res.status(400).json({ success: false, error: validatedDealConfig.error });
+      return;
+    }
+
     const promo = await prisma.promotion.create({
       data: {
         orgId,
         name,
         promoType,
         description: description ?? null,
-        productIds: Array.isArray(productIds) ? productIds.map(Number) : [],
-        departmentIds: Array.isArray(departmentIds) ? departmentIds.map(Number) : [],
-        dealConfig: dealConfig ?? {},
+        productIds:      Array.isArray(productIds)      ? productIds.map(Number)      : [],
+        departmentIds:   Array.isArray(departmentIds)   ? departmentIds.map(Number)   : [],
+        productGroupIds: groupIdsArr,
+        dealConfig: validatedDealConfig.value ?? {},
         badgeLabel: badgeLabel ?? null,
         badgeColor: badgeColor ?? null,
         startDate: sd.value,
@@ -3844,6 +3911,7 @@ export const updatePromotion = async (req: Request, res: Response): Promise<void
       description,
       productIds,
       departmentIds,
+      productGroupIds,
       dealConfig,
       badgeLabel,
       badgeColor,
@@ -3852,31 +3920,71 @@ export const updatePromotion = async (req: Request, res: Response): Promise<void
       active,
     } = req.body;
 
-    const updated = await prisma.promotion.update({
-      where: { id },
-      data: {
-        ...(name != null && { name }),
-        ...(promoType != null && { promoType }),
-        ...(description != null && { description }),
-        ...(productIds != null && { productIds: productIds.map(Number) }),
-        ...(departmentIds != null && { departmentIds: departmentIds.map(Number) }),
-        ...(dealConfig != null && { dealConfig }),
-        ...(badgeLabel != null && { badgeLabel }),
-        ...(badgeColor != null && { badgeColor }),
-        ...(active != null && { active }),
-      },
-    });
+    // S69 (C11b) — block mix_match promos that target groups with allowMixMatch=false.
+    // Use the merged values (req body OR existing) so a partial update is still validated.
+    const mergedPromoType = promoType ?? existing.promoType;
+    const mergedGroupIds: number[] = productGroupIds != null
+      ? productGroupIds.map(Number)
+      : existing.productGroupIds;
+    if (mergedPromoType === 'mix_match' && mergedGroupIds.length > 0) {
+      const blockingGroups = await prisma.productGroup.findMany({
+        where: { orgId: orgId as string, id: { in: mergedGroupIds }, allowMixMatch: false },
+        select: { id: true, name: true },
+      });
+      if (blockingGroups.length > 0) {
+        res.status(400).json({
+          success: false,
+          error: `Mix-and-match is disabled for ${blockingGroups.length} of the selected group(s): ${blockingGroups.map((g: { name: string }) => `"${g.name}"`).join(', ')}. Either pick a different scope, choose a different promo type, or enable mix-and-match on the group.`,
+          blockingGroups,
+        });
+        return;
+      }
+    }
+
+    // S69 (C11c) — validate dealConfig (incl. minPurchaseAmount) when it changes
+    let normalizedDealConfig: unknown = undefined;
+    if (dealConfig !== undefined) {
+      const validated = validateDealConfig(dealConfig, {
+        productIds: productIds != null ? productIds.map(Number) : existing.productIds,
+        departmentIds: departmentIds != null ? departmentIds.map(Number) : existing.departmentIds,
+        productGroupIds: mergedGroupIds,
+      });
+      if (validated.error) {
+        res.status(400).json({ success: false, error: validated.error });
+        return;
+      }
+      normalizedDealConfig = validated.value;
+    }
+
+    // Validate dates BEFORE writing anything. Previous version updated the
+    // main fields first and validated dates after — a malformed date would
+    // 400 the response while leaving the record half-mutated. Single update
+    // below is now atomic.
+    const data: Prisma.PromotionUpdateInput = {
+      ...(name != null && { name }),
+      ...(promoType != null && { promoType }),
+      ...(description != null && { description }),
+      ...(productIds != null && { productIds: productIds.map(Number) }),
+      ...(departmentIds != null && { departmentIds: departmentIds.map(Number) }),
+      ...(productGroupIds != null && { productGroupIds: mergedGroupIds }),
+      ...(normalizedDealConfig !== undefined && { dealConfig: normalizedDealConfig as Prisma.InputJsonValue }),
+      ...(badgeLabel != null && { badgeLabel }),
+      ...(badgeColor != null && { badgeColor }),
+      ...(active != null && { active }),
+    };
 
     if (startDate !== undefined) {
       const r = tryParseDate(res, startDate, 'startDate');
       if (!r.ok) return;
-      await prisma.promotion.update({ where: { id }, data: { startDate: r.value } });
+      data.startDate = r.value;
     }
     if (endDate !== undefined) {
       const r = tryParseDate(res, endDate, 'endDate');
       if (!r.ok) return;
-      await prisma.promotion.update({ where: { id }, data: { endDate: r.value } });
+      data.endDate = r.value;
     }
+
+    const updated = await prisma.promotion.update({ where: { id }, data });
 
     res.json({ success: true, data: updated });
   } catch (err) {

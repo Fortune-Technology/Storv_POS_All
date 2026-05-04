@@ -1,6 +1,6 @@
 # Storv POS — Master Backlog
 
-**Last updated:** 2026-05-02 (S67)
+**Last updated:** 2026-05-03 (S70 — C11 shipped (Option C); C9/C10 + remaining items open)
 **Owner:** nishant@future
 **Companion file:** [CLAUDE.md](CLAUDE.md) — long-form historical record of completed work
 
@@ -81,7 +81,6 @@
 | ID | Status | Item | Effort | Notes |
 |---|---|---|---|---|
 | F2 | `[ ]` | CSV filter files (transform pipeline extension) | M | Prompt |
-| F5 | `[ ]` | Group prices + group promotions (promo engine extension for ProductGroup-scoped pricing) | M | Prompt — separate from import work; promo engine currently supports product + department scope, needs ProductGroup scope added |
 
 ### Grocery Module (gated, across all apps)
 
@@ -160,6 +159,11 @@
 | F3 | pre-BACKLOG | **Tags imports for catalog + groups** — Sante's `Tags` field (free-form `key: value / key: value`) is parsed into `attributes` JSON for non-routing pairs and into `productGroup` (pipe-separated) for `Other:` cross-references. ProductGroup auto-create at validation step verified by smoke test. | S | Bundled into the F1 Sante work |
 | F4 | pre-BACKLOG | **Packs imports** — Sante Pack 1-6 columns flatten into Storeveu's `packOptions` format (`label@unitCount@price[*]`). Pack 1 marked as cashier-picker default with `*`. Verified by smoke test against real SURFSIDE LEMON VP 12 PK CN row. | S | Bundled into the F1 Sante work |
 | EoD Config | 2026-05-02 | **Configurable EoD report** — 3 new `store.pos.eodReport` toggles drive (1) Department Breakdown section across back-office + cashier-app + thermal print, (2) `lotterySeparateFromDrawer` flag pulls lottery cash OUT of drawer math + renders as standalone section, (3) `hideZeroRows` server-side filter on payouts/tenders/fees/departments. Backend reconciliation engine extended to support the lottery-separate flag without disturbing existing math. Audit harness clean (63/63), end-to-end verified: $100 net lottery cash exactly removed from drawer when toggle ON. | M | CLAUDE.md S67 |
+| F5 | 2026-05-03 | **Group prices + group promotions — smoke-tested + bug fixed.** Audit confirmed end-to-end wiring across schema, backend (CRUD, autoSync cascade, route gating), portal UI (ProductGroups page, ProductForm group picker, Promotions scope picker), and cashier-app (Dexie persist, cart-line carry, promo engine OR-logic). Found and fixed POSScreen.jsx bug where the promo re-evaluation `useEffect` stripped `productGroupId` from cart items before calling `evaluatePromotions` — silently disabling every group-scoped promotion at the POS even though all upstream wiring was correct. Now: 21/21 HTTP smoke + 6/6 engine tests pass; cashier-app build clean. Surfaced 3 follow-up items (**C11** salePrice dead-code, **C12** bulk member UI, **C13** group form MoneyInput migration). | M | CLAUDE.md S68 |
+| C12 | 2026-05-03 | **Bulk member management on Product Groups page** — new `MembersTab` inside `GroupDetailModal` with: top section "Current Members (N)" multi-select + "Remove N" button + Select-all/Clear links; bottom section "Add Members" debounced search (≥2 chars via `searchCatalogProducts`) + non-member-filtered results + multi-select + "Apply template on add" toggle (default ON) + "Add N to group" button. After add/remove, parent re-fetches group + reloads page table so counts stay accurate without closing the modal. Drives the long-standing `/groups/:id/add-products` and `/groups/:id/remove-products` endpoints. | S | CLAUDE.md S69 |
+| C13 | 2026-05-03 | **ProductGroups pricing inputs → `<MoneyInput>`** — 4 raw `<input type="number" step="0.01">` fields in GroupForm (defaultRetailPrice / defaultCostPrice / defaultCasePrice / salePrice) replaced with the standardized typed input from S52. Closes the silent mouse-wheel data-corruption hazard where admin scrolling the page over a focused price input would bump the value, then autoSync cascade pushed the wrong price to every member product. | S | CLAUDE.md S69 |
+| ProductGroups Split | 2026-05-03 | **`pages/ProductGroups.jsx` (612L, 4 components) → `pages/ProductGroups/` folder** — index.jsx (page) + GroupForm.jsx + GroupDetailModal.jsx + MembersTab.jsx (new) + ProductGroups.css. Bundled with C12/C13 because adding C12 would have pushed the file past 900 lines. App.jsx import path unchanged (`./pages/ProductGroups` resolves to `index.jsx`). Same pattern as the Session 53 controller splits. | S | CLAUDE.md S69, user directive |
+| C11 | 2026-05-03 | **Promotion enhancements — Option C delivered.** Three sub-items: **(C11a)** New `<InheritedPromosBanner>` on ProductForm shows dept/group-level promos affecting the product (indigo card, dismissible, hidden when no inherited promos). **(C11b)** New `ProductGroup.allowMixMatch` flag (default true). Backend rejects mix_match promo create/update when scope includes a group with the flag off, AND rejects flip-to-false when active mix_match promos still target the group — both with helpful 400 + offending-name lists. UI: GroupForm checkbox + "no mix-match" chip on table + Details section. **(C11c)** New `dealConfig.minPurchaseAmount` field on Promotion. Backend `validateDealConfig` rejects negative values, values > $1M, and presence-without-dept/group-scope. Cashier-app `meetsMinPurchase` guard in `evaluatePromotions` checks qualifying-line subtotal (not whole cart) ≥ threshold. UI: amber-bordered field appears on Promotions form when scope has dept or group. Tests: 31/31 HTTP + 11/11 engine pass. | M | CLAUDE.md S70 |
 
 ---
 
