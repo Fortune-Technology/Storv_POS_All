@@ -543,6 +543,124 @@ async function aggregateFuel(scope: Scope): Promise<FuelAgg> {
   };
 }
 
+// ─── Lottery summary (sales / payouts / net cash) ──────────────────────────
+// Mirror of the fuel block — per-game rows + overall totals — for the
+// "ledger view" of lottery activity in the EoD report. Distinct from the
+// `reconciliation.lottery` cash-flow detail (which exists for cash-drawer
+// math and tracks ticket-math truth, machine flow, unreported instants,
+// etc.). This block is the simple accountant-friendly view:
+//   • Lottery sale     = Σ amount where type='sale'
+//   • Lottery payouts  = Σ amount where type='payout'
+//   • Lottery cash     = sale − payouts (net cash retained from lottery)
+//
+// Uses the existing LotteryTransaction table directly — no dependency on
+// the snapshot-based reconciliation engine. Source of truth for what was
+// actually rung up at the register; if a cashier under-reports tickets,
+// the reconciliation block in the receipt surfaces the gap separately.
+interface LotteryRow {
+  gameId: string | null;
+  gameName: string;
+  saleAmount: number;
+  saleCount: number;
+  payoutAmount: number;
+  payoutCount: number;
+  netCash: number;
+}
+
+interface LotteryAgg {
+  rows: LotteryRow[];
+  totals: {
+    saleAmount: number;
+    saleCount: number;
+    payoutAmount: number;
+    payoutCount: number;
+    netCash: number;
+  };
+}
+
+async function aggregateLottery(scope: Scope): Promise<LotteryAgg> {
+  const where: Prisma.LotteryTransactionWhereInput = {
+    orgId:     scope.orgId,
+    createdAt: { gte: scope.from, lte: scope.to },
+  };
+  if (scope.storeId)   where.storeId   = scope.storeId;
+  if (scope.cashierId) where.cashierId = scope.cashierId;
+  if (scope.stationId) where.stationId = scope.stationId;
+  if (scope.shift)     where.shiftId   = scope.shift.id;
+
+  // Fetch transactions + the games they reference so we can label the rows
+  // with human game names. Using `include` keeps it to one query.
+  const txs = await prisma.lotteryTransaction.findMany({
+    where,
+    select: {
+      type: true, amount: true, gameId: true,
+    },
+  });
+
+  // Pre-fetch game names for any gameIds we saw, in one round trip.
+  type LotteryTxRow = { type: string; amount: unknown; gameId: string | null };
+  type LotteryGameRow = { id: string; name: string };
+  const gameIds = Array.from(
+    new Set((txs as LotteryTxRow[]).map((t) => t.gameId).filter(Boolean) as string[]),
+  );
+  const games: LotteryGameRow[] = gameIds.length
+    ? await prisma.lotteryGame.findMany({
+        where: { id: { in: gameIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const gameNameById = new Map<string, string>(games.map((g: LotteryGameRow) => [g.id, g.name]));
+
+  const byGame = new Map<string, LotteryRow>();
+  let totalSaleAmount = 0, totalPayoutAmount = 0;
+  let totalSaleCount = 0, totalPayoutCount = 0;
+
+  for (const t of txs) {
+    const key = t.gameId || '__no_game__';
+    if (!byGame.has(key)) {
+      byGame.set(key, {
+        gameId:   t.gameId || null,
+        gameName: t.gameId ? (gameNameById.get(t.gameId) || `Game ${t.gameId.slice(0, 6)}`) : 'Unspecified',
+        saleAmount:   0, saleCount:   0,
+        payoutAmount: 0, payoutCount: 0,
+        netCash:      0,
+      });
+    }
+    const row = byGame.get(key) as LotteryRow;
+    const amt = Number(t.amount) || 0;
+    if (t.type === 'payout') {
+      row.payoutAmount += amt;
+      row.payoutCount  += 1;
+      totalPayoutAmount += amt;
+      totalPayoutCount  += 1;
+    } else {
+      row.saleAmount += amt;
+      row.saleCount  += 1;
+      totalSaleAmount += amt;
+      totalSaleCount  += 1;
+    }
+  }
+
+  const rows: LotteryRow[] = Array.from(byGame.values()).map(r => {
+    r.netCash      = r.saleAmount - r.payoutAmount;
+    r.saleAmount   = r2(r.saleAmount);
+    r.payoutAmount = r2(r.payoutAmount);
+    r.netCash      = r2(r.netCash);
+    return r;
+  }).sort((a, b) => b.saleAmount - a.saleAmount);
+
+  return {
+    rows,
+    totals: {
+      saleAmount:   r2(totalSaleAmount),
+      saleCount:    totalSaleCount,
+      payoutAmount: r2(totalPayoutAmount),
+      payoutCount:  totalPayoutCount,
+      netCash:      r2(totalSaleAmount - totalPayoutAmount),
+    },
+  };
+}
+
 // ─── Department breakdown (S67 — opt-in via store.pos.eodReport.showDepartmentBreakdown) ──
 //
 // Pulls every transaction in scope window and bucket-sums net revenue +
@@ -713,13 +831,14 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
       if (typeof ovr.hideZeroRows === 'boolean')              eodSettings.hideZeroRows              = ovr.hideZeroRows;
     }
 
-    const [txAgg, cashEvents, _openingRow, fuelAgg, deptAgg] = await Promise.all([
+    const [txAgg, cashEvents, _openingRow, fuelAgg, lotteryAgg, deptAgg] = await Promise.all([
       aggregateTransactions(scope),
       aggregateCashEvents(scope),
       // Opening cash amount — only meaningful for single-shift scope
       scope.shift ? Promise.resolve({ openingAmount: Number(scope.shift.openingAmount || 0) })
                   : Promise.resolve(null),
       aggregateFuel(scope),
+      aggregateLottery(scope),
       eodSettings.showDepartmentBreakdown ? aggregateDepartments(scope) : Promise.resolve(null),
     ]);
 
@@ -868,6 +987,10 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
       transactions: transactionSection,
       fees:         filterZero(feesSection),
       fuel:         fuelAgg,
+      // Lottery summary (sale / payouts / net cash) — accountant-friendly
+      // ledger view. Distinct from `reconciliation.lottery` which is the
+      // cash-drawer-math detail (ticket-math truth, machine flow, etc.).
+      lottery:      lotteryAgg,
       // S67 — Department breakdown (opt-in via settings.showDepartmentBreakdown)
       departments:  deptAgg ? { rows: filterZero(deptAgg.rows.map(r => ({ ...r, count: r.txCount, amount: r.netSales }))).map(r => ({ departmentId: r.departmentId, name: r.name, netSales: r.netSales, txCount: r.txCount, lineCount: r.lineCount })), total: deptAgg.total } : null,
       // Session 52 — Dual Pricing summary. Null when no transaction in the

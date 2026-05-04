@@ -10431,6 +10431,344 @@ All defaults preserve existing behavior — opt in per store via Store Settings 
 
 *Last updated: May 2026 — Session 67 (Configurable EoD Report): 3 new toggles in `store.pos.eodReport` JSON drive (a) DEPARTMENT BREAKDOWN section across back-office page + cashier modal + thermal print, (b) `lotterySeparateFromDrawer` flag through `reconcileShift` for clean business-only drawer math + standalone lottery section, (c) `hideZeroRows` server-side filter on payouts/tenders/fees/departments rows. Math verified end-to-end: lottery toggle OFF→$294.59 drawer, ON→$194.59, exactly $100 difference matching `netLotteryCash`. Audit harness regression-clean: **63/63 pass** unchanged. tsc + 2 vite builds clean.*
 
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 68 — F5 Smoke Test + Group-Promo Bug Fix)
+
+User asked to smoke-test F5 (Group prices + group promotions) end-to-end before closing the backlog row. Audit found everything wired correctly except for one silent bug at the POS — group-scoped promotions never actually fired on the cashier register. Fixed it.
+
+### What was audited (and confirmed working)
+
+**Backend** — 21/21 HTTP smoke checks passed against the dev server:
+- `ProductGroup` CRUD with all template fields (classification + pricing + sale price + autoSync + active)
+- `addProductsToGroup` with `applyTemplate=true` cascades on assignment
+- `updateProductGroup` with `autoSync=true` cascades to all members and returns `cascaded` count
+- `Promotion` CRUD persists `productGroupIds[]` across create / list / update
+- `/pos-terminal/catalog/snapshot` exposes `productGroupId` on every product row
+- `/catalog/promotions?active=true` surfaces `productGroupIds[]` to the cashier sync
+
+**Portal UI**:
+- [`ProductGroups.jsx`](frontend/src/pages/ProductGroups.jsx) — full list / create / edit / view / delete / "apply template" UI with cascade-count toast feedback
+- [`ProductForm.jsx:1745-1758`](frontend/src/pages/ProductForm.jsx) — Product Group dropdown auto-fills template fields on selection with "Manage" deep-link
+- [`Promotions.jsx:663-693`](frontend/src/pages/Promotions.jsx) — 3-column scope picker (Departments / Product Groups / Products), indigo accent for groups, empty-state hint pointing to Catalog → Product Groups
+
+**Cashier-app**:
+- [`useCatalogSync.js`](cashier-app/src/hooks/useCatalogSync.js) → Dexie persists full Promotion rows including `productGroupIds[]`
+- [`useCartStore.addProduct:155`](cashier-app/src/stores/useCartStore.js) carries `productGroupId` onto every cart line (S56b wiring)
+- [`promoEngine.getQualifyingItems:96-101`](cashier-app/src/utils/promoEngine.js) correctly OR's three scope dimensions (`productIds || departmentIds || productGroupIds`)
+- Pure-JS engine test 6/6 passed — including lowest-wins, mix-match, and mixed-scope scenarios
+
+### The bug — group-scoped promos silently never fired at the POS
+
+[`cashier-app/src/screens/POSScreen.jsx:639-650`](cashier-app/src/screens/POSScreen.jsx) had a `useEffect` that re-evaluates promos when items/promotions change. It mapped cart lines into a stripped shape that **dropped `productGroupId`**:
+
+```js
+// BEFORE (the bug)
+const cartItems = items.map(i => ({
+  lineId, productId, departmentId, qty, unitPrice, discountEligible,
+  // productGroupId NOT included
+}));
+const results = evaluatePromotions(cartItems, promotions);
+applyPromoResults(results);   // overwrites the cart store's correct results
+```
+
+The cart store's [`useCartStore.withPromos:23`](cashier-app/src/stores/useCartStore.js) included `productGroupId` correctly, but the POSScreen useEffect ran *after* every store action and overwrote the correct results via `applyPromoResults`. So in production, group-scoped Promotions were silently inert — they showed up in the portal's promo list, persisted to Dexie, but never matched any cart line because the engine never saw the `productGroupId` field.
+
+**Fix** — added `productGroupId: i.productGroupId || null` to the map (1 line of code + a 4-line comment explaining why future readers shouldn't strip it again).
+
+### How the bug was isolated
+
+New pure-JS smoke test [`backend/tests/_smoke_f5_promo_group_scope.mjs`](backend/tests/_smoke_f5_promo_group_scope.mjs) — imports `evaluatePromotions` from the cashier app and runs identical promos through both shapes:
+- Shape WITH `productGroupId` → engine qualifies the line ✓
+- Shape WITHOUT `productGroupId` (the buggy POSScreen path) → engine silently misses ✓ (proves the bug)
+
+Plus 4 more scenarios covering line-doesn't-belong-to-group, mixed scope (product OR group), lowest-wins competition, and group-scoped mix_match. **6 of 6 pass.**
+
+### Functional gap surfaced — `ProductGroup.salePrice` is dead code from POS perspective
+
+The schema has `ProductGroup.salePrice` / `saleStart` / `saleEnd` (and the portal form surfaces them prominently with a "Sale Price (optional)" section), but:
+
+1. The autoSync cascade list [`productGroupController.ts:18-24`](backend/src/controllers/productGroupController.ts) excludes these three fields → they never propagate to member products
+2. `MasterProduct` has no `salePrice` column at all (only `StoreProduct` does, per-store override)
+3. The cashier-app has zero references to `salePrice` — sale-price-style discounts are exclusively handled via the `Promotion` mechanism
+4. `StoreProduct.salePrice` is read only by [`inventorySyncService.ts:120`](backend/src/services/inventorySyncService.ts) for ecom — not the POS
+
+Net effect: admin fills in "Sale Price" on a group → form saves → list view shows a green sale chip → register continues to charge `defaultRetailPrice`. Confusing UX, not a crash. Tracked as **C11** in BACKLOG.md for resolution.
+
+### UX gaps surfaced (no bugs, just rough edges)
+
+- **No bulk member-management UI** in `ProductGroups.jsx` — admin assigns products one-at-a-time via `ProductForm`. Backend has `addProductsToGroup` / `removeProductsFromGroup` endpoints ready but no portal screen drives them. Tracked as **C12**.
+- **GroupDetail modal** shows `_count.products` but doesn't list the members. Admin has to leave the page to see which products are in a group. Folded into **C12**.
+- **`PriceInput` component not used** in the group form's pricing section — still uses raw `<input type="number" step="0.01">`. Predates the S52 typed-input sweep. Tracked as **C13**.
+
+### Files Changed (Session 68)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/screens/POSScreen.jsx` | +`productGroupId: i.productGroupId \|\| null` in the promo-evaluation map; +4-line comment explaining S56b wiring |
+| `backend/tests/_smoke_f5_promo_group_scope.mjs` | NEW — 6-scenario pure-JS engine test (no backend needed) |
+| `backend/tests/_smoke_f5_http.mjs` | NEW — 21-scenario HTTP test against running backend, self-cleaning |
+
+### Verification
+
+- ✅ Pure-JS engine test: 6/6 (including the bug-was-here scenario, now also reading the fixed shape)
+- ✅ HTTP smoke test: 21/21 against live dev backend, including cleanup
+- ✅ Cashier-app `vite build` clean (5.71s)
+
+### Backlog disposition
+
+- F5 closed in BACKLOG.md and moved to Recently Completed
+- C11 (salePrice resolution), C12 (bulk member management UI), C13 (group form MoneyInput migration) added as new BACKLOG entries
+
+---
+
+*Last updated: May 2026 — Session 68 (F5 Smoke Test): Confirmed group-promotions wiring end-to-end (21/21 HTTP + 6/6 engine tests). Found and fixed POSScreen.jsx bug where `productGroupId` was stripped before promo evaluation, silently disabling every group-scoped promotion at the POS. Surfaced 3 follow-up items (C11/C12/C13) for separate sessions.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 69 — C13 + C12 — ProductGroups Split + MoneyInput + Bulk Members)
+
+User said "Okay go ahead" for C13 and C12 from S68's gap report, plus a new directive: *"if files are getting to big, divide that by component level, to make files more readable and usable."* Shipped both items together with the file split.
+
+### File split — `pages/ProductGroups.jsx` → `pages/ProductGroups/`
+
+The original `ProductGroups.jsx` was 612 lines holding 4 distinct components (GroupForm, GroupDetailModal, DetailField, ProductGroups). Adding C12's MembersTab would push it past 900+ lines, well into "hard to navigate" territory. Split into a folder following the pattern used elsewhere in the codebase (e.g. `controllers/sales/`, `controllers/shift/`, `services/lottery/`):
+
+```
+frontend/src/pages/ProductGroups/
+  index.jsx              # Main page (the default export — App.jsx import path unchanged)
+  GroupForm.jsx          # Create/edit modal (with C13 MoneyInput migration)
+  GroupDetailModal.jsx   # View-only details + tab bar (Details | Members)
+  MembersTab.jsx         # NEW (C12) — bulk add/remove members
+  ProductGroups.css      # All styles (pg- prefix, kept single-file because the
+                         #   four components share the same design tokens)
+```
+
+App.jsx import `import ProductGroups from './pages/ProductGroups';` resolves to the new `index.jsx` automatically — zero call-site changes.
+
+Old `ProductGroups.jsx` + `ProductGroups.css` deleted.
+
+### C13 — Pricing inputs migrated to `<MoneyInput>`
+
+[`GroupForm.jsx`](frontend/src/pages/ProductGroups/GroupForm.jsx) — the four `<input type="number" step="0.01">` pricing fields (`defaultRetailPrice`, `defaultCostPrice`, `defaultCasePrice`, `salePrice`) replaced with the standardized `<MoneyInput>` from S52's typed-input sweep. Now scroll-proof + arrow-key-proof + scientific-notation-proof + leading-zero-proof.
+
+**Concrete bug closed:** admin focused on the "Retail Price" input shows $5.99, scrolls down the page to check the toggles below — the wheel event lands on the focused input, the price silently becomes $25.99 (or $-15.99 depending on direction). Save → autoSync cascade pushes the wrong price to every member product. Discovered when a customer complains the beer rang up wrong.
+
+### C12 — Bulk member management
+
+[`MembersTab.jsx`](frontend/src/pages/ProductGroups/MembersTab.jsx) — new tab inside the existing GroupDetailModal. Drives the `/groups/:id/add-products` and `/groups/:id/remove-products` endpoints that have been ready since the original group module shipped but never had a UI.
+
+**Layout:**
+- **Top section** — *Current Members (N)*: checkbox list of every member product showing name, UPC, retail price, active flag. Multi-select + "Remove N" button (red, with confirmation). "Select all" / "Clear selection" links.
+- **Bottom section** — *Add Members*: debounced search input (≥2 chars) hits `searchCatalogProducts(q)`, results filtered to non-members client-side. Multi-select + "Apply template on add" toggle (default ON) + "Add N to group" button. Products already in another group get a "in another group" warning chip so the admin knows they're moving (not duplicating).
+
+**UX details:**
+- Removing N products shows the standard confirm dialog explaining members will be unlinked but their existing classification + pricing fields kept (matches what `/remove-products` actually does)
+- Adding with `applyTemplate=true` triggers the cascade so the new members inherit the group's classification + pricing immediately
+- After any add/remove, the parent re-fetches the group via `getProductGroup(id)` so the count + members list refresh in-place without closing the modal
+- The list table on the page also reloads so the "Members" count column stays accurate
+
+**CSS additions** — appended ~190 lines under a clear S69 section header in [`ProductGroups.css`](frontend/src/pages/ProductGroups/ProductGroups.css): `.pg-tab-bar` + `.pg-tab` for the modal tab bar, `.pg-mt-*` family for the members tab (search wrap, list, row, row--sel, empty/hint/error states, add bar, danger button variant, warn badge).
+
+### What the BACKLOG now reflects
+
+- **C12 → Recently Completed** (bulk members UI shipped)
+- **C13 → Recently Completed** (MoneyInput migration shipped)
+- **C11 still open** — needs the user's A/B/C answer on mix-and-match scope before starting
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Portal `vite build` | ✓ 17.48s clean (3431 modules transformed; same pre-existing dynamic-import warnings, no new ones) |
+| Existing F5 HTTP smoke (21/21) | ✓ still passes against running backend |
+| Existing F5 promo-engine smoke (6/6) | ✓ still passes (the S68 fix is unaffected) |
+| Old `pages/ProductGroups.jsx` + `.css` removed from disk | ✓ folder structure is now clean |
+| Existing import path `import ProductGroups from './pages/ProductGroups'` | ✓ still resolves (Vite picks up `index.jsx`) |
+
+### Files Changed (Session 69)
+
+**New (folder):**
+- `frontend/src/pages/ProductGroups/index.jsx` — main page
+- `frontend/src/pages/ProductGroups/GroupForm.jsx` — create/edit modal w/ MoneyInput
+- `frontend/src/pages/ProductGroups/GroupDetailModal.jsx` — Details + Members tabs
+- `frontend/src/pages/ProductGroups/MembersTab.jsx` — bulk add/remove UI
+- `frontend/src/pages/ProductGroups/ProductGroups.css` — copied from old + S69 additions
+
+**Deleted:**
+- `frontend/src/pages/ProductGroups.jsx`
+- `frontend/src/pages/ProductGroups.css`
+
+### Next up
+
+C11 still needs the user's call on the mix-and-match opt-out scope (A — promo-form toggle / B — per-product toggle / C — per-group toggle). Once decided, C11 ships in three parts: (a) cross-scope promo indicator on product detail page, (b) the chosen mix-and-match opt-out, (c) `minPurchaseAmount` field on group/dept-scoped promos with promoEngine guards.
+
+---
+
+*Last updated: May 2026 — Session 69 (C12 + C13 + Folder Split): ProductGroups.jsx (612 lines, 4 components) → `pages/ProductGroups/` folder with one component per file. Pricing inputs in GroupForm migrated to `<MoneyInput>` (closes the silent mouse-wheel data-corruption bug). New MembersTab drives the existing `/groups/:id/add-products` and `/groups/:id/remove-products` endpoints with searchable add + multi-select remove. Vite build clean (17.48s). F5 HTTP + engine smokes still 21/21 + 6/6.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 70 — C11 — Promo enhancements: cross-scope visibility + per-group mix-and-match flag + min-purchase trigger)
+
+User picked Option C from the design discussion: per-group `allowMixMatch` flag enforced at promo-create time. All three C11 sub-items (a + b + c) shipped together.
+
+### Schema (1 new field, additive)
+
+```prisma
+model ProductGroup {
+  ...
+  // S69 (C11b) — when false, mix_match promotions cannot target this group.
+  // Enforced at promo create/update time AND when this flag flips
+  // true→false (rejects if active mix_match promos still reference the group).
+  allowMixMatch Boolean @default(true)
+  ...
+}
+```
+
+`npx prisma db push` — non-destructive. Existing groups default to `true` (current behavior preserved).
+
+### C11b — Per-group mix-and-match flag enforced two ways
+
+**[`productGroupController.ts`](backend/src/controllers/productGroupController.ts) — `updateProductGroup`:**
+When `allowMixMatch` is being flipped `true → false`, the handler queries for active mix_match promos that target the group. If any exist, returns **400** with the offending promo names + a `conflictingPromotions` array so the UI can offer "deactivate these and try again":
+
+```
+Cannot disable mix-and-match — this group is targeted by 2 active
+mix_match promotion(s): "Beer 3 for $9.99", "Mix-Match Friday".
+Remove or deactivate those promotions first, then disable mix-and-match.
+```
+
+**[`catalogController.ts`](backend/src/controllers/catalogController.ts) — `createPromotion` + `updatePromotion`:**
+When `promoType === 'mix_match'` AND any of the requested `productGroupIds` reference a group with `allowMixMatch: false`, returns **400** with the blocking group names + a `blockingGroups` array:
+
+```
+Mix-and-match is disabled for 1 of the selected group(s): "Premium IPAs".
+Either pick a different scope, choose a different promo type, or
+enable mix-and-match on the group.
+```
+
+The merged-state pattern in `updatePromotion` means partial updates are still validated correctly: if admin updates a promo's name without touching scope, the existing scope is re-validated against the existing promoType (so a previously-saved invalid combo can't sneak through).
+
+### C11c — `minPurchaseAmount` field on group/dept-scoped promos
+
+**Backend** — new `validateDealConfig(raw, scope)` helper at the top of `catalogController.ts`:
+- Rejects when `minPurchaseAmount` is non-numeric, negative, or > $1M
+- Rejects when scope has zero dept/group entries (pure product-level promos already trigger per-line — minimum doesn't apply)
+- Rounds to 2 decimals before persisting
+- Returns `{ error }` on failure or `{ value: cfg }` on success
+- Wired into both `createPromotion` and `updatePromotion`
+
+**Cashier-app engine** — new `meetsMinPurchase(qualifying, cfg)` helper in [`promoEngine.js`](cashier-app/src/utils/promoEngine.js). Subtotal computed across **only the qualifying lines**, not the whole cart:
+
+```js
+function meetsMinPurchase(qualifying, cfg) {
+  const min = Number(cfg?.minPurchaseAmount || 0);
+  if (!Number.isFinite(min) || min <= 0) return true;
+  let subtotal = 0;
+  for (const item of qualifying) {
+    subtotal += Number(item.unitPrice || 0) * Number(item.qty || 0);
+  }
+  return subtotal + Number.EPSILON >= min;
+}
+```
+
+Called in `evaluatePromotions` right after `getQualifyingItems`, before the per-type handler dispatch — one guard, all 5 promo types (sale / bogo / volume / mix_match / combo) inherit it.
+
+Subtotal uses `unitPrice × qty` (raw retail), not effective price after other promos. Two reasons documented in the helper: (a) priority ordering means we don't yet know what "effective" price would be, (b) the intent is "spend $20 on these items" — what they actually pay isn't the threshold, what they're buying is.
+
+**Portal Promotions form** — new `MinPurchaseField` element rendered conditionally in [`DealConfigForm`](frontend/src/pages/Promotions.jsx):
+- Only appears when at least one Department or Product Group is in scope (props threaded as `hasDeptOrGroupScope`)
+- Amber-bordered card with `<PriceInput>` + clear hint copy explaining qualifying-line subtotal semantics
+- Inserted under each promo-type's `<InfoBox>` so it's visible regardless of which type is selected
+
+### C11a — InheritedPromosBanner on the product detail page
+
+New shared component [`InheritedPromosBanner.jsx`](frontend/src/components/InheritedPromosBanner.jsx) + [`.css`](frontend/src/components/InheritedPromosBanner.css) (prefix `ipb-`):
+- Fetches `/catalog/promotions?active=true` once on mount
+- Filters to ones whose `productGroupIds` includes this product's group OR `departmentIds` includes its department
+- Skips promos that ALREADY explicitly target this product (those show in the existing Store Deals section below)
+- Renders nothing when there are no inherited promotions (silent in the common case)
+- Indigo accent, dismissible-per-session via X button
+- Each row shows promo name + dealType summary + tags ("via group" / "via department" / "min $X" if minPurchaseAmount set)
+
+Wired into [`ProductForm.jsx`](frontend/src/pages/ProductForm.jsx) just above the Store Deals section, only on edit (not on create — no productId yet to compare).
+
+Closes the user's stated need: *"when we open individual product detail page, we need to show indication of if the product has any other promo other than product level."*
+
+### Portal UI surfaces for C11b
+
+- **GroupForm** — new "Promotion Eligibility" section with the `Allow mix-and-match deals` checkbox + hint copy
+- **GroupDetailModal Details tab** — new "Promotion Eligibility" section showing "Mix-and-Match Allowed: Yes" or "NO — blocks mix_match promos"
+- **ProductGroups list table** — `no mix-match` warning chip next to the group name when `allowMixMatch === false`
+
+CSS additions: `.pg-mm-toggle` + `.pg-mm-hint` in `ProductGroups.css`.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npx prisma db push` | ✓ non-destructive, schema in sync |
+| `npx prisma generate` | ✓ client regen clean |
+| `npx tsc --noEmit` (productGroupController + catalogController) | ✓ EXIT=0, zero new errors |
+| Engine smoke `_smoke_f5_promo_group_scope.mjs` | ✓ **11/11** (was 6/6 — added 5 minPurchase scenarios) |
+| HTTP smoke `_smoke_f5_http.mjs` | ✓ **31/31** (was 21/21 — added 10 C11 scenarios) |
+| Portal `vite build` | ✓ 17.22s clean |
+| Cashier-app `vite build` | ✓ 5.08s clean (PWA generated) |
+
+The 10 new HTTP smoke scenarios cover:
+- Round-trip allowMixMatch on group create/update
+- mix_match promo against `allowMixMatch=false` group → 400 with helpful error
+- Sale promo against same group → 201 (only mix_match is gated)
+- Re-enable group → mix_match now allowed
+- Flip `allowMixMatch → false` while active mix_match promos exist → 400 + offending promo names
+- Round-trip `minPurchaseAmount` on group-scoped promo
+- `minPurchaseAmount` on product-only promo → 400 (only allowed for dept/group scope)
+- Negative `minPurchaseAmount` → 400
+
+The 5 new engine smoke scenarios cover:
+- Below threshold → promo skipped
+- Above threshold → promo qualifies
+- Exactly at threshold (≥, not >) → promo qualifies
+- Subtotal counts qualifying-line scope only — out-of-scope cart items don't add toward the threshold
+- No `minPurchaseAmount` field → promo always fires (back-compat with existing data)
+
+### Files Changed (Session 70)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`ProductGroup.allowMixMatch Boolean @default(true)` |
+| `backend/src/controllers/productGroupController.ts` | +`allowMixMatch` in `GroupBody`; create writes flag; update has flip-to-false guard with conflictingPromotions[] payload |
+| `backend/src/controllers/catalogController.ts` | +`validateDealConfig()` helper at top; `createPromotion` validates mix_match-vs-allowMixMatch + dealConfig; `updatePromotion` does the same with merged-state semantics for partial updates |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/utils/promoEngine.js` | +`meetsMinPurchase(qualifying, cfg)` helper; called in `evaluatePromotions` between `getQualifyingItems` and dispatch |
+
+**Portal:**
+| File | Change |
+|---|---|
+| `frontend/src/pages/ProductGroups/GroupForm.jsx` | +`allowMixMatch` in form state, in payload, +"Promotion Eligibility" UI section |
+| `frontend/src/pages/ProductGroups/GroupDetailModal.jsx` | +"Promotion Eligibility" section in DetailsTab |
+| `frontend/src/pages/ProductGroups/index.jsx` | +`no mix-match` warning chip in name cell |
+| `frontend/src/pages/ProductGroups/ProductGroups.css` | +`.pg-mm-toggle` + `.pg-mm-hint` |
+| `frontend/src/pages/Promotions.jsx` | +`hasDeptOrGroupScope` prop on DealConfigForm; +`MinPurchaseField` rendered conditionally inside each promoType branch |
+| `frontend/src/pages/ProductForm.jsx` | +`<InheritedPromosBanner>` mount above Store Deals section (edit mode only) |
+| `frontend/src/components/InheritedPromosBanner.jsx` | NEW — fetches active promos + filters by dept/group, renders indigo card |
+| `frontend/src/components/InheritedPromosBanner.css` | NEW — `ipb-` prefix |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_f5_promo_group_scope.mjs` | +5 minPurchase scenarios (6→11) |
+| `backend/tests/_smoke_f5_http.mjs` | +10 C11 scenarios (21→31) |
+
+---
+
+*Last updated: May 2026 — Session 70 (C11): Per-group mix-and-match flag (`ProductGroup.allowMixMatch`) enforced at promo-create + flip-to-false; `minPurchaseAmount` on dealConfig with engine guard, gated to dept/group scope; `<InheritedPromosBanner>` surfaces dept/group-level promos on product detail page. Engine smoke 11/11, HTTP smoke 31/31, 2 vite builds + tsc clean. F5 follow-up trio (C11+C12+C13) now closed.*
+
 
 
 

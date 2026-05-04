@@ -563,7 +563,28 @@
   min-width: 0;
 }
 
-.lsm-book-game strong {
+/* Apr 2026 — book number is the primary identifier (what's printed on the
+   physical pack). Game name is secondary metadata. Cashiers scan against
+   the book number, so it gets the visual priority slot. */
+.lsm-book-game strong.lsm-book-no {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lsm-book-slot {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #16a34a;
+}
+
+/* Legacy — fallback for any row that still uses plain <strong> */
+.lsm-book-game strong:not(.lsm-book-no) {
   font-size: 0.85rem;
   font-weight: 700;
   color: #111827;
@@ -573,8 +594,8 @@
 }
 
 .lsm-book-game small {
-  font-size: 0.66rem;
-  color: #9ca3af;
+  font-size: 0.7rem;
+  color: #6b7280;
   font-weight: 500;
   margin-top: 2px;
   white-space: nowrap;

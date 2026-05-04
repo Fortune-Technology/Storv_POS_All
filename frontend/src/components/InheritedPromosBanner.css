@@ -1,0 +1,128 @@
+/* ── InheritedPromosBanner — prefix: ipb- ───────────────────────────────── */
+
+.ipb-card {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.875rem;
+}
+
+.ipb-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ipb-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6366f1;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ipb-count {
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
+}
+
+.ipb-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.ipb-close:hover { background: rgba(0, 0, 0, 0.05); color: var(--text-primary); }
+
+.ipb-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+
+.ipb-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ipb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 6px;
+  font-size: 0.78rem;
+}
+
+.ipb-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ipb-row-name strong {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.ipb-deal {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.ipb-row-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ipb-tag {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ipb-tag-group {
+  background: rgba(99, 102, 241, 0.14);
+  color: #4f46e5;
+}
+
+.ipb-tag-dept {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.ipb-tag-min {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}

@@ -571,6 +571,11 @@ model ProductGroup {
   // When false, the group is a one-time template (manual apply).
   autoSync Boolean @default(true)
 
+  // S69 (C11b) — when false, mix_match promotions cannot target this group.
+  // Enforced at promo create/update time AND when this flag flips
+  // true→false (rejects if active mix_match promos still reference the group).
+  allowMixMatch Boolean @default(true)
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -717,9 +722,14 @@ model Promotion {
   promoType   String // "sale" | "bogo" | "volume" | "mix_match" | "combo"
   description String?
 
-  // Scope — either specific products or entire departments
-  productIds    Int[] // MasterProduct IDs this promo applies to
-  departmentIds Int[] // Department IDs (broadens scope)
+  // Scope — any combination of specific products, entire departments, or
+  // product groups. The cashier's promo engine ORs these scopes — a line
+  // qualifies if its productId is in productIds[], OR its departmentId is
+  // in departmentIds[], OR its productGroupId is in productGroupIds[].
+  // Empty scope arrays mean "applies to every line" (org-wide deal).
+  productIds      Int[] // MasterProduct IDs this promo applies to
+  departmentIds   Int[] // Department IDs (broadens scope)
+  productGroupIds Int[] @default([]) // ProductGroup IDs — Session 56b
 
   // Deal configuration — shape depends on promoType
   dealConfig Json @default("{}")

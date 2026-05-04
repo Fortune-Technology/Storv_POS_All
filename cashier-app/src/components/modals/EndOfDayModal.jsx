@@ -207,6 +207,8 @@ function ReportBody({ report }) {
   const recon     = report.reconciliation;
   const fuel      = report.fuel;
   const fuelHas   = fuel?.rows?.length > 0;
+  const lottery   = report.lottery;
+  const lotteryHas = lottery?.rows?.length > 0;
 
   return (
     <div className="eod-body-content">
@@ -264,6 +266,42 @@ function ReportBody({ report }) {
                 <td>Total</td>
                 <td className="eod-rb-num">—</td>
                 <td className="eod-rb-num">{fmt$(report.departments.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Lottery summary — accountant ledger view (sale / payouts / net cash).
+          Mirror of the fuel block. Always shown when lottery activity exists.
+          Distinct from the cash-flow detail section below which only renders
+          when `lotterySeparateFromDrawer` is enabled. */}
+      {lotteryHas && (
+        <div className="eod-rb-section">
+          <div className="eod-rb-section-title">LOTTERY SUMMARY</div>
+          <table className="eod-rb-table eod-rb-fuel-table">
+            <thead>
+              <tr>
+                <th>Game</th>
+                <th className="eod-rb-num">Sales $</th>
+                <th className="eod-rb-num">Payouts $</th>
+                <th className="eod-rb-num">Net Cash</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lottery.rows.map(r => (
+                <tr key={r.gameId || r.gameName}>
+                  <td>{r.gameName}</td>
+                  <td className="eod-rb-num">{fmt$(r.saleAmount)}</td>
+                  <td className="eod-rb-num">{fmt$(r.payoutAmount)}</td>
+                  <td className="eod-rb-num">{fmt$(r.netCash)}</td>
+                </tr>
+              ))}
+              <tr className="eod-rb-strong">
+                <td>Total</td>
+                <td className="eod-rb-num">{fmt$(lottery.totals.saleAmount)}</td>
+                <td className="eod-rb-num">{fmt$(lottery.totals.payoutAmount)}</td>
+                <td className="eod-rb-num">{fmt$(lottery.totals.netCash)}</td>
               </tr>
             </tbody>
           </table>

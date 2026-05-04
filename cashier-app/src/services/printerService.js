@@ -352,6 +352,37 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     r += ESCPOS.BOLD_ON + pad('Total', W - 18) + rpad('—', 4) + rpad(money(report.departments.total), 14) + LF + ESCPOS.BOLD_OFF;
   }
 
+  // ── Lottery Summary (always when activity) ───────────────────────────
+  // Per-game sale + payouts + net cash. Mirror of the fuel block.
+  // Distinct from the cash-flow detail elsewhere in the receipt.
+  if (report.lottery?.rows?.length) {
+    r += LF + hr;
+    r += ESCPOS.BOLD_ON + 'LOTTERY SUMMARY' + LF + ESCPOS.BOLD_OFF;
+    r += divider;
+    // 3-column layout: Game | Sales $ | Payouts $   (Net shown on Total row)
+    r += pad('Game', W - 24) + rpad('Sales', 12) + rpad('Payouts', 12) + LF;
+    r += divider;
+    for (const g of report.lottery.rows) {
+      r += pad(g.gameName || 'Game', W - 24)
+         + rpad(money(g.saleAmount), 12)
+         + rpad(money(g.payoutAmount), 12)
+         + LF;
+    }
+    r += divider;
+    r += ESCPOS.BOLD_ON
+       + pad('Total', W - 24)
+       + rpad(money(report.lottery.totals.saleAmount), 12)
+       + rpad(money(report.lottery.totals.payoutAmount), 12)
+       + LF
+       + ESCPOS.BOLD_OFF;
+    // Highlight the bottom-line net cash from lottery (sale − payouts)
+    r += ESCPOS.BOLD_ON
+       + pad('Lottery Cash (sale − payouts)', W - 12)
+       + rpad(money(report.lottery.totals.netCash), 12)
+       + LF
+       + ESCPOS.BOLD_OFF;
+  }
+
   // ── Section 4: Fuel Sales (only when fuel sales exist) ────────────────
   if (report.fuel?.rows?.length) {
     r += LF + hr;
@@ -367,6 +398,12 @@ export const buildEoDReceiptString = (report, opts = {}) => {
     r += ESCPOS.BOLD_ON
       + pad('Total', W - 22)
       + rpad(Number(report.fuel.totals.gallons).toFixed(3), 9)
+      + rpad(money(report.fuel.totals.amount), 13)
+      + LF
+      + ESCPOS.BOLD_OFF;
+    // Highlight the bottom-line net cash from fuel (sale − refunds)
+    r += ESCPOS.BOLD_ON
+      + pad('Fuel Total (sale − refunds)', W - 13)
       + rpad(money(report.fuel.totals.amount), 13)
       + LF
       + ESCPOS.BOLD_OFF;

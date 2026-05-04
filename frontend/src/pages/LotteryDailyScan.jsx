@@ -39,7 +39,14 @@ import {
 } from '../services/api';
 
 const fmtMoney = (n) => n == null ? '$0.00' : `$${Number(n).toFixed(2)}`;
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Browser-local "today" — NOT UTC. `new Date().toISOString().slice(0, 10)`
+// returned UTC date, breaking the date filter after ~8pm in Western timezones
+// (page opened to tomorrow → empty data).
+const pad2 = (n) => String(n).padStart(2, '0');
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
 
 export default function LotteryDailyScan() {
   const confirm = useConfirm();

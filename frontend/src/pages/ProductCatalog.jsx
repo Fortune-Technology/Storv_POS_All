@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
 import {
   getCatalogProducts, searchCatalogProducts,
   deleteCatalogProduct,
+  duplicateCatalogProduct,
   getCatalogDepartments,
   getCatalogPromotions,
   bulkDeleteCatalogProducts,
@@ -134,18 +135,33 @@ export default function ProductCatalog() {
   const canDelete = can('products.delete');
   const [guideDismissed, setGuideDismissed] = useState(false);
 
+  // Search/page/filter state is mirrored to URL search params so navigating
+  // away (e.g. clicking Edit on a product) and using Back restores the
+  // exact list the user was looking at. On mount the useState initialisers
+  // read from the URL; the effect below persists changes back. Without this,
+  // returning from /portal/catalog/edit/N remounted the page with empty
+  // search and the user had to type their query again.
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [products,    setProducts]    = useState([]);
   const [departments, setDepartments] = useState([]);
   const [promotions,  setPromotions]  = useState([]);
   const [pagination,  setPagination]  = useState({ page:1, pages:1, total:0 });
   const [loading,     setLoading]     = useState(false);
-  const [q,           setQ]           = useState('');
-  const [filters,     setFilters]     = useState({ departmentId:'', taxClass:'', active:'true' });
+  const [q,           setQ]           = useState(() => searchParams.get('q') || '');
+  const [filters,     setFilters]     = useState(() => ({
+    departmentId: searchParams.get('dept') || '',
+    taxClass:     searchParams.get('tax')  || '',
+    active:       searchParams.get('active') || 'true',
+  }));
   // Session 39 Round 3 — advanced multi-criteria filters applied client-side
   // over the currently-loaded page. Narrows the displayed set further than
   // the basic dept/tax/active filter row above.
   const [advFilters,  setAdvFilters]  = useState([]);
-  const [page,        setPage]        = useState(1);
+  const [page,        setPage]        = useState(() => {
+    const p = parseInt(searchParams.get('page') || '1', 10);
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkAction,  setBulkAction]  = useState(null); // 'delete' | 'department' | 'active' | 'price' | null
   const [bulkDeptId,  setBulkDeptId]  = useState('');
@@ -368,6 +384,23 @@ export default function ProductCatalog() {
     return () => clearTimeout(debounceRef.current);
   }, [q, page, filters, activeStoreId, sort.sortKey, sort.sortDir]);
 
+  // Persist user-visible state to URL search params on every change. `replace`
+  // (not push) so each keystroke during typing doesn't add a history entry —
+  // we only want the LATEST state visible to the back button. When the user
+  // edits a product and hits Back, React Router unmounts /catalog, then
+  // remounts it; the useState initialisers above pick up the URL params and
+  // restore the search/page/filters they had before navigating away.
+  // Defaults are omitted from the URL so the resulting URL stays clean.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (q)                                            next.set('q', q);
+    if (filters.departmentId)                         next.set('dept', filters.departmentId);
+    if (filters.taxClass)                             next.set('tax', filters.taxClass);
+    if (filters.active && filters.active !== 'true')  next.set('active', filters.active);
+    if (page > 1)                                     next.set('page', String(page));
+    setSearchParams(next, { replace: true });
+  }, [q, filters, page, setSearchParams]);
+
   const handleDelete = async (product) => {
     if (!await confirm({
       title: 'Delete product?',
@@ -380,6 +413,23 @@ export default function ProductCatalog() {
       setProducts(ps => ps.filter(p => p.id !== product.id));
       toast.success('Product deleted');
     } catch (e) { toast.error(e.response?.data?.error || 'Delete failed'); }
+  };
+
+  // Duplicate from list — fetches a deep copy (UPCs, pack sizes, vendor maps,
+  // promos, etc.) and seeds it into sessionStorage so /portal/catalog/new can
+  // pick it up. UPC is always cleared so the cashier scans for a fresh barcode
+  // before saving. Mirrors the in-form Duplicate flow but no need to enter
+  // the edit form first.
+  const handleDuplicate = async (product) => {
+    try {
+      const res = await duplicateCatalogProduct(product.id);
+      const template = res?.data || res;
+      sessionStorage.setItem('pf_duplicate_template', JSON.stringify(template));
+      toast.success(`Ready to create copy of "${product.name}" — assign a fresh UPC`);
+      navigate('/portal/catalog/new');
+    } catch (e) {
+      toast.error('Duplicate failed: ' + (e.response?.data?.error || e.message));
+    }
   };
 
   const [exporting, setExporting] = useState(false);
@@ -759,6 +809,13 @@ export default function ProductCatalog() {
                               onClick={() => navigate(`/portal/catalog/edit/${p.id}`)}
                               className="pc-action-btn">
                               <Edit2 size={13} />
+                            </button>
+                          )}
+                          {canCreate && (
+                            <button title="Duplicate — create a copy with a fresh UPC"
+                              onClick={() => handleDuplicate(p)}
+                              className="pc-action-btn">
+                              <Copy size={13} />
                             </button>
                           )}
                           {canDelete && (

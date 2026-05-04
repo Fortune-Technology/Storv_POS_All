@@ -640,6 +640,11 @@ export default function POSScreen() {
       lineId:          i.lineId,
       productId:       i.productId,
       departmentId:    i.departmentId || null,
+      // S56b — productGroupId required so the engine's getQualifyingItems
+      // can match Promotion.productGroupIds[] scope. Stripping it here
+      // silently disabled every group-scoped promo at the POS even though
+      // the cart-store path (useCartStore.withPromos) had it correct.
+      productGroupId:  i.productGroupId || null,
       qty:             i.qty,
       unitPrice:       i.unitPrice,
       discountEligible: i.discountEligible !== false,
