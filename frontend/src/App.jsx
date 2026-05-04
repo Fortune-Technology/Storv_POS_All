@@ -172,6 +172,14 @@ const ProtectedRoute = ({ children, bypassVendorGate = false }) => {
     if (user.onboardingSubmitted && !user.vendorApproved) {
       return <Navigate to="/vendor-awaiting" replace />;
     }
+    // S77 Phase 2 hot-fix: vendor was activated but has no real organisation
+    // yet (their orgId/tenantId is null because activation cleared the
+    // placeholder). Push them through the existing /onboarding wizard so
+    // they create their real org before hitting the portal.
+    // Skip this check on the /onboarding route itself to avoid loops.
+    if (user.vendorApproved && !user.tenantId && !window.location.pathname.startsWith('/onboarding')) {
+      return <Navigate to="/onboarding" replace />;
+    }
   }
 
   return children;

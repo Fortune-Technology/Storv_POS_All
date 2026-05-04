@@ -338,6 +338,17 @@ export const adminActivateContract = async (req: Request, res: Response, next: N
       if (!tier || !tier.active) { res.status(400).json({ error: 'Invalid pricing tier.' }); return; }
     }
 
+    // S77 Phase 2 — On activation we ALSO:
+    //   • Promote role 'staff' → 'owner' so they have permissions for their
+    //     forthcoming organisation. Without this, they land on the portal
+    //     with `staff` perms (which lack dashboard.view) and get locked out.
+    //   • Detach from the placeholder "Default" org by setting orgId=null,
+    //     forcing them through the existing /onboarding wizard which creates
+    //     their real organisation via POST /api/tenants.
+    // The placeholder default org is identified by slug='default'.
+    const placeholderOrg = await prisma.organization.findFirst({ where: { slug: 'default' } });
+    const isOnPlaceholder = placeholderOrg && existing.user.orgId === placeholderOrg.id;
+
     const [contract] = await prisma.$transaction([
       prisma.contract.update({
         where: { id: req.params.id },
@@ -354,6 +365,10 @@ export const adminActivateContract = async (req: Request, res: Response, next: N
           status: 'active',
           contractSigned: true,
           vendorApproved: true,
+          // Promote to owner — they're the merchant who'll own their org.
+          role: existing.user.role === 'staff' ? 'owner' : existing.user.role,
+          // Clear placeholder org so the existing /onboarding wizard runs.
+          ...(isOnPlaceholder ? { orgId: null } : {}),
         },
       }),
       // Mirror the activation to the related VendorOnboarding row if present
