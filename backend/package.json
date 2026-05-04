@@ -20,6 +20,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:all": "tsx prisma/seedAll.ts",
+    "db:seed:production": "tsx prisma/productionSeeder.ts",
     "db:seed:customers": "tsx prisma/seedCustomers.ts",
     "db:seed:loyalty": "tsx prisma/seedLoyalty.ts",
     "db:seed:chat": "tsx prisma/seedChat.ts",
