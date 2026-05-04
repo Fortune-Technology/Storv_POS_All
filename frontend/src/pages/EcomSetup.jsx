@@ -95,11 +95,19 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (r.status === 401) {
-    // Log the ecom-backend's actual response so a misconfigured JWT_SECRET
-    // (the most common production cause) is visible in the console rather
-    // than masked by a generic "session expired" redirect.
+    // Stash the ecom-backend's actual response in sessionStorage so it
+    // survives the navigation. The login page reads + displays this so
+    // server admins can diagnose JWT_SECRET mismatches without needing
+    // DevTools "Preserve log" turned on.
     const body = await r.text().catch(() => '');
     console.error('[EcomSetup] ecom-backend 401 on', method, path, '→', body);
+    try {
+      sessionStorage.setItem('storv:auth-diag', JSON.stringify({
+        when: new Date().toISOString(),
+        source: 'ecom-backend',
+        method, path, status: 401, body: body.slice(0, 500),
+      }));
+    } catch { /* sessionStorage full or blocked — proceed anyway */ }
     handleAuthFailureAndRedirect();
     throw new Error('Session expired — redirecting to sign in.');
   }
