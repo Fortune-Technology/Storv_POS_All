@@ -379,17 +379,9 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       - name: Auto-bump patch version using run number
         working-directory: cashier-app
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            const [major, minor] = pkg.version.split('.');
-            const newVersion = major + '.' + minor + '.${{ github.run_number }}';
-            pkg.version = newVersion;
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-            console.log('::notice::Auto-bumped cashier-app version → ' + newVersion);
-          "
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: node scripts/bumpVersion.mjs
 
       # ──────────────────────────────────────────────────────────────────────
       # Write .env.production on the runner.
