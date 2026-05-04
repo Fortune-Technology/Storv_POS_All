@@ -679,6 +679,79 @@ export const deleteDepartment = async (req: Request, res: Response): Promise<voi
   }
 };
 
+// ── S72 (C7) — Force-push department defaults to all member products ────────
+// Mirrors the ProductGroup applyTemplate pattern. Pushes Department.ageRequired,
+// .ebtEligible, and .taxClass onto every active product in the dept. Only
+// non-null department fields cascade (so a dept that hasn't set ageRequired
+// won't blank out products that have a value).
+//
+// Body: { fields?: ('ageRequired' | 'ebtEligible' | 'taxClass')[] }
+//   Defaults to all three. Caller can opt to push just one or two.
+//
+// Response: { success: true, updated: number, fieldsApplied: string[] }
+export const applyDepartmentTemplate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const orgId = getOrgId(req);
+    const id = parseInt(req.params.id);
+
+    const dept = await prisma.department.findFirst({ where: { id, orgId } });
+    if (!dept) {
+      res.status(404).json({ success: false, error: 'Department not found' });
+      return;
+    }
+
+    const ALL_FIELDS = ['ageRequired', 'ebtEligible', 'taxClass'] as const;
+    type CascadeField = typeof ALL_FIELDS[number];
+
+    const requested: CascadeField[] = Array.isArray(req.body?.fields) && req.body.fields.length > 0
+      ? (req.body.fields as string[]).filter((f): f is CascadeField =>
+          (ALL_FIELDS as readonly string[]).includes(f))
+      : [...ALL_FIELDS];
+
+    if (requested.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: `fields must contain one or more of: ${ALL_FIELDS.join(', ')}`,
+      });
+      return;
+    }
+
+    // Build update payload — skip any field whose dept value is null. ebtEligible
+    // is a non-null boolean, so it always cascades when requested.
+    const update: Record<string, unknown> = {};
+    const fieldsApplied: string[] = [];
+    for (const f of requested) {
+      const v = (dept as unknown as Record<string, unknown>)[f];
+      if (v !== null && v !== undefined) {
+        update[f] = v;
+        fieldsApplied.push(f);
+      }
+    }
+
+    if (fieldsApplied.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Department has no values set for the requested fields. Edit the department first, then re-run.',
+        requested,
+      });
+      return;
+    }
+
+    const result = await prisma.masterProduct.updateMany({
+      where: { orgId, departmentId: id, deleted: false, active: true },
+      data: update as Prisma.MasterProductUpdateManyMutationInput,
+    });
+
+    res.json({
+      success: true,
+      updated: result.count,
+      fieldsApplied,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: errMsg(err) });
+  }
+};
+
 // ═══════════════════════════════════════════════════════
 // DEPARTMENT ATTRIBUTES (Session 4)
 // ═══════════════════════════════════════════════════════

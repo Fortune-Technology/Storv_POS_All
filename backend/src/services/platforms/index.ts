@@ -16,12 +16,29 @@ import grubhub   from './grubhub.js';
 import { PLATFORMS, ADAPTER_METHODS } from './adapterInterface.js';
 import type { PlatformAdapter } from './adapterInterface.js';
 
+// S71d — Self-hosted storefront. Not a third-party marketplace, so no real
+// HTTP push happens here. The actual storefront sync runs through ecom-backend
+// (separate service, separate DB) via BullMQ events / direct HTTP fallback.
+// This adapter exists only so `getPlatformAdapter('storefront')` doesn't return
+// null for code paths that blanket-check adapter existence (e.g. analytics
+// loops that iterate all connected platforms).
+const storefrontAdapter: PlatformAdapter = {
+  testConnection: async () => ({ ok: true, storeName: 'Self-hosted storefront' }),
+  syncInventory:  async () => ({ synced: 0, failed: 0, errors: [] }),
+  confirmOrder:   async () => ({ confirmed: false, error: 'storefront does not route orders here' }),
+  markReady:      async () => ({ success: false, error: 'storefront does not route orders here' }),
+  cancelOrder:    async () => ({ cancelled: false, error: 'storefront does not route orders here' }),
+  getMenu:        async () => ({ menu: null }),
+  updateHours:    async () => ({ updated: false }),
+};
+
 const adapters: Record<string, PlatformAdapter> = {
   doordash,
   ubereats,
   instacart,
   grubhub,
   postmates: grubhub,   // Postmates merged into Uber — reuse Grubhub stub for now
+  storefront: storefrontAdapter,
 };
 
 /**

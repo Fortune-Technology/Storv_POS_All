@@ -15,6 +15,7 @@ import {
   getSettings,
   updateSettings,
   syncInventory,
+  previewSyncImpact,
   listOrders,
   getOrder,
   confirmOrder,
@@ -37,6 +38,7 @@ router.put('/settings/:platform',   updateSettings);
 
 // Inventory
 router.post('/sync-inventory',      syncInventory);
+router.post('/preview-impact',      previewSyncImpact);  // S71 — dry-run pricing pipeline
 
 // Orders
 router.get('/orders',               listOrders);

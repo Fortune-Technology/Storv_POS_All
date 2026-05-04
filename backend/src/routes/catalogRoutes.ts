@@ -20,6 +20,7 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  applyDepartmentTemplate,
   // Department Attributes (Session 4)
   getDepartmentAttributes,
   createDepartmentAttribute,
@@ -137,6 +138,26 @@ router.get('/departments',        requirePermission('departments.view'),   getDe
 router.post('/departments',       requirePermission('departments.create'), createDepartment);
 router.put('/departments/:id',    requirePermission('departments.edit'),   updateDepartment);
 router.delete('/departments/:id', requirePermission('departments.delete'), deleteDepartment);
+// S72 (C7) — force-push dept defaults to all member products
+router.post('/departments/:id/apply', requirePermission('departments.edit'), applyDepartmentTemplate);
+
+// S73 — Expiry tracking + dead-stock report
+import {
+  listExpiry,
+  getExpirySummary,
+  setExpiry,
+  clearExpiry,
+  getDeadStock,
+} from '../controllers/expiryController.js';
+// S75 — Migrated from generic inventory.* to dedicated expiry.* keys so
+// admins can grant the Expiry Tracker without giving inventory-count + cycle-
+// count rights. Dead-stock report stays under inventory.view since it's a
+// general inventory analytic, not an expiry mutation.
+router.get('/expiry',                requirePermission('expiry.view'),    listExpiry);
+router.get('/expiry/summary',        requirePermission('expiry.view'),    getExpirySummary);
+router.put('/expiry/:productId',     requirePermission('expiry.edit'),    setExpiry);
+router.delete('/expiry/:productId',  requirePermission('expiry.edit'),    clearExpiry);
+router.get('/dead-stock',            requirePermission('inventory.view'), getDeadStock);
 
 // Department Attributes (Session 4)
 router.get('/department-attributes',         requirePermission('departments.view'),   getDepartmentAttributes);
