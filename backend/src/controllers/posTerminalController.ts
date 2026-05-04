@@ -970,10 +970,28 @@ export const printNetworkLabel = async (req: Request, res: Response): Promise<vo
 };
 
 // ── GET /api/pos-terminal/branding ────────────────────────────────────────
+// Authenticates via station token (no JWT required) so the cashier-app can
+// fetch + apply theme on the PIN login screen, before any cashier signs in.
+// Falls back to JWT-derived org context for back-office callers.
 export const getPosBranding = async (req: Request, res: Response): Promise<void> => {
   try {
-    const orgId   = getOrgId(req);
-    const storeId = (req.query as { storeId?: string }).storeId || req.storeId;
+    const stationToken = req.headers['x-station-token'] as string | undefined;
+    let orgId: string | null = getOrgId(req) ?? null;
+    let storeId: string | null | undefined = (req.query as { storeId?: string }).storeId || req.storeId;
+
+    // Pre-PIN path — station token only, no JWT. Resolve org + store from
+    // the station record so we don't have to trust client-supplied storeId.
+    if (stationToken && (!orgId || !storeId)) {
+      const station = await prisma.station.findUnique({
+        where:  { token: stationToken },
+        select: { orgId: true, storeId: true },
+      });
+      if (station) {
+        orgId   = station.orgId;
+        storeId = station.storeId;
+      }
+    }
+
     if (!storeId) { res.status(400).json({ error: 'storeId required' }); return; }
     const store = await prisma.store.findFirst({
       where:  { id: storeId, orgId: orgId ?? undefined },
