@@ -77,7 +77,9 @@ router.post('/transactions/:id/refund',      ...guard, createRefund);
 router.post('/clock',                    pinLimiter, clockEvent);
 router.get('/clock/status',              ...guard, getClockStatus);
 
-router.get('/branding', ...guard, getPosBranding);
+// Branding — station-token authenticated (no JWT). Lets cashier-app fetch
+// theme on PIN login screen, before any cashier signs in.
+router.get('/branding', getPosBranding);
 
 // POS layout config
 router.get('/config',  ...guard, getPOSConfig);

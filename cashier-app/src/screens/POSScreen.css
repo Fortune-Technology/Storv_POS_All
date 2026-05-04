@@ -81,6 +81,25 @@
   color: #a5b4fc;
 }
 
+/* Light-theme overrides — dark theme uses very light text (#cbd5e1 / #a5b4fc)
+   that becomes invisible on the light age-policy strip. Strengthen fills
+   and use deep slate/indigo text for proper contrast. Dark theme above
+   is untouched. */
+[data-pos-theme="light"] .pos-age-policy {
+  background: rgba(15, 23, 42, 0.04);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+[data-pos-theme="light"] .pos-age-chip--tobacco {
+  background: rgba(100, 116, 139, 0.22);
+  color: #1e293b;          /* slate-800 */
+  border: 1px solid rgba(100, 116, 139, 0.45);
+}
+[data-pos-theme="light"] .pos-age-chip--alcohol {
+  background: rgba(99, 102, 241, 0.18);
+  color: #312e81;          /* indigo-900 */
+  border: 1px solid rgba(79, 70, 229, 0.45);
+}
+
 /* ── Scan error toast ── */
 .pos-scan-error {
   position: fixed;

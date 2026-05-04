@@ -70,7 +70,7 @@ import { useChooser } from '../hooks/useChooserDialog.jsx';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner.js';
 import { useProductLookup }  from '../hooks/useProductLookup.js';
 import { useCatalogSync }    from '../hooks/useCatalogSync.js';
-import { useBranding }       from '../hooks/useBranding.js';
+// useBranding moved to App.jsx so it fires on StationSetup + PinLogin screens too.
 import { useOnlineStatus }   from '../hooks/useOnlineStatus.js';
 import { usePOSConfig }      from '../hooks/usePOSConfig.js';
 import { useFuelSettings }   from '../hooks/useFuelSettings.js';
@@ -488,7 +488,8 @@ export default function POSScreen() {
   }, [shift?.id]); // eslint-disable-line
 
   useOnlineStatus();
-  useBranding();
+  // useBranding() moved up to App.jsx so theme applies on StationSetup +
+  // PinLogin screens too. See cashier-app/src/App.jsx.
 
   // ── Modal visibility ────────────────────────────────────────────────────
   const [showTender,       setShowTender]       = useState(false);

@@ -22,6 +22,7 @@ import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
 import LabelPrintIndicator from './components/LabelPrintIndicator.jsx';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 import { ChooserDialogProvider } from './hooks/useChooserDialog.jsx';
+import { useBranding } from './hooks/useBranding.js';
 import './App.css';
 
 export default function App() {
@@ -37,6 +38,11 @@ export default function App() {
   const loadPendingCount = useSyncStore(s => s.loadPendingCount);
 
   const [booting, setBooting] = useState(true);
+
+  // Apply store branding (theme + brand color) at the App level so it
+  // fires on StationSetup / PinLogin screens too, not just POSScreen.
+  // Cached config is applied synchronously at module load in branding.js.
+  useBranding();
 
   // On startup:
   // 1. Load pending transaction count from IndexedDB

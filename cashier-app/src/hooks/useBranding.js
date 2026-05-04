@@ -4,30 +4,41 @@
  */
 
 import { useEffect } from 'react';
-import { useAuthStore } from '../stores/useAuthStore.js';
+import { useStationStore } from '../stores/useStationStore.js';
 import { getPosBranding } from '../api/pos.js';
-import { applyBranding, DEFAULT_BRANDING } from '../utils/branding.js';
+import { applyBranding, loadCachedBranding } from '../utils/branding.js';
 
 const POLL_MS = 5 * 60 * 1000; // 5 min
 
+/**
+ * Fetches and applies store branding for the paired station.
+ *
+ * Reads storeId from the persisted station (not the cashier session) so
+ * branding applies on the StationSetup / PinLogin screens too — before
+ * any PIN entry. Synchronous cache restore happens at module import in
+ * branding.js; this hook keeps the cache fresh from the API.
+ */
 export function useBranding() {
-  const cashier = useAuthStore(s => s.cashier);
+  const station = useStationStore(s => s.station);
 
   useEffect(() => {
-    const storeId = cashier?.storeId;
+    const storeId = station?.storeId;
+    if (!storeId) return; // station not paired yet — keep cached defaults
 
     const apply = async () => {
-      if (!storeId) { applyBranding(DEFAULT_BRANDING); return; }
       try {
         const config = await getPosBranding(storeId);
         applyBranding(config);
       } catch {
-        applyBranding(DEFAULT_BRANDING);
+        // Network error — keep last cached branding (no fallback to defaults
+        // so we don't flash dark when the API is briefly unavailable).
+        const cached = loadCachedBranding();
+        if (cached) applyBranding(cached);
       }
     };
 
     apply();
     const id = setInterval(apply, POLL_MS);
     return () => clearInterval(id);
-  }, [cashier?.storeId]);
+  }, [station?.storeId]);
 }
