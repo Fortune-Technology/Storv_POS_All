@@ -163,6 +163,125 @@ function ZebraRoutedPanel({ printerName, onChangeName }) {
   );
 }
 
+/**
+ * S(scale-fix) — Diagnostic banner shown under the COM Port dropdown after
+ * Detect is pressed. Helps the cashier figure out why their scale isn't in
+ * the list — usually because it's an HID-class scale, or a missing VCP/USB
+ * driver. The most common path: scale works in MarketPOS because the user
+ * installed the manufacturer's VCP driver during MarketPOS setup; our app
+ * has no driver bundling, so the scale's USB device shows up as HID-only
+ * (zero COM ports) until the driver is also installed for our app context.
+ */
+function ScaleDetectDiagnostic({ diag, ports }) {
+  if (!diag || diag.kind === 'idle') return null;
+
+  // Successful detection — show a compact summary of what was found.
+  if (diag.kind === 'ok') {
+    return (
+      <div className="hsm-scale-diag hsm-scale-diag--ok">
+        <Check size={13} />
+        <div>
+          <strong>Found {diag.count} COM port{diag.count === 1 ? '' : 's'}.</strong>{' '}
+          Pick the one your scale uses (manufacturer name in the dropdown often helps —
+          Datalogic, FTDI, Prolific, Silicon Labs, etc.).
+        </div>
+      </div>
+    );
+  }
+
+  if (diag.kind === 'no-ipc') {
+    return (
+      <div className="hsm-scale-diag hsm-scale-diag--err">
+        <AlertCircle size={13} />
+        <div>
+          <strong>Native COM ports require the desktop app.</strong>{' '}
+          You're running the browser build — close this and launch the
+          installed cashier-app to access COM ports.
+        </div>
+      </div>
+    );
+  }
+
+  if (diag.kind === 'no-module') {
+    return (
+      <div className="hsm-scale-diag hsm-scale-diag--err">
+        <AlertCircle size={13} />
+        <div>
+          <strong>serialport native module didn't load.</strong>{' '}
+          This usually means the desktop app build is missing native binaries.
+          Reinstall from the latest installer or check the app log for the load error.
+          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>{diag.error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (diag.kind === 'list-error') {
+    return (
+      <div className="hsm-scale-diag hsm-scale-diag--err">
+        <AlertCircle size={13} />
+        <div>
+          <strong>OS-level enumeration error.</strong>{' '}
+          Try running the cashier-app as administrator (Windows) or check that
+          your user is in the <code>dialout</code> group (Linux).
+          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>{diag.error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // empty — most common when MarketPOS sees the scale but we don't.
+  if (diag.kind === 'empty') {
+    const isWin = diag.platform === 'win32';
+    return (
+      <div className="hsm-scale-diag hsm-scale-diag--warn">
+        <AlertCircle size={13} />
+        <div>
+          <strong>No COM ports detected.</strong> If MarketPOS sees your scale
+          but we don't, the cause is almost always one of these:
+          <ul style={{ margin: '6px 0 4px 16px', padding: 0, fontSize: 12 }}>
+            <li>
+              <strong>Scale is connected as USB-HID</strong> (no COM port).
+              Many Datalogic / Magellan / Honeywell scales default to HID mode
+              and need a config switch + driver to expose a COM port.
+            </li>
+            <li>
+              <strong>Manufacturer's VCP/USB-Serial driver isn't installed.</strong>{' '}
+              MarketPOS typically bundles it; we don't. Install the driver from
+              your scale manufacturer's site (Datalogic Aladdin, FTDI VCP,
+              Prolific PL-2303, Silicon Labs CP210x, etc.).
+            </li>
+            <li>
+              {isWin ? (
+                <>
+                  Open <strong>Device Manager → Ports (COM &amp; LPT)</strong> on this
+                  PC. If your scale isn't listed there, Windows has no COM
+                  port for it — that's why we can't see it either.
+                </>
+              ) : (
+                <>
+                  Run <code>ls /dev/tty*</code> in a terminal. If your scale
+                  isn't listed (typically <code>/dev/ttyUSB0</code> or
+                  <code>/dev/ttyACM0</code>), the kernel hasn't bound a serial
+                  driver — install or load the right one.
+                </>
+              )}
+            </li>
+            <li>
+              If your scale is purely HID, switch the <strong>Connection</strong>{' '}
+              dropdown to <em>USB Serial (Web Serial API)</em> — Chromium can
+              talk to USB-CDC scales without a Windows driver, and the user
+              picks the device via a browser prompt.
+            </li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function HWSection({ icon: Icon, title, status, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const dotCls = status === 'ok' ? 'hsm-hw-dot--ok' : status === 'err' ? 'hsm-hw-dot--err' : 'hsm-hw-dot--idle';
@@ -216,18 +335,43 @@ export default function HardwareSettingsModal({ onClose }) {
   // ── Native COM port state ────────────────────────────────────────────────
   const [nativeComPorts, setNativeComPorts]   = useState([]);
   const [detectingNative, setDetectingNative] = useState(false);
+  // S(scale-fix) — surface diagnostic info from main.cjs `serial:list` so the
+  // user can tell *why* their scale isn't showing up. Possible states:
+  //   { kind: 'idle' }                        — Detect not pressed yet
+  //   { kind: 'no-ipc' }                      — running outside Electron desktop app
+  //   { kind: 'no-module', error }            — serialport native module didn't load
+  //   { kind: 'list-error', error }           — OS-level enumeration failure
+  //   { kind: 'empty', platform }             — module + OS fine, just no ports registered
+  //   { kind: 'ok', count, platform }         — at least one port found
+  const [serialDiag, setSerialDiag] = useState({ kind: 'idle' });
 
   const detectNativeComPorts = useCallback(async () => {
-    if (!window.electronAPI?.serialList) return;
+    if (!window.electronAPI?.serialList) {
+      setSerialDiag({ kind: 'no-ipc' });
+      return;
+    }
     setDetectingNative(true);
     try {
       const res = await window.electronAPI.serialList();
-      setNativeComPorts(res?.ports || []);
-      if (res?.ports?.length > 0 && !hw.scale.comPort) {
-        updHW('scale', { comPort: res.ports[0].path });
+      const ports = res?.ports || [];
+      setNativeComPorts(ports);
+      if (ports.length > 0 && !hw.scale.comPort) {
+        updHW('scale', { comPort: ports[0].path });
       }
-    } catch {}
-    finally { setDetectingNative(false); }
+      if (res?.moduleLoaded === false) {
+        setSerialDiag({ kind: 'no-module', error: res?.error || 'serialport not available' });
+      } else if (!res?.ok && res?.error) {
+        setSerialDiag({ kind: 'list-error', error: res.error });
+      } else if (ports.length === 0) {
+        setSerialDiag({ kind: 'empty', platform: res?.platform || '' });
+      } else {
+        setSerialDiag({ kind: 'ok', count: ports.length, platform: res?.platform || '' });
+      }
+    } catch (err) {
+      setSerialDiag({ kind: 'list-error', error: err?.message || String(err) });
+    } finally {
+      setDetectingNative(false);
+    }
   }, [hw.scale.comPort]);
 
   // ── Scale test state ────────────────────────────────────────────────────
@@ -308,7 +452,10 @@ export default function HardwareSettingsModal({ onClose }) {
         };
         window.electronAPI.onScaleData(handler);
         scaleTestCleanup.current = () => {
-          window.electronAPI.offScaleData?.(handler);
+          // S(scale-fix) — was calling a non-existent `offScaleData`, leaving
+          // stale listeners attached on every reconnect. `removeScaleListeners`
+          // is the documented cleanup channel exposed by preload.cjs.
+          window.electronAPI.removeScaleListeners?.();
           window.electronAPI.scaleDisconnect?.();
         };
       } catch (err) {
@@ -551,6 +698,9 @@ export default function HardwareSettingsModal({ onClose }) {
                             {BAUD_RATES.map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
+
+                        {/* S(scale-fix) — diagnostic banner. Shown only after the user clicks Detect. */}
+                        <ScaleDetectDiagnostic diag={serialDiag} ports={nativeComPorts} />
                       </>
                     ) : hw.scale.connection === 'tcp' ? (
                       <>

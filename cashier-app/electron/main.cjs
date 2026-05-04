@@ -592,19 +592,36 @@ ipcMain.handle('scale:send', async (_, cmd) => {
 let serialPortInstance = null;
 
 ipcMain.handle('serial:list', async () => {
-  if (!SerialPort) return { ok: false, ports: [], error: 'serialport module not available' };
+  // moduleLoaded tells the renderer the difference between
+  //   "serialport native module never loaded" (bad build/install) vs
+  //   "module is fine but the OS sees zero COM ports" (driver / cable issue).
+  if (!SerialPort) {
+    return {
+      ok: false,
+      moduleLoaded: false,
+      ports: [],
+      error: 'serialport native module not loaded — install/rebuild the desktop app.',
+    };
+  }
   try {
     const ports = await SerialPort.list();
-    return { ok: true, ports: ports.map(p => ({
-      path:         p.path,
-      manufacturer: p.manufacturer || '',
-      serialNumber: p.serialNumber || '',
-      vendorId:     p.vendorId || '',
-      productId:    p.productId || '',
-      friendlyName: p.friendlyName || p.path,
-    }))};
+    return {
+      ok: true,
+      moduleLoaded: true,
+      platform: process.platform, // 'win32' | 'darwin' | 'linux' — UI uses this for OS-specific hints
+      ports: ports.map(p => ({
+        path:         p.path,
+        manufacturer: p.manufacturer || '',
+        serialNumber: p.serialNumber || '',
+        vendorId:     p.vendorId || '',
+        productId:    p.productId || '',
+        friendlyName: p.friendlyName || p.path,
+        pnpId:        p.pnpId || '',
+        locationId:   p.locationId || '',
+      })),
+    };
   } catch (err) {
-    return { ok: false, ports: [], error: err.message };
+    return { ok: false, moduleLoaded: true, ports: [], error: err.message };
   }
 });
 
