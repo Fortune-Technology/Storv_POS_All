@@ -681,6 +681,17 @@ model StoreProduct {
   lastStockUpdate DateTime?
   lastReceivedAt  DateTime?
 
+  // S73 — Expiry tracking. Records the soonest-expiring date on the shelf
+  // for this product at this store. Single-batch model — admins are
+  // expected to update this when they receive a new batch (since the
+  // soonest expiry is what drives clearance decisions). For multi-batch
+  // products (e.g. yogurt receiving twice a week), a future ExpiryBatch
+  // table can be added without breaking this column.
+  // Drives: Expiry Tracker page, F28 AI promo suggestions, dead-stock report.
+  expiryDate      DateTime?
+  expiryUpdatedAt DateTime?
+  expiryNotes     String?
+
   // Store-specific flags
   active  Boolean @default(true)
   inStock Boolean @default(true) // for quick ecom filtering
@@ -873,6 +884,7 @@ model Organization {
   roles          Role[]
   members        UserOrg[]
   invitations    Invitation[]
+  promoSuggestions PromoSuggestion[]
 
   @@map("organizations")
 }
@@ -925,6 +937,8 @@ model User {
   assignedByMe      SupportTicket[] @relation("TicketAssigner")
 
   notificationDeliveries NotificationDelivery[] @relation("UserNotifications")
+
+  reviewedPromoSuggestions PromoSuggestion[] @relation("PromoSuggestionReviewer")
 
   @@index([orgId, role])
   @@index([orgId, email])
@@ -3221,6 +3235,13 @@ model StoreIntegration {
   credentials     Json // platform-specific: { developerId, keyId, signingSecret, storeLocationId, ... }
   config          Json      @default("{}") // { autoConfirm, syncInterval, syncEnabled, menuId }
   inventoryConfig Json      @default("{}") // { syncFrequency, departments, defaultBehavior }
+  // S71 — per-marketplace pricing/markup config: { markupPercent, roundingMode, categoryMarkups,
+  //        excludedDepartmentIds, excludedProductIds, minMarginPercent, syncMode,
+  //        inventorySyncEnabled, taxInclusive, prepTimeMinutes }
+  // Each marketplace charges different commission, so per-platform markup lets stores recover
+  // those fees without changing the in-store price. Rounding tidies the marked-up value to .50/.99/.00
+  // for psychological pricing. See backend/src/services/marketplaceMarkup.ts for the canonical shape.
+  pricingConfig   Json      @default("{}")
   status          String    @default("inactive") // "inactive"|"active"|"error"
   storeName       String? // name on the platform
   lastSyncAt      DateTime?
@@ -4789,4 +4810,50 @@ model NotificationDelivery {
   @@unique([notificationId, userId])
   @@index([userId, readAt])
   @@map("notification_deliveries")
+}
+
+// ─────────────────────────────────────────────────
+// PROMO SUGGESTIONS — S74 (F28)
+// AI- or stub-generated promo recommendations awaiting manager review.
+// Approve flow CREATES a Promotion record from the suggestion.
+// Rejected suggestions stay around for audit + AI training feedback.
+// ─────────────────────────────────────────────────
+model PromoSuggestion {
+  id     Int    @id @default(autoincrement())
+  orgId  String
+  storeId String?
+
+  // Lifecycle: pending → approved | rejected | dismissed
+  status String @default("pending")
+
+  // Promo proposal — same shape as Promotion but not yet active
+  promoType         String  // sale | bogo | volume | mix_match | combo
+  title             String  // human-readable summary, e.g. "Slow-mover: 12oz Dairy → 15% off Sat–Sun"
+  proposedScope     Json    // { productIds, departmentIds, productGroupIds }
+  proposedConfig    Json    // dealConfig shape
+  proposedStartDate DateTime?
+  proposedEndDate   DateTime?
+
+  // AI metadata
+  rationale   Json    // { source: 'dead_stock' | 'expiring' | ..., citations, reasoning }
+  estImpact   Json?   // { expectedSales, marginImpact, unitsCleared }
+  generatedBy String  @default("stub") // stub | claude | manual
+
+  // Review
+  reviewedById String?
+  reviewedAt   DateTime?
+  rejectReason String?
+
+  // When approved, points to the resulting Promotion row
+  createdPromoId Int?
+
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  reviewer     User?        @relation("PromoSuggestionReviewer", fields: [reviewedById], references: [id])
+
+  @@index([orgId, status, generatedAt])
+  @@index([orgId, storeId, status])
+  @@map("promo_suggestions")
 }

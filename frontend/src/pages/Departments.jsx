@@ -12,11 +12,13 @@ import {
   createCatalogDepartment,
   updateCatalogDepartment,
   deleteCatalogDepartment,
+  applyDepartmentTemplate,
 } from '../services/api';
 import {
   Plus, Edit2, Trash2, RotateCcw, X, Check,
   ShieldAlert, AlertTriangle, Leaf, Layers, GripVertical,
   Search, ToggleLeft, ToggleRight, Package, Monitor, Copy,
+  Zap,
 } from 'lucide-react';
 import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 
@@ -443,7 +445,7 @@ function DeptForm({ dept, onSave, onClose, saving, taxClassOptions }) {
 
 // ─── Draggable Row ─────────────────────────────────────────────────────────────
 
-function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, draggingIdx, onEdit, onManageAttrs, onToggleActive, onTogglePOS, onDeactivate, onReactivate }) {
+function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, draggingIdx, onEdit, onManageAttrs, onToggleActive, onTogglePOS, onDeactivate, onReactivate, onForcePush }) {
   const isDragging = draggingIdx === index;
   const isTarget   = draggingIdx !== null && draggingIdx !== index;
 
@@ -554,6 +556,16 @@ function DeptRow({ dept, index, onDragStart, onDragOver, onDrop, onDragEnd, drag
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'var(--text-muted, #6b7280)'; }}
         >
           <Layers size={13} />
+        </button>
+        {/* S72 (C7) — force-push dept defaults onto every product in the dept */}
+        <button onClick={() => onForcePush(dept)} title="Apply department defaults to all products" style={{
+          padding: 6, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,.04)',
+          cursor: 'pointer', color: 'var(--text-muted, #6b7280)', display: 'flex', alignItems: 'center',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,.14)'; e.currentTarget.style.color = '#d97706'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.04)'; e.currentTarget.style.color = 'var(--text-muted, #6b7280)'; }}
+        >
+          <Zap size={13} />
         </button>
         <button onClick={() => onDeactivate(dept.id)} title="Deactivate" style={{
           padding: 6, borderRadius: 6, border: 'none', background: 'rgba(255,255,255,.04)',
@@ -750,6 +762,7 @@ function CascadePromptModal({ deptName, productCount, changes, onCancel, onSaveO
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Departments() {
+  const confirm = useConfirm();
   const [depts,        setDepts]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState('');
@@ -938,6 +951,39 @@ export default function Departments() {
     await toggleActive(dept, true);
   };
 
+  // S72 (C7) — force-push dept defaults onto every active product in the dept.
+  // Used when the cascade-on-save flow was skipped (or never triggered because
+  // no edit happened) but the admin now wants to retroactively apply.
+  const handleForcePush = async (dept) => {
+    const willApply = [];
+    if (dept.taxClass)            willApply.push('Tax Class');
+    if (dept.ageRequired != null) willApply.push('Age Required');
+    willApply.push('EBT Eligible');  // boolean — always cascades
+
+    if (willApply.length === 0) {
+      toast.error('Department has no values to push. Edit the dept first.');
+      return;
+    }
+
+    const ok = await confirm({
+      title: `Push "${dept.name}" defaults to all products?`,
+      message: `This will overwrite ${willApply.join(', ')} on every active product in this department. Existing values on products will be replaced. This action cannot be undone.`,
+      confirmLabel: 'Apply to all products',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      const res = await applyDepartmentTemplate(dept.id);
+      const fields = (res?.fieldsApplied || []).join(', ');
+      toast.success(
+        `Pushed ${fields || 'defaults'} to ${res?.updated || 0} product(s)`,
+      );
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to push defaults');
+    }
+  };
+
   const cardStyle = {
     background: 'var(--bg-secondary, #111827)',
     border: '1px solid var(--border-color, #1f2937)',
@@ -1069,6 +1115,7 @@ export default function Departments() {
                 onToggleActive={toggleActive}
                 onDeactivate={id => setDeleteId(id)}
                 onReactivate={handleReactivate}
+                onForcePush={handleForcePush}
               />
             ))
           )}

@@ -45,6 +45,13 @@ export type SyncMode =
   | 'in_stock_only'       // only products with quantityOnHand > 0
   | 'active_promos_only'; // only products with an active promotion right now
 
+// ── Inventory estimation (S71c) ───────────────────────────────────────────
+
+export type UnknownStockBehavior =
+  | 'send_zero'                // current default — push 0 / OUT_OF_STOCK
+  | 'send_default'             // push a flat configured qty (e.g. always 99)
+  | 'estimate_from_velocity';  // push (avgDaily × daysOfCover)
+
 export interface MarketplacePricingConfig {
   /** Global markup percent applied to every product (e.g. 15 = +15%). */
   markupPercent?: number;
@@ -80,6 +87,40 @@ export interface MarketplacePricingConfig {
 
   /** Prep time hint to send to the marketplace (display-only for now). */
   prepTimeMinutes?: number;
+
+  // ── Inventory estimation (S71c) ────────────────────────────────────────
+
+  /**
+   * How many days of completed sales history to use when computing the
+   * per-product velocity for THIS marketplace. Default 14 (two-week window).
+   * The velocity itself is computed live from the Transaction table on every
+   * sync — this controls the lookback window.
+   */
+  velocityWindowDays?: number;
+
+  /**
+   * Per-department override of the velocity window. Keyed by departmentId.
+   * Useful when a category needs a different cadence than the store-wide
+   * default — e.g. produce/perishables on a 7-day window for responsiveness,
+   * lottery/slow-movers on a 30-day window for stability.
+   */
+  velocityWindowByDepartment?: Record<string, number>;
+
+  /**
+   * What to push when a product's quantityOnHand is unknown (untracked) or
+   * non-positive. Defaults to 'send_zero' (current behavior — show OOS).
+   */
+  unknownStockBehavior?: UnknownStockBehavior;
+
+  /** Quantity to push when unknownStockBehavior === 'send_default'. */
+  unknownStockDefaultQty?: number;
+
+  /**
+   * Days of cover to push when unknownStockBehavior === 'estimate_from_velocity'.
+   * Final qty = ceil(avgDaily × daysOfCover). Default 2 (about two days of
+   * sales worth of stock).
+   */
+  unknownStockDaysOfCover?: number;
 }
 
 export interface ComputeMarketplacePriceInput {
@@ -122,6 +163,12 @@ const DEFAULT_CONFIG: Required<MarketplacePricingConfig> = {
   minMarginPercent: 0,
   taxInclusive: false,
   prepTimeMinutes: 0,
+  // S71c — inventory estimation defaults
+  velocityWindowDays: 14,
+  velocityWindowByDepartment: {},
+  unknownStockBehavior: 'send_zero',
+  unknownStockDefaultQty: 0,
+  unknownStockDaysOfCover: 2,
 };
 
 /** Coerce stored config (may be partial / from JSON) into a fully-defaulted shape. */
@@ -138,7 +185,64 @@ export function normalizeConfig(raw: MarketplacePricingConfig | null | undefined
     minMarginPercent:     toNumber(c.minMarginPercent) ?? DEFAULT_CONFIG.minMarginPercent,
     taxInclusive:         c.taxInclusive ?? DEFAULT_CONFIG.taxInclusive,
     prepTimeMinutes:      toNumber(c.prepTimeMinutes) ?? DEFAULT_CONFIG.prepTimeMinutes,
+    velocityWindowDays:        toNumber(c.velocityWindowDays) ?? DEFAULT_CONFIG.velocityWindowDays,
+    velocityWindowByDepartment: c.velocityWindowByDepartment ?? {},
+    unknownStockBehavior:      c.unknownStockBehavior ?? DEFAULT_CONFIG.unknownStockBehavior,
+    unknownStockDefaultQty:    toNumber(c.unknownStockDefaultQty) ?? DEFAULT_CONFIG.unknownStockDefaultQty,
+    unknownStockDaysOfCover:   toNumber(c.unknownStockDaysOfCover) ?? DEFAULT_CONFIG.unknownStockDaysOfCover,
   };
+}
+
+/**
+ * Resolve which velocity window (in days) applies for a department on this
+ * marketplace. Per-dept override beats store-wide default. Returns null when
+ * neither is configured.
+ *
+ *   1. velocityWindowByDepartment[deptId]  (per-dept override for this marketplace)
+ *   2. velocityWindowDays                  (store-wide default for this marketplace)
+ *   3. null                                (no window — caller should treat as 0 velocity)
+ */
+export function effectiveVelocityWindow(
+  departmentId: string | number | null | undefined,
+  config: MarketplacePricingConfig,
+): number | null {
+  const byDept = config.velocityWindowByDepartment ?? {};
+  if (departmentId != null) {
+    const override = toNumber(byDept[String(departmentId)]);
+    if (override != null && override > 0) return Math.round(override);
+  }
+  const global = toNumber(config.velocityWindowDays);
+  if (global != null && global > 0) return Math.round(global);
+  return null;
+}
+
+/**
+ * Compute the qty to push when stock is unknown / non-positive.
+ *
+ *   send_zero            → 0
+ *   send_default         → unknownStockDefaultQty
+ *   estimate_from_velocity → ceil(avgDaily × daysOfCover)
+ *
+ * Returns 0 when behavior is unknown or estimate-mode has no velocity data.
+ */
+export function computeUnknownStockQty(
+  config: MarketplacePricingConfig,
+  avgDaily: number | null | undefined,
+): number {
+  const behavior = config.unknownStockBehavior ?? 'send_zero';
+  switch (behavior) {
+    case 'send_default':
+      return Math.max(0, Math.round(Number(config.unknownStockDefaultQty) || 0));
+    case 'estimate_from_velocity': {
+      const v = Number(avgDaily) || 0;
+      const days = Number(config.unknownStockDaysOfCover) || 0;
+      if (v <= 0 || days <= 0) return 0;
+      return Math.max(0, Math.ceil(v * days));
+    }
+    case 'send_zero':
+    default:
+      return 0;
+  }
 }
 
 /**

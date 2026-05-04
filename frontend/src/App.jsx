@@ -25,6 +25,8 @@ import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import InvoiceImport from './pages/InvoiceImport';
 import InventoryCount from './pages/InventoryCount';
+import ExpiryTracker from './pages/ExpiryTracker';
+import PromoSuggestions from './pages/PromoSuggestions';
 import PriceUpdate from './pages/PriceUpdate';
 import FeesMappings from './pages/FeesMappings';
 import SalesAnalytics from './pages/SalesAnalytics';
@@ -251,6 +253,8 @@ function App() {
           {/* ── Operations ────────────────────────────────────────────── */}
           <Route path="/portal/invoice-import"  element={gated(<InvoiceImport />)} />
           <Route path="/portal/inventory-count" element={gated(<InventoryCount />)} />
+          <Route path="/portal/expiry-tracker"  element={gated(<ExpiryTracker />)} />
+          <Route path="/portal/promo-suggestions" element={gated(<PromoSuggestions />)} />
           <Route path="/portal/price-update"    element={gated(<PriceUpdate />)} />
           <Route path="/portal/fees-mappings"   element={gated(<FeesMappings />)} />
           <Route path="/portal/realtime"        element={gated(<RealTimeDashboard />)} />

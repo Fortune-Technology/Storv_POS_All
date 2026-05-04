@@ -254,7 +254,79 @@ console.log('\n[13] Preview impact — invalid override returns 400');
   log(`status 400`, r.status === 400, `got ${r.status}`);
 }
 
-console.log('\n[14] Analytics endpoint returns pricingByPlatform snapshot');
+// ── S71c — Inventory estimation round-trip ────────────────────────────
+console.log('\n[14a] Inventory estimation — defaults round-trip');
+{
+  const r = await GET(`/integrations/settings/${PLATFORM}`);
+  const pc = r.body?.pricingConfig || {};
+  log(`velocityWindowDays default = 14`, pc.velocityWindowDays === 14);
+  log(`velocityWindowByDepartment default = {}`,
+    JSON.stringify(pc.velocityWindowByDepartment || {}) === '{}');
+  log(`unknownStockBehavior default = 'send_zero'`, pc.unknownStockBehavior === 'send_zero');
+  log(`unknownStockDefaultQty default = 0`, pc.unknownStockDefaultQty === 0);
+  log(`unknownStockDaysOfCover default = 2`, pc.unknownStockDaysOfCover === 2);
+}
+
+console.log('\n[14b] Inventory estimation — full round-trip');
+{
+  const config = {
+    velocityWindowDays: 28,
+    velocityWindowByDepartment: { '143': 7, '147': 60 },  // produce: 7d, lottery: 60d
+    unknownStockBehavior: 'estimate_from_velocity',
+    unknownStockDefaultQty: 0,
+    unknownStockDaysOfCover: 3,
+  };
+  const put = await PUT(`/integrations/settings/${PLATFORM}`, { pricingConfig: config });
+  log(`PUT status 200`, put.status === 200, `got ${put.status}`);
+
+  const get = await GET(`/integrations/settings/${PLATFORM}`);
+  const pc = get.body?.pricingConfig || {};
+  log(`velocityWindowDays persisted`, pc.velocityWindowDays === 28);
+  log(`velocityWindowByDepartment persisted`,
+    JSON.stringify(pc.velocityWindowByDepartment) === JSON.stringify({ '143': 7, '147': 60 }));
+  log(`unknownStockBehavior persisted`, pc.unknownStockBehavior === 'estimate_from_velocity');
+  log(`unknownStockDaysOfCover persisted`, pc.unknownStockDaysOfCover === 3);
+}
+
+console.log('\n[14c] Inventory estimation — validation rejects bad values');
+{
+  const tests = [
+    ['velocityWindowDays out of range (>365)', { velocityWindowDays: 999 }],
+    ['velocityWindowDays bad type', { velocityWindowDays: 'two-weeks' }],
+    ['velocityWindowByDepartment per-key out of range', { velocityWindowByDepartment: { '143': 999 } }],
+    ['velocityWindowByDepartment not an object', { velocityWindowByDepartment: 'oops' }],
+    ['unknownStockBehavior bad enum', { unknownStockBehavior: 'random_string' }],
+    ['unknownStockDefaultQty negative', { unknownStockDefaultQty: -5 }],
+    ['unknownStockDefaultQty too large', { unknownStockDefaultQty: 999999 }],
+    ['unknownStockDaysOfCover too large (>90)', { unknownStockDaysOfCover: 365 }],
+    ['unknownStockDaysOfCover negative', { unknownStockDaysOfCover: -1 }],
+  ];
+  for (const [label, bad] of tests) {
+    const r = await PUT(`/integrations/settings/${PLATFORM}`, { pricingConfig: bad });
+    log(label, r.status === 400, `got ${r.status}`);
+  }
+}
+
+console.log('\n[14d] Preview impact reflects estimate mode (uses velocity map)');
+{
+  // Make sure the test integration has the estimate config
+  await PUT(`/integrations/settings/${PLATFORM}`, {
+    pricingConfig: {
+      unknownStockBehavior: 'estimate_from_velocity',
+      unknownStockDaysOfCover: 2,
+      velocityWindowDays: 28,
+    },
+  });
+  const r = await POST(`/integrations/preview-impact`, {
+    platform: PLATFORM, storeId: F.storeId,
+  });
+  log(`preview status 200`, r.status === 200, `got ${r.status}`);
+  log(`preview returned without error`, r.body?.totalActive >= 0);
+  // Note: the audit fixture has tracked stock (qoh > 0) for most products,
+  // so estimate mode mostly won't fire. We just verify the path doesn't error.
+}
+
+console.log('\n[14e] Analytics endpoint returns pricingByPlatform snapshot');
 {
   const r = await fetch(`${BACKEND}/api/integrations/analytics`, {
     headers: { Authorization: `Bearer ${TOKEN}`, 'X-Store-Id': F.storeId },

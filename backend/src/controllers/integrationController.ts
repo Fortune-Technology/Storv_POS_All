@@ -16,6 +16,7 @@ import {
   type MarketplacePricingConfig,
   type RoundingMode,
   type SyncMode,
+  type UnknownStockBehavior,
 } from '../services/marketplaceMarkup.js';
 
 // ── Pricing config validation ────────────────────────────────────────────────
@@ -24,6 +25,9 @@ const VALID_ROUNDING: RoundingMode[] = [
   'none', 'nearest_dollar', 'nearest_half', 'charm_99', 'charm_95', 'psych_smart',
 ];
 const VALID_SYNC_MODES: SyncMode[] = ['all', 'in_stock_only', 'active_promos_only'];
+const VALID_UNKNOWN_STOCK: UnknownStockBehavior[] = [
+  'send_zero', 'send_default', 'estimate_from_velocity',
+];
 
 /**
  * Validate + sanitize incoming pricingConfig before persisting.
@@ -123,6 +127,57 @@ function validatePricingConfig(raw: unknown): MarketplacePricingConfig {
       throw { status: 400, message: 'prepTimeMinutes must be a number between 0 and 240' };
     }
     out.prepTimeMinutes = Math.round(n);
+  }
+
+  // S71c — velocityWindowDays: 1 to 365 (one year max)
+  if (c.velocityWindowDays !== undefined) {
+    const n = Number(c.velocityWindowDays);
+    if (!Number.isFinite(n) || n < 1 || n > 365) {
+      throw { status: 400, message: 'velocityWindowDays must be a number between 1 and 365' };
+    }
+    out.velocityWindowDays = Math.round(n);
+  }
+
+  // velocityWindowByDepartment: Record<string, number>
+  if (c.velocityWindowByDepartment !== undefined) {
+    if (typeof c.velocityWindowByDepartment !== 'object' || Array.isArray(c.velocityWindowByDepartment)) {
+      throw { status: 400, message: 'velocityWindowByDepartment must be an object' };
+    }
+    const map: Record<string, number> = {};
+    for (const [key, val] of Object.entries(c.velocityWindowByDepartment as Record<string, unknown>)) {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < 1 || n > 365) {
+        throw { status: 400, message: `velocityWindowByDepartment[${key}] must be a number between 1 and 365` };
+      }
+      map[String(key)] = Math.round(n);
+    }
+    out.velocityWindowByDepartment = map;
+  }
+
+  // unknownStockBehavior: enum
+  if (c.unknownStockBehavior !== undefined) {
+    if (typeof c.unknownStockBehavior !== 'string' || !VALID_UNKNOWN_STOCK.includes(c.unknownStockBehavior as UnknownStockBehavior)) {
+      throw { status: 400, message: `unknownStockBehavior must be one of: ${VALID_UNKNOWN_STOCK.join(', ')}` };
+    }
+    out.unknownStockBehavior = c.unknownStockBehavior as UnknownStockBehavior;
+  }
+
+  // unknownStockDefaultQty: 0 to 99999 (sanity ceiling)
+  if (c.unknownStockDefaultQty !== undefined) {
+    const n = Number(c.unknownStockDefaultQty);
+    if (!Number.isFinite(n) || n < 0 || n > 99999) {
+      throw { status: 400, message: 'unknownStockDefaultQty must be a number between 0 and 99999' };
+    }
+    out.unknownStockDefaultQty = Math.round(n);
+  }
+
+  // unknownStockDaysOfCover: 0 to 90 (3 months max — past that estimates are noise)
+  if (c.unknownStockDaysOfCover !== undefined) {
+    const n = Number(c.unknownStockDaysOfCover);
+    if (!Number.isFinite(n) || n < 0 || n > 90) {
+      throw { status: 400, message: 'unknownStockDaysOfCover must be a number between 0 and 90' };
+    }
+    out.unknownStockDaysOfCover = Math.round(n * 100) / 100;  // allow .5 days
   }
 
   return out;
@@ -283,19 +338,46 @@ export const disconnectPlatform = async (req: Request, res: Response, next: Next
  *
  * Returns the integration's three config blobs. `pricingConfig` is normalized
  * (defaults filled in) so the frontend always sees a complete shape.
+ *
+ * S71d — When platform === 'storefront' (self-hosted website) and the row
+ * doesn't exist yet, auto-create it with empty config. The storefront has no
+ * Connect/Disconnect flow because it has no third-party credentials — it's
+ * the store's own site, always present once ecom is enabled. The Pricing tab
+ * in EcomSetup is the only entry point for managing it.
  */
 export const getSettings = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const orgId = req.orgId as string;
     const storeId = req.storeId as string;
     const { platform } = req.params;
 
-    const integration = await prisma.storeIntegration.findUnique({
+    let integration = await prisma.storeIntegration.findUnique({
       where: { storeId_platform: { storeId, platform } },
       select: {
         id: true, config: true, inventoryConfig: true, pricingConfig: true,
         status: true, storeName: true,
       },
     });
+
+    // S71d — lazy init for the storefront row
+    if (!integration && platform === 'storefront') {
+      const created = await prisma.storeIntegration.create({
+        data: {
+          orgId, storeId, platform: 'storefront',
+          credentials: {} as Prisma.InputJsonValue,
+          config: {} as Prisma.InputJsonValue,
+          inventoryConfig: {} as Prisma.InputJsonValue,
+          pricingConfig: {} as Prisma.InputJsonValue,
+          status: 'active',
+          storeName: 'Self-hosted storefront',
+        },
+        select: {
+          id: true, config: true, inventoryConfig: true, pricingConfig: true,
+          status: true, storeName: true,
+        },
+      });
+      integration = created;
+    }
 
     if (!integration) {
       res.status(404).json({ error: 'Integration not found' });

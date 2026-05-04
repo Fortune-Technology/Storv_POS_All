@@ -10769,6 +10769,927 @@ The 5 new engine smoke scenarios cover:
 
 *Last updated: May 2026 — Session 70 (C11): Per-group mix-and-match flag (`ProductGroup.allowMixMatch`) enforced at promo-create + flip-to-false; `minPurchaseAmount` on dealConfig with engine guard, gated to dept/group scope; `<InheritedPromosBanner>` surfaces dept/group-level promos on product detail page. Engine smoke 11/11, HTTP smoke 31/31, 2 vite builds + tsc clean. F5 follow-up trio (C11+C12+C13) now closed.*
 
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71 — Per-Marketplace Markup, Rounding, Inventory & Exclusions)
+
+User request on `feature-39/ecommerceandMarketplaceMarkup`: per-marketplace knobs for pricing, rounding, inventory toggle, and product/department exclusions — so each platform's commission can be recovered with charm pricing without changing the in-store price.
+
+### Architecture decisions (locked during planning round)
+
+- **Per-store-per-marketplace** — settings live on `StoreIntegration.pricingConfig` (one row per store + platform exists already; just extending it). No new table needed since the unique key `(storeId, platform)` is already there.
+- **JSON column over per-field columns** — this is a settings blob, not something we'd ever query/aggregate. Mirrors the existing `config` + `inventoryConfig` JSON pattern on the same model.
+- **Pure-function helper** — markup + rounding + exclusion + margin math extracted into `services/marketplaceMarkup.ts` so the same logic runs in unit tests, the live sync, and (mirrored) in the drawer's live preview.
+- **Drawer pattern over expanding cards** — each marketplace card stays compact; "Pricing & Sync" button opens a 520px slide-in drawer. Same pattern as Stripe payment-method config + Shopify app settings.
+- **Reuse existing settings endpoint** — extended `/api/integrations/settings/:platform` (PUT) to accept `pricingConfig` alongside the existing `config` + `inventoryConfig` blobs. Saves a new route + frontend helpers.
+
+### Schema (1 column added — additive `npx prisma db push`)
+
+```prisma
+model StoreIntegration {
+  // ... existing fields ...
+  pricingConfig Json @default("{}")  // S71 — per-marketplace pricing knobs
+  // ...
+}
+```
+
+Shape (canonical type in [`marketplaceMarkup.ts`](backend/src/services/marketplaceMarkup.ts)):
+```typescript
+{
+  markupPercent:         number,                           // global %, e.g. 15
+  categoryMarkups:       Record<string, number>,           // per-deptId override
+  roundingMode:          'none' | 'nearest_dollar' | 'nearest_half'
+                       | 'charm_99' | 'charm_95' | 'psych_smart',
+  inventorySyncEnabled:  boolean,                          // master toggle
+  syncMode:              'all' | 'in_stock_only' | 'active_promos_only',
+  excludedDepartmentIds: string[],
+  excludedProductIds:    string[],
+  minMarginPercent:      number,                           // refuse if margin too thin
+  taxInclusive:          boolean,
+  prepTimeMinutes:       number,
+}
+```
+
+### Backend pricing pipeline ([`marketplaceMarkup.ts`](backend/src/services/marketplaceMarkup.ts))
+
+Single orchestrator `computeMarketplacePrice({ basePrice, costPrice, departmentId, productId, hasActivePromo, quantityOnHand, config })` runs five filters in order:
+
+1. **Exclusion** (cheapest filter first) — product id in `excludedProductIds` OR dept in `excludedDepartmentIds` → skip
+2. **Sync mode** — `in_stock_only` requires `qoh > 0`, `active_promos_only` requires the StoreProduct has an active sale
+3. **Markup** — per-dept override beats global
+4. **Rounding** — six modes (table below)
+5. **Margin guard** — `(marked − cost) / marked × 100 < minMarginPercent` → skip; passes when no cost data
+
+Returns `{ price, markupApplied, markupSource, skipped, skipReason? }`. Caller filters out skipped items before pushing to the platform adapter. Six discrete `skipReason` codes for downstream audit.
+
+Six rounding modes verified end-to-end:
+
+| Mode | $5.27 → | $6.00 → | Use case |
+|---|---|---|---|
+| `none` | $5.27 | $6.00 | Penny-exact |
+| `nearest_dollar` | $5.00 | $6.00 | Whole dollars |
+| `nearest_half` | $5.50 | $6.00 | Closest half |
+| `charm_99` | $5.99 | $6.99 | Always X.99 — standard charm pricing |
+| `charm_95` | $5.95 | $6.95 | Always X.95 — alternative charm |
+| `psych_smart` | $5.50 | $6.00 | Closest of {.00, .50, .99, next .00} |
+
+### Service integration ([`inventorySyncService.ts`](backend/src/services/inventorySyncService.ts))
+
+Both `pushInventory()` (full catalog push) and `pushItemUpdate()` (single product) now:
+
+1. Read `integration.pricingConfig`, normalize via `normalizeConfig()` so defaults fill in
+2. Short-circuit early when `inventorySyncEnabled === false` — returns `{ synced: 0, errors: [] }` so the marketplace stays "out of stock" while menu/order sync still works
+3. Extend the StoreProduct query with `defaultCostPrice` so the margin guard has data
+4. Map each product through `computeMarketplacePrice()` instead of the old direct-price path
+5. Filter out nulls (skipped products) before passing to the adapter
+
+### Backend controller ([`integrationController.ts`](backend/src/controllers/integrationController.ts))
+
+`getSettings` now selects + returns the normalized `pricingConfig` so the frontend always sees a complete shape with defaults filled in.
+
+`updateSettings` accepts a partial `pricingConfig` payload, runs it through `validatePricingConfig()`, and **merges with the existing config** so `PUT { pricingConfig: { markupPercent: 20 } }` doesn't wipe `roundingMode` etc. Validation rejects:
+- Out-of-range numbers (`markupPercent` outside −100..1000, `minMarginPercent` outside 0..100, `prepTimeMinutes` outside 0..240)
+- Invalid `roundingMode` / `syncMode` strings
+- Wrong types (`inventorySyncEnabled` must be boolean, `categoryMarkups` must be an object, exclusion lists must be arrays)
+- Bad keys inside `categoryMarkups` (each value must be in range)
+
+All return clean **400** with a specific error message naming the offending field.
+
+### Frontend — `<MarketplacePricingDrawer>` ([component](frontend/src/components/MarketplacePricingDrawer.jsx) + [CSS](frontend/src/components/MarketplacePricingDrawer.css))
+
+520px slide-in drawer (full-screen <640px), prefix `mpd-`. Sections stacked vertically:
+
+1. **Live preview card** at top — 4 sample base prices ($1.99, $5.99, $12.49, $29.95) with arrows showing the marked-up + rounded result + delta. Updates live as the user changes any setting (mirrors the backend pipeline in client-side helpers `applyMarkupClient` + `applyRoundingClient`).
+2. **Markup** — global %, plus collapsible per-department override table (one row per existing department, blank = inherit global)
+3. **Price rounding** — radio list with hint text per option
+4. **Inventory sync** — master toggle + sync mode dropdown
+5. **Exclusions** — collapsible departments checkbox grid + searchable product picker (hits existing `searchCatalogProducts`)
+6. **Margin guard** — single % input + explanatory copy
+7. **Other** — tax-inclusive toggle + prep time
+
+Each marketplace card on the Connections tab now has a primary "Pricing & Sync" button (blue, between "Sync Now" and "Disconnect") that opens the drawer for that platform. State is local to the card so each marketplace's drawer is independent.
+
+### Verification (live preview, end-to-end)
+
+| Layer | Result |
+|---|---|
+| Backend `tsc --noEmit` filtered to `backend/src/` | ✓ zero errors |
+| `node --test tests/marketplace_markup.test.ts` | ✓ **59/59** unit tests pass |
+| Portal `npx vite build` | ✓ 17.33s clean |
+| Live HTTP smoke `node tests/_smoke_marketplace_pricing.mjs` | ✓ **33/33** scenarios |
+
+The 33 live scenarios cover: defaults normalized correctly, full round-trip persistence (10 fields), partial-update preservation (changing markup keeps roundingMode + categoryMarkups + inventorySyncEnabled intact), and validation rejection (5 bad-input scenarios all return 400 with field-specific error message + state stays at last valid).
+
+### Files Changed (Session 71)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`StoreIntegration.pricingConfig Json @default("{}")` with intent docblock |
+| `backend/src/services/marketplaceMarkup.ts` | NEW — pure-function pipeline (markup, rounding, exclusion, sync mode, margin guard, orchestrator) |
+| `backend/src/services/inventorySyncService.ts` | `mapToPlatformItem` returns `null` when product filtered; `pushInventory` + `pushItemUpdate` honor `inventorySyncEnabled` master toggle + drop nulls before adapter call; query extended with `defaultCostPrice` for margin guard |
+| `backend/src/controllers/integrationController.ts` | `validatePricingConfig` helper; `getSettings` returns normalized config; `updateSettings` accepts + merges `pricingConfig` partial updates with field-specific 400 errors |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/components/MarketplacePricingDrawer.jsx` | NEW — 520px slide-in drawer with live preview, 6 sections, debounced product search, mirror of backend rounding logic |
+| `frontend/src/components/MarketplacePricingDrawer.css` | NEW — `mpd-` prefix, animations, responsive at <640px |
+| `frontend/src/pages/IntegrationHub.jsx` | +`Sliders` icon import; +`MarketplacePricingDrawer` import; `PlatformCard` mounts drawer with `pricingOpen` state + new "Pricing & Sync" primary button |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/marketplace_markup.test.ts` | NEW — 59 unit tests across 7 suites (effectiveMarkupPercent, applyMarkup, applyRounding × 6 modes, meetsMarginGuard, isExcluded, passesSyncMode, normalizeConfig, computeMarketplacePrice orchestrator) |
+| `backend/tests/_smoke_marketplace_pricing.mjs` | NEW — 33 live HTTP scenarios (round-trip, partial update, 6 validation rejections, default normalization) |
+
+### What's NOT shipped this session (intentional scope cuts)
+
+- **Per-category markup ON/OFF toggle inside the drawer** — currently overrides are written by typing a non-zero number; "Inherit global" is the empty state. A toggle + locked override pattern can come later if users find this confusing.
+- **Cron auto-resync after pricing change** — saving the drawer doesn't trigger an immediate inventory push. The next scheduled sync (or manual "Sync Now") picks up the new prices. Adding auto-push-on-save is a one-line change but felt out-of-scope for this session.
+- **Cost variance alert per marketplace** — if a vendor cost goes up enough to thin the margin past `minMarginPercent`, the next sync silently skips that product. A "5 products were skipped due to margin guard" surface in the drawer would help — separate session.
+- **Markup analytics rollup** — knowing how much marketplace revenue came from markup vs base price requires denormalizing `markupApplied` onto `PlatformOrder.items`. Not done this session because it changes the order-import flow on every adapter.
+
+### Branch state
+
+This is the first feature commit on `feature-39/ecommerceandMarketplaceMarkup`. Ready for code review + merge to main once smoke-tested by the user against a real DoorDash UAT account.
+
+---
+
+*Last updated: May 2026 — Session 71 (Per-Marketplace Markup): `StoreIntegration.pricingConfig` JSON column + pure-function `marketplaceMarkup.ts` pipeline (markup → rounding → exclusion → sync mode → margin guard) + slide-in `<MarketplacePricingDrawer>` with live preview. 6 rounding modes incl. charm_99 / psych_smart. 59 unit tests + 33 live HTTP smokes all green. Reuses existing `/api/integrations/settings/:platform` endpoints with merged-state semantics for partial updates.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 72 — T4 Group Discount End-to-End)
+
+User request: *"yes test T4 also on both side back-office as well as from cart of cashier-app."* Built a single end-to-end test that drives **both** the back-office HTTP API AND the cashier-app's pure-JS promo engine in the same script — so any drift between what admin-creates and what cashier-evaluates surfaces immediately.
+
+### Architecture
+
+[`backend/tests/_smoke_t4_group_scenarios.mjs`](backend/tests/_smoke_t4_group_scenarios.mjs) — single self-cleaning script that:
+
+1. **Sets up an isolated fixture** in the existing Future Foods dev org: 1 group + 4 products in the group + 1 product OUT of the group (water) for negative-control checks
+2. **For each scenario**, creates the promo via `POST /catalog/promotions` (real back-office path), then fetches active promos via `GET /catalog/promotions?active=true` (the same call the cashier-app's `useCatalogSync` makes), builds a cart of cart-line-shaped objects matching the fixture products, and runs them through `evaluatePromotions` (imported directly from `cashier-app/src/utils/promoEngine.js`)
+3. **Asserts on both sides** — the persisted promo shape AND the engine's adjustment output
+4. **Cleans up** — every promo, product, and group created by the test is removed at the end (FK-cascade-aware: `LabelQueue` + `ProductUpc` rows nuked first to avoid product-delete failures)
+
+This is the right shape for promo verification because the back-office and cashier-app are otherwise tested in isolation — the F5 HTTP smoke tests the API alone, the F5 engine smoke tests the engine alone. T4 tests them **as a system**.
+
+### 8 Scenarios covered (32 assertions total)
+
+| # | Scenario | What's verified |
+|---|---|---|
+| **Fixture** | Group create + 4 products + add-to-group | Group persists, products link, catalog snapshot tags `productGroupId` |
+| **S1** | Group sale (10% off) | Promo persists with `productGroupIds[]`; engine applies 10% to in-group lines, leaves out-of-group lines untouched, totalSaving math correct |
+| **S2** | Group sale + `minPurchaseAmount: 20` (S70 / C11c) | Below ($12) skipped; above ($24) fires; exactly at ($20) fires; out-of-scope cart items ($15 water alongside $12 beer) DON'T count toward the threshold |
+| **S3** | Group BOGO (buy 2 get 1 50% off) | Adjustment fires on 3-qty single-SKU line; mixed-brand cart (3 different SKUs from same group) gets adjustment too |
+| **S4** | Group volume tiers (6+ → 10%, 12+ → 20%) | 5 units → no fire; 7 → 10%; 13 → 20% (highest matching tier wins) |
+| **S5** | Group mix_match (3 for $9.99) | 3 of same SKU bundles; 3 different SKUs from same group bundles; 2 items → no fire |
+| **S6** | `allowMixMatch=false` blocks at admin time | Flag persists; new mix_match promo on blocked group → 400 with helpful error |
+| **S7** | Cross-scope lowest-wins | Bud Light has product-level $1-off AND group 10%-off → $1 wins ($1 > $0.40); Coors only has group promo → 10% applies |
+| **S8** | Catalog snapshot mapping correctness | In-group products carry `productGroupId`; out-of-group products carry `null`; promotions endpoint surfaces `productGroupIds[]` for every active promo |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| T4 smoke (NEW) | ✓ **32/32** end-to-end |
+| F5 engine smoke (S68) | ✓ 11/11 (no regression) |
+| F5 HTTP smoke (S68) | ✓ 31/31 (no regression) |
+| **Combined total across all 3 promo smokes** | ✓ **74/74** |
+| Backend tsc | ✓ EXIT=0 |
+
+### One bug I caught in my own test (not the engine)
+
+First run was 31/32 with S3 BOGO failing. The engine WAS firing correctly — adjustment with `discountType: 'amount'`, `discountValue: 1.33`, `promoId: <correct>` — but my assertion was checking for `adj.promoType` which the engine doesn't put on adjustment objects (only `promoId` + `promoName` + `badgeLabel` + `badgeColor`). Fixed the assertion to `Number(adj.discountValue) > 0` and added an explanatory comment so future maintainers don't repeat the mistake. Re-run: **32/32**.
+
+This is the value of two-sided tests — when an assertion's wrong, you can quickly tell whether the engine is wrong or the test is, because you have the persisted-shape side as a sanity check.
+
+### Files Changed (Session 72)
+
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_t4_group_scenarios.mjs` | NEW — 32-assertion end-to-end smoke covering 8 group-discount scenarios |
+
+No production code changes — T4 was a pure verification pass that the C11 + C12 + C13 + F5 work all stays in sync between the back-office and cashier-app.
+
+### Why this matters
+
+Group-scoped promotions cross the largest data boundary in the platform: portal Postgres → REST → cashier-app IndexedDB → cashier-app promo engine. The engine is a pure-JS module with no schema dependencies, so it can drift from what the back-office actually produces. T4 closes that gap with a single test.
+
+Future C11-style additions (more dealConfig fields, more scope dimensions, more validation rules) should add scenarios to this same file rather than splitting into new tests — keep the back-office and cashier-app reconciled in one place.
+
+---
+
+*Last updated: May 2026 — Session 72 (T4 — Group Discount E2E): single 32-assertion smoke test exercising back-office HTTP + cashier-app engine in lockstep. Validates 8 scenarios — group sale, group sale + minPurchase, group BOGO, group volume tiers, group mix_match, allowMixMatch enforcement, cross-scope lowest-wins, catalog snapshot mapping. All 74 combined assertions across the F5/T4 promo smoke triad now green.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 73 — C7: Department Force-Push)
+
+User: *"Go ahead with C7 and F28."* C7 shipped this session; F28 framing is locked but implementation queued for next session pending design confirmation (separate page, dedicated `PromoSuggestion` table, stub-AI-first ship plan — all outlined in the response).
+
+### What C7 adds
+
+A standalone **"Apply department defaults to all products"** action on every department row in the Departments page. The existing on-update cascade modal (`CascadePromptModal`) only fires when admin edits + saves a dept that changed a cascadable field. C7 fills the gap when:
+
+- Admin imported dept settings but products were imported separately without those defaults
+- Admin imported new products into a dept and wants to retro-apply
+- Admin previously chose "save dept only" on the cascade modal and now changes their mind
+- Admin made the dept defaults right at setup time, but products were created earlier with stale data
+
+### Cascadable fields (3)
+
+```
+Department.ageRequired   → MasterProduct.ageRequired
+Department.ebtEligible   → MasterProduct.ebtEligible   (boolean — always cascades)
+Department.taxClass      → MasterProduct.taxClass
+```
+
+Only non-null department fields cascade — a dept that hasn't set `ageRequired` won't blank out products that have a value.
+
+### Backend — `POST /catalog/departments/:id/apply`
+
+[`catalogController.applyDepartmentTemplate`](backend/src/controllers/catalogController.ts):
+- Body: `{ fields?: ('ageRequired' | 'ebtEligible' | 'taxClass')[] }` — defaults to all three; caller can opt to push just one or two
+- Response: `{ success: true, updated: number, fieldsApplied: string[] }`
+- Validates: dept exists (404), fields whitelist (400 on unknown), at least one field has a value to apply (400 with `requested` echo if dept has nothing set)
+- Updates only `active: true, deleted: false` products in the dept — soft-deleted/inactive products untouched
+
+Route registered with `requirePermission('departments.edit')` so cashier role can't trigger it.
+
+### Portal UI
+
+[`Departments.jsx`](frontend/src/pages/Departments.jsx) — new amber `<Zap>` action button on every department row, between "Manage Attributes" and "Deactivate". Tooltip: *"Apply department defaults to all products."*
+
+Click flow:
+1. **Confirm dialog** lists what will be pushed (e.g. *"This will overwrite Tax Class, Age Required, EBT Eligible on every active product in this department"*) + the customary "this action cannot be undone" warning
+2. Backend call → **success toast** with the field list + product count: *"Pushed taxClass, ageRequired, ebtEligible to 47 product(s)"*
+3. Empty-defaults guard — if the dept has nothing to push, toast tells admin to edit the dept first
+
+### Tests
+
+[`backend/tests/_smoke_c7_dept_force_push.mjs`](backend/tests/_smoke_c7_dept_force_push.mjs) — 12-assertion self-cleaning smoke:
+- Dept create → 3 products with deliberately differing values
+- Pre-cascade snapshot confirms divergence
+- Full cascade → all three fields propagate
+- Selective `fields: ['taxClass']` → only taxClass applies (the other product fields stay as set)
+- Invalid `fields: ['nonexistent']` → 400
+- Missing dept id → 404
+
+**12/12 pass.**
+
+### Files Changed (Session 73)
+
+| File | Change |
+|---|---|
+| `backend/src/controllers/catalogController.ts` | +`applyDepartmentTemplate` handler |
+| `backend/src/routes/catalogRoutes.ts` | +`POST /catalog/departments/:id/apply` route |
+| `frontend/src/services/api.js` | +`applyDepartmentTemplate(id, fields?)` API helper |
+| `frontend/src/pages/Departments.jsx` | +`<Zap>` button on `DeptRow` + `handleForcePush` handler with confirmation flow |
+| `backend/tests/_smoke_c7_dept_force_push.mjs` | NEW — 12-assertion smoke test |
+
+### F28 — framing locked, implementation queued for next session
+
+User confirmed (implicitly via the original prompt) that F28 should be a **separate page** under a new sidebar entry. Final framing presented to user for confirmation:
+
+- **Page:** `/portal/promo-suggestions` (or under a new "AI" group alongside the AI Assistant chat)
+- **Schema:** Separate `PromoSuggestion` table — keeps `Promotion` clean as "live promos only"; suggestions have their own lifecycle (`pending | approved | rejected | dismissed`); approve flow CREATES a Promotion record; rejected suggestions stay around for audit + AI training feedback
+- **First-ship scope:** schema + CRUD endpoints + page UI with review queue + edit-then-publish flow + reject-with-reason + manual "Generate Suggestions" button (auto-cron later) + **stubbed AI** (hardcoded sample suggestions for shape-correctness; real Anthropic tool-use queries to sales/movement/seasonality come in a follow-up session)
+- **Why stub the AI first:** the manager's review experience is the load-bearing UX. Wiring Claude tool-use to sales/movement/seasonality is straightforward (Anthropic SDK + AI Assistant tool framework already exist from S38); better to nail the workflow before training the AI to feed it
+
+### Files NOT Changed (Session 73)
+
+F28 implementation deferred — schema, controller, page UI, sidebar entry will all ship in S74 once the user confirms the framing.
+
+---
+
+*Last updated: May 2026 — Session 73 (C7 — Department Force-Push): standalone "Apply department defaults to all products" action on Departments page; backend `POST /catalog/departments/:id/apply` with optional field selector + 400/404 guards; 12/12 smoke tests pass; portal vite build clean. F28 framing presented for user confirmation; full implementation queued for S74.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 74 — Expiry Tracking + Dead-Stock + Inventory Reports Audit)
+
+User: *"Before we start working on AI assistant? Can we add expire date in storeproduct level so that products can be checked. Separate page in the system to scan and enter the upcoming next expiry date... see the list of coming close dates to help move or remove from shelf. This way AI assistant will be better in identifying dead-stocks, and suggest sales and all. Check dead-stocks and all inventory related reports and make sure they are accurate and showing data and pointing correct end points too."*
+
+Smart sequencing — expiry data is the foundation F28 (AI promo suggestions) needs to recommend "this dairy expires in 3 days, suggest 25% off". Plus the dead-stock report verification confirmed F28 has the inputs it needs.
+
+### What ships in S74
+
+**1. Per-store expiry tracking on StoreProduct** — schema additions, full CRUD endpoints, status-bucket classification (expired / today / soon / approaching / fresh / untracked), summary endpoint, validation guards.
+
+**2. New `/portal/expiry-tracker` page** — separate page (per user spec), scan-to-add via existing `<BarcodeScannerModal>`, manual product search + date pick, inline date editing on the list, status-bucket summary cards as filter chips, $-at-risk total for the next 3 days.
+
+**3. New configurable dead-stock query** — `GET /catalog/dead-stock?days=N` complements the fixed-30-day classifier in `/reports/hub/inventory`. Returns products with positive inventory but zero sales in the configurable window, sorted by `retailValueAtRisk` so admins prioritise what's worth clearing first. Also returns `lastSoldAt` (looking back up to 365 days) so admins see "this hasn't sold in 187 days" not just "no sales last 30 days".
+
+**4. Inventory report audit** — verified the existing `/reports/hub/inventory` endpoint still works correctly after recent refactors. Returns the dead/low/over/out classifier with `?type=` filter intact. Two complementary endpoints now coexist: `/reports/hub/inventory` (fixed window, status classifier across all products) + `/catalog/dead-stock` (configurable window, dead-stock-only with last-sold history).
+
+### Schema (3 new fields, additive `prisma db push`)
+
+```prisma
+model StoreProduct {
+  // ... existing fields ...
+  expiryDate      DateTime?
+  expiryUpdatedAt DateTime?
+  expiryNotes     String?
+}
+```
+
+Single-batch model: records the soonest-expiring date on the shelf. For multi-batch products (yogurt receiving twice a week), a future `ExpiryBatch` table can be added without breaking this column.
+
+### Status-bucket logic (mirrored backend + frontend)
+
+| Bucket | Condition | UI Color |
+|---|---|---|
+| `expired` | date < today | red |
+| `today` | 0 ≤ days < 1 | orange |
+| `soon` | 1 ≤ days < 4 | amber |
+| `approaching` | 4 ≤ days < 8 | yellow |
+| `fresh` | days ≥ 8 | green |
+| `untracked` | no expiryDate set | grey |
+
+### Backend endpoints (all gated on `inventory.view` / `inventory.edit`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/catalog/expiry` | List with filters: window, status, departmentId, q (search), includeUntracked |
+| GET | `/catalog/expiry/summary` | Bucket counts + valueAtRisk |
+| PUT | `/catalog/expiry/:productId` | Set/update expiry date + optional notes |
+| DELETE | `/catalog/expiry/:productId` | Clear expiry tracking for a product |
+| GET | `/catalog/dead-stock` | Configurable window dead-stock query with valueAtRisk + lastSoldAt |
+
+All require `X-Store-Id` (expiry is per-store).
+
+### Portal — `/portal/expiry-tracker`
+
+- Sidebar entry: **Catalog → Expiry Tracker** with `Calendar` icon, between "Inventory Count" and "Label Queue"
+- Cross-org cross-store unsafe — every endpoint requires storeId, page uses `X-Store-Id` from context
+- Summary cards work as filter chips (click "Expired" → list filters to just expired)
+- Scan flow: click Scan → camera opens → barcode detected → product looked up via existing `searchCatalogProducts` → quick-add modal opens with product preselected, just pick the date
+- Manual flow: click "Add Date" → search by name/UPC → pick product → date + notes → save
+- Inline editing: date column shows `<input type="date">` when editing, plain date otherwise. Save / Cancel inline.
+- Clear expiry button per-row (red trash icon) with confirm dialog explaining inventory tracking is unaffected
+
+### Tests — 23/23 pass (`_smoke_s73_expiry_deadstock.mjs`)
+
+| Group | Assertions | Coverage |
+|---|---|---|
+| Fixture setup | 1 | 3 products created with inventory |
+| Expiry CRUD | 13 | Set + classify (expired/today/approaching) + filter by status + summary buckets + valueAtRisk + clear + 400 + 404 guards |
+| Dead-stock | 5 | Returns 3 zero-sale products + valueAtRisk + meta + days param accepted (30 vs 365) |
+| Inventory report audit (no regression) | 4 | `/reports/hub/inventory` returns inventory + stats with all 4 buckets + `?type=dead` filter works |
+
+**Regression check** — re-ran all prior promo/group smokes after S74 changes:
+- F5 engine smoke: ✓ 11/11
+- F5 HTTP smoke: ✓ 31/31
+- T4 group scenarios: ✓ 32/32
+- C7 dept force-push: ✓ 12/12
+- **S73 (NEW): 23/23**
+- **Combined: 109/109**
+
+### Files Changed (Session 74)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +3 fields on `StoreProduct` (expiryDate, expiryUpdatedAt, expiryNotes) |
+| `backend/src/controllers/expiryController.ts` | NEW — 5 handlers (list, summary, set, clear, dead-stock) |
+| `backend/src/routes/catalogRoutes.ts` | +5 routes under `/catalog/expiry/*` and `/catalog/dead-stock` |
+
+**Portal:**
+| File | Change |
+|---|---|
+| `frontend/src/services/api.js` | +5 helpers: `listExpiry`, `getExpirySummary`, `setProductExpiry`, `clearProductExpiry`, `getDeadStock` |
+| `frontend/src/pages/ExpiryTracker.jsx` + `.css` | NEW — full page with scan + manual + inline-edit + filter (prefix `et-`) |
+| `frontend/src/App.jsx` | +`/portal/expiry-tracker` route |
+| `frontend/src/components/Sidebar.jsx` | +"Expiry Tracker" entry under Catalog group |
+| `frontend/src/rbac/routePermissions.js` | +`/portal/expiry-tracker` → `inventory.view` |
+
+**Tests:**
+| File | Purpose |
+|---|---|
+| `backend/tests/_smoke_s73_expiry_deadstock.mjs` | NEW — 23-assertion self-cleaning smoke |
+
+### F28 unblocked
+
+The expiry data + dead-stock query gives F28's AI Assistant tool framework what it needs to suggest:
+- *"12oz Dairy Milk expires in 2 days, 8 units in stock — suggest 30% off Sat–Sun"*
+- *"Premium IPA hasn't sold in 187 days, 24 units worth $192 stuck on shelf — clearance promo at 40% off?"*
+- *"All Brand-X soda expiring within the week, $XYZ at risk — group sale on Brand-X with $5 minPurchase?"*
+
+When F28 ships, it'll wire these as Anthropic tools: `get_expiring_soon(days)`, `get_dead_stock(days, minOnHand)`, etc. The endpoints already exist and are tested. No blocker remaining.
+
+---
+
+*Last updated: May 2026 — Session 74 (Expiry Tracking + Dead-Stock Audit): per-store expiry tracking via 3 new StoreProduct fields, 5-bucket status classifier, separate `/portal/expiry-tracker` page with scan + manual entry + inline edit, configurable `/catalog/dead-stock` query with valueAtRisk + lastSoldAt, audit confirms `/reports/hub/inventory` dead-stock classifier still working. 23/23 new smoke + 86/86 regression. F28 (AI Assistant promo suggestions) now unblocked — has the data inputs it needs.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71b — Marketplace Markup follow-ups)
+
+User flagged 4 deferred items + 3 not-yet-done items from S71. Shipped all 4 deferred + commit. Browser walkthrough blocked (Chrome extension not connected) — needs user verification. UAT smoke remains user-side (requires real DoorDash test creds).
+
+### S71b changes (additive — no schema, no breaking changes)
+
+**Backend skip-stat tracking + dry-run preview** ([`inventorySyncService.ts`](backend/src/services/inventorySyncService.ts)):
+- `mapToPlatformItem` now returns `{ item, skipReason }` so push functions aggregate skip counts per category (`excludedProduct` / `excludedDepartment` / `syncModeFilter` / `marginTooThin` / `invalidPrice` / `total`)
+- `PlatformSyncResult` interface gained optional `skipped` field — appears on every sync response
+- New `previewMarketplaceImpact(orgId, storeId, platform, overrideConfig?)` — dry-runs the full pipeline against all active products, returns `{ totalActive, wouldSync, skipped, sampleItems[] }` where sampleItems shows the first 5 products' base→marked-up prices + delta + delta%
+- Override config is validated through the same `validatePricingConfig` as the persistence path so the user can preview unsaved edits
+
+**Drive-by schema-drift fixes**:
+While building the dry-run query I hit two pre-existing Prisma errors in the existing `pushInventory`:
+- `weeklyVelocity` was being selected from `MasterProduct` but the field had been removed from the schema in an earlier refactor
+- `status` was being selected and post-filtered against `'discontinued'` but that field was also gone
+
+The errors only surfaced when I built the new preview path because every existing call site for `pushInventory` short-circuited before the bad query (`inventorySyncEnabled === false`). Removed both fields from the selects + deleted the dead status post-filter (`where: { active: true }` already filters out inactive products).
+
+**Backend preview endpoint** ([`integrationController.ts`](backend/src/controllers/integrationController.ts) + [`integrationRoutes.ts`](backend/src/routes/integrationRoutes.ts)):
+- `POST /api/integrations/preview-impact` — body `{ platform, storeId, pricingConfig? }`. Returns the dry-run result. Validates override pricingConfig before running, so bad input → 400. Inner try/catch surfaces the actual Prisma error message in dev for easier debugging.
+
+**Backend analytics extension** ([`integrationController.ts:getAnalytics`](backend/src/controllers/integrationController.ts)):
+- Response now includes `pricingByPlatform: Record<platform, { markupPercent, roundingMode, categoryOverrideCount, excludedDepartmentCount, excludedProductCount, inventorySyncEnabled, syncMode, minMarginPercent, lastSyncAt, status }>`
+- Loaded via a single `findMany` on the active integrations for the active store
+- Skips when no `storeId` (org-wide analytics view doesn't show per-platform pricing — would be nonsensical across stores)
+
+**Frontend drawer** ([`MarketplacePricingDrawer.jsx`](frontend/src/components/MarketplacePricingDrawer.jsx) + [`.css`](frontend/src/components/MarketplacePricingDrawer.css)):
+- **Per-category override toggle** — each department row now has an explicit on/off toggle. OFF state shows "X.XX% (global)" in italic so the inheritance is visible. ON state activates the input + defaults to the current global markup. Toggle uses the same toggle-slider language as the inventory toggle for visual consistency.
+- **"Save & Sync Now" button** in the footer (primary, blue), alongside "Save" (secondary, outlined). Save persists, Save & Sync persists then immediately calls `syncIntegrationInventory` and surfaces the result in the toast. Footer reads `[Cancel] [Save] [Save & Sync Now]` left-to-right.
+- **Preview impact section** — new section near the bottom with a "Preview impact" button. Hits the new dry-run endpoint with the CURRENT edits (not the saved values), then renders three KPI cards (would-sync / total active / skipped) + a skip-breakdown chip ("3 excluded, 2 margin guard") + an expandable list of 5 sample products showing `base → marked-up · +12.5%`.
+- **Skip stats in sync toast** — after Save & Sync, toast format: `"DoorDash: 142 synced · 8 skipped (3 excluded, 2 margin guard, 3 sync filter)"`
+
+**Frontend analytics tab** ([`IntegrationHub.jsx`](frontend/src/pages/IntegrationHub.jsx) + [`.css`](frontend/src/pages/IntegrationHub.css)):
+- New "Current pricing configuration" panel between the revenue stat-cards and the chart row. One card per connected platform showing markup %, rounding mode, inventory status (color-coded green ON / red OFF + sync mode), excluded counts, and min margin %.
+- Empty when no platforms have settings yet — silent fallback.
+
+### Verification (live preview, end-to-end)
+
+| Layer | Result |
+|---|---|
+| `tsc --noEmit` filtered to `backend/src/` | ✓ zero errors |
+| `node --test tests/marketplace_markup.test.ts` | ✓ **59/59** unit tests still pass |
+| Portal `npx vite build` | ✓ 16.59s clean |
+| Live HTTP smoke `node tests/_smoke_marketplace_pricing.mjs` | ✓ **49/49** scenarios (was 33/33) |
+
+The 16 new live HTTP scenarios cover:
+- Preview with stored config (returns totalActive, wouldSync, skipped totals; math reconciles `totalActive === wouldSync + skipped.total`)
+- Preview with override config that excludes the tobacco department (verifies the excluded count goes up + sample items show markup applied)
+- Preview rejects invalid override pricingConfig with 400
+- Analytics endpoint returns `pricingByPlatform` with markup / rounding / inventory flag for each connected platform
+
+### What's STILL not done (honest scope cuts)
+
+- **Real-marketplace UAT smoke** — still requires user-side DoorDash UAT credentials. The wiring is mechanical (`syncIntegrationInventory` → `pushInventory` → `mapToPlatformItem` → `computeMarketplacePrice`), all paths verified by the dry-run + smoke, but only a real adapter call confirms the marketplace sees the marked-up `base_price`.
+- **Browser walkthrough** — Chrome extension wasn't connected. Build is clean and the JSX is wired correctly per the static check, but the visual polish of the drawer + analytics panel needs your eyes.
+- **Markup revenue attribution** — the analytics tab now shows the *config* per platform but NOT the actual markup-attributable revenue (would require denormalizing `markupApplied` onto `PlatformOrder.items` + per-adapter changes). Deferred to a session that can dedicate the time.
+
+### Files Changed (Session 71b)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/services/inventorySyncService.ts` | `mapToPlatformItem` returns `{ item, skipReason }`; new `newSkipStats` + `tallySkip` helpers; both push paths aggregate skip stats; new `previewMarketplaceImpact()` dry-run + `PreviewImpactResult` type; pre-existing schema-drift bugs fixed (`weeklyVelocity` + `status` removed from selects + post-filter) |
+| `backend/src/controllers/integrationController.ts` | New `previewSyncImpact` handler with inner try/catch for dev error visibility; `getAnalytics` now returns `pricingByPlatform` snapshot keyed by platform |
+| `backend/src/routes/integrationRoutes.ts` | +`POST /preview-impact` route |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/services/api.js` | +`previewIntegrationImpact()` helper |
+| `frontend/src/components/MarketplacePricingDrawer.jsx` | `toggleCategoryOverride` + per-row toggle UI replacing the typed-or-blank pattern; `handleSaveAndSync` + `handlePreview` handlers; new "Preview impact" section with KPI cards + sample-products list; new `skipBreakdown()` helper for toast formatting; footer split into Save / Save & Sync Now |
+| `frontend/src/components/MarketplacePricingDrawer.css` | New `.mpd-dept-toggle*`, `.mpd-dept-row--on`, `.mpd-dept-inherit`, `.mpd-preview-result/-stats/-stat/-skips/-samples`, `.mpd-btn-secondary`, `.mpd-btn-block` |
+| `frontend/src/pages/IntegrationHub.jsx` | Analytics tab reads `data.pricingByPlatform` and renders the new "Current pricing configuration" panel between stats and charts |
+| `frontend/src/pages/IntegrationHub.css` | New `.ih-pricing-snapshot*` family for the panel + cards + rows |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_marketplace_pricing.mjs` | +4 new HTTP scenarios (16 individual checks) covering preview-impact + analytics snapshot — total now 49 |
+
+---
+
+*Last updated: May 2026 — Session 71b (Marketplace Markup follow-ups): skip-stat tracking on every sync · `/preview-impact` dry-run endpoint with override-config support · drawer per-category override toggle + Save & Sync Now button + Preview impact card · analytics tab pricing snapshot per platform · drive-by fixes for two pre-existing Prisma schema-drift bugs (`weeklyVelocity` + `status` selects). Adds 16 new HTTP smoke checks (49/49 total). Real-marketplace UAT + browser walkthrough still need user-side verification.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 75 — F28: AI Promo Suggestions + AI Marker Convention)
+
+User: *"create the promo suggestion under product, just add AI icon additional that identify that it's AI based page, same do for other page wherever are using the AI"*
+
+Closes the F28 backlog item with a stub-AI implementation. Page lives under the **Catalog** sidebar group (next to Promotions) with a new AI marker convention applied to the sidebar nav item — small purple sparkle badge that flags AI-powered pages.
+
+### Schema (1 new table, additive `prisma db push`)
+
+`PromoSuggestion` — own lifecycle (`pending | approved | rejected | dismissed`) + full provenance (`rationale.citations[]`, `estImpact`, `generatedBy`). Approve flow CREATES a real `Promotion` record from the suggestion. Rejected/dismissed rows stay around for audit + future AI training feedback.
+
+### Backend — 7 endpoints under `/api/promo-suggestions`
+
+| Method | Path | RBAC | Purpose |
+|---|---|---|---|
+| GET | `/` | `promotions.view` | List with `?status=` filter |
+| GET | `/:id` | `promotions.view` | Single suggestion detail |
+| PUT | `/:id` | `promotions.edit` | Edit before approve (only when status=pending) |
+| POST | `/generate` | `promotions.create` | Stub generator — pulls real data from S74 dead-stock + expiry endpoints |
+| POST | `/:id/approve` | `promotions.create` | Atomic transaction: create Promotion + mark approved + link `createdPromoId` |
+| POST | `/:id/reject` | `promotions.create` | Reject with optional `reason` (max 500 chars) |
+| POST | `/:id/dismiss` | `promotions.create` | Quick dismiss |
+
+### Stub generator (S74 → S75 incremental path)
+
+Queries existing endpoints created in S74:
+1. **Expiring stock** — products with `expiryDate ≤ now+7d`, qty > 0. Discount tiered by urgency: expired = 50%, 0d = 40%, 1-3d = 30%, 4-7d = 20%
+2. **Dead stock** — products with positive inventory but zero sales in last 30 days, sorted by `valueAtRisk` (top 5 ≥ $20)
+
+Each suggestion stores full provenance: `rationale.citations[]` (productId, daysUntilExpiry / daysSinceSold, onHand, valueAtRisk), `rationale.reasoning` (plain-English justification), `estImpact` (expectedSales, unitsCleared, valueAtRisk). 7-day per-product de-dup avoids spam on repeated Generate clicks.
+
+`generatedBy: 'stub'` marks these as stub-generated. Replacing with real Claude calls is a follow-up — same wire format, different generator. Page UI shows "AI (stub)" vs "AI suggestion" so admins know the source.
+
+### Portal — `/portal/promo-suggestions`
+
+Status filter tabs with live counts (Pending/Approved/Rejected/Dismissed) · "Generate Suggestions" purple-gradient button · 2-col responsive card grid. Per-card: AI ribbon, source chip, AI-generated title, deal preview, scope summary, estimated impact strip (Value at risk / Expected sales / Units cleared), collapsible "Why?" with structured citations (`code`-styled chips), action row (Approve & Publish / Reject with reason textarea / Dismiss).
+
+### AI marker convention — sidebar
+
+`Sidebar.jsx` — nav items can now opt-in with `ai: true`:
+
+```jsx
+{ name: 'Promo Suggestions', icon: <Tag size={13} />, path: '/portal/promo-suggestions', ai: true },
+```
+
+Render adds a 14px purple-gradient `<Sparkles>` badge after the label. CSS in `index.css` (`.nav-ai-badge`).
+
+Same purple gradient (`#7c3aed → #6366f1`) is reused across all AI surfaces for visual consistency: nav badge, Generate button, page-header icon, card ribbons, "AI" pill next to page title. Adding more AI pages later just sets `ai: true` on the nav item.
+
+### Test results
+
+[`backend/tests/_smoke_s74_promo_suggestions.mjs`](backend/tests/_smoke_s74_promo_suggestions.mjs) — **22/22 self-cleaning assertions** covering generator + list + filter + reject (with reason) + double-reject guard + approve → atomic Promotion creation + double-approve guard + dismiss + edit guard + detail endpoint.
+
+**Combined regression — 131/131 across 6 smoke suites:**
+- F5 engine: 11/11 · F5 HTTP: 31/31 · T4: 32/32 · C7: 12/12 · S73: 23/23 · **S75 (NEW): 22/22**
+
+### Files Changed (Session 75)
+
+**Backend:** schema.prisma · controllers/promoSuggestionController.ts (NEW) · routes/promoSuggestionRoutes.ts (NEW) · server.ts (mount).
+
+**Portal:** services/api.js · pages/PromoSuggestions.jsx + .css (NEW) · App.jsx (route) · components/Sidebar.jsx (entry + Sparkles import + AI badge render) · index.css (`.nav-ai-badge`) · rbac/routePermissions.js.
+
+**Tests:** _smoke_s74_promo_suggestions.mjs (NEW).
+
+### What's next
+
+**Stub → real-AI swap** is a focused follow-up: add Claude tools (`get_expiring_soon`, `get_dead_stock`, `get_top_movers`, `get_seasonal_signal`) wired to the same backend endpoints the stub uses, replace generator controller body with Anthropic SDK call. Same `PromoSuggestion` table, same wire format, same UI — `generatedBy: 'claude'` instead of `'stub'`. The manager workflow + edit/approve/reject UX is fully validated before real AI lands.
+
+---
+
+*Last updated: May 2026 — Session 75 (F28 AI Promo Suggestions + AI Marker): new `PromoSuggestion` table + 7 backend endpoints + stub generator using S74 dead-stock + expiry data, new `/portal/promo-suggestions` page under Catalog group with sparkle AI marker on sidebar entry. 22/22 smoke + 131/131 combined regression. Stub generator produces realistic suggestions; real Claude tool-use queued for follow-up. F28 review queue + approve→create-Promotion flow fully validated.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71c — Per-Marketplace Velocity + Untracked-Stock Policy)
+
+User clarification on the velocity architecture:
+> *"velocity can defined, if needs to be tracked for the sale of last X days for each marketplace, for the entire store or by override by each department"*
+
+That locked the design: velocity is **never** stored on `MasterProduct` (S71b's drive-by fix correctly removed the dead `weeklyVelocity` column reference). Instead, it's **computed live** from `Transaction` history per push, with the **window** and **policy** configured per-marketplace on `pricingConfig`. Per-department overrides let perishables (7d) coexist with slow-movers (60d) on the same marketplace.
+
+### Pure helpers ([`marketplaceMarkup.ts`](backend/src/services/marketplaceMarkup.ts))
+
+5 new fields on `MarketplacePricingConfig`:
+| Field | Default | Range | Purpose |
+|---|---|---|---|
+| `velocityWindowDays` | 14 | 1-365 | Store-wide lookback for THIS marketplace's velocity computation |
+| `velocityWindowByDepartment` | `{}` | per-key 1-365 | Per-dept overrides — produce gets 7d, lottery gets 60d |
+| `unknownStockBehavior` | `'send_zero'` | enum | What to push when qoh ≤ 0 / untracked |
+| `unknownStockDefaultQty` | 0 | 0-99999 | Used by `'send_default'` mode |
+| `unknownStockDaysOfCover` | 2 | 0-90 (allows .5) | Used by `'estimate_from_velocity'` mode |
+
+Three pure functions:
+- `effectiveVelocityWindow(deptId, config)` — per-dept override beats store-wide; returns `null` when nothing configured
+- `computeUnknownStockQty(config, avgDaily)` — branches on the three policy modes; returns `ceil(avgDaily × daysOfCover)` for estimate mode
+- `maxVelocityWindowDays(config)` — returns the LARGEST window across global + all dept overrides (one query covers every product's needs)
+
+### Live velocity computation ([`inventorySyncService.ts`](backend/src/services/inventorySyncService.ts))
+
+New `computeVelocityMap(orgId, storeId, daysBack)` runs ONE Prisma query against `Transaction` (status='complete'), iterates `lineItems` JSON, sums qty per `productId`, divides by `daysBack` for `avgDaily`. Returns `Map<productId, avgDaily>`. Skips lottery / bottle return / bag fees. Same pattern as `orderEngine.ts` already uses for daily sales.
+
+### `calculateSmartQoH` decision tree (rewritten)
+
+```
+1. Per-dept fixedQoH override (legacy `inventoryConfig.departments[X].fixedQoH`)
+   -> still wins (use case: "always show 99 in stock for produce")
+2. quantityOnHand > 0 -> use actual stock (the normal case)
+3. quantityOnHand <= 0 OR untracked -> branch on pricingConfig.unknownStockBehavior:
+     'send_zero' (default)         -> 0 (OUT_OF_STOCK on the marketplace)
+     'send_default'                -> unknownStockDefaultQty
+     'estimate_from_velocity'      -> ceil(avgDaily * unknownStockDaysOfCover)
+```
+
+Velocity is queried ONCE per push (not per product), at `maxVelocityWindowDays(config)` — covers every product's needs in one DB hit. **Skipped entirely** when the marketplace's `unknownStockBehavior !== 'estimate_from_velocity'` so stores using only `'send_zero'` (the default) pay zero query overhead.
+
+Wired into all three push paths: `pushInventory`, `pushItemUpdate`, AND `previewMarketplaceImpact` (the dry-run uses identical velocity logic so the drawer's Preview button reflects exactly what the next sync would do).
+
+### Backend validation ([`integrationController.ts`](backend/src/controllers/integrationController.ts))
+
+`validatePricingConfig` extended with 5 new field checks. Each returns clean **400** + field-specific message. Sane ranges:
+- `velocityWindowDays`: 1-365 (one year max)
+- `velocityWindowByDepartment[X]`: each value 1-365
+- `unknownStockBehavior`: enum check against `['send_zero', 'send_default', 'estimate_from_velocity']`
+- `unknownStockDefaultQty`: 0-99999
+- `unknownStockDaysOfCover`: 0-90 (3 months max — past that estimates are noise)
+
+### Frontend drawer ([`MarketplacePricingDrawer.jsx`](frontend/src/components/MarketplacePricingDrawer.jsx))
+
+New "Untracked stock policy" section between **Inventory sync** and **Exclusions**, with `TrendingUp` icon. Three radio options matching the backend enum. Conditional fields per choice:
+
+- **Show as out of stock** (`send_zero`): no extra fields — current behavior
+- **Push a fixed quantity** (`send_default`): single integer input "Default quantity to push"
+- **Estimate from sales velocity** (`estimate_from_velocity`): three inputs
+  - Days of cover (default 2)
+  - Sales-history window in days (default 14)
+  - Per-department window overrides (collapsible — toggle per dept, defaults to global when off, custom value when on; same UX as the markup-override toggle from S71b)
+
+The override pattern mirrors the markup overrides exactly so the cognitive load stays low.
+
+### Verification
+
+| Layer | Result |
+|---|---|
+| `tsc --noEmit` filtered to `backend/src/` | ✓ zero errors |
+| `node --test tests/marketplace_markup.test.ts` | ✓ **88/88** unit tests pass (was 59, +29 new) |
+| Portal `npx vite build` | ✓ 16.05s clean |
+| Live HTTP smoke | ✓ **70/70** scenarios (was 49, +21 new) |
+
+The 29 new unit tests cover: `effectiveVelocityWindow` (7 scenarios), `computeUnknownStockQty` (9 scenarios — all three modes + edge cases), `maxVelocityWindowDays` (5), `calculateSmartQoH` integration (8 — including the legacy `fixedQoH` override interaction).
+
+The 21 new live smoke scenarios cover defaults round-trip, full round-trip with per-dept overrides, 9 validation rejections, and the dry-run preview path going through the same velocity logic.
+
+### Files Changed (Session 71c)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/services/marketplaceMarkup.ts` | +5 fields on `MarketplacePricingConfig`, +`UnknownStockBehavior` enum type, `normalizeConfig` defaults extended, +2 pure helpers (`effectiveVelocityWindow`, `computeUnknownStockQty`) |
+| `backend/src/services/inventorySyncService.ts` | NEW `computeVelocityMap()` (Transaction → avgDaily map); NEW `maxVelocityWindowDays()`; `calculateSmartQoH` rewritten with new decision tree (signature: `(product, inventoryConfig, pricingConfig, velocityMap)`); `pushInventory` + `pushItemUpdate` + `previewMarketplaceImpact` all compute velocity once when needed |
+| `backend/src/controllers/integrationController.ts` | `validatePricingConfig` extended with 5 new field checks (1-365 day range, enum check, 0-99999 qty range, 0-90 days-of-cover) |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/components/MarketplacePricingDrawer.jsx` | +`TrendingUp` icon import, +`UNKNOWN_STOCK_OPTIONS` constant, loader + buildPayload extended for the 5 new fields, +`setVelocityWindow`/`toggleVelocityWindowOverride` handlers, NEW "Untracked stock policy" section with conditional fields per behavior |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/marketplace_markup.test.ts` | +29 unit tests across 4 new suites (88 total) |
+| `backend/tests/_smoke_marketplace_pricing.mjs` | +4 new HTTP scenario blocks (21 individual checks → 70 total) |
+
+### What this enables operationally
+
+- **Mobile food cart** with no SKU-level inventory tracking can set `unknownStockBehavior: 'send_default', unknownStockDefaultQty: 99` per marketplace and stay always-in-stock without any tracking overhead
+- **Cigarette-only counter** that doesn't run inventory but wants the marketplace to show realistic availability can use `'estimate_from_velocity'` with a 28-day window and 2-day cover — the marketplace sees `ceil(avg × 2)` units, refreshed on every sync
+- **Multi-category store** can mix policies: produce on `'estimate_from_velocity'` with a 7-day window, lottery on the same mode with a 60-day window, electronics on `'send_zero'` (don't oversell what we can't reorder fast)
+
+### Architecture decisions worth remembering
+
+- Velocity is **per-store** (one Transaction history) but the **policy** is **per-marketplace** (each platform's `pricingConfig`)
+- Velocity is **never stored as a column** — always computed live. Avoids the staleness + write-amplification problems of cached velocity numbers
+- The default `'send_zero'` keeps existing stores unchanged — no behavior shift unless an admin explicitly opts in
+- Per-dept window overrides only show in the drawer when `unknownStockBehavior === 'estimate_from_velocity'` — keeps the UI tight when stores aren't using estimation
+
+---
+
+*Last updated: May 2026 — Session 71c (Per-Marketplace Velocity + Untracked-Stock Policy): velocity is computed live per-push from Transaction history (no column ever stored), windowed per-marketplace with per-dept overrides; new unknownStockBehavior enum gates what gets pushed when qoh <= 0 (`send_zero` default / `send_default` flat qty / `estimate_from_velocity` from velocity × days-of-cover); drawer "Untracked stock policy" section with conditional fields. 88/88 unit tests + 70/70 live HTTP smokes pass; tsc + vite clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 76 — F28 Real Claude Tool-Use + Dedicated RBAC Keys)
+
+User: *"go ahead, also add this new pages for RABC for role based management"*
+
+Two threads shipped together:
+
+1. **Real Claude tool-use** for the F28 promo-suggestion generator — replaces the stub generator with actual Anthropic SDK + tool-calling. Stub remains as the fallback when `ANTHROPIC_API_KEY` is unset OR when the Claude call errors out (network, rate limit, etc).
+2. **Dedicated RBAC permission keys** for the two new pages (PromoSuggestions + ExpiryTracker) — admins can now grant fine-grained access via the role management UI.
+
+### RBAC additions (6 new permission keys)
+
+[`backend/src/rbac/permissionCatalog.ts`](backend/src/rbac/permissionCatalog.ts):
+
+| Key | Module | Action | Surface |
+|---|---|---|---|
+| `expiry.view` | Expiry Tracker | view | back-office |
+| `expiry.edit` | Expiry Tracker | edit | back-office |
+| `promo_suggestions.view` | AI Promo Suggestions | view | back-office |
+| `promo_suggestions.generate` | AI Promo Suggestions | generate (cost-bearing) | back-office |
+| `promo_suggestions.approve` | AI Promo Suggestions | approve (creates real Promotion) | back-office |
+| `promo_suggestions.reject` | AI Promo Suggestions | reject + dismiss | back-office |
+
+**Default grants:**
+- `manager` → all 6 keys
+- `cashier` → only `expiry.view` (read-only inventory awareness)
+- `owner` / `admin` → all (via `*` wildcard)
+
+These appear as toggleable groups in the existing `/portal/roles` management UI. Admins can build custom roles like "AI Promo Reviewer" (just `promo_suggestions.view + .approve + .reject`, no `.generate` to avoid AI costs) without touching wide permissions.
+
+**Route guards updated:**
+- `routes/promoSuggestionRoutes.ts` — all 7 routes use new dedicated keys
+- `routes/catalogRoutes.ts` — 4 expiry routes use `expiry.*`. `/dead-stock` stays under `inventory.view` (general analytic, not an expiry mutation)
+- `frontend/src/rbac/routePermissions.js` — 2 entries updated
+
+`backend/prisma/seedRbac.ts` ran clean — registered 6 new keys + assigned defaults idempotently. Existing manager users keep working without action; cashier users get expiry read-only as a free upgrade.
+
+### Real Claude tool-use generator
+
+[`backend/src/controllers/promoSuggestionController.ts`](backend/src/controllers/promoSuggestionController.ts):
+
+**Architecture:** the HTTP `generateSuggestions` handler dispatches to `runClaudeGenerator` when `ANTHROPIC_API_KEY` is set, otherwise (or on Claude error) falls through to `runStubGenerator`. Both return identical `{ created, meta }` shapes. `meta.generator` flags `claude` vs `stub` so the UI can label suggestions correctly.
+
+**3 Claude tools (Anthropic tool-use schema):**
+
+| Tool | Purpose |
+|---|---|
+| `get_expiring_products(daysWindow)` | Products with expiry ≤ N days at the active store. Each row: productId, name, departmentName, retailPrice, onHand, daysUntilExpiry, retailValueAtRisk. |
+| `get_dead_stock(daysWithoutSale, minOnHand, minValueAtRisk)` | Products with positive inventory + zero sales in the past N days, sorted by retailValueAtRisk desc. Includes lastSoldAt + daysSinceSold. |
+| `propose_promo(...)` | Claude calls this to **register** a suggestion. Each call records a draft `PromoSuggestion` with `generatedBy: 'claude'` + structured citations. |
+
+The `propose_promo` pattern means Claude's outputs are validated by the Anthropic SDK's input schema — no JSON parsing, no malformed promos. Claude calls it once per suggestion.
+
+**System prompt** explicitly tells Claude: discount tiers by urgency (50% expired, 40/30/20% as expiry approaches), 25%/14d for dead stock, quality bar `retailValueAtRisk ≥ $20`, cite specific data in reasoning, don't write a summary — just call the tools.
+
+**Safety:** 6 tool iterations max, 12s per-tool timeout, per-product 7-day de-dup. Catches errors and falls through to stub (no UI failure mode).
+
+**Cost profile:** ~1-2 tool iterations per generate-click, ~$0.01-0.05 per run on Sonnet 4.5.
+
+### Test coverage
+
+| Smoke | Result |
+|---|---|
+| F5 engine (S68) | ✓ 11/11 |
+| F5 HTTP (S68) | ✓ 31/31 |
+| T4 group scenarios (S72) | ✓ 32/32 |
+| C7 dept force-push (S73) | ✓ 12/12 |
+| S73 expiry + dead-stock | ✓ 23/23 |
+| S74 promo suggestions (stub path) | ✓ 22/22 |
+| **S75 RBAC new perms (NEW)** | ✓ **3/3** |
+| **Combined: 134/134** | ✅ |
+
+S74 smoke implicitly verifies the stub fallback after the Claude refactor (dev DB has no `ANTHROPIC_API_KEY`, so `runStubGenerator` is what executes). Real Claude path verified manually with personal key.
+
+### Files Changed (Session 76)
+
+**Backend:**
+- `rbac/permissionCatalog.ts` — +2 modules (`expiry`, `promo_suggestions`) with 6 new keys + manager/cashier default grants
+- `routes/promoSuggestionRoutes.ts` — all 7 routes use new dedicated keys
+- `routes/catalogRoutes.ts` — 4 expiry routes use `expiry.*`
+- `controllers/promoSuggestionController.ts` — extracted stub into `runStubGenerator()`, added `runClaudeGenerator()` with 3 Anthropic tools, dispatch with stub-fallback-on-error
+
+**Portal:**
+- `frontend/src/rbac/routePermissions.js` — 2 entries updated to dedicated keys
+
+**Tests:**
+- `backend/tests/_smoke_s75_rbac_new_perms.mjs` — NEW (3 manager-side assertions)
+
+### How to use the new RBAC
+
+**Today, with default roles:**
+- Manager → sees Promo Suggestions in sidebar (purple sparkle marker) + Expiry Tracker → can generate, review, approve, reject
+- Cashier → sees Expiry Tracker (read-only, no edit button) → no Promo Suggestions
+
+**Custom role example — "AI Promo Reviewer":**
+- `/portal/roles` → New Role
+- Toggle on: `promo_suggestions.view`, `promo_suggestions.approve`, `promo_suggestions.reject`
+- Toggle off everything else (especially `.generate` to avoid AI costs)
+- Assign to a junior buyer who reviews AI suggestions but shouldn't trigger expensive AI calls
+
+The role management UI from S30/S31 surfaces the new perms automatically — no UI changes needed.
+
+---
+
+*Last updated: May 2026 — Session 76 (F28 real Claude + RBAC): replaced F28 stub generator with real Anthropic tool-use (3 tools: get_expiring_products, get_dead_stock, propose_promo); stub remains as fallback when `ANTHROPIC_API_KEY` unset or Claude errors. Added 6 dedicated RBAC keys (`expiry.view/edit` + `promo_suggestions.view/generate/approve/reject`) so admins can build fine-grained roles via the existing `/portal/roles` UI. 134/134 combined regression across 7 smoke suites; tsc + portal vite build clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71d — Storefront pricing in eCommerce settings)
+
+User directive after the marketplace work landed:
+> *"the same settings needs for the custom website self hosted so that it can be managed in eCommerce settings"*
+
+User picked **Option A** (reuse `StoreIntegration` with synthetic platform name) for consistency. This session ships the settings-management half of the work — the runtime application is documented as **F32** in BACKLOG.
+
+### Architecture (Option A — synthetic platform)
+
+The self-hosted storefront is treated as another sales channel alongside DoorDash / UberEats / Instacart. It gets a `StoreIntegration` row with `platform='storefront'`, empty `credentials`, and the existing `pricingConfig` JSON. **All the existing code from S71/S71b/S71c applies as-is**:
+- Same `pricingConfig` schema (markup, rounding, exclusions, sync mode, margin guard, velocity, untracked-stock policy)
+- Same backend validation (`validatePricingConfig` already accepts whatever `:platform` the route specifies)
+- Same drawer component (`MarketplacePricingDrawer.jsx`) — refactored to support an inline-render mode for embedding inside another page
+
+Two key differences from real marketplaces:
+1. **No Connect/Disconnect flow** — the storefront is the store's own site, no third-party credentials. The integration row is auto-created on first GET.
+2. **Settings entry point is `/portal/ecommerce`** (the EcomSetup page), NOT `/portal/integrations`. Users manage marketplace integrations and storefront pricing from different surfaces because mentally they're different things.
+
+### Backend changes
+
+**[`adapterInterface.ts`](backend/src/services/platforms/adapterInterface.ts)** — added `storefront` to `PLATFORMS` registry:
+```ts
+storefront: {
+  name: 'Custom Storefront',
+  color: '#3d56b5',
+  logo: '🏪',
+  credentialFields: [],  // no creds — store's own site
+  status: 'live',
+  note: 'Settings managed in eCommerce Setup → Pricing tab',
+},
+```
+
+**[`platforms/index.ts`](backend/src/services/platforms/index.ts)** — added a no-op `storefrontAdapter`. `getPlatformAdapter('storefront')` now returns a stub that:
+- `testConnection` always returns `{ ok: true, storeName: 'Self-hosted storefront' }`
+- `syncInventory` is a no-op (the actual storefront sync runs through ecom-backend's separate pipeline, NOT via the adapter)
+- Order-management methods return `{ error: 'storefront does not route orders here' }` since orders go through ecom-backend
+
+The adapter exists only so blanket-checks like analytics platform iteration don't hit a `null` adapter for storefront integrations.
+
+**[`integrationController.ts`](backend/src/controllers/integrationController.ts) `getSettings`** — lazy auto-init for the storefront row. When the GET request hits with `:platform === 'storefront'` and no row exists, the handler creates one inline with empty config + `status='active'`. The frontend never has to call a separate "create" endpoint — the integration is conceptually always present once ecom is enabled.
+
+### Frontend changes
+
+**[`MarketplacePricingDrawer.jsx`](frontend/src/components/MarketplacePricingDrawer.jsx)** — refactored to support `inline` mode:
+- New `inline` prop (default `false`)
+- When `inline=true`: skips the backdrop, the slide-in `<aside>` chrome, the close button, and the "Cancel" + "Save & Sync Now" footer buttons. Renders the same form sections inside whatever container the parent provides.
+- New CSS class `.mpd-drawer--inline` flattens the `position: fixed` chrome to `position: static` with transparent background and zero animation.
+- New CSS class `.mpd-footer--inline` removes the top border + background so the footer blends with the host page.
+
+**[`EcomSetup.jsx`](frontend/src/pages/EcomSetup.jsx)** — new "Pricing" tab between Fulfillment and SEO, using the `DollarSign` icon:
+```jsx
+{tab === 'pricing' && (
+  <div className="es-section">
+    <div className="es-section-title">Pricing for the self-hosted storefront</div>
+    <p>...explanatory copy...</p>
+    <MarketplacePricingDrawer
+      inline
+      open
+      platformKey="storefront"
+      platformMeta={{ name: 'Custom Storefront', color: '#3d56b5', initial: 'S' }}
+    />
+  </div>
+)}
+```
+
+The drawer's existing useEffect fires `getIntegrationSettings('storefront')` which triggers the lazy-init in the backend on first load. Subsequent saves go through the same `updateIntegrationSettings('storefront', { pricingConfig })` path used by every marketplace card.
+
+### Why no "Sync Now" button on the storefront tab
+
+The marketplace drawer's "Save & Sync Now" calls `syncIntegrationInventory({ platform })` → `pushInventory` → adapter's HTTP push to the platform. The storefront has no HTTP push — its prices flow through ecom-backend via BullMQ events / the direct HTTP fallback at `/api/internal/sync` on `:5005`. Showing a "Sync Now" button that wouldn't actually trigger that path would be misleading. The save persists; the sync happens whenever the next product update fires (and once F32 lands, those syncs will apply the pricing transform).
+
+### F32 — what's still queued
+
+The settings UI persists `pricingConfig` correctly, but the **runtime application** (markup actually being applied to `EcomProduct.retailPrice`) is **not yet wired**. That's tracked as **F32** in BACKLOG with the cross-DB plumbing details: ecom-backend's `syncRoutes.js` upsert path needs to look up each store's storefront `pricingConfig` (via a new internal HTTP endpoint POS would expose) and call `computeMarketplacePrice` before writing. Velocity computation needs a callback to POS for Transaction history. Exclusions translate to `EcomProduct.visible = false`.
+
+This split is intentional — the user explicitly asked for "managed in eCommerce settings" first. The settings layer is fully production-ready; F32 is the follow-up that makes them effective.
+
+### Verification
+
+| Layer | Result |
+|---|---|
+| `tsc --noEmit` filtered to `backend/src/` | ✓ zero errors |
+| `node --test tests/marketplace_markup.test.ts` | ✓ **88/88** unit tests pass (no regression from S71c) |
+| Marketplace HTTP smoke `_smoke_marketplace_pricing.mjs` | ✓ **70/70** scenarios (no regression) |
+| Storefront HTTP smoke `_smoke_storefront_pricing.mjs` | ✓ **24/24** scenarios (NEW) |
+| Portal `npx vite build` | ✓ 16.71s clean |
+
+The 24 new storefront scenarios cover: lazy auto-init on first GET (verified DB row created), default normalization (markupPercent=0, roundingMode='none', unknownStockBehavior='send_zero'), full round-trip with charm_99 + per-dept markup + estimate-from-velocity, validation rejection (charm_98 invalid), per-dept velocity override round-trip, and idempotency (second GET doesn't re-create).
+
+### Files Changed (Session 71d)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/services/platforms/adapterInterface.ts` | +`storefront` entry in `PLATFORMS` registry (no creds, live status, note pointing users to EcomSetup) |
+| `backend/src/services/platforms/index.ts` | +`storefrontAdapter` no-op (testConnection ok, syncInventory no-op, orders 'route elsewhere') registered in adapters map |
+| `backend/src/controllers/integrationController.ts` | `getSettings` auto-creates StoreIntegration row when `platform='storefront'` and missing — empty config blobs, status='active', storeName='Self-hosted storefront' |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/components/MarketplacePricingDrawer.jsx` | +`inline` prop. When true: skips backdrop + slide-in chrome + close button; footer drops Cancel + "Save & Sync Now" (storefront has no syncInventory adapter call). Drawer mode unchanged. |
+| `frontend/src/components/MarketplacePricingDrawer.css` | +`.mpd-drawer--inline` + `.mpd-footer--inline` (flatten chrome) |
+| `frontend/src/pages/EcomSetup.jsx` | +`MarketplacePricingDrawer` import; +`{ id: 'pricing', label: 'Pricing', icon: DollarSign }` in TABS; +tab body that mounts the drawer inline with `platformKey="storefront"` |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_storefront_pricing.mjs` | NEW — 24 scenarios covering lazy auto-init, defaults, round-trip, validation, per-dept overrides, idempotency. Self-cleaning. |
+
+### Architecture decisions worth remembering
+
+- **Reuse > duplicate.** The storefront has identical pricing semantics to a marketplace, so it gets the same schema, same validator, same drawer. The synthetic-platform pattern is a tiny ergonomic compromise to share 100% of the existing code.
+- **Settings entry point = where users mentally manage that surface.** Marketplaces live in `/portal/integrations`. Storefront lives in `/portal/ecommerce`. Same drawer, different page chrome, different mental model for the user.
+- **Lazy auto-init** keeps the surface area tight — one endpoint (`getSettings`) handles both reading and first-time creation, no separate "ensure exists" call needed from the frontend.
+- **Settings before runtime.** Shipping the management UI without the runtime transform is intentional — it gives users a place to encode their intent immediately, and the runtime work (F32) can be scheduled separately when the cross-DB plumbing is prioritized.
+
+---
+
+*Last updated: May 2026 — Session 71d (Storefront pricing in eCommerce settings): reused per-marketplace `pricingConfig` schema by adding 'storefront' as a synthetic platform; lazy auto-init on first GET; refactored MarketplacePricingDrawer to support inline mode; new "Pricing" tab in EcomSetup. Settings layer fully verified (88 unit + 70 marketplace + 24 storefront smokes pass; tsc + vite clean). Runtime application of the config to `EcomProduct.retailPrice` queued as F32 — needs cross-DB plumbing between POS-side StoreIntegration lookup and ecom-backend's separate Prisma client.*
+
 
 
 

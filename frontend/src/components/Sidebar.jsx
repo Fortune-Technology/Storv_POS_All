@@ -23,6 +23,7 @@ import {
   Receipt,
   FileText,
   Clock,
+  Calendar,
   Layers,
   Truck,
   Tag,
@@ -37,6 +38,7 @@ import {
   Settings2,
   MessageSquare,
   Mail,
+  Sparkles,
   CreditCard,
   CheckSquare,
   Shield,
@@ -92,8 +94,10 @@ const menuGroups = [
       { name: 'Product Groups', icon: <Users size={13} />, path: '/portal/product-groups' },
       { name: 'Departments', icon: <Layers size={13} />, path: '/portal/departments' },
       { name: 'Promotions', icon: <Tag size={13} />, path: '/portal/promotions' },
+      { name: 'Promo Suggestions', icon: <Tag size={13} />, path: '/portal/promo-suggestions', ai: true },
       { name: 'Bulk Import', icon: <Upload size={13} />, path: '/portal/import' },
       { name: 'Inventory Count', icon: <BarChart2 size={13} />, path: '/portal/inventory-count' },
+      { name: 'Expiry Tracker', icon: <Calendar size={13} />, path: '/portal/expiry-tracker' },
       { name: 'Label Queue', icon: <Tag size={13} />, path: '/portal/label-queue' },
     ],
   },
@@ -317,6 +321,14 @@ const Sidebar = () => {
                   >
                     <span className="nav-icon">{item.icon}</span>
                     <span className="nav-text">{item.name}</span>
+                    {/* S74 (F28) — AI marker for AI-driven pages. Tiny purple
+                        sparkle next to the label so admins know which menu
+                        items are AI-powered. */}
+                    {item.ai && (
+                      <span className="nav-ai-badge" title="AI-powered">
+                        <Sparkles size={9} />
+                      </span>
+                    )}
                     {badge > 0 && <span className="nav-badge">{badge > 99 ? '99+' : badge}</span>}
                   </NavLink>
                 );

@@ -21,6 +21,7 @@ import { toast } from 'react-toastify';
 import {
   X, DollarSign, Sparkles, Boxes, Ban, ShieldCheck, Settings2,
   Loader2, Save, Plus, Trash2, Search, Info, Eye, RefreshCw, AlertTriangle,
+  TrendingUp,
 } from 'lucide-react';
 import {
   getIntegrationSettings, updateIntegrationSettings, syncIntegrationInventory,
@@ -44,6 +45,13 @@ const SYNC_MODE_OPTIONS = [
   { value: 'all',                 label: 'All active products',   hint: 'Sync every active product (default)' },
   { value: 'in_stock_only',       label: 'In-stock only',         hint: 'Only push products with quantity > 0' },
   { value: 'active_promos_only',  label: 'On-sale only',          hint: 'Only push products with an active sale price' },
+];
+
+// S71c — what to do when a product's quantity is unknown/untracked/negative
+const UNKNOWN_STOCK_OPTIONS = [
+  { value: 'send_zero',              label: 'Show as out of stock', hint: 'Push 0 — marketplace marks the product OOS (default + safest)' },
+  { value: 'send_default',           label: 'Push a fixed quantity', hint: 'Always send the same number — useful for "unlimited" digital goods' },
+  { value: 'estimate_from_velocity', label: 'Estimate from sales velocity', hint: 'Compute avg daily sales × days of cover — keeps untracked items live' },
 ];
 
 // Sample prices for the live preview strip
@@ -92,7 +100,17 @@ function applyRoundingClient(price, mode) {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function MarketplacePricingDrawer({ open, onClose, platformKey, platformMeta = {}, onSaved }) {
+export default function MarketplacePricingDrawer({
+  open,
+  onClose,
+  platformKey,
+  platformMeta = {},
+  onSaved,
+  // S71d — `inline=true` renders the body without slide-in chrome (no backdrop,
+  // no fixed-position aside, no close button) so it can be embedded inside
+  // another page (e.g. EcomSetup → Pricing tab). Footer becomes a static row.
+  inline = false,
+}) {
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [config, setConfig]     = useState(null);
@@ -124,6 +142,12 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
         minMarginPercent:     Number(pc.minMarginPercent || 0),
         taxInclusive:         pc.taxInclusive === true,
         prepTimeMinutes:      Number(pc.prepTimeMinutes || 0),
+        // S71c — inventory estimation
+        velocityWindowDays:        Number(pc.velocityWindowDays || 14),
+        velocityWindowByDepartment: pc.velocityWindowByDepartment || {},
+        unknownStockBehavior:      pc.unknownStockBehavior || 'send_zero',
+        unknownStockDefaultQty:    Number(pc.unknownStockDefaultQty || 0),
+        unknownStockDaysOfCover:   Number(pc.unknownStockDaysOfCover || 2),
       });
       const deptList = Array.isArray(depts) ? depts : depts?.departments || [];
       setDepts(deptList);
@@ -187,6 +211,31 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
     });
   };
 
+  // S71c — per-dept velocity window override
+  const setVelocityWindow = (deptId, val) => {
+    const key = String(deptId);
+    setConfig((prev) => {
+      const next = { ...(prev.velocityWindowByDepartment || {}) };
+      const n = Number(val);
+      if (val === '' || val == null) delete next[key];
+      else next[key] = Number.isFinite(n) && n > 0 ? Math.round(n) : 1;
+      return { ...prev, velocityWindowByDepartment: next };
+    });
+  };
+
+  const toggleVelocityWindowOverride = (deptId, on) => {
+    const key = String(deptId);
+    setConfig((prev) => {
+      const next = { ...(prev.velocityWindowByDepartment || {}) };
+      if (on) {
+        if (next[key] == null) next[key] = Number(prev.velocityWindowDays) || 14;
+      } else {
+        delete next[key];
+      }
+      return { ...prev, velocityWindowByDepartment: next };
+    });
+  };
+
   const toggleExcludedDept = (deptId) => {
     const id = String(deptId);
     setConfig((prev) => {
@@ -231,6 +280,12 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
       minMarginPercent:      Number(config.minMarginPercent) || 0,
       taxInclusive:          !!config.taxInclusive,
       prepTimeMinutes:       Number(config.prepTimeMinutes) || 0,
+      // S71c — inventory estimation
+      velocityWindowDays:        Number(config.velocityWindowDays) || 14,
+      velocityWindowByDepartment: config.velocityWindowByDepartment || {},
+      unknownStockBehavior:      config.unknownStockBehavior || 'send_zero',
+      unknownStockDefaultQty:    Number(config.unknownStockDefaultQty) || 0,
+      unknownStockDaysOfCover:   Number(config.unknownStockDaysOfCover) || 2,
     },
   });
 
@@ -305,25 +360,34 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
   }, [config]);
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (!open) return null;
+  // Inline mode is always "open"; drawer mode hides when open=false.
+  if (!inline && !open) return null;
+
+  // S71d — inline mode skips backdrop + slide-in aside, renders header
+  // statically so it can sit inside another page tab.
+  const Backdrop = inline ? null : <div className="mpd-backdrop" onClick={onClose} />;
+  const containerClass = inline ? 'mpd-drawer mpd-drawer--inline' : 'mpd-drawer';
+  const containerProps = inline ? {} : { role: 'dialog', 'aria-label': 'Marketplace pricing' };
 
   return (
     <>
-      <div className="mpd-backdrop" onClick={onClose} />
-      <aside className="mpd-drawer" role="dialog" aria-label="Marketplace pricing">
-        {/* Header */}
-        <header className="mpd-header" style={{ borderTopColor: platformMeta.color || '#3d56b5' }}>
-          <div className="mpd-header-left">
-            <div className="mpd-platform-dot" style={{ background: platformMeta.color || '#3d56b5' }}>
-              {platformMeta.initial || platformKey?.[0]?.toUpperCase() || '?'}
+      {Backdrop}
+      <aside className={containerClass} {...containerProps}>
+        {/* Header — hidden in inline mode (parent provides chrome) */}
+        {!inline && (
+          <header className="mpd-header" style={{ borderTopColor: platformMeta.color || '#3d56b5' }}>
+            <div className="mpd-header-left">
+              <div className="mpd-platform-dot" style={{ background: platformMeta.color || '#3d56b5' }}>
+                {platformMeta.initial || platformKey?.[0]?.toUpperCase() || '?'}
+              </div>
+              <div>
+                <div className="mpd-header-title">{platformMeta.name || platformKey}</div>
+                <div className="mpd-header-sub">Pricing &amp; sync settings</div>
+              </div>
             </div>
-            <div>
-              <div className="mpd-header-title">{platformMeta.name || platformKey}</div>
-              <div className="mpd-header-sub">Pricing &amp; sync settings</div>
-            </div>
-          </div>
-          <button className="mpd-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
-        </header>
+            <button className="mpd-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          </header>
+        )}
 
         {/* Body */}
         {loading ? (
@@ -477,6 +541,145 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
                     {SYNC_MODE_OPTIONS.find((o) => o.value === config.syncMode)?.hint}
                   </div>
                 </div>
+              )}
+            </Section>
+
+            {/* S71c — Inventory estimation: what to push when stock is unknown/negative */}
+            <Section icon={<TrendingUp size={16} />} title="Untracked stock policy">
+              <p className="mpd-section-desc">
+                What this marketplace receives when a product&apos;s on-hand quantity is
+                unknown or non-positive. The default keeps things simple — show as out
+                of stock until you receive a new batch.
+              </p>
+
+              <div className="mpd-radio-list">
+                {UNKNOWN_STOCK_OPTIONS.map((opt) => (
+                  <label key={opt.value} className={`mpd-radio ${config.unknownStockBehavior === opt.value ? 'active' : ''}`}>
+                    <input
+                      type="radio"
+                      name="unknownStockBehavior"
+                      value={opt.value}
+                      checked={config.unknownStockBehavior === opt.value}
+                      onChange={() => upd('unknownStockBehavior', opt.value)}
+                    />
+                    <div>
+                      <div className="mpd-radio-label">{opt.label}</div>
+                      <div className="mpd-radio-hint">{opt.hint}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {/* Conditional fields per behavior */}
+              {config.unknownStockBehavior === 'send_default' && (
+                <div className="mpd-field">
+                  <label>Default quantity to push</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99999"
+                    step="1"
+                    className="mpd-input"
+                    value={config.unknownStockDefaultQty}
+                    onChange={(e) => upd('unknownStockDefaultQty', Number(e.target.value) || 0)}
+                  />
+                  <div className="mpd-field-hint">
+                    Marketplace always sees this number for products without tracked stock.
+                  </div>
+                </div>
+              )}
+
+              {config.unknownStockBehavior === 'estimate_from_velocity' && (
+                <>
+                  <div className="mpd-field">
+                    <label>Days of cover</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="90"
+                      step="0.5"
+                      className="mpd-input"
+                      value={config.unknownStockDaysOfCover}
+                      onChange={(e) => upd('unknownStockDaysOfCover', Number(e.target.value) || 0)}
+                    />
+                    <div className="mpd-field-hint">
+                      Quantity pushed = ceil(avg daily sales × this many days). Default 2.
+                    </div>
+                  </div>
+
+                  <div className="mpd-field">
+                    <label>Sales-history window (days)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      step="1"
+                      className="mpd-input"
+                      value={config.velocityWindowDays}
+                      onChange={(e) => upd('velocityWindowDays', Number(e.target.value) || 14)}
+                    />
+                    <div className="mpd-field-hint">
+                      How far back to look when computing velocity. Shorter = more responsive,
+                      longer = more stable. Default 14 days.
+                    </div>
+                  </div>
+
+                  {/* Per-dept velocity window overrides */}
+                  {departments.length > 0 && (
+                    <details className="mpd-details">
+                      <summary>
+                        Per-department window overrides
+                        {' ('}
+                        {Object.keys(config.velocityWindowByDepartment || {}).length}
+                        {' of '}
+                        {departments.length}
+                        {' overridden)'}
+                      </summary>
+                      <p className="mpd-section-desc" style={{ marginBottom: '0.5rem' }}>
+                        Different windows for different categories — e.g. produce 7 days
+                        (responsive), lottery 60 days (stable).
+                      </p>
+                      <div className="mpd-dept-table">
+                        {departments.map((d) => {
+                          const key = String(d.id);
+                          const overridden = config.velocityWindowByDepartment?.[key] != null;
+                          const value = overridden ? config.velocityWindowByDepartment[key] : '';
+                          return (
+                            <div key={d.id} className={`mpd-dept-row ${overridden ? 'mpd-dept-row--on' : ''}`}>
+                              <label className="mpd-dept-toggle" title={overridden ? 'Click to inherit global' : 'Click to override'}>
+                                <input
+                                  type="checkbox"
+                                  checked={overridden}
+                                  onChange={(e) => toggleVelocityWindowOverride(d.id, e.target.checked)}
+                                />
+                                <span className="mpd-dept-toggle-slider" />
+                              </label>
+                              <span className="mpd-dept-name">{d.name}</span>
+                              {overridden ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="365"
+                                    step="1"
+                                    className="mpd-input mpd-input-sm"
+                                    value={value}
+                                    onChange={(e) => setVelocityWindow(d.id, e.target.value)}
+                                  />
+                                  <span className="mpd-dept-suffix">days</span>
+                                </>
+                              ) : (
+                                <span className="mpd-dept-inherit">
+                                  {Number(config.velocityWindowDays || 14)}d (global)
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  )}
+                </>
               )}
             </Section>
 
@@ -687,15 +890,20 @@ export default function MarketplacePricingDrawer({ open, onClose, platformKey, p
           </div>
         )}
 
-        {/* Footer */}
-        <footer className="mpd-footer">
-          <button className="mpd-btn mpd-btn-ghost" onClick={onClose} disabled={saving || syncing}>Cancel</button>
+        {/* Footer — Cancel only in drawer mode; Sync Now hidden inline (storefront
+            doesn't push via syncInventory, so the button would be misleading) */}
+        <footer className={`mpd-footer ${inline ? 'mpd-footer--inline' : ''}`}>
+          {!inline && (
+            <button className="mpd-btn mpd-btn-ghost" onClick={onClose} disabled={saving || syncing}>Cancel</button>
+          )}
           <button className="mpd-btn mpd-btn-secondary" onClick={handleSave} disabled={saving || syncing || loading || !config}>
             {saving ? <><Loader2 size={14} /> Saving…</> : <><Save size={14} /> Save</>}
           </button>
-          <button className="mpd-btn mpd-btn-primary" onClick={handleSaveAndSync} disabled={saving || syncing || loading || !config}>
-            {syncing ? <><Loader2 size={14} /> Syncing…</> : <><RefreshCw size={14} /> Save &amp; Sync Now</>}
-          </button>
+          {!inline && (
+            <button className="mpd-btn mpd-btn-primary" onClick={handleSaveAndSync} disabled={saving || syncing || loading || !config}>
+              {syncing ? <><Loader2 size={14} /> Syncing…</> : <><RefreshCw size={14} /> Save &amp; Sync Now</>}
+            </button>
+          )}
         </footer>
       </aside>
     </>

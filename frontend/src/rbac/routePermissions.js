@@ -29,6 +29,8 @@ export const PORTAL_ROUTE_PERMISSIONS = {
   '/portal/promotions':        'promotions.view',
   '/portal/import':            'products.create',
   '/portal/inventory-count':   'inventory.view',
+  '/portal/expiry-tracker':    'expiry.view',
+  '/portal/promo-suggestions': 'promo_suggestions.view',
   '/portal/label-queue':       'products.view',
   '/portal/price-update':      'products.edit',
 

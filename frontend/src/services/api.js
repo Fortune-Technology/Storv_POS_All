@@ -292,6 +292,7 @@ export const disconnectIntegration     = (data)      => api.delete('/integration
 export const getIntegrationSettings    = (platform)  => api.get(`/integrations/settings/${platform}`).then(r => r.data);
 export const updateIntegrationSettings = (platform, d) => api.put(`/integrations/settings/${platform}`, d).then(r => r.data);
 export const syncIntegrationInventory  = (data)      => api.post('/integrations/sync-inventory', data).then(r => r.data);
+export const previewIntegrationImpact  = (data)      => api.post('/integrations/preview-impact', data).then(r => r.data);  // S71 dry-run
 export const getIntegrationOrders      = (params)    => api.get('/integrations/orders', { params }).then(r => r.data);
 export const getIntegrationOrder       = (id)        => api.get(`/integrations/orders/${id}`).then(r => r.data);
 export const confirmIntegrationOrder   = (id)        => api.put(`/integrations/orders/${id}/confirm`).then(r => r.data);
@@ -384,6 +385,27 @@ export const acceptInvitation     = (token, body = {}) => api.post(`/invitations
 export const getCatalogDepartments  = (params) => api.get('/catalog/departments', { params }).then(r => r.data);
 export const createCatalogDepartment= (data)   => api.post('/catalog/departments', data).then(r => r.data);
 export const updateCatalogDepartment= (id, d)  => api.put(`/catalog/departments/${id}`, d).then(r => r.data);
+// S72 (C7) — force-push dept defaults onto every active product in the dept.
+// Body: { fields?: ['ageRequired','ebtEligible','taxClass'] } (default: all).
+// Response: { updated: number, fieldsApplied: string[] }
+export const applyDepartmentTemplate = (id, fields) =>
+  api.post(`/catalog/departments/${id}/apply`, fields ? { fields } : {}).then(r => r.data);
+
+// S73 — Expiry tracking + dead-stock report
+export const listExpiry           = (params)         => api.get('/catalog/expiry', { params }).then(r => r.data);
+export const getExpirySummary     = (params)         => api.get('/catalog/expiry/summary', { params }).then(r => r.data);
+export const setProductExpiry     = (productId, body) => api.put(`/catalog/expiry/${productId}`, body).then(r => r.data);
+export const clearProductExpiry   = (productId)      => api.delete(`/catalog/expiry/${productId}`).then(r => r.data);
+export const getDeadStock         = (params)         => api.get('/catalog/dead-stock', { params }).then(r => r.data);
+
+// F28 / S74 — AI-driven promo suggestions (review queue)
+export const listPromoSuggestions    = (params)       => api.get('/promo-suggestions', { params }).then(r => r.data);
+export const getPromoSuggestion      = (id)           => api.get(`/promo-suggestions/${id}`).then(r => r.data);
+export const updatePromoSuggestion   = (id, body)     => api.put(`/promo-suggestions/${id}`, body).then(r => r.data);
+export const generatePromoSuggestions = ()            => api.post('/promo-suggestions/generate', {}).then(r => r.data);
+export const approvePromoSuggestion  = (id, body)     => api.post(`/promo-suggestions/${id}/approve`, body || {}).then(r => r.data);
+export const rejectPromoSuggestion   = (id, reason)   => api.post(`/promo-suggestions/${id}/reject`, { reason }).then(r => r.data);
+export const dismissPromoSuggestion  = (id)           => api.post(`/promo-suggestions/${id}/dismiss`, {}).then(r => r.data);
 // Pass `{ force: true }` to cascade-detach products assigned to this dept.
 // Without force, returns 409 `code: 'IN_USE'` + `usageCount` if any products
 // still reference it.

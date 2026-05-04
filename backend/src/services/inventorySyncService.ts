@@ -18,6 +18,8 @@ import { getPlatformAdapter } from './platforms/index.js';
 import {
   computeMarketplacePrice,
   normalizeConfig,
+  effectiveVelocityWindow,
+  computeUnknownStockQty,
   type MarketplacePricingConfig,
 } from './marketplaceMarkup.js';
 
@@ -100,32 +102,105 @@ interface PlatformAdapter {
 export function calculateSmartQoH(
   product: StoreProductForSync,
   inventoryConfig: InventoryConfig = {},
+  pricingConfig: MarketplacePricingConfig = {},
+  velocityMap: Map<number, number> = new Map(),
 ): number {
   const qoh = Number(product.quantityOnHand ?? 0);
-  const { defaultBehavior, departments } = inventoryConfig;
-
-  // Mode 1: store doesn't track inventory — estimate from velocity
-  if (defaultBehavior === 'estimate') {
-    const velocity = Number(product.masterProduct?.weeklyVelocity ?? 0);
-    // Assume ~2 days of stock as a rough availability signal
-    return Math.max(0, Math.round(velocity * (2 / 7)));
-  }
-
-  // Mode 2: department-level velocity override
+  const productId = product.masterProduct?.id;
   const deptId = String(product.masterProduct?.departmentId ?? '');
-  if (deptId && departments?.[deptId]) {
-    const deptConfig = departments[deptId];
-    if (deptConfig.velocityMultiplier != null) {
-      const velocity = Number(product.masterProduct?.weeklyVelocity ?? 0);
-      return Math.max(0, Math.round(velocity * deptConfig.velocityMultiplier));
-    }
-    if (deptConfig.fixedQoH != null) {
-      return Math.max(0, Number(deptConfig.fixedQoH));
+
+  // S71c — `MasterProduct.weeklyVelocity` was never a real field. Velocity is
+  // now computed from Transaction history per push (see computeVelocityMap)
+  // and configured per-marketplace via pricingConfig.unknownStockBehavior.
+
+  // Per-dept fixedQoH override (kept for stores that pin specific dept counts —
+  // e.g. "always show 5 in stock for the produce department").
+  const deptCfg = inventoryConfig.departments?.[deptId];
+  if (deptCfg?.fixedQoH != null) {
+    return Math.max(0, Number(deptCfg.fixedQoH));
+  }
+
+  // Tracked stock — use it as-is (the normal case)
+  if (qoh > 0) return qoh;
+
+  // Unknown / non-positive stock — apply marketplace policy
+  const avgDaily = productId != null ? (velocityMap.get(productId) ?? 0) : 0;
+  return computeUnknownStockQty(pricingConfig, avgDaily);
+}
+
+// ── Velocity computation (S71c) ─────────────────────────────
+
+interface TxLineForVelocity {
+  productId?: number | null;
+  qty?: number | null;
+  isLottery?: boolean;
+  isBottleReturn?: boolean;
+  isBagFee?: boolean;
+}
+
+/**
+ * Compute average daily sales (in units) per product over the last `daysBack`
+ * days for a given store, from completed Transaction history.
+ *
+ * Returns Map<productId, avgDaily>. Products with zero sales are NOT in the map
+ * — caller treats absence as 0.
+ *
+ * One Prisma query (no N+1). Uses the LARGEST window any caller needs so the
+ * same map can serve multiple per-dept window settings on the same push.
+ *
+ * S71c — replaces the dead `MasterProduct.weeklyVelocity` field. Velocity is
+ * derived live from the same Transaction.lineItems used by orderEngine.
+ */
+export async function computeVelocityMap(
+  orgId: string,
+  storeId: string,
+  daysBack: number,
+): Promise<Map<number, number>> {
+  if (daysBack <= 0) return new Map();
+
+  const since = new Date();
+  since.setDate(since.getDate() - daysBack);
+
+  const transactions = await prisma.transaction.findMany({
+    where: { orgId, storeId, status: 'complete', createdAt: { gte: since } },
+    select: { lineItems: true },
+  });
+
+  // productId → total units across the window
+  const totals = new Map<number, number>();
+  for (const tx of transactions) {
+    const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as TxLineForVelocity[];
+    for (const li of items) {
+      if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
+      const pid = li.productId;
+      if (pid == null) continue;
+      totals.set(pid, (totals.get(pid) || 0) + Number(li.qty || 1));
     }
   }
 
-  // Mode 3: use actual stock
-  return Math.max(0, qoh);
+  // Convert to per-day averages
+  const avgMap = new Map<number, number>();
+  for (const [pid, units] of totals.entries()) {
+    avgMap.set(pid, units / daysBack);
+  }
+  return avgMap;
+}
+
+/**
+ * Resolve the velocity window we need to query for THIS marketplace's config.
+ * Returns the LARGEST window across the store-wide default + every per-dept
+ * override, so a single query covers every product's needs.
+ */
+export function maxVelocityWindowDays(config: MarketplacePricingConfig): number {
+  const candidates: number[] = [];
+  const global = Number(config.velocityWindowDays);
+  if (Number.isFinite(global) && global > 0) candidates.push(global);
+  const byDept = config.velocityWindowByDepartment ?? {};
+  for (const v of Object.values(byDept)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) candidates.push(n);
+  }
+  return candidates.length > 0 ? Math.max(...candidates) : 0;
 }
 
 // ── Internal helpers ───────────────────────────────────────
@@ -175,9 +250,10 @@ function mapToPlatformItem(
   sp: StoreProductForSync,
   inventoryConfig: InventoryConfig,
   pricingConfig: MarketplacePricingConfig,
+  velocityMap: Map<number, number> = new Map(),
 ): { item: PlatformItem | null; skipReason: string | null } {
   const { price: basePrice, hasActivePromo } = effectivePrice(sp);
-  const smartQoH = calculateSmartQoH(sp, inventoryConfig);
+  const smartQoH = calculateSmartQoH(sp, inventoryConfig, pricingConfig, velocityMap);
 
   const result = computeMarketplacePrice({
     basePrice,
@@ -299,6 +375,14 @@ export async function pushInventory(
     return { synced: 0, failed: 0, errors: [] };
   }
 
+  // S71c — compute velocity map ONCE for the largest window any dept needs.
+  // Skipped entirely when unknown-stock mode doesn't need velocity (perf win).
+  const needsVelocity = pricingConfig.unknownStockBehavior === 'estimate_from_velocity';
+  const windowDays = needsVelocity ? maxVelocityWindowDays(pricingConfig) : 0;
+  const velocityMap = windowDays > 0
+    ? await computeVelocityMap(orgId, storeId, windowDays)
+    : new Map<number, number>();
+
   // 3. Map to platform format with smart QoH + pricingConfig (markup, rounding,
   // exclusions, sync mode, margin guard). Aggregate skip reasons so the caller
   // can surface them in the sync result toast.
@@ -307,7 +391,7 @@ export async function pushInventory(
   const skipped = newSkipStats();
   const items: PlatformItem[] = [];
   for (const sp of activeProducts) {
-    const mapped = mapToPlatformItem(sp as unknown as StoreProductForSync, inventoryConfig, pricingConfig);
+    const mapped = mapToPlatformItem(sp as unknown as StoreProductForSync, inventoryConfig, pricingConfig, velocityMap);
     if (mapped.item) items.push(mapped.item);
     else if (mapped.skipReason) tallySkip(skipped, mapped.skipReason);
   }
@@ -391,10 +475,19 @@ export async function pushItemUpdate(
 
     const inventoryConfig: InventoryConfig =
       (integration.inventoryConfig as unknown as InventoryConfig) ?? {};
+
+    // S71c — single-product velocity if estimate mode is on for this marketplace
+    let velocityMap = new Map<number, number>();
+    if (pricingConfig.unknownStockBehavior === 'estimate_from_velocity') {
+      const win = maxVelocityWindowDays(pricingConfig);
+      if (win > 0) velocityMap = await computeVelocityMap(orgId, storeId, win);
+    }
+
     const mapped = mapToPlatformItem(
       sp as unknown as StoreProductForSync,
       inventoryConfig,
       pricingConfig,
+      velocityMap,
     );
 
     if (!mapped.item) {
@@ -507,9 +600,17 @@ export async function previewMarketplaceImpact(
   const skipped = newSkipStats();
   const sample: PreviewImpactResult['sampleItems'] = [];
 
+  // S71c — same velocity computation as the live push, so the dry-run reflects
+  // exactly what the next sync would do
+  const needsVelocity = pricingConfig.unknownStockBehavior === 'estimate_from_velocity';
+  const win = needsVelocity ? maxVelocityWindowDays(pricingConfig) : 0;
+  const velocityMap = win > 0
+    ? await computeVelocityMap(orgId, storeId, win)
+    : new Map<number, number>();
+
   for (const sp of active) {
     const { price: basePrice, hasActivePromo } = effectivePrice(sp as unknown as StoreProductForSync);
-    const smartQoH = calculateSmartQoH(sp as unknown as StoreProductForSync, inventoryConfig);
+    const smartQoH = calculateSmartQoH(sp as unknown as StoreProductForSync, inventoryConfig, pricingConfig, velocityMap);
     const result = computeMarketplacePrice({
       basePrice,
       costPrice:       effectiveCost(sp as unknown as StoreProductForSync),

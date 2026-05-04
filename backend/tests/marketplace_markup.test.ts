@@ -17,7 +17,10 @@ import {
   passesSyncMode,
   computeMarketplacePrice,
   normalizeConfig,
+  effectiveVelocityWindow,
+  computeUnknownStockQty,
 } from '../src/services/marketplaceMarkup.js';
+import { maxVelocityWindowDays, calculateSmartQoH } from '../src/services/inventorySyncService.js';
 
 // ── effectiveMarkupPercent ────────────────────────────────────────────
 describe('effectiveMarkupPercent', () => {
@@ -405,5 +408,271 @@ describe('computeMarketplacePrice', () => {
     assert.equal(r.price, 4.99);
     assert.equal(r.markupApplied, 25);
     assert.equal(r.markupSource, 'category');
+  });
+});
+
+// ── S71c — Inventory estimation ───────────────────────────────────────
+describe('effectiveVelocityWindow', () => {
+  test('returns global default when no per-dept override', () => {
+    assert.equal(effectiveVelocityWindow(7, { velocityWindowDays: 14 }), 14);
+  });
+
+  test('per-dept override beats global', () => {
+    assert.equal(
+      effectiveVelocityWindow(7, {
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '7': 30 },
+      }),
+      30,
+    );
+  });
+
+  test('per-dept override of 7 (perishables) wins over global 14', () => {
+    assert.equal(
+      effectiveVelocityWindow(143, {
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '143': 7 },
+      }),
+      7,
+    );
+  });
+
+  test('null department falls through to global', () => {
+    assert.equal(
+      effectiveVelocityWindow(null, {
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '7': 30 },
+      }),
+      14,
+    );
+  });
+
+  test('returns null when nothing configured', () => {
+    assert.equal(effectiveVelocityWindow(7, {}), null);
+  });
+
+  test('zero or negative override is ignored (falls through)', () => {
+    assert.equal(
+      effectiveVelocityWindow(7, {
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '7': 0 },
+      }),
+      14,
+    );
+  });
+
+  test('rounds fractional days', () => {
+    assert.equal(effectiveVelocityWindow(7, { velocityWindowDays: 14.7 }), 15);
+  });
+});
+
+describe('computeUnknownStockQty', () => {
+  test('send_zero (default) returns 0 regardless of velocity', () => {
+    assert.equal(computeUnknownStockQty({ unknownStockBehavior: 'send_zero' }, 5), 0);
+    assert.equal(computeUnknownStockQty({}, 5), 0);  // default mode
+  });
+
+  test('send_default returns the configured qty', () => {
+    assert.equal(
+      computeUnknownStockQty({ unknownStockBehavior: 'send_default', unknownStockDefaultQty: 99 }, 5),
+      99,
+    );
+  });
+
+  test('send_default with no qty configured returns 0', () => {
+    assert.equal(computeUnknownStockQty({ unknownStockBehavior: 'send_default' }, 5), 0);
+  });
+
+  test('estimate_from_velocity: avgDaily=3, daysOfCover=2 → 6', () => {
+    assert.equal(
+      computeUnknownStockQty(
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        3,
+      ),
+      6,
+    );
+  });
+
+  test('estimate_from_velocity: avgDaily=2.7, daysOfCover=3 → ceil(8.1) = 9', () => {
+    assert.equal(
+      computeUnknownStockQty(
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 3 },
+        2.7,
+      ),
+      9,
+    );
+  });
+
+  test('estimate_from_velocity: avgDaily=0 → 0 (no sales = no estimate)', () => {
+    assert.equal(
+      computeUnknownStockQty(
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        0,
+      ),
+      0,
+    );
+  });
+
+  test('estimate_from_velocity: daysOfCover=0 → 0', () => {
+    assert.equal(
+      computeUnknownStockQty(
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 0 },
+        5,
+      ),
+      0,
+    );
+  });
+
+  test('estimate_from_velocity: null avgDaily → 0', () => {
+    assert.equal(
+      computeUnknownStockQty(
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        null,
+      ),
+      0,
+    );
+  });
+
+  test('negative defaultQty floors to 0', () => {
+    assert.equal(
+      computeUnknownStockQty({ unknownStockBehavior: 'send_default', unknownStockDefaultQty: -5 }, 0),
+      0,
+    );
+  });
+});
+
+describe('maxVelocityWindowDays', () => {
+  test('returns 0 when nothing configured', () => {
+    assert.equal(maxVelocityWindowDays({}), 0);
+  });
+
+  test('returns global when only global set', () => {
+    assert.equal(maxVelocityWindowDays({ velocityWindowDays: 14 }), 14);
+  });
+
+  test('returns max of global + per-dept overrides', () => {
+    assert.equal(
+      maxVelocityWindowDays({
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '7': 30, '143': 7, '145': 60 },
+      }),
+      60,  // 145's 60-day window is the largest
+    );
+  });
+
+  test('global only when no overrides', () => {
+    assert.equal(
+      maxVelocityWindowDays({
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: {},
+      }),
+      14,
+    );
+  });
+
+  test('ignores invalid (non-positive) values', () => {
+    assert.equal(
+      maxVelocityWindowDays({
+        velocityWindowDays: 14,
+        velocityWindowByDepartment: { '7': 0, '143': -5 },
+      }),
+      14,
+    );
+  });
+});
+
+describe('calculateSmartQoH', () => {
+  const masterProductBread = { id: 50362, departmentId: 143 };
+  const baseProduct = (qoh: number | null) => ({
+    quantityOnHand: qoh,
+    masterProduct: masterProductBread,
+  });
+
+  test('positive qoh returns qoh as-is (normal case)', () => {
+    assert.equal(calculateSmartQoH(baseProduct(5) as any, {}, {}, new Map()), 5);
+  });
+
+  test('zero qoh + send_zero (default) → 0', () => {
+    assert.equal(
+      calculateSmartQoH(baseProduct(0) as any, {}, { unknownStockBehavior: 'send_zero' }, new Map()),
+      0,
+    );
+  });
+
+  test('zero qoh + send_default → configured qty', () => {
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(0) as any,
+        {},
+        { unknownStockBehavior: 'send_default', unknownStockDefaultQty: 25 },
+        new Map(),
+      ),
+      25,
+    );
+  });
+
+  test('zero qoh + estimate_from_velocity uses velocity map', () => {
+    const velocityMap = new Map([[50362, 4]]);  // 4 units/day avg
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(0) as any,
+        {},
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 3 },
+        velocityMap,
+      ),
+      12,  // ceil(4 × 3)
+    );
+  });
+
+  test('negative qoh treated as unknown (estimate path fires)', () => {
+    const velocityMap = new Map([[50362, 2]]);
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(-3) as any,
+        {},
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        velocityMap,
+      ),
+      4,  // ceil(2 × 2) — negative qoh ≤ 0 so estimate fires
+    );
+  });
+
+  test('estimate mode but product not in velocity map → 0 (no sales = no estimate)', () => {
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(0) as any,
+        {},
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        new Map(),  // empty
+      ),
+      0,
+    );
+  });
+
+  test('inventoryConfig.departments.fixedQoH still wins (legacy override)', () => {
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(0) as any,
+        { departments: { '143': { fixedQoH: 99 } } },
+        { unknownStockBehavior: 'estimate_from_velocity', unknownStockDaysOfCover: 2 },
+        new Map([[50362, 5]]),
+      ),
+      99,  // legacy fixedQoH override wins even when estimate mode is on
+    );
+  });
+
+  test('positive qoh wins over fixedQoH override (only fires when stock is unknown)', () => {
+    // The fixedQoH check happens BEFORE the qoh > 0 check — so if a dept has
+    // fixedQoH=99 set, that pins the value regardless of actual stock.
+    // This is intentional for "hide actual count, always show 99" use case.
+    assert.equal(
+      calculateSmartQoH(
+        baseProduct(50) as any,
+        { departments: { '143': { fixedQoH: 99 } } },
+        {},
+        new Map(),
+      ),
+      99,
+    );
   });
 });
