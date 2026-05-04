@@ -53,6 +53,27 @@ export function StoreProvider({ children }) {
 
   useEffect(() => { loadStores(); }, [loadStores]);
 
+  // Reload when login/logout happens in this tab (custom event) or another tab
+  // (storage event). Without this, logging in does not refresh the store list
+  // because the provider was mounted before the user's token existed, so the
+  // initial loadStores() bailed early and never re-ran. Sidebar would show no
+  // active store until a hard refresh.
+  useEffect(() => {
+    const onAuthChange = () => {
+      setLoading(true);
+      loadStores();
+    };
+    const onStorage = (e) => {
+      if (e.key === 'user') onAuthChange();
+    };
+    window.addEventListener('storv:auth-change', onAuthChange);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storv:auth-change', onAuthChange);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [loadStores]);
+
   const switchStore = (storeId) => {
     setActiveStoreId(storeId);
     localStorage.setItem('activeStoreId', storeId);

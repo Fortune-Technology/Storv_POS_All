@@ -180,6 +180,7 @@ const ImpersonateLanding = () => {
         } else {
           localStorage.removeItem('activeStoreId');
         }
+        window.dispatchEvent(new Event('storv:auth-change'));
         navigate('/portal/realtime', { replace: true });
       } catch { navigate('/login', { replace: true }); }
     } else {

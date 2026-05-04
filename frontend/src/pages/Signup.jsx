@@ -51,6 +51,7 @@ const Signup = () => {
       localStorage.removeItem('storv:il:lastActive');
       localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(data));
+      window.dispatchEvent(new Event('storv:auth-change'));
       toast.success("Account created! Let's set up your organisation.");
       navigate('/onboarding');
     } catch (error) {

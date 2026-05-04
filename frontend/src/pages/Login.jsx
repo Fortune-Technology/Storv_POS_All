@@ -24,6 +24,10 @@ const Login = () => {
       localStorage.removeItem('storv:il:lastActive');
       localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(data));
+      // Notify StoreProvider (and anything else listening) so it reloads stores
+      // immediately — otherwise the sidebar's active-store card stays empty
+      // until the user hard-refreshes.
+      window.dispatchEvent(new Event('storv:auth-change'));
       toast.success('Welcome back!');
       navigate('/portal/realtime');
     } catch (error) {

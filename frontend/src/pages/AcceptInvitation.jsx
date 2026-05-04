@@ -76,6 +76,7 @@ export default function AcceptInvitation() {
       if (result.storeIds && result.storeIds.length > 0) {
         localStorage.setItem('activeStoreId', result.storeIds[0]);
       }
+      window.dispatchEvent(new Event('storv:auth-change'));
 
       toast.success(
         result.transferOwnership
