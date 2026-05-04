@@ -11,7 +11,7 @@
  * gradient + centred .dl-hero-content inside .mkt-container) → MarketingSection
  * blocks with .text-gradient highlights → MarketingFooter.
  */
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, useInView } from 'framer-motion';
 import {
   Download as DownloadIcon, Monitor, Apple, HardDrive, Wifi,
@@ -43,21 +43,31 @@ const FadeIn = ({ children, className, delay = 0 }) => {
 
 // ── Installer hosting ──────────────────────────────────────────────────
 // Build output comes from cashier-app/package.json (electron-builder with
-// default naming). `productName: "StoreVeu POS"` + `version: "1.0.0"` +
-// NSIS target → filename "StoreVeu POS Setup 1.0.0.exe" (GitHub URL-encodes
-// spaces as dots → "StoreVeu.POS.Setup.1.0.0.exe").
+// default naming). `productName: "StoreVeu POS"` + version `X.Y.Z` + NSIS
+// target → filename "StoreVeu POS Setup X.Y.Z.exe" (GitHub URL-encodes
+// spaces as dots → "StoreVeu.POS.Setup.X.Y.Z.exe").
 //
-// The release is published via GitHub Actions to the `latest-desktop` tag,
-// so the "latest" URL is stable across versions:
-//   https://github.com/<org>/<repo>/releases/download/latest-desktop/<file>
+// The release is published via GitHub Actions to the `latest-desktop` tag.
+// Rather than baking a version at marketing-build time (which would drift
+// every time the cashier app rebuilds without us redeploying marketing), we
+// query the GitHub Releases API on page load and pull the newest .exe asset
+// from the `latest-desktop` release. Always current, no env coupling.
 //
-// Overrides (set at frontend build time if you host elsewhere):
-//   VITE_CASHIER_DOWNLOAD_URL        → full Windows installer URL
-//   VITE_CASHIER_DOWNLOAD_URL_MAC    → full Mac .dmg URL (optional)
-//   VITE_CASHIER_DOWNLOAD_VERSION    → version string shown in the hero badge
-const DOWNLOAD_VERSION = import.meta.env.VITE_CASHIER_DOWNLOAD_VERSION || '1.0.0';
-const DOWNLOAD_URL_WIN = import.meta.env.VITE_CASHIER_DOWNLOAD_URL     || `https://github.com/Fortune-Technology/Storv_POS_All/releases/download/latest-desktop/StoreVeu.POS.Setup.${DOWNLOAD_VERSION}.exe`;
-const DOWNLOAD_URL_MAC = import.meta.env.VITE_CASHIER_DOWNLOAD_URL_MAC || '';
+// Optional env overrides — only used if set:
+//   VITE_CASHIER_DOWNLOAD_URL        → full Windows installer URL (skips fetch)
+//   VITE_CASHIER_DOWNLOAD_URL_MAC    → full Mac .dmg URL
+//   VITE_CASHIER_GH_REPO             → owner/repo for the API (default below)
+const ENV_DOWNLOAD_URL_WIN = import.meta.env.VITE_CASHIER_DOWNLOAD_URL || '';
+const ENV_DOWNLOAD_URL_MAC = import.meta.env.VITE_CASHIER_DOWNLOAD_URL_MAC || '';
+const GH_REPO = import.meta.env.VITE_CASHIER_GH_REPO || 'Fortune-Technology/Storv_POS_All';
+const RELEASE_TAG = 'latest-desktop';
+
+// Fallback: stable alias the workflow's publish-installer job copies to the
+// dashboard's downloads dir on every successful build (workflow line ~538).
+// Used while the API fetch is in flight, or if rate-limited / offline.
+// Override per environment via VITE_CASHIER_FALLBACK_URL.
+const FALLBACK_URL_WIN = import.meta.env.VITE_CASHIER_FALLBACK_URL
+  || 'https://test.dashboard.storeveu.com/downloads/StoreVeu-POS-Setup.exe';
 
 const REQUIREMENTS = [
   { icon: HardDrive, title: 'Windows 10 or newer (64-bit)', sub: '4 GB RAM minimum, 500 MB disk space' },
@@ -73,7 +83,57 @@ const FEATURES = [
   'Free updates — auto-updates through the installer',
 ];
 
-const Download = () => (
+// Fetch latest release once on mount. Rate-limit-aware: the unauthenticated
+// GitHub API allows ~60 req/hr per IP — plenty for a marketing landing page.
+// On failure (offline, rate-limited, missing release) we silently fall back
+// to the stable dashboard alias and a generic version string.
+function useLatestInstaller() {
+  const [info, setInfo] = useState({
+    url: ENV_DOWNLOAD_URL_WIN || FALLBACK_URL_WIN,
+    version: 'latest',
+    loading: !ENV_DOWNLOAD_URL_WIN,
+  });
+
+  useEffect(() => {
+    if (ENV_DOWNLOAD_URL_WIN) return;       // explicit override — skip fetch
+    let cancelled = false;
+    fetch(`https://api.github.com/repos/${GH_REPO}/releases/tags/${RELEASE_TAG}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (cancelled || !data) return;
+        const exe = (data.assets || []).find(
+          a => typeof a.name === 'string' && a.name.toLowerCase().endsWith('.exe')
+        );
+        // Strip the leading `v` if the tag is something like `v1.0.209`.
+        // The `latest-desktop` tag itself isn't a version, so prefer the
+        // version embedded in the asset filename ("StoreVeu.POS.Setup.X.Y.Z.exe").
+        let version = 'latest';
+        if (exe?.name) {
+          const m = exe.name.match(/(\d+\.\d+\.\d+)/);
+          if (m) version = m[1];
+        }
+        setInfo({
+          url: exe?.browser_download_url || FALLBACK_URL_WIN,
+          version,
+          loading: false,
+        });
+      })
+      .catch(() => {
+        // Silent — fallback URL is already in state.
+        if (!cancelled) setInfo(s => ({ ...s, loading: false }));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return info;
+}
+
+const Download = () => {
+  const { url: DOWNLOAD_URL_WIN, version: DOWNLOAD_VERSION } = useLatestInstaller();
+  const DOWNLOAD_URL_MAC = ENV_DOWNLOAD_URL_MAC;
+  return (
   <div className="download-page">
     <SEO
       title="Download Cashier App"
@@ -184,6 +244,7 @@ const Download = () => (
 
     <MarketingFooter />
   </div>
-);
+  );
+};
 
 export default Download;
