@@ -348,6 +348,30 @@ export default function LotteryShiftModal({
   const allComplete = boxData.every(b => b.rowComplete);
   const scannedTotal = boxData.reduce((s, b) => s + (b.isSoldout ? (b.soldoutAmount || 0) : (b.calcAmount || 0)), 0);
 
+  // May 2026 — Insert empty-slot placeholder rows BETWEEN occupied slots
+  // (parity with back-office Counter view). E.g. occupied slots [27, 29]
+  // → renders [27, EMPTY 28, 29]. Trailing slots after the last occupied
+  // are NOT padded. Books with no slot (null) sort to the end via byslot
+  // and don't trigger gap detection.
+  const boxDataWithGaps = useMemo(() => {
+    const result = [];
+    for (let i = 0; i < boxData.length; i++) {
+      const cur = boxData[i];
+      result.push(cur);
+      const next = boxData[i + 1];
+      if (cur.slotNumber == null) continue;
+      if (!next || next.slotNumber == null) continue;
+      const curSlot = Number(cur.slotNumber);
+      const nextSlot = Number(next.slotNumber);
+      if (Number.isFinite(curSlot) && Number.isFinite(nextSlot) && nextSlot - curSlot > 1) {
+        for (let s = curSlot + 1; s < nextSlot; s++) {
+          result.push({ __placeholder: true, id: `__empty-${s}`, slotNumber: s });
+        }
+      }
+    }
+    return result;
+  }, [boxData]);
+
   // ── Step 2 → numeric online totals (cumulative-day readings off the terminal) ─
   const onlineNums = {
     grossSales:     Number(online.grossSales     || 0),
@@ -631,7 +655,15 @@ export default function LotteryShiftModal({
                       <span>Amount</span>
                       <span></span>
                     </div>
-                    {boxData.map(b => (
+                    {boxDataWithGaps.map(b => b.__placeholder ? (
+                      <div key={b.id} className="lsm-book-row lsm-book-row--empty" title={`Slot ${b.slotNumber} is empty`}>
+                        <span className="lsm-book-game">
+                          <strong className="lsm-book-no lsm-book-no--empty">slot {b.slotNumber}</strong>
+                          <small>— empty —</small>
+                        </span>
+                        <span /><span /><span /><span /><span /><span />
+                      </div>
+                    ) : (
                       <div key={b.id} className={`lsm-book-row ${b.rowComplete ? 'lsm-book-row--done' : ''} ${b.isSoldout ? 'lsm-book-row--soldout' : ''}`}>
                         {/* Apr 2026 — book number gets visual priority so the
                             cashier can quickly cross-reference the physical
