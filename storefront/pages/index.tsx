@@ -244,6 +244,16 @@ export async function getServerSideProps(ctx: GetServerSidePropsContext) {
       },
     };
   } catch {
-    return { props: { store: null, storeSlug: slug } };
+    // Slug resolution returned a non-null value but the store doesn't exist
+    // (e.g. visiting `test.shop.storeveu.com` — the env-marker subdomain
+    // `test` looks like a slug to the resolver but no such store is enabled).
+    // Fall back to the discovery page so the user sees the directory rather
+    // than a blank screen.
+    try {
+      const { data } = await axios.get(`${ECOM_API}/stores`);
+      return { props: { store: null, storeSlug: null, allStores: data.data || [] } };
+    } catch {
+      return { props: { store: null, storeSlug: null, allStores: [] } };
+    }
   }
 }

@@ -25,9 +25,17 @@ export function getStoreSlug(ctx: GetServerSidePropsContext): string | null {
   if (typeof slugHeader === 'string' && slugHeader) return slugHeader;
 
   // 3. Subdomain from Host header (fallback if middleware didn't catch it)
+  // Only treat the first segment as a slug if it's NOT a known environment
+  // marker. `test.shop.storeveu.com` and `staging.shop.storeveu.com` are
+  // env hostnames, not store subdomains — return null so the discovery
+  // page renders instead of trying to load a store named "test".
+  const ENV_MARKERS = new Set(['test', 'staging', 'dev', 'preview']);
   const host = ctx.req?.headers?.host || '';
   if (typeof host === 'string' && host.includes('.shop.')) {
-    return host.split('.')[0];
+    const firstSegment = host.split('.')[0];
+    if (!ENV_MARKERS.has(firstSegment)) {
+      return firstSegment;
+    }
   }
 
   // 4. Custom domain — resolved via API (returns slug or null)
