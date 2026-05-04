@@ -890,6 +890,56 @@ model Organization {
 }
 
 // ─────────────────────────────────────────────────
+// PLATFORM MODULE — S78
+// Registry of every gateable feature on the platform. Each sidebar item
+// (or group of related routes) is one module. Modules are referenced by
+// their stable `key` from the frontend so adding a new module is a single
+// seed insert + frontend route map update.
+// ─────────────────────────────────────────────────
+model PlatformModule {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?  @db.Text
+  category    String              // 'Operations', 'Catalog', 'POS', etc.
+  icon        String?             // lucide-react icon name (admin UI)
+
+  // Routes this module governs. Frontend gate matches the route's permission
+  // map against this list. Multiple paths allowed (e.g. /portal/foo + /portal/foo/:id).
+  routePaths  String[] @default([])
+
+  // Core modules can NEVER be removed from any plan (Dashboard, Account,
+  // Support — anything an org needs to log in + manage their account).
+  isCore      Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plans       PlanModule[]
+
+  @@index([category, sortOrder])
+  @@index([active])
+  @@map("platform_modules")
+}
+
+// ─────────────────────────────────────────────────
+// PLAN MODULE — junction
+// ─────────────────────────────────────────────────
+model PlanModule {
+  planId    String
+  moduleId  String
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  module    PlatformModule   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([planId, moduleId])
+  @@index([moduleId])
+  @@map("plan_modules")
+}
+
+// ─────────────────────────────────────────────────
 // USER
 // Employee / admin account scoped to one org.
 // May have access to multiple stores via UserStore.
@@ -2971,8 +3021,20 @@ model SubscriptionPlan {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  // S78 — extended fields for the marketing/feature-gating UI.
+  // These are optional so existing plans seeded by older code stay valid.
+  tagline           String?  // short marketing line shown on the pricing page
+  annualPrice       Decimal? @db.Decimal(10, 2) // pre-discounted yearly amount; null falls back to basePrice * 12
+  isCustomPriced    Boolean  @default(false)    // 'Contact us for pricing' (Enterprise)
+  currency          String   @default("USD")
+  maxUsers          Int?     // null = unlimited; complements includedStores/Registers
+  highlighted       Boolean  @default(false)    // shown as "most popular" in pricing UI
+  isDefault         Boolean  @default(false)    // assigned to fresh orgs as fallback
+
   addons        PlanAddon[]
   subscriptions OrgSubscription[]
+  // S78 — modules this plan grants access to
+  modules       PlanModule[]
 
   @@map("subscription_plans")
 }

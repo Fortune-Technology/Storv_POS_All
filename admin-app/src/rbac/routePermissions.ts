@@ -37,6 +37,8 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/vendor-onboardings':           'admin_organizations.view',
   // S77 Phase 2 — Contract management
   '/contracts':                    'admin_organizations.view',
+  // S78 — Subscription plans + module catalog (uses pricing-tier perm family)
+  '/plans':                        'admin_pricing_tiers.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {

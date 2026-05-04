@@ -26,6 +26,9 @@ import {
   adminListInvoices, adminWriteOffInvoice, adminRetryInvoice,
   adminListEquipmentOrders, adminUpdateEquipmentOrder,
   adminListEquipmentProducts, adminCreateEquipmentProduct, adminUpdateEquipmentProduct,
+  // S78 — sidebar-module assignment for plans
+  adminListPlatformModules, adminListSubPlans, adminGetSubPlan, adminUpdateSubPlan, adminCreateSubPlan,
+  type PlatformModuleRecord,
 } from '../services/api';
 import type {
   BillingPlan as Plan,
@@ -92,16 +95,29 @@ interface PlanForm {
   name: string;
   slug: string;
   description: string;
+  // S78 — marketing/display fields (also live in /admin/plans S78 page; surfaced here too).
+  tagline: string;
+  annualPrice: number | string;   // pre-discounted yearly amount; '' = blank
+  isCustomPriced: boolean;
+  highlighted: boolean;
+  isDefault: boolean;
+  maxUsers: number | string;       // '' = unlimited
+  currency: string;
+  // ── Pricing ──
   basePrice: number | string;
   pricePerStore: number | string;
   pricePerRegister: number | string;
+  // ── Quotas ──
   includedStores: number;
   includedRegisters: number;
   trialDays: number;
+  // ── Display ──
   isPublic: boolean;
   isActive: boolean;
   includedAddons: string[];
   sortOrder: number;
+  // ── S78 sidebar-module entitlement (kept as Set for fast toggling) ──
+  moduleIds: Set<string>;
 }
 
 interface AddonForm {
@@ -112,8 +128,15 @@ interface AddonForm {
   sortOrder: number;
 }
 
-const EMPTY_PLAN: PlanForm = { name:'', slug:'', description:'', basePrice:'', pricePerStore:0, pricePerRegister:0,
-  includedStores:1, includedRegisters:1, trialDays:14, isPublic:true, isActive:true, includedAddons:[], sortOrder:0 };
+const EMPTY_PLAN: PlanForm = {
+  name:'', slug:'', description:'',
+  tagline:'', annualPrice:'', isCustomPriced:false, highlighted:false, isDefault:false,
+  maxUsers:'', currency:'USD',
+  basePrice:'', pricePerStore:0, pricePerRegister:0,
+  includedStores:1, includedRegisters:1, trialDays:14,
+  isPublic:true, isActive:true, includedAddons:[], sortOrder:0,
+  moduleIds: new Set<string>(),
+};
 
 const toSlug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -123,11 +146,17 @@ function PlansTab() {
   const [addons,   setAddons]   = useState<Addon[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [editPlan, setEditPlan] = useState<Plan | 'new' | null>(null);
-  const [form,     setForm]     = useState<PlanForm>(EMPTY_PLAN);
+  const [form,     setForm]     = useState<PlanForm>({ ...EMPTY_PLAN, moduleIds: new Set<string>() });
   const [saving,   setSaving]   = useState(false);
   const [showAddonForm, setShowAddonForm] = useState(false);
   const [addonForm, setAddonForm] = useState<AddonForm>({ key:'', name:'', description:'', monthlyPrice:'', sortOrder:0 });
   const [editAddonId, setEditAddonId] = useState<string | number | null>(null);
+
+  // S78 — sidebar modules (catalog + per-plan assignment)
+  const [allModules, setAllModules] = useState<PlatformModuleRecord[]>([]);
+  const [moduleGroups, setModuleGroups] = useState<Record<string, PlatformModuleRecord[]>>({});
+  const [moduleCounts, setModuleCounts] = useState<Record<string, number>>({});
+  const [loadingPlanModules, setLoadingPlanModules] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,39 +166,153 @@ function PlansTab() {
       setAddons(r?.addons || []);
     } catch { toast.error('Failed to load plans'); }
     finally { setLoading(false); }
+    // S78 — load module catalog + per-plan module counts (best-effort, non-fatal)
+    try {
+      const m = await adminListPlatformModules();
+      setAllModules(m.modules || []);
+      setModuleGroups(m.grouped || {});
+      // Fetch per-plan module count from the S78 list endpoint (cheap — `_count.modules`).
+      const subList = await adminListSubPlans();
+      const counts: Record<string, number> = {};
+      for (const p of subList.plans) {
+        counts[p.id] = p._count?.modules ?? p.modules?.length ?? 0;
+      }
+      setModuleCounts(counts);
+    } catch (err) {
+      console.warn('[AdminBilling] Failed to load module catalog', err);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const startEdit = (plan: Plan | 'new') => {
+  const startEdit = async (plan: Plan | 'new') => {
     setEditPlan(plan);
-    setForm(plan === 'new' ? EMPTY_PLAN : {
-      name: plan.name, slug: plan.slug||'', description: plan.description||'', basePrice: plan.basePrice,
+    if (plan === 'new') {
+      setForm({ ...EMPTY_PLAN, moduleIds: new Set<string>() });
+      return;
+    }
+    // The legacy /admin/billing/plans response only carries the BillingPlan
+    // shape — S78 fields (tagline / annualPrice / isCustomPriced / etc.) live
+    // on the same SubscriptionPlan row but aren't typed there. Use a permissive
+    // cast so we can read them when present without breaking older data.
+    const ext = plan as unknown as Record<string, unknown>;
+    setForm({
+      name: plan.name, slug: plan.slug||'', description: plan.description||'',
+      tagline:        typeof ext.tagline === 'string' ? ext.tagline : '',
+      annualPrice:    ext.annualPrice == null ? '' : String(ext.annualPrice),
+      isCustomPriced: !!ext.isCustomPriced,
+      highlighted:    !!ext.highlighted,
+      isDefault:      !!ext.isDefault,
+      maxUsers:       ext.maxUsers == null ? '' : String(ext.maxUsers),
+      currency:       typeof ext.currency === 'string' ? ext.currency : 'USD',
+      basePrice: plan.basePrice,
       pricePerStore: plan.pricePerStore||0, pricePerRegister: plan.pricePerRegister||0,
       includedStores: plan.includedStores||1, includedRegisters: plan.includedRegisters||1,
       trialDays: plan.trialDays, isPublic: plan.isPublic, isActive: plan.isActive, sortOrder: plan.sortOrder,
       includedAddons: Array.isArray(plan.includedAddons) ? plan.includedAddons : [],
+      moduleIds: new Set<string>(),
     });
+    // Lazy-load currently-assigned modules for this plan from S78 endpoint.
+    setLoadingPlanModules(true);
+    try {
+      const r = await adminGetSubPlan(plan.id as string);
+      const ids = (r.plan.modules || []).map(pm => pm.moduleId);
+      setForm(f => ({ ...f, moduleIds: new Set(ids) }));
+    } catch (err) {
+      console.warn('[AdminBilling] Failed to load plan modules', err);
+    } finally {
+      setLoadingPlanModules(false);
+    }
   };
+
+  const toggleModule = (id: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return { ...f, moduleIds: next };
+  });
+  const selectAllInCategory = (cat: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    for (const m of moduleGroups[cat] || []) next.add(m.id);
+    return { ...f, moduleIds: next };
+  });
+  const clearAllInCategory = (cat: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    for (const m of moduleGroups[cat] || []) {
+      if (m.isCore) continue; // never remove core
+      next.delete(m.id);
+    }
+    return { ...f, moduleIds: next };
+  });
 
   const handleSavePlan = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
+      // Build the payload. The legacy billing API only writes the columns it
+      // knows about (now safely whitelisted server-side). We drop:
+      // - `moduleIds`     — S78 module entitlement, persisted via PATCH /admin/plans/:id below
+      // - `includedAddons` — UI-only display state; addons are managed via the separate
+      //                     /admin/billing/addons endpoints + the PlanAddon join table.
+      const { moduleIds: _omitModuleIds, includedAddons: _omitAddons, ...billingFields } = form;
       const payload = {
-        ...form,
+        ...billingFields,
         basePrice:        Number(form.basePrice),
         pricePerStore:    Number(form.pricePerStore)    || 0,
         pricePerRegister: Number(form.pricePerRegister) || 0,
         includedStores:   Number(form.includedStores)   || 1,
         includedRegisters:Number(form.includedRegisters)|| 1,
         sortOrder:        Number(form.sortOrder)         || 0,
+        // S78 marketing/display fields
+        tagline:          form.tagline || null,
+        annualPrice:      form.annualPrice === '' ? null : Number(form.annualPrice),
+        isCustomPriced:   !!form.isCustomPriced,
+        highlighted:      !!form.highlighted,
+        isDefault:        !!form.isDefault,
+        maxUsers:         form.maxUsers === '' ? null : Number(form.maxUsers),
+        currency:         form.currency || 'USD',
       };
+      const moduleIdArray = Array.from(form.moduleIds);
       if (editPlan === 'new') {
-        await adminCreatePlan(payload);
+        // For new plans, use the S78 create endpoint so we can pass
+        // moduleIds in a single round-trip. The shape lines up because
+        // the underlying SubscriptionPlan model is shared.
+        await adminCreateSubPlan({
+          slug: payload.slug,
+          name: payload.name,
+          description: payload.description || null,
+          tagline: payload.tagline,
+          basePrice: payload.basePrice,
+          annualPrice: payload.annualPrice,
+          isCustomPriced: payload.isCustomPriced,
+          currency: payload.currency,
+          pricePerStore: payload.pricePerStore,
+          pricePerRegister: payload.pricePerRegister,
+          includedStores: payload.includedStores,
+          includedRegisters: payload.includedRegisters,
+          maxUsers: payload.maxUsers,
+          trialDays: payload.trialDays,
+          isPublic: payload.isPublic,
+          isActive: payload.isActive,
+          highlighted: payload.highlighted,
+          isDefault: payload.isDefault,
+          sortOrder: payload.sortOrder,
+          moduleIds: moduleIdArray,
+        });
         toast.success('Plan created');
       } else if (editPlan) {
+        // Editing — write billing-specific fields via the legacy PUT, then
+        // fan out the module assignment via S78 PATCH. Both target the
+        // same SubscriptionPlan row, so they compose cleanly.
         await adminUpdatePlan(editPlan.id, payload);
+        try {
+          await adminUpdateSubPlan(editPlan.id as string, { moduleIds: moduleIdArray });
+        } catch (err: any) {
+          // Surface the module-save error but don't lose the billing-side
+          // success — the user can retry just the modules.
+          console.warn('[AdminBilling] Module assignment save failed', err);
+          toast.warning('Plan saved, but module assignment failed. Try again.');
+          throw err;
+        }
         toast.success('Plan updated');
       }
       setEditPlan(null);
@@ -259,6 +402,14 @@ function PlansTab() {
                       ))}
                     </div>
                   )}
+                  {/* S78 — module assignment count chip */}
+                  {moduleCounts[plan.id as string] !== undefined && (
+                    <div className="ab-modules-chip-row">
+                      <span className="ab-modules-chip">
+                        {moduleCounts[plan.id as string]} sidebar module{moduleCounts[plan.id as string] === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="ab-plan-actions">
                   <button onClick={() => startEdit(plan)} className="ab-btn-edit"><Edit3 size={12} /> Edit</button>
@@ -328,16 +479,46 @@ function PlansTab() {
                 <input className="ab-input" value={form.slug} onChange={e=>setForm(f=>({...f,slug:toSlug(e.target.value)}))} placeholder="starter" required />
               </div>
               <div><label className="ab-label">Description</label><input className="ab-input" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} /></div>
-              <div><label className="ab-label">Base Monthly Price ($) *</label><input className="ab-input" type="number" step="0.01" min="0" value={form.basePrice} onChange={e=>setForm(f=>({...f,basePrice:e.target.value}))} required /></div>
-              <div className="ab-form-row-2">
-                <div><label className="ab-label">Price / Extra Store ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerStore} onChange={e=>setForm(f=>({...f,pricePerStore:e.target.value}))} /></div>
-                <div><label className="ab-label">Price / Extra Register ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerRegister} onChange={e=>setForm(f=>({...f,pricePerRegister:e.target.value}))} /></div>
+              <div>
+                <label className="ab-label">Tagline <span className="ab-label-hint">(short marketing line on pricing page)</span></label>
+                <input className="ab-input" value={form.tagline} onChange={e=>setForm(f=>({...f,tagline:e.target.value}))} placeholder="Perfect for single-location retailers." />
               </div>
+
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Custom-priced <span className="ab-label-hint">(show "Contact for pricing")</span></span>
+                <Toggle checked={form.isCustomPriced} onChange={v=>setForm(f=>({...f,isCustomPriced:v}))} />
+              </div>
+
+              {!form.isCustomPriced && (
+                <>
+                  <div className="ab-form-row-2">
+                    <div>
+                      <label className="ab-label">Monthly Price ($) *</label>
+                      <input className="ab-input" type="number" step="0.01" min="0" value={form.basePrice} onChange={e=>setForm(f=>({...f,basePrice:e.target.value}))} required />
+                    </div>
+                    <div>
+                      <label className="ab-label">Annual Price ($/mo) <span className="ab-label-hint">(blank = no discount)</span></label>
+                      <input className="ab-input" type="number" step="0.01" min="0" value={form.annualPrice} onChange={e=>setForm(f=>({...f,annualPrice:e.target.value}))} placeholder="e.g. 39 (shown as $39/mo billed annually)" />
+                    </div>
+                  </div>
+                  <div className="ab-form-row-2">
+                    <div><label className="ab-label">Price / Extra Store ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerStore} onChange={e=>setForm(f=>({...f,pricePerStore:e.target.value}))} /></div>
+                    <div><label className="ab-label">Price / Extra Register ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerRegister} onChange={e=>setForm(f=>({...f,pricePerRegister:e.target.value}))} /></div>
+                  </div>
+                </>
+              )}
+
               <div className="ab-form-row-2">
                 <div><label className="ab-label">Included Stores</label><input className="ab-input" type="number" min="1" value={form.includedStores} onChange={e=>setForm(f=>({...f,includedStores:Number(e.target.value)}))} /></div>
                 <div><label className="ab-label">Included Registers</label><input className="ab-input" type="number" min="1" value={form.includedRegisters} onChange={e=>setForm(f=>({...f,includedRegisters:Number(e.target.value)}))} /></div>
               </div>
-              <div><label className="ab-label">Trial Days</label><input className="ab-input" type="number" min="0" value={form.trialDays} onChange={e=>setForm(f=>({...f,trialDays:Number(e.target.value)}))} /></div>
+              <div className="ab-form-row-2">
+                <div>
+                  <label className="ab-label">Max Users <span className="ab-label-hint">(blank = unlimited)</span></label>
+                  <input className="ab-input" type="number" min="1" value={form.maxUsers} onChange={e=>setForm(f=>({...f,maxUsers:e.target.value}))} placeholder="Unlimited" />
+                </div>
+                <div><label className="ab-label">Trial Days</label><input className="ab-input" type="number" min="0" value={form.trialDays} onChange={e=>setForm(f=>({...f,trialDays:Number(e.target.value)}))} /></div>
+              </div>
               <div className="ab-toggle-row">
                 <span className="ab-toggle-label">Public (show on pricing page)</span>
                 <Toggle checked={form.isPublic} onChange={v=>setForm(f=>({...f,isPublic:v}))} />
@@ -345,6 +526,14 @@ function PlansTab() {
               <div className="ab-toggle-row">
                 <span className="ab-toggle-label">Active</span>
                 <Toggle checked={form.isActive} onChange={v=>setForm(f=>({...f,isActive:v}))} />
+              </div>
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Highlighted (Most Popular badge)</span>
+                <Toggle checked={form.highlighted} onChange={v=>setForm(f=>({...f,highlighted:v}))} />
+              </div>
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Default plan for new orgs</span>
+                <Toggle checked={form.isDefault} onChange={v=>setForm(f=>({...f,isDefault:v}))} />
               </div>
               {addons.length > 0 && (
                 <div>
@@ -359,6 +548,70 @@ function PlansTab() {
                   </div>
                 </div>
               )}
+
+              {/* ── S78 — Sidebar Modules ───────────────────────────────── */}
+              <div className="ab-modules-section">
+                <div className="ab-modules-head">
+                  <label className="ab-label" style={{ margin: 0 }}>
+                    Sidebar Modules
+                    <span className="ab-label-hint" style={{ marginLeft: 6 }}>
+                      ({form.moduleIds.size}/{allModules.filter(m => m.active).length} selected)
+                    </span>
+                  </label>
+                  {loadingPlanModules && <span className="ab-modules-loading"><Loader size={11} className="spin" /> loading…</span>}
+                </div>
+                <p className="ab-modules-hint">
+                  Pick which sidebar menu items this plan unlocks for org users.
+                  <strong> Core modules</strong> (Account / Support / Billing / Live Dashboard / Chat) are always granted.
+                </p>
+                {allModules.length === 0 ? (
+                  <div className="ab-modules-empty">
+                    No modules registered. Run <code>npx tsx prisma/seedPlanModules.ts</code> to seed defaults.
+                  </div>
+                ) : (
+                  <div className="ab-modules-wrap">
+                    {Object.entries(moduleGroups)
+                      .sort(([, a], [, b]) => (a[0]?.sortOrder ?? 0) - (b[0]?.sortOrder ?? 0))
+                      .map(([cat, items]) => (
+                        <div key={cat} className="ab-module-group">
+                          <div className="ab-module-group-head">
+                            <strong>{cat}</strong>
+                            <div className="ab-module-group-actions">
+                              <button type="button" className="ab-module-mini-btn" onClick={() => selectAllInCategory(cat)}>All</button>
+                              <button type="button" className="ab-module-mini-btn" onClick={() => clearAllInCategory(cat)}>None</button>
+                            </div>
+                          </div>
+                          <div className="ab-module-list">
+                            {items.map(m => {
+                              const checked = form.moduleIds.has(m.id) || m.isCore;
+                              return (
+                                <label
+                                  key={m.id}
+                                  className={`ab-module-row ${checked ? 'is-checked' : ''} ${m.isCore ? 'is-core' : ''}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={m.isCore}
+                                    onChange={() => toggleModule(m.id)}
+                                  />
+                                  <div className="ab-module-row-body">
+                                    <div className="ab-module-row-name">
+                                      {m.name}
+                                      {m.isCore && <span className="ab-module-pill ab-module-pill--core">CORE</span>}
+                                      {!m.active && <span className="ab-module-pill ab-module-pill--inactive">INACTIVE</span>}
+                                    </div>
+                                    {m.description && <div className="ab-module-row-desc">{m.description}</div>}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
             <button type="submit" className="admin-btn admin-btn-primary ab-btn-full" disabled={saving}>
               {saving ? <><Loader size={13} className="spin" /> Saving...</> : <><Save size={13} /> Save Plan</>}

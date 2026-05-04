@@ -51,6 +51,7 @@ import {
 import StoreSwitcher from './StoreSwitcher';
 import { usePermissions } from '../hooks/usePermissions';
 import { useStoreModules } from '../hooks/useStoreModules';
+import usePlanModules from '../hooks/usePlanModules';
 import { useNotificationCounts } from '../hooks/useNotificationCounts';
 import { getRoutePermission, getRouteModule } from '../rbac/routePermissions';
 
@@ -168,6 +169,8 @@ const Sidebar = () => {
   const [chatUnread, setChatUnread] = useState(0);
   const { can } = usePermissions();
   const { modules } = useStoreModules();
+  // S78 — plan-level entitlement (filters items their org's plan doesn't include)
+  const planGate = usePlanModules();
   // Session 39 — additional badge counts (tasks, tickets)
   const notifCounts = useNotificationCounts();
 
@@ -187,11 +190,15 @@ const Sidebar = () => {
           // with the route-level guard in PermissionRoute.
           const moduleKey = getRouteModule(i.path);
           if (moduleKey && modules[moduleKey] === false) return false;
+          // S78 — plan-level filter. Hides items the org's subscription
+          // doesn't include. `hasRoute` is permissive while loading and
+          // on superadmin — same source of truth as PermissionRoute.
+          if (!planGate.hasRoute(i.path)) return false;
           return true;
         }),
       }))
       .filter(g => g.items.length > 0);
-  }, [can, modules.lottery, modules.fuel, modules.ecom]);
+  }, [can, modules.lottery, modules.fuel, modules.ecom, planGate.moduleKeys]);
 
   // ── Poll chat unread count every 15 s ────────────────────────────────────
   const fetchUnread = useCallback(() => {

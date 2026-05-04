@@ -82,6 +82,7 @@ const adminMenuGroups: MenuGroup[] = [
       { name: 'Merchants (Dejavoo)', icon: <CreditCard size={13} />, path: '/merchants' },
       { name: 'Payment Models',      icon: <Percent size={13} />,    path: '/payment-models' },
       { name: 'Pricing Tiers',       icon: <Percent size={13} />,    path: '/pricing-tiers' },
+      { name: 'Subscription Plans',  icon: <CreditCard size={13} />, path: '/plans' },
       { name: 'SaaS Margin',         icon: <Percent size={13} />,    path: '/saas-margin' },
     ],
   },

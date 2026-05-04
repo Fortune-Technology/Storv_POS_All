@@ -42,6 +42,8 @@ import AdminSaasMargin      from './pages/AdminSaasMargin';
 import AdminVendorOnboardings from './pages/AdminVendorOnboardings';
 // S77 Phase 2 — Contracts pipeline
 import AdminContracts from './pages/AdminContracts';
+// S78 — Subscription plans + module catalog
+import AdminPlans from './pages/AdminPlans';
 
 import PermissionRoute from './components/PermissionRoute';
 
@@ -97,6 +99,8 @@ function App() {
         <Route path="/vendor-onboardings" element={<ProtectedRoute><AdminLayout><AdminVendorOnboardings /></AdminLayout></ProtectedRoute>} />
         {/* S77 Phase 2 — Contracts pipeline */}
         <Route path="/contracts"          element={<ProtectedRoute><AdminLayout><AdminContracts /></AdminLayout></ProtectedRoute>} />
+        {/* S78 — Subscription plans + module catalog */}
+        <Route path="/plans"              element={<ProtectedRoute><AdminLayout><AdminPlans /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

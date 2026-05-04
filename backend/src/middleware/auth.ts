@@ -79,6 +79,7 @@ export const protect: RequestHandler = async (req, res, next) => {
         path.startsWith('/api/stores') ||
         path.startsWith('/api/vendor-onboarding') ||
         path.startsWith('/api/contracts') ||  // S77 Phase 2 — contract signing
+        path.startsWith('/api/plans') ||      // S78 — entitlement lookup
         path.startsWith('/api/auth');
       const isSuperadmin = user.role === 'superadmin';
 

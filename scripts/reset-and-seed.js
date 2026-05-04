@@ -56,6 +56,10 @@ async function main() {
   console.log('\n━━━ Step 3b: Seed Default Contract Template ━━━');
   run('npx tsx prisma/seedContractTemplates.ts', path.join(ROOT, 'backend'));
 
+  // Step 3c: Seed plan ↔ module catalog (S78)
+  console.log('\n━━━ Step 3c: Seed Plan Modules System ━━━');
+  run('npx tsx prisma/seedPlanModules.ts', path.join(ROOT, 'backend'));
+
   // Step 4: Seed Ecom data (auto-detects org/store from POS database)
   // ecom-backend seed is still plain JS — keep node invocation.
   console.log('\n━━━ Step 4: Seed E-Commerce Data ━━━');

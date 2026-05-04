@@ -573,3 +573,39 @@
   .pricing-final-cta { padding: 60px 1rem; }
   .pricing-final-cta h2 { font-size: 1.75rem; }
 }
+
+/* ── Dynamic-data states ─────────────────────────────────────────────── */
+.pricing-loading {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 1rem;
+}
+.pricing-loading .spin,
+.spin {
+  animation: pricing-spin 1s linear infinite;
+}
+@keyframes pricing-spin {
+  to { transform: rotate(360deg); }
+}
+.pricing-fetch-warning {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.18);
+  padding: 4px 12px;
+  border-radius: 6px;
+  display: inline-block;
+}
+.features-more {
+  list-style: none;
+  margin-top: 8px;
+  padding-left: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  font-style: italic;
+}

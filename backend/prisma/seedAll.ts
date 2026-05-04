@@ -13,16 +13,21 @@
  * the dashboard, customers, lottery, chat, and tasks pages all have data.
  *
  * Steps:
- *   1. seed.js              — core (org/store/depts/tax/deposits/products/users/lottery)
- *   2. seedRbac.js          — permissions + system roles
- *   3. seedLotteryCatalog   — multi-state lottery catalog
- *   4. seedTransactions.js  — 90 days of historical POS transactions
- *   5. For every non-system store:
+ *   1. seed.js                 — core (org/store/depts/tax/deposits/products/users/lottery)
+ *   2. seedRbac.js             — permissions + system roles
+ *   3. seedPlanModules         — [S78] sidebar-module catalog + 3 default plans
+ *                                (Starter/Growth/Enterprise) with module entitlements.
+ *                                Required for /pricing page + sidebar gating.
+ *   4. seedContractTemplates   — [S77] default merchant agreement template +
+ *                                v1 published version.
+ *   5. seedLotteryCatalog      — multi-state lottery catalog
+ *   6. seedTransactions.js     — 90 days of historical POS transactions
+ *   7. For every non-system store:
  *      • seedCustomers      — 15 demo customers w/ loyalty points history
  *      • seedLoyalty        — program config, earn rules, reward tiers
  *      • seedChat           — store-wide chat thread
  *      • seedTasks          — 8 representative tasks
- *   6. seedToday            — ~50 transactions TODAY for every store
+ *   8. seedToday               — ~50 transactions TODAY for every store
  *
  * Usage:  node prisma/seedAll.js [orgId] [storeId]
  * npm:    npm run db:seed:all
@@ -41,37 +46,71 @@ const ORG_ID   = process.argv[2] || 'default';
 const STORE_ID = process.argv[3] || 'default-store';
 
 const PER_STORE_SEEDS = [
-  'seedCustomers.js',
-  'seedLoyalty.js',
-  'seedChat.js',
-  'seedTasks.js',
-  'seedCatalogExtras.js',  // product groups, promos, inventory, label queue
-  'seedVendors.js',        // vendors, vendor payments, purchase orders
-  'seedOperations.js',     // shifts, clock events, cash drops/payouts, audit log
-  'seedIntegrations.js',   // delivery-platform credentials
-  'seedPosOps.js',         // quick buttons, support tickets, billing, invitations
+  'seedCustomers.ts',
+  'seedLoyalty.ts',
+  'seedChat.ts',
+  'seedTasks.ts',
+  'seedCatalogExtras.ts',  // product groups, promos, inventory, label queue
+  'seedVendors.ts',        // vendors, vendor payments, purchase orders
+  'seedOperations.ts',     // shifts, clock events, cash drops/payouts, audit log
+  'seedIntegrations.ts',   // delivery-platform credentials
+  'seedPosOps.ts',         // quick buttons, support tickets, billing, invitations
 ];
 
 // Global (cross-store) seeders that run after per-store seeds
 const GLOBAL_POST_SEEDS = [
-  { file: 'seedExchange.js', label: 'Storeveu Exchange: partnerships + wholesale orders' },
+  { file: 'seedExchange.ts', label: 'Storeveu Exchange: partnerships + wholesale orders' },
 ];
 
+// Phase 4 TS migration: every seed file is now `.ts` and run via tsx.
+// runScript() resolves the local tsx binary (same approach as productionSeeder.ts).
 const CORE_STEPS = [
-  { file: 'seed.js',               args: [ORG_ID],           label: 'core (org/store/depts/users/products/lottery)' },
-  { file: 'seedRbac.js',           args: [],                 label: 'RBAC permissions + system roles' },
-  { file: 'seedLotteryCatalog.js', args: [],                 label: 'multi-state lottery catalog' },
-  { file: 'seedTransactions.js',   args: [],                 label: '90 days of historical POS transactions' },
-  { file: 'seedOrgCatalog.js',     args: [],                 label: 'clone catalog into every non-system org' },
-  { file: 'seedOrgLottery.js',     args: [],                 label: 'lottery settings/games/boxes/txns per store' },
+  { file: 'seed.ts',                  args: [ORG_ID],        label: 'core (org/store/depts/users/products/lottery)' },
+  { file: 'seedRbac.ts',              args: [],              label: 'RBAC permissions + system roles' },
+  // S78 — drives the marketing /pricing page + plan-based sidebar gating.
+  { file: 'seedPlanModules.ts',       args: [],              label: 'sidebar modules + 3 default subscription plans (S78)' },
+  // S77 — default merchant agreement template for the vendor-onboarding flow.
+  { file: 'seedContractTemplates.ts', args: [],              label: 'default contract template (S77)' },
+  { file: 'seedLotteryCatalog.ts',    args: [],              label: 'multi-state lottery catalog' },
+  { file: 'seedTransactions.ts',      args: [],              label: '90 days of historical POS transactions' },
+  { file: 'seedOrgCatalog.ts',        args: [],              label: 'clone catalog into every non-system org' },
+  { file: 'seedOrgLottery.ts',        args: [],              label: 'lottery settings/games/boxes/txns per store' },
 ];
+
+// Resolve local tsx binary so we don't depend on a global install.
+// Same approach as productionSeeder.ts.
+function resolveTsx() {
+  const fs = require('fs');
+  const binDir = path.join(__dirname, '..', 'node_modules', '.bin');
+  const candidates = process.platform === 'win32'
+    ? ['tsx.cmd', 'tsx.CMD', 'tsx.exe', 'tsx']
+    : ['tsx'];
+  for (const name of candidates) {
+    const full = path.join(binDir, name);
+    if (fs.existsSync(full)) return full;
+  }
+  return null;
+}
 
 function runScript(file, args) {
   const full = path.join(__dirname, file);
   console.log(`\n\x1b[36m▶ ${file}\x1b[0m ${args.length ? '(' + args.join(', ') + ')' : ''}`);
-  const res = spawnSync(process.execPath, [full, ...args], {
+
+  // .ts files run via tsx (Phase 4 TS migration); .js or .mjs go through node.
+  const isTs = file.endsWith('.ts');
+  const tsxBin = isTs ? resolveTsx() : null;
+  if (isTs && !tsxBin) {
+    throw new Error(`tsx binary not found in node_modules/.bin — run "npm install" first.`);
+  }
+
+  const cmd  = isTs ? tsxBin! : process.execPath;
+  const argv = [full, ...args];
+  // shell:true on Windows for the .cmd shim; harmless on POSIX.
+  const useShell = isTs && process.platform === 'win32';
+  const res = spawnSync(cmd, argv, {
     stdio: 'inherit',
     env:   process.env,
+    shell: useShell,
   });
   if (res.status !== 0) {
     throw new Error(`${file} exited with code ${res.status}`);
@@ -110,7 +149,7 @@ async function main() {
   }
 
   // Today's transactions for every store (so Live Dashboard is non-zero)
-  runScript('seedToday.js', []);
+  runScript('seedToday.ts', []);
 
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`\n\x1b[32m✅ seed:all complete in ${secs}s\x1b[0m`);

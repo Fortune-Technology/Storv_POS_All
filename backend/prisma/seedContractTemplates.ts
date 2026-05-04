@@ -217,6 +217,19 @@ async function main() {
     orderBy: { versionNumber: 'desc' },
   });
 
+  // Stable stringify — sorts object keys alphabetically so order-of-insertion
+  // differences don't flag as drift. Postgres stores `Json` as jsonb which
+  // normalizes key ordering on storage; reading it back returns keys in a
+  // different order than the source `MERGE_FIELDS` literal. Without this,
+  // every re-run would falsely "detect drift" and bump the version forever.
+  const stableStringify = (v: unknown): string => {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+    const obj = v as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+  };
+
   if (!latest) {
     const v1 = await prisma.contractTemplateVersion.create({
       data: {
@@ -230,7 +243,7 @@ async function main() {
       },
     });
     console.log(`  ✓ Created version 1 (${v1.id})`);
-  } else if (latest.bodyHtml !== templatedHtml || JSON.stringify(latest.mergeFields) !== JSON.stringify(MERGE_FIELDS)) {
+  } else if (latest.bodyHtml !== templatedHtml || stableStringify(latest.mergeFields) !== stableStringify(MERGE_FIELDS)) {
     // Content drift — bump version
     const next = (latest.versionNumber || 1) + 1;
     // Archive the previous published version

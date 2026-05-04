@@ -1673,9 +1673,27 @@ export const adminCreatePlan = async (req: Request, res: Response, next: NextFun
 /* PUT /api/admin/billing/plans/:id */
 export const adminUpdatePlan = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Whitelist columns that actually exist on SubscriptionPlan. The legacy
+    // PlansTab form sends `includedAddons` (UI-only — addons are a join table)
+    // and S78 sends `moduleIds` which lives on PlanModule. Both must be
+    // dropped here before the update reaches Prisma.
+    const body = (req.body || {}) as Record<string, unknown>;
+    const allowed: (keyof Prisma.SubscriptionPlanUpdateInput)[] = [
+      'name', 'slug', 'description',
+      'basePrice', 'pricePerStore', 'pricePerRegister',
+      'includedStores', 'includedRegisters', 'trialDays',
+      'isPublic', 'isActive', 'sortOrder',
+      // S78 fields
+      'tagline', 'annualPrice', 'isCustomPriced', 'currency',
+      'maxUsers', 'highlighted', 'isDefault',
+    ];
+    const data: Prisma.SubscriptionPlanUpdateInput = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) (data as any)[key] = body[key];
+    }
     const plan = await prisma.subscriptionPlan.update({
       where:   { id: req.params.id },
-      data:    req.body as Prisma.SubscriptionPlanUpdateInput,
+      data,
       include: { addons: true },
     });
     res.json(plan);

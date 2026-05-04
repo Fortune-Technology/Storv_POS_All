@@ -7,25 +7,35 @@
  *
  *   1.  seedAdmin                 superadmin user (admin@storeveu.com)
  *   2.  seedRbac                  permission catalog + 6 built-in system roles
- *   3.  seedDeptAttributes        department-attribute presets (alcohol/wine/tobacco)
- *   4.  seedVendorTemplates       3 wholesale-CSV import templates (AGNE / etc.)
- *   5.  seedTobaccoManufacturers  ITG / Altria / RJR scan-data feed catalog
- *   6.  seedUSStates              State catalog (codes + names + lottery defaults)
- *   7.  seedStateSurchargeRules   dual-pricing policy fields per state (NEEDS #6)
- *   8.  seedPricingTiers          PricingTier rows for dual-pricing surcharge
- *   9.  seedProductTours          5 narrated AI walkthroughs (add-product, etc.)
- *   10. seedLotteryCatalog        per-state scratch ticket catalog
- *   11. seedAiKnowledge           AI Assistant KB (40 articles + embeddings)
+ *   3.  seedPlanModules           [S78] PlatformModule catalog + 3 starter
+ *                                 SubscriptionPlans (Starter/Growth/Enterprise)
+ *                                 with sidebar-module entitlements. Required
+ *                                 for the marketing /pricing page + plan-based
+ *                                 sidebar gating + vendor activation flow.
+ *   4.  seedContractTemplates     [S77] Default merchant agreement template +
+ *                                 v1 published version. Required for the
+ *                                 vendor-onboarding contract pipeline.
+ *   5.  seedDeptAttributes        department-attribute presets (alcohol/wine/tobacco)
+ *   6.  seedVendorTemplates       3 wholesale-CSV import templates (AGNE / etc.)
+ *   7.  seedTobaccoManufacturers  ITG / Altria / RJR scan-data feed catalog
+ *   8.  seedUSStates              State catalog (codes + names + lottery defaults)
+ *   9.  seedStateSurchargeRules   dual-pricing policy fields per state (NEEDS #8)
+ *   10. seedPricingTiers          PricingTier rows for dual-pricing surcharge
+ *   11. seedProductTours          5 narrated AI walkthroughs (add-product, etc.)
+ *   12. seedLotteryCatalog        per-state scratch ticket catalog
+ *   13. seedAiKnowledge           AI Assistant KB (40 articles + embeddings)
  *
  * All seeders are idempotent — safe to re-run on an already-seeded production
  * DB. seedAiKnowledge requires OPENAI_API_KEY (warning logged + step skipped
  * if absent); every other step works without external API keys.
  *
  * Dependency notes:
- *   • #7 (StateSurchargeRules) updates rows created by #6 (USStates) — must
+ *   • #9 (StateSurchargeRules) updates rows created by #8 (USStates) — must
  *     run after.
  *   • #2 (RBAC) writes UserRole rows that reference the superadmin from #1
  *     via syncUserDefaultRole — must run after.
+ *   • #3 (PlanModules) creates the SubscriptionPlan rows that vendor activation
+ *     uses to gate sidebar access — must run before any vendor onboarding.
  *   • Everything else is independent and only the listed order is preserved
  *     for predictable logs.
  *
@@ -79,6 +89,13 @@ const DRY_RUN           = args.includes('--dry-run');
 const STEPS = [
   { file: 'seedAdmin.ts',                label: 'Superadmin user' },
   { file: 'seedRbac.ts',                 label: 'RBAC permissions + system roles' },
+  // S78 — sidebar-module catalog + the 3 default SubscriptionPlans
+  // (Starter/Growth/Enterprise) with module entitlements. Drives plan-based
+  // sidebar gating + the marketing /pricing page + vendor activation.
+  { file: 'seedPlanModules.ts',          label: 'Plan modules + default subscription plans' },
+  // S77 — default merchant agreement template (v1 published). Required for
+  // the vendor-onboarding contract pipeline (admin Generate Contract flow).
+  { file: 'seedContractTemplates.ts',    label: 'Default merchant agreement contract template' },
   { file: 'seedDeptAttributes.ts',       label: 'Department attribute presets' },
   { file: 'seedVendorTemplates.ts',      label: 'Vendor CSV import templates' },
   { file: 'seedTobaccoManufacturers.ts', label: 'Tobacco manufacturer catalog (Altria/RJR/ITG)' },

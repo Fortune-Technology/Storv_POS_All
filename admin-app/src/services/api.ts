@@ -653,3 +653,75 @@ export type {
   ImageRehostStatus, ImageRehostResult,
 };
 // S77 — VendorOnboardingRecord is already exported at its declaration above.
+
+// ─────────────────────────────────────────────────
+// S78 — Plans + Modules (feature gating)
+// ─────────────────────────────────────────────────
+export interface PlatformModuleRecord {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  icon: string | null;
+  routePaths: string[];
+  isCore: boolean;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PlanModuleAssignment {
+  planId: string;
+  moduleId: string;
+  module?: PlatformModuleRecord;
+}
+export interface SubscriptionPlanRecord {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  description: string | null;
+  basePrice: number | string;
+  annualPrice: number | string | null;
+  isCustomPriced: boolean;
+  currency: string;
+  pricePerStore: number | string;
+  pricePerRegister: number | string;
+  includedStores: number;
+  includedRegisters: number;
+  maxUsers: number | null;
+  trialDays: number;
+  isPublic: boolean;
+  isActive: boolean;
+  highlighted: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { modules?: number; subscriptions?: number };
+  modules?: PlanModuleAssignment[];
+}
+
+// S78 — namespace prefix `Sub` to avoid collision with the older billing-side
+// adminListPlans/adminCreatePlan etc that target /admin/billing/plans (legacy).
+// These S78 helpers target /admin/plans which carries module assignment.
+export const adminListSubPlans = (): Promise<{ plans: SubscriptionPlanRecord[] }> =>
+  api.get('/admin/plans').then(r => r.data);
+export const adminGetSubPlan = (id: string): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.get(`/admin/plans/${id}`).then(r => r.data);
+export const adminCreateSubPlan = (data: Partial<SubscriptionPlanRecord> & { moduleIds?: string[] }): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.post('/admin/plans', data).then(r => r.data);
+export const adminUpdateSubPlan = (id: string, data: Partial<SubscriptionPlanRecord> & { moduleIds?: string[] }): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.patch(`/admin/plans/${id}`, data).then(r => r.data);
+export const adminDeleteSubPlan = (id: string): Promise<{ success: true }> =>
+  api.delete(`/admin/plans/${id}`).then(r => r.data);
+
+export const adminListPlatformModules = (): Promise<{ modules: PlatformModuleRecord[]; grouped: Record<string, PlatformModuleRecord[]> }> =>
+  api.get('/admin/modules').then(r => r.data);
+export const adminCreatePlatformModule = (data: Partial<PlatformModuleRecord>): Promise<{ module: PlatformModuleRecord }> =>
+  api.post('/admin/modules', data).then(r => r.data);
+export const adminUpdatePlatformModule = (id: string, data: Partial<PlatformModuleRecord>): Promise<{ module: PlatformModuleRecord }> =>
+  api.patch(`/admin/modules/${id}`, data).then(r => r.data);
+export const adminDeletePlatformModule = (id: string): Promise<{ success: true }> =>
+  api.delete(`/admin/modules/${id}`).then(r => r.data);
