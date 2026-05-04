@@ -391,9 +391,40 @@ jobs:
             console.log('::notice::Auto-bumped cashier-app version → ' + newVersion);
           "
 
+      # ──────────────────────────────────────────────────────────────────────
+      # Write .env.production on the runner.
+      # The local copy is in .gitignore (so dev machines can override locally
+      # without leaking creds), so CI must materialize it before `vite build`.
+      # Without this, VITE_API_URL falls back to '/api' inside the Electron
+      # bundle, which resolves to file:///C:/api/... on Windows install and
+      # every API call ERR_FILE_NOT_FOUND. These URLs are public endpoints
+      # (no secrets), safe to commit in the workflow.
+      # ──────────────────────────────────────────────────────────────────────
+      - name: Materialize .env.production for build
+        working-directory: cashier-app
+        shell: bash
+        run: |
+          cat > .env.production <<'EOF'
+          VITE_API_URL=https://test.api.storeveu.com/api
+          VITE_PORTAL_URL=https://test.dashboard.storeveu.com
+          EOF
+          echo "→ .env.production contents:"
+          cat .env.production
+
       - name: Build Vite + Electron installer
         working-directory: cashier-app
         run: npx vite build && npx electron-builder --publish never
+
+      - name: Verify API URL was baked into bundle
+        working-directory: cashier-app
+        shell: bash
+        run: |
+          if grep -qo "https://test\.api\.storeveu\.com/api" dist/assets/index-*.js; then
+            echo "✓ Production API URL baked into bundle"
+          else
+            echo "::error::VITE_API_URL did NOT make it into the bundle — installer would 404"
+            exit 1
+          fi
 
       - name: Find installer + auto-update artifacts
         id: find-exe
