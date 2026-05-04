@@ -9,8 +9,9 @@ import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Link2, Unlink, Settings, ShoppingBag, BarChart3, RefreshCw, Copy,
   Clock, AlertCircle, CheckCircle2, XCircle, ChevronDown, ChevronUp,
-  Loader2, Download, Timer, Truck, User,
+  Loader2, Download, Timer, Truck, User, Sliders,
 } from 'lucide-react';
+import MarketplacePricingDrawer from '../components/MarketplacePricingDrawer';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -166,6 +167,7 @@ function PlatformCard({ platformKey, data, onRefresh }) {
   const [creds, setCreds] = useState({});
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);  // S71 — pricing drawer
 
   const isConnected = data.connected;
   const status = data.status || (isConnected ? 'connected' : 'disconnected');
@@ -293,6 +295,9 @@ function PlatformCard({ platformKey, data, onRefresh }) {
             <Clock size={13} /> Last sync: {fmtDate(data.lastSync)}
           </div>
           <div className="ih-connected-actions">
+            <button className="p-btn p-btn-primary p-btn-sm" onClick={() => setPricingOpen(true)} disabled={busy} title="Configure pricing, rounding, exclusions">
+              <Sliders size={13} /> Pricing &amp; Sync
+            </button>
             <button className="p-btn p-btn-secondary p-btn-sm" onClick={handleSync} disabled={busy}>
               {busy ? <Loader2 size={13} /> : <RefreshCw size={13} />} Sync Now
             </button>
@@ -313,6 +318,17 @@ function PlatformCard({ platformKey, data, onRefresh }) {
           </button>
         </div>
       </div>
+
+      {/* S71 — pricing drawer (only for connected live platforms) */}
+      {isConnected && (
+        <MarketplacePricingDrawer
+          open={pricingOpen}
+          onClose={() => setPricingOpen(false)}
+          platformKey={platformKey}
+          platformMeta={meta}
+          onSaved={onRefresh}
+        />
+      )}
     </div>
   );
 }
@@ -757,6 +773,7 @@ function AnalyticsTab({ connectedKeys }) {
   const platformStats = data?.platformStats || {};
   const dailyTrend = data?.dailyTrend || [];
   const topItems = data?.topItems || [];
+  const pricingByPlatform = data?.pricingByPlatform || {};  // S71b — current pricing snapshot
 
   // Build bar chart data from platformStats
   const barData = Object.entries(platformStats).map(([key, stats]) => ({
@@ -832,6 +849,58 @@ function AnalyticsTab({ connectedKeys }) {
               );
             })}
           </div>
+
+          {/* S71b — Pricing snapshot per platform */}
+          {Object.keys(pricingByPlatform).length > 0 && (
+            <div className="ih-pricing-snapshot">
+              <div className="ih-pricing-snapshot-header">
+                <strong>Current pricing configuration</strong>
+                <span className="ih-pricing-snapshot-hint">What's being pushed to each marketplace right now</span>
+              </div>
+              <div className="ih-pricing-snapshot-grid">
+                {Object.entries(pricingByPlatform).map(([key, pc]) => {
+                  const m = PLATFORM_META[key] || {};
+                  return (
+                    <div key={key} className="ih-pricing-snapshot-card" style={{ borderLeft: `3px solid ${m.color || '#888'}` }}>
+                      <div className="ih-pricing-snapshot-name">{m.name || key}</div>
+                      <div className="ih-pricing-snapshot-rows">
+                        <div className="ih-pricing-snapshot-row">
+                          <span>Markup</span>
+                          <strong>{Number(pc.markupPercent || 0).toFixed(2)}%{pc.categoryOverrideCount > 0 ? ` (+${pc.categoryOverrideCount} dept)` : ''}</strong>
+                        </div>
+                        <div className="ih-pricing-snapshot-row">
+                          <span>Rounding</span>
+                          <strong>{pc.roundingMode || 'none'}</strong>
+                        </div>
+                        <div className="ih-pricing-snapshot-row">
+                          <span>Inventory</span>
+                          <strong style={{ color: pc.inventorySyncEnabled ? '#16a34a' : '#dc2626' }}>
+                            {pc.inventorySyncEnabled ? `On · ${pc.syncMode}` : 'OFF'}
+                          </strong>
+                        </div>
+                        {(pc.excludedDepartmentCount > 0 || pc.excludedProductCount > 0) && (
+                          <div className="ih-pricing-snapshot-row">
+                            <span>Excluded</span>
+                            <strong>
+                              {pc.excludedDepartmentCount > 0 ? `${pc.excludedDepartmentCount} dept` : ''}
+                              {pc.excludedDepartmentCount > 0 && pc.excludedProductCount > 0 ? ', ' : ''}
+                              {pc.excludedProductCount > 0 ? `${pc.excludedProductCount} prod` : ''}
+                            </strong>
+                          </div>
+                        )}
+                        {pc.minMarginPercent > 0 && (
+                          <div className="ih-pricing-snapshot-row">
+                            <span>Min margin</span>
+                            <strong>{pc.minMarginPercent}%</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Charts row */}
           <div className="ih-charts-row">

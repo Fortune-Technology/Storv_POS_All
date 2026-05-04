@@ -9,8 +9,124 @@ import type { Request, Response, NextFunction } from 'express';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import { getPlatformAdapter, PLATFORMS, type PlatformCredentials } from '../services/platforms/index.js';
-import { pushInventory } from '../services/inventorySyncService.js';
+import { pushInventory, previewMarketplaceImpact } from '../services/inventorySyncService.js';
 import { logAudit } from '../services/auditService.js';
+import {
+  normalizeConfig as normalizePricingConfig,
+  type MarketplacePricingConfig,
+  type RoundingMode,
+  type SyncMode,
+} from '../services/marketplaceMarkup.js';
+
+// ── Pricing config validation ────────────────────────────────────────────────
+
+const VALID_ROUNDING: RoundingMode[] = [
+  'none', 'nearest_dollar', 'nearest_half', 'charm_99', 'charm_95', 'psych_smart',
+];
+const VALID_SYNC_MODES: SyncMode[] = ['all', 'in_stock_only', 'active_promos_only'];
+
+/**
+ * Validate + sanitize incoming pricingConfig before persisting.
+ * Throws { status, message } on invalid input.
+ */
+function validatePricingConfig(raw: unknown): MarketplacePricingConfig {
+  if (raw == null || typeof raw !== 'object') {
+    throw { status: 400, message: 'pricingConfig must be an object' };
+  }
+  const c = raw as Record<string, unknown>;
+  const out: MarketplacePricingConfig = {};
+
+  // markupPercent: number, -100 to 1000 (allow large markups + small discounts)
+  if (c.markupPercent !== undefined) {
+    const n = Number(c.markupPercent);
+    if (!Number.isFinite(n) || n < -100 || n > 1000) {
+      throw { status: 400, message: 'markupPercent must be a number between -100 and 1000' };
+    }
+    out.markupPercent = Math.round(n * 100) / 100; // 2dp precision
+  }
+
+  // categoryMarkups: Record<string, number>
+  if (c.categoryMarkups !== undefined) {
+    if (typeof c.categoryMarkups !== 'object' || Array.isArray(c.categoryMarkups)) {
+      throw { status: 400, message: 'categoryMarkups must be an object' };
+    }
+    const map: Record<string, number> = {};
+    for (const [key, val] of Object.entries(c.categoryMarkups as Record<string, unknown>)) {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < -100 || n > 1000) {
+        throw { status: 400, message: `categoryMarkups[${key}] must be a number between -100 and 1000` };
+      }
+      map[String(key)] = Math.round(n * 100) / 100;
+    }
+    out.categoryMarkups = map;
+  }
+
+  // roundingMode: enum
+  if (c.roundingMode !== undefined) {
+    if (typeof c.roundingMode !== 'string' || !VALID_ROUNDING.includes(c.roundingMode as RoundingMode)) {
+      throw { status: 400, message: `roundingMode must be one of: ${VALID_ROUNDING.join(', ')}` };
+    }
+    out.roundingMode = c.roundingMode as RoundingMode;
+  }
+
+  // inventorySyncEnabled: boolean
+  if (c.inventorySyncEnabled !== undefined) {
+    if (typeof c.inventorySyncEnabled !== 'boolean') {
+      throw { status: 400, message: 'inventorySyncEnabled must be a boolean' };
+    }
+    out.inventorySyncEnabled = c.inventorySyncEnabled;
+  }
+
+  // syncMode: enum
+  if (c.syncMode !== undefined) {
+    if (typeof c.syncMode !== 'string' || !VALID_SYNC_MODES.includes(c.syncMode as SyncMode)) {
+      throw { status: 400, message: `syncMode must be one of: ${VALID_SYNC_MODES.join(', ')}` };
+    }
+    out.syncMode = c.syncMode as SyncMode;
+  }
+
+  // excludedDepartmentIds / excludedProductIds: arrays of (string | number)
+  for (const field of ['excludedDepartmentIds', 'excludedProductIds'] as const) {
+    if (c[field] !== undefined) {
+      if (!Array.isArray(c[field])) {
+        throw { status: 400, message: `${field} must be an array` };
+      }
+      const arr = (c[field] as unknown[]).map((v) => {
+        if (typeof v === 'string' || typeof v === 'number') return v;
+        throw { status: 400, message: `${field} entries must be strings or numbers` };
+      });
+      out[field] = arr as (string | number)[];
+    }
+  }
+
+  // minMarginPercent: 0 to 100
+  if (c.minMarginPercent !== undefined) {
+    const n = Number(c.minMarginPercent);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      throw { status: 400, message: 'minMarginPercent must be a number between 0 and 100' };
+    }
+    out.minMarginPercent = Math.round(n * 100) / 100;
+  }
+
+  // taxInclusive: boolean
+  if (c.taxInclusive !== undefined) {
+    if (typeof c.taxInclusive !== 'boolean') {
+      throw { status: 400, message: 'taxInclusive must be a boolean' };
+    }
+    out.taxInclusive = c.taxInclusive;
+  }
+
+  // prepTimeMinutes: 0 to 240 (4 hours max — sanity)
+  if (c.prepTimeMinutes !== undefined) {
+    const n = Number(c.prepTimeMinutes);
+    if (!Number.isFinite(n) || n < 0 || n > 240) {
+      throw { status: 400, message: 'prepTimeMinutes must be a number between 0 and 240' };
+    }
+    out.prepTimeMinutes = Math.round(n);
+  }
+
+  return out;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +280,9 @@ export const disconnectPlatform = async (req: Request, res: Response, next: Next
 
 /**
  * GET /api/integrations/settings/:platform
+ *
+ * Returns the integration's three config blobs. `pricingConfig` is normalized
+ * (defaults filled in) so the frontend always sees a complete shape.
  */
 export const getSettings = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -172,7 +291,10 @@ export const getSettings = async (req: Request, res: Response, next: NextFunctio
 
     const integration = await prisma.storeIntegration.findUnique({
       where: { storeId_platform: { storeId, platform } },
-      select: { id: true, config: true, inventoryConfig: true, status: true, storeName: true },
+      select: {
+        id: true, config: true, inventoryConfig: true, pricingConfig: true,
+        status: true, storeName: true,
+      },
     });
 
     if (!integration) {
@@ -180,24 +302,33 @@ export const getSettings = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    res.json(integration);
+    // Normalize pricingConfig so callers see the full shape with defaults
+    const pricingConfig = normalizePricingConfig(
+      (integration.pricingConfig as unknown as MarketplacePricingConfig) ?? {},
+    );
+
+    res.json({ ...integration, pricingConfig });
   } catch (err) { next(err); }
 };
 
 interface UpdateSettingsBody {
   config?: Record<string, unknown>;
   inventoryConfig?: Record<string, unknown>;
+  pricingConfig?: Record<string, unknown>;
 }
 
 /**
  * PUT /api/integrations/settings/:platform
+ *
+ * Accepts partial updates to any of the three config blobs. `pricingConfig`
+ * is validated against `marketplaceMarkup` schema; bad input → 400.
  */
 export const updateSettings = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const orgId = req.orgId;
     const storeId = req.storeId as string;
     const { platform } = req.params;
-    const { config, inventoryConfig } = req.body as UpdateSettingsBody;
+    const { config, inventoryConfig, pricingConfig } = req.body as UpdateSettingsBody;
 
     const existing = await prisma.storeIntegration.findUnique({
       where: { storeId_platform: { storeId, platform } },
@@ -212,6 +343,21 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
     if (config !== undefined) data.config = config as Prisma.InputJsonValue;
     if (inventoryConfig !== undefined) data.inventoryConfig = inventoryConfig as Prisma.InputJsonValue;
 
+    // S71 — pricingConfig validation
+    if (pricingConfig !== undefined) {
+      try {
+        const validated = validatePricingConfig(pricingConfig);
+        // Merge with existing so partial updates don't wipe other fields
+        const existingPricing = (existing.pricingConfig as unknown as MarketplacePricingConfig) ?? {};
+        const merged: MarketplacePricingConfig = { ...existingPricing, ...validated };
+        data.pricingConfig = merged as Prisma.InputJsonValue;
+      } catch (err) {
+        const e = err as { status?: number; message?: string };
+        res.status(e.status || 400).json({ error: e.message || 'Invalid pricingConfig' });
+        return;
+      }
+    }
+
     const updated = await prisma.storeIntegration.update({
       where: { storeId_platform: { storeId, platform } },
       data,
@@ -222,7 +368,11 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
       fields: Object.keys(data),
     });
 
-    res.json(updated);
+    // Return with normalized pricingConfig for UI consistency
+    const responsePricing = normalizePricingConfig(
+      (updated.pricingConfig as unknown as MarketplacePricingConfig) ?? {},
+    );
+    res.json({ ...updated, pricingConfig: responsePricing });
   } catch (err) { next(err); }
 };
 
@@ -277,6 +427,66 @@ export const syncInventory = async (req: Request, res: Response, next: NextFunct
     }
     next(err);
   }
+};
+
+/**
+ * POST /api/integrations/preview-impact
+ *
+ * Dry-run the pricingConfig pipeline against all of a store's products without
+ * actually pushing to the marketplace. Used by the drawer's "Preview impact"
+ * button so the user sees exactly what the next sync would do BEFORE saving.
+ *
+ * Body:
+ *   { platform, storeId, pricingConfig? }
+ *     pricingConfig is optional — when supplied, the dry-run uses it instead of
+ *     the saved config (lets the user preview unsaved edits).
+ */
+export const previewSyncImpact = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const orgId = req.orgId as string;
+    const { platform, storeId, pricingConfig } = req.body as {
+      platform?: string;
+      storeId?: string;
+      pricingConfig?: unknown;
+    };
+
+    if (!platform || !storeId) {
+      res.status(400).json({ error: 'platform and storeId are required' });
+      return;
+    }
+
+    const integration = await prisma.storeIntegration.findUnique({
+      where: { storeId_platform: { storeId, platform } },
+    });
+
+    if (!integration || integration.orgId !== orgId) {
+      res.status(404).json({ error: 'Integration not found' });
+      return;
+    }
+
+    // If a pricingConfig override was supplied, validate it before previewing
+    let overrideConfig: MarketplacePricingConfig | undefined;
+    if (pricingConfig !== undefined) {
+      try {
+        overrideConfig = validatePricingConfig(pricingConfig);
+      } catch (err) {
+        const e = err as { status?: number; message?: string };
+        res.status(e.status || 400).json({ error: e.message || 'Invalid pricingConfig' });
+        return;
+      }
+    }
+
+    try {
+      const result = await previewMarketplaceImpact(orgId, storeId, platform, overrideConfig);
+      res.json(result);
+    } catch (innerErr) {
+      // Surface the real error to the response in dev for debugging
+      const msg = innerErr instanceof Error ? innerErr.message : String(innerErr);
+      console.error('[previewSyncImpact] failure:', msg);
+      res.status(500).json({ error: msg });
+      return;
+    }
+  } catch (err) { next(err); }
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -538,6 +748,47 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
       },
     });
 
+    // S71 — load pricingConfig snapshot per active platform so the analytics
+    // tab can show what markup/rounding/exclusions are currently in effect
+    // alongside revenue.
+    const integrationsForSnapshot = storeId
+      ? await prisma.storeIntegration.findMany({
+          where: { orgId, storeId },
+          select: { platform: true, pricingConfig: true, lastSyncAt: true, status: true },
+        })
+      : [];
+    const pricingByPlatform: Record<string, {
+      markupPercent:        number;
+      roundingMode:         string;
+      categoryOverrideCount: number;
+      excludedDepartmentCount: number;
+      excludedProductCount:    number;
+      inventorySyncEnabled: boolean;
+      syncMode:             string;
+      minMarginPercent:     number;
+      lastSyncAt:           Date | null;
+      status:               string;
+    }> = {};
+    for (const itg of integrationsForSnapshot) {
+      const pc = normalizePricingConfig(
+        (itg.pricingConfig as unknown as MarketplacePricingConfig) ?? {},
+      );
+      pricingByPlatform[itg.platform] = {
+        markupPercent:           pc.markupPercent,
+        roundingMode:            pc.roundingMode,
+        categoryOverrideCount:   Object.keys(pc.categoryMarkups || {}).filter(
+          (k) => pc.categoryMarkups[k] !== 0,
+        ).length,
+        excludedDepartmentCount: pc.excludedDepartmentIds.length,
+        excludedProductCount:    pc.excludedProductIds.length,
+        inventorySyncEnabled:    pc.inventorySyncEnabled,
+        syncMode:                pc.syncMode,
+        minMarginPercent:        pc.minMarginPercent,
+        lastSyncAt:              itg.lastSyncAt,
+        status:                  itg.status,
+      };
+    }
+
     type OrderRow = (typeof orders)[number];
 
     // Per-platform aggregation
@@ -596,6 +847,11 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
       ? Math.round((totals.revenue / totals.orderCount) * 100) / 100
       : 0;
 
-    res.json({ totals, byPlatform: platformSummary, dailyBreakdown });
+    res.json({
+      totals,
+      byPlatform: platformSummary,
+      dailyBreakdown,
+      pricingByPlatform,  // S71 — current pricingConfig snapshot per platform
+    });
   } catch (err) { next(err); }
 };
