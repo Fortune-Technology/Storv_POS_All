@@ -765,6 +765,34 @@
   color: var(--text-muted, #9ca3af);
 }
 
+/* May 2026 — Empty slot placeholder row. Renders between occupied slots
+   so the manager sees gaps at a glance (e.g. slots 1, 3, 5 occupied →
+   placeholders for 2 and 4 inserted between them). Hover-disabled,
+   muted, dashed border to distinguish from real rows. */
+.lbo-cnt-row--empty {
+  background: #fafafa;
+  border-style: dashed;
+  border-color: #d1d5db;
+  opacity: 0.85;
+  cursor: default;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.lbo-cnt-row--empty:hover {
+  background: #fafafa;
+}
+.lbo-cnt-slot--empty {
+  color: #9ca3af;
+  font-weight: 600;
+}
+.lbo-cnt-empty-msg {
+  grid-column: 3 / -1;
+  color: #9ca3af;
+  font-size: 0.74rem;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
 /* Make rows position:relative so the ::before checkmark anchors right */
 .lbo-cnt-row {
   position: relative;
@@ -1570,6 +1598,15 @@
   justify-content: center;
 }
 
+/* May 2026 — Counter rows are siblings in source order, so a popup
+   anchored to row N renders BEHIND rows N+1..end (later siblings paint
+   on top in the same stacking context). Elevate the menu's stacking
+   context only when its popup is mounted (`:has()`) so the popup floats
+   above subsequent rows without needing per-row JS state. */
+.lbo-actmenu:has(.lbo-actmenu-pop) {
+  z-index: 200;
+}
+
 .lbo-actmenu-btn {
   width: 24px;
   height: 24px;
@@ -1599,7 +1636,9 @@
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  z-index: 100;
+  /* Within the elevated `.lbo-actmenu` stacking context (z-index 200 via
+     :has() above), this paints above all sibling rows. */
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;

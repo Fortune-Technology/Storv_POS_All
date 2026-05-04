@@ -151,4 +151,17 @@ export const PLATFORMS: Record<string, PlatformCatalogEntry> = {
     status: 'coming_soon',
     note: 'Merged into Uber Eats — use Uber Eats integration',
   },
+  // S71d — Self-hosted storefront. Not a third-party marketplace, so no creds.
+  // Lives here to reuse the per-marketplace StoreIntegration.pricingConfig
+  // schema, validation, and drawer UI. Settings managed in EcomSetup, NOT in
+  // the IntegrationHub Connections tab. The adapter is a no-op (the actual
+  // sync flows through ecom-backend's separate pipeline, not via syncInventory).
+  storefront: {
+    name: 'Custom Storefront',
+    color: '#3d56b5',
+    logo: '🏪',
+    credentialFields: [],
+    status: 'live',
+    note: 'Settings managed in eCommerce Setup → Pricing tab',
+  },
 };

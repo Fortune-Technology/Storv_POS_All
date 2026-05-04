@@ -384,6 +384,23 @@ h1, h2, h3, h4, h5, h6 {
   100% { transform: translateY(-50%) scale(1); }
 }
 
+/* S74 (F28) — AI marker for AI-driven menu items. Small purple sparkle
+   next to the label so admins recognise which items are AI-powered. */
+.nav-ai-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin-left: 6px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  color: #fff;
+  flex-shrink: 0;
+}
+.nav-ai-badge svg { display: block; }
+
 /* ── TABLES ───────────────────────────────────────────── */
 .table-container {
   overflow-x: auto;

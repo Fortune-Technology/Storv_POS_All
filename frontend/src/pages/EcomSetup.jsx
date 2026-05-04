@@ -10,6 +10,7 @@ import {
   Upload, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, DollarSign, ShoppingCart, TrendingUp, Globe,
 } from 'lucide-react';
 import EcomDomain from './EcomDomain';
+import MarketplacePricingDrawer from '../components/MarketplacePricingDrawer';
 import { useStore } from '../contexts/StoreContext';
 import './EcomSetup.css';
 
@@ -140,6 +141,7 @@ const TABS = [
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'pages', label: 'Pages', icon: FileText },
   { id: 'fulfillment', label: 'Fulfillment', icon: Truck },
+  { id: 'pricing', label: 'Pricing', icon: DollarSign },   // S71d
   { id: 'seo', label: 'SEO & Social', icon: Search },
   { id: 'domain', label: 'Custom Domain', icon: Globe },
 ];
@@ -879,6 +881,29 @@ export default function EcomSetup() {
               </>)}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Pricing — S71d. Self-hosted storefront uses the same per-marketplace
+          pricing config schema as DoorDash/UberEats. Settings persist via
+          `updateIntegrationSettings('storefront', { pricingConfig })`. The
+          embedded drawer auto-creates the StoreIntegration row on first load
+          (lazy init in backend getSettings handler). */}
+      {tab === 'pricing' && (
+        <div className="es-section">
+          <div className="es-section-title">Pricing for the self-hosted storefront</div>
+          <p style={{ color: 'var(--text-muted, #64748b)', fontSize: '0.88rem', marginTop: 0, marginBottom: '1rem' }}>
+            These settings control the prices customers see on your custom website.
+            They mirror the same controls you set per delivery marketplace — markup, rounding,
+            exclusions, sync mode, margin guard, and untracked-stock policy — but apply only
+            to your own storefront.
+          </p>
+          <MarketplacePricingDrawer
+            inline
+            open
+            platformKey="storefront"
+            platformMeta={{ name: 'Custom Storefront', color: '#3d56b5', initial: 'S' }}
+          />
         </div>
       )}
 

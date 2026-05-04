@@ -551,6 +551,32 @@ export default function LotteryBackOffice() {
     }),
   [active]);
 
+  // May 2026 — Insert empty-slot placeholder rows BETWEEN occupied slots
+  // so the manager can see at a glance which slots between min/max are
+  // empty. E.g. occupied slots [1, 3, 6] renders as [1, empty 2, 3, empty
+  // 4, empty 5, 6]. Trailing slots after the last occupied are NOT
+  // padded — that would make the UI grow unbounded with no useful info.
+  // Unassigned books (slotNumber=null) still render at the top via the
+  // sort above; they don't count toward gap detection.
+  const counterWithGaps = useMemo(() => {
+    const result = [];
+    for (let i = 0; i < counterSorted.length; i++) {
+      const cur = counterSorted[i];
+      result.push(cur);
+      const next = counterSorted[i + 1];
+      if (cur.slotNumber == null) continue;
+      if (!next || next.slotNumber == null) continue;
+      const curSlot = Number(cur.slotNumber);
+      const nextSlot = Number(next.slotNumber);
+      if (Number.isFinite(curSlot) && Number.isFinite(nextSlot) && nextSlot - curSlot > 1) {
+        for (let s = curSlot + 1; s < nextSlot; s++) {
+          result.push({ __placeholder: true, id: `__empty-${s}`, slotNumber: s });
+        }
+      }
+    }
+    return result;
+  }, [counterSorted]);
+
   const instantSalesAuto = Number(inventory?.sold || 0);
   // posSold = ticket sales the cashier rang up at the POS (LotteryTransaction
   // sum). un-rung instant cash = max(0, ticket-math sales − POS sales) =
@@ -774,8 +800,15 @@ export default function LotteryBackOffice() {
                 )}
 
                 <div className="lbo-counter-list">
-                  {counterSorted.length === 0 && <div className="lbo-empty">No active books on the counter.</div>}
-                  {counterSorted.map(b => (
+                  {counterWithGaps.length === 0 && <div className="lbo-empty">No active books on the counter.</div>}
+                  {counterWithGaps.map(b => b.__placeholder ? (
+                    <div key={b.id} className="lbo-cnt-row lbo-cnt-row--empty" title={`Slot ${b.slotNumber} is empty`}>
+                      <span />
+                      <span className="lbo-cnt-slot lbo-cnt-slot--empty">{b.slotNumber}</span>
+                      <span className="lbo-cnt-empty-msg">— empty slot —</span>
+                      <span /><span /><span /><span />
+                    </div>
+                  ) : (
                     <CounterRow
                       key={b.id}
                       box={b}
@@ -1068,17 +1101,19 @@ function CounterRow({
   // Apr 2026 — visual state hierarchy so the cashier can see at a glance
   // which rows are scanned vs not:
   //   • dirty     — user has typed unsaved changes (amber, blocks Save All)
-  //   • saved     — today's value was committed AND differs from yesterday
-  //                 (green tint + ✓ marker — actual sales recorded)
-  //   • unchanged — today === yesterday (no movement; muted, low emphasis)
+  //   • saved     — today's value is committed (green ✓ marker)
+  //                 INCLUDES "0 sold today" so the cashier knows every book
+  //                 they've physically counted is accounted for. Without
+  //                 this, the row went muted/grey when today === yesterday
+  //                 and the cashier couldn't tell scanned-but-no-sales apart
+  //                 from never-scanned. Per user direction (May 2026):
+  //                 green = "I confirmed this book today, even if 0 sold".
   //   • untouched — nothing entered + no live currentTicket (lighter still)
-  const yesterdayNum = Number(yesterday);
   const todayNum = Number(todayVal);
   const hasTodayValue = todayVal !== '' && Number.isFinite(todayNum);
-  const hasMovement = hasTodayValue && Number.isFinite(yesterdayNum) && todayNum !== yesterdayNum;
   const rowState = dirty
     ? 'dirty'
-    : (hasMovement ? 'saved' : (hasTodayValue ? 'unchanged' : 'untouched'));
+    : (hasTodayValue ? 'saved' : 'untouched');
 
   return (
     <div className={`lbo-cnt-row lbo-cnt-row--${rowState} ${dirty ? 'dirty' : ''}`}>

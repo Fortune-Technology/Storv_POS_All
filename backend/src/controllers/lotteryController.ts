@@ -2627,19 +2627,31 @@ export const markBoxSoldout = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Resolve the soldout date. parseDate returns UTC-midnight; we shift
-    // to end-of-day so:
-    //   - depletedAt sorts last on the day
-    //   - the close_day_snapshot event we write below is the LATEST event
-    //     for that day → snapshotSales picks our new "fully sold" position
-    //     over any prior same-day snapshot.
-    const dateParsed = dateStr ? parseDate(dateStr) : new Date();
-    if (!dateParsed) {
-      res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
-      return;
+    // Resolve the soldout date — use store-local end-of-day so the
+    // close_day_snapshot event lands inside the store's local-day window
+    // regardless of timezone. Previously hard-coded `setUTCHours(23,59,59,0)`
+    // which worked for negative-offset zones (US) by accident but broke for
+    // positive-offset zones (e.g. NZ, Berlin) where UTC-end-of-day fell into
+    // the WRONG local day's bucket.
+    const store = await prisma.store.findUnique({
+      where: { id: storeId as string },
+      select: { timezone: true },
+    });
+    const tz = store?.timezone || 'UTC';
+    const { localDayEndUTC } = await import('../utils/dateTz.js');
+    let soldoutAt: Date;
+    if (dateStr) {
+      const validated = parseDate(dateStr);
+      if (!validated) {
+        res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+        return;
+      }
+      // Past-date or current-date soldout → end of that day in the store's tz.
+      soldoutAt = localDayEndUTC(dateStr, tz);
+    } else {
+      // No date passed → "now" (live soldout while cashier is at the register).
+      soldoutAt = new Date();
     }
-    const soldoutAt = new Date(dateParsed);
-    soldoutAt.setUTCHours(23, 59, 59, 0);
 
     // sellDirection drives the "fully sold" position. -1 for desc, total
     // for asc. (Per Session 46 user direction: a 150-pack `desc` book
@@ -3668,9 +3680,21 @@ export const getCounterSnapshot = async (req: Request, res: Response): Promise<v
       // dates, it's the closing snapshot for that day (null if the day
       // was never closed).
       const currentTicket = isToday ? (b.currentTicket ?? null) : todayClose;
-      // Display value for "yesterday" — prior close if we have one,
-      // else the book's startTicket (first-day books had no prior close).
-      const openingTicket = yesterdayClose ?? b.startTicket ?? null;
+      // "Yesterday" / opening — must use the SAME fallback chain as the
+      // backend snapshotSales priorPosition() so the per-row sold amount the
+      // frontend computes (yesterday − today) × price equals the per-box
+      // contribution that snapshotSales/inventory.sold reports. Without
+      // `lastShiftEndTicket` in the chain, a book with prior shift activity
+      // but no close_day_snapshot would render the WRONG yesterday → wrong
+      // per-row amount → row sums diverge from the headline daily total.
+      // Chain: yesterdayClose → lastShiftEndTicket → startTicket → null.
+      const lastShiftEndTicket =
+        (b as { lastShiftEndTicket?: string | null }).lastShiftEndTicket ?? null;
+      const openingTicket =
+        yesterdayClose ??
+        lastShiftEndTicket ??
+        b.startTicket ??
+        null;
       return {
         ...b,
         yesterdayClose,
@@ -3725,10 +3749,19 @@ export const upsertHistoricalClose = async (req: Request, res: Response): Promis
       return;
     }
 
-    const dayStart = new Date(date);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setUTCHours(23, 59, 59, 999);
+    // Use store-local-day boundaries so a save for "April 30" lands in the
+    // SAME bucket the back-office reads from (getCounterSnapshot uses
+    // localDayStartUTC/localDayEndUTC). Previously hard-coded UTC boundaries
+    // which mismatched the read window for non-UTC stores → save appeared
+    // to succeed but the page didn't reflect the new value.
+    const store = await prisma.store.findUnique({
+      where: { id: storeId },
+      select: { timezone: true },
+    });
+    const tz = store?.timezone || 'UTC';
+    const { localDayStartUTC, localDayEndUTC } = await import('../utils/dateTz.js');
+    const dayStart = localDayStartUTC(dateStr, tz);
+    const dayEnd = localDayEndUTC(dateStr, tz);
 
     // Find any existing close_day_snapshot for this box on this date
     const existing = await prisma.lotteryScanEvent.findFirst({

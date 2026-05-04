@@ -86,6 +86,10 @@ const ORG_MODULES: ModuleDef[] = [
   { module: 'coupons',         label: 'Manufacturer Coupons', actions: ['view','redeem','manage','approve'],               surface: 'both',         desc: 'Digital coupon redemption at POS. "redeem" is the cashier-side action; "manage" gates catalog import/edit; "approve" is the manager-PIN gate when a coupon exceeds the configured threshold.' },
   // Session 50 — Dual Pricing / Cash Discount model
   { module: 'pricing_model',   label: 'Pricing Model',        actions: ['view'],                                            surface: 'back-office', desc: 'Read-only visibility into the per-store pricing model (Interchange vs Dual Pricing) and current surcharge rates. The "manage" action is admin-scope only — see admin_pricing_model below.' },
+  // S74 — per-store expiry tracking
+  { module: 'expiry',          label: 'Expiry Tracker',       actions: ['view','edit'],                                     surface: 'back-office', desc: 'Per-store product expiry-date tracking. "view" lists products by expiry status (expired / today / soon / approaching / fresh). "edit" lets staff scan or manually set the expiry date and clear tracking.' },
+  // S75 — F28 AI promo suggestions
+  { module: 'promo_suggestions', label: 'AI Promo Suggestions', actions: ['view','generate','approve','reject'],            surface: 'back-office', desc: 'AI-driven promo recommendations review queue. "view" sees the list. "generate" triggers AI analysis (cost-bearing). "approve" creates a real Promotion from a suggestion. "reject" captures feedback for AI training.' },
 ];
 
 // ─── Admin-scoped modules (superadmin panel only) ─────────────────────────
@@ -230,6 +234,10 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       // Session 50 — Read-only visibility into pricing model + surcharge rates.
       // Toggle authority is admin-scope (admin_pricing_model.manage).
       'pricing_model.view',
+      // S74 — Expiry tracker (per-store product expiry-date management)
+      'expiry.view','expiry.edit',
+      // S75 (F28) — AI promo suggestions review queue
+      'promo_suggestions.view','promo_suggestions.generate','promo_suggestions.approve','promo_suggestions.reject',
     ],
   },
   {
@@ -247,6 +255,9 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       // Session 45 — cashiers can scan/redeem coupons at POS (no view of catalog
       // or scan_data dashboard — those are manager+).
       'coupons.redeem',
+      // S74 — cashiers can view expiry tracker (read-only) so they can see
+      // what's expiring on the shelves they work. Edit is manager+.
+      'expiry.view',
     ],
   },
   {

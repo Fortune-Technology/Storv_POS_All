@@ -595,3 +595,69 @@
     align-items: flex-start;
   }
 }
+
+/* ── S71b — Pricing snapshot in Analytics tab ─────────────────────────────── */
+.ih-pricing-snapshot {
+  margin: 1rem 0;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.ih-pricing-snapshot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ih-pricing-snapshot-header strong {
+  font-size: 0.95rem;
+  color: var(--text-primary, #0f172a);
+}
+
+.ih-pricing-snapshot-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+.ih-pricing-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.ih-pricing-snapshot-card {
+  background: var(--bg-tertiary, #f8fafc);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+}
+
+.ih-pricing-snapshot-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.4rem;
+}
+
+.ih-pricing-snapshot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ih-pricing-snapshot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-muted, #64748b);
+}
+
+.ih-pricing-snapshot-row strong {
+  color: var(--text-primary, #0f172a);
+  font-variant-numeric: tabular-nums;
+}
