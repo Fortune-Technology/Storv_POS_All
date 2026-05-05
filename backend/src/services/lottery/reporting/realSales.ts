@@ -60,6 +60,12 @@ interface BoxSnapshotRow {
   // book is brand-new). Prevents catastrophic over-attribution when a SO
   // button is clicked on a book that's been selling for days without EoD.
   lastShiftEndTicket?: string | null;
+  // May 2026 — needed for first-day-of-activation detection. When a book
+  // is activated WITHIN today's window, the EoD wizard's save path also
+  // sets lastShiftEndTicket = today's currentTicket; using that as "prior"
+  // would yield 0 sales for tickets sold today. priorPosition() detects
+  // this case and uses startTicket (the activation position) instead.
+  activatedAt?: Date | null;
   gameId?: string | null;
 }
 
@@ -113,9 +119,10 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     }
   }
 
-  // Need ticketPrice + startTicket + lastShiftEndTicket per box. The fallback
-  // chain (when no prior close_day_snapshot exists) is documented in
-  // priorPosition() below.
+  // Need ticketPrice + startTicket + lastShiftEndTicket + activatedAt per box.
+  // The fallback chain (when no prior close_day_snapshot exists) is documented
+  // in priorPosition() below. activatedAt drives the first-day-of-activation
+  // detection that uses startTicket instead of lastShiftEndTicket as prior.
   const boxes = (await prisma.lotteryBox.findMany({
     where: { id: { in: [...todayMap.keys()] } },
     select: {
@@ -124,6 +131,7 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
       startTicket: true,
       totalTickets: true,
       lastShiftEndTicket: true,
+      activatedAt: true,
     },
   })) as BoxSnapshotRow[];
   const boxMap = new Map<string, BoxSnapshotRow>(boxes.map((b) => [b.id, b]));
@@ -138,25 +146,45 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
    * Resolve the "prior position" for a book when no close_day_snapshot
    * exists before today. Priority chain:
    *
-   *   1. lastShiftEndTicket — the most recent recorded shift-end position
+   *   1. startTicket (FIRST-DAY-OF-ACTIVATION OVERRIDE) — when the book was
+   *      activated within today's window, lastShiftEndTicket is NOT a
+   *      reliable "yesterday" because today's EoD wizard run already set
+   *      it to today's currentTicket. Using lastShiftEndTicket would yield
+   *      0 sales even when tickets were sold today (May 2026 fix —
+   *      Highland Liquors May 4: boxes 132560 + 027714 had startTicket=99
+   *      and 149, sold 5 + 2 tickets → $50 + $2 disappeared because
+   *      lastShiftEndTicket got set to 94 + 147 when the wizard saved).
+   *   2. lastShiftEndTicket — the most recent recorded shift-end position
    *      (saveLotteryShiftReport sets this). Best approximation of where
    *      the book ACTUALLY was at the start of today, even if no daily
-   *      snapshot was written.
-   *   2. startTicket — the book's opening position (used when the book is
-   *      truly fresh / activated today and never closed).
-   *   3. Direction-derived position — for books with no startTicket either
+   *      snapshot was written. Only consulted when the book existed
+   *      BEFORE today.
+   *   3. startTicket — the book's opening position (legacy fallback when
+   *      the book has no lastShiftEndTicket either — typical for very
+   *      old data before the lastShiftEndTicket column existed).
+   *   4. Direction-derived position — for books with no startTicket either
    *      (legacy data); falls back to totalTickets-1 (desc) or 0 (asc).
    *
-   * The previous implementation skipped step 1, which caused the SO button
-   * to over-attribute the FULL pack as today's sales whenever a book had
-   * been selling for days without EoD scans. Example: 100-pack at $10,
-   * pre-SO position 50 (lastShiftEndTicket=50), SO clicked today (snapshot
-   * writes -1). With the old chain: prev=99 (startTicket), today=-1,
-   * sold=100 → $1000. With the new chain: prev=50, today=-1, sold=51 →
-   * $510. Still over-attributes by a bit (SO writes -1 even when not all
-   * remaining tickets sold today), but no longer catastrophically.
+   * The previous implementation skipped step 2 entirely, which caused the
+   * SO button to over-attribute the FULL pack as today's sales whenever a
+   * book had been selling for days without EoD scans. Example: 100-pack
+   * at $10, pre-SO position 50 (lastShiftEndTicket=50), SO clicked today
+   * (snapshot writes -1). With prev=99 (startTicket): sold=100 → $1000.
+   * With prev=50 (lastShiftEndTicket): sold=51 → $510. So step 2 still
+   * wins for books that existed before today.
    */
   function priorPosition(box: BoxSnapshotRow): string | null {
+    // Step 1: first-day-of-activation override
+    if (
+      box.activatedAt &&
+      box.activatedAt >= dayStart &&
+      box.activatedAt <= dayEnd &&
+      box.startTicket != null &&
+      box.startTicket !== ''
+    ) {
+      return box.startTicket;
+    }
+    // Step 2-4: original chain
     if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '')
       return box.lastShiftEndTicket;
     if (box.startTicket != null) return box.startTicket;
@@ -210,6 +238,7 @@ export async function liveSalesFromCurrentTickets(args: {
       currentTicket: true,
       startTicket: true,
       lastShiftEndTicket: true,
+      activatedAt: true,
       gameId: true,
     },
   })) as BoxSnapshotRow[];
@@ -251,7 +280,19 @@ export async function liveSalesFromCurrentTickets(args: {
     // startTicket when both exist; startTicket beats direction-derived
     // fallback. Without this, a SO click on a long-active book would
     // attribute its full pack as "sold today".
+    //
+    // May 2026 — first-day-of-activation override: when the book was
+    // activated within today's window AND has no prior snapshot, prefer
+    // startTicket over lastShiftEndTicket. The wizard's same-day save
+    // sets lastShiftEndTicket = today's currentTicket, which would yield
+    // 0 sales here. Mirror of the fix in snapshotSales.priorPosition().
     let prev: number | null | undefined = priorByBox.get(b.id);
+    const activatedToday =
+      b.activatedAt != null &&
+      b.activatedAt >= dayStart;
+    if (prev == null && activatedToday && b.startTicket != null && b.startTicket !== '') {
+      prev = Number(b.startTicket);
+    }
     if (prev == null && b.lastShiftEndTicket != null && b.lastShiftEndTicket !== '') {
       prev = Number(b.lastShiftEndTicket);
     }
@@ -438,6 +479,7 @@ export async function shiftSales(args: {
       startTicket: true,
       totalTickets: true,
       lastShiftEndTicket: true,
+      activatedAt: true,
     },
   })) as BoxSnapshotRow[];
   if (!boxes.length) return { totalSales: 0, source: 'empty' };
@@ -499,7 +541,16 @@ export async function shiftSales(args: {
     }
     if (!startTicketStr) {
       // Same priority chain as snapshotSales.priorPosition()
-      if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '') {
+      // May 2026 — first-day-of-activation override: when the book was
+      // activated AFTER the shift opened, the starting position for THIS
+      // shift is the activation position (startTicket), not the stale
+      // lastShiftEndTicket. Without this, a book activated and sold from
+      // mid-shift contributes 0 to the shift's sales.
+      const activatedDuringShift =
+        box.activatedAt != null && box.activatedAt > openedAt;
+      if (activatedDuringShift && box.startTicket != null && box.startTicket !== '') {
+        startTicketStr = box.startTicket;
+      } else if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '') {
         startTicketStr = box.lastShiftEndTicket;
       } else if (box.startTicket != null) {
         startTicketStr = box.startTicket;

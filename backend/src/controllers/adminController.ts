@@ -22,7 +22,11 @@ import {
   type TicketSummary,
 } from '../services/emailService.js';
 import { sendImplementationPinEmail } from '../services/notifications/email.js';
-import { grantHardwareAccess, revokeHardwareAccess } from '../services/implementationPin/service.js';
+import {
+  grantHardwareAccess, revokeHardwareAccess,
+  assignHardwareConfiguratorRole, removeHardwareConfiguratorRole,
+  syncHardwareAccessForUser,
+} from '../services/implementationPin/service.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { logAudit } from '../services/auditService.js';
 import { computeDiff, hasChanges } from '../services/auditDiff.js';
@@ -442,22 +446,47 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
       select: { id: true, name: true, email: true, role: true, status: true, orgId: true, canConfigureHardware: true },
     });
 
-    // S78 — handle the canConfigureHardware flip AFTER the main update so
-    // the order stays clean. grantHardwareAccess is idempotent (no-op if
-    // already true) and revokeHardwareAccess is safe on a user that
-    // never had it granted.
+    // S(rbac-hardware) — the toggle is now a shortcut for assigning /
+    // un-assigning the built-in "Hardware Configurator" role. RBAC stays
+    // the source of truth; the boolean flag is a cache kept in sync by
+    // syncHardwareAccessForUser. Falls back to the legacy direct-flag-flip
+    // when the role row doesn't exist (i.e. seedRbac hasn't been run yet)
+    // so a fresh deploy doesn't break the toggle.
     if (canConfigureHardware !== undefined && canConfigureHardware !== before?.canConfigureHardware) {
+      let viaRole = false;
       if (canConfigureHardware) {
-        const newPin = await grantHardwareAccess(user.id);
-        if (newPin) {
-          // Fire welcome email — best-effort; the panel still surfaces the
-          // PIN at /users/me/implementation-pin so a missed email isn't fatal.
-          sendImplementationPinEmail(user.email, user.name, newPin, 'granted').catch((err) =>
+        viaRole = await assignHardwareConfiguratorRole(user.id);
+      } else {
+        viaRole = await removeHardwareConfiguratorRole(user.id);
+      }
+
+      if (viaRole) {
+        // Reconcile flag + PIN with the freshly-changed role state. Returns
+        // the plaintext PIN when newly granted so we can email it.
+        const sync = await syncHardwareAccessForUser(user.id).catch((err) => {
+          console.warn('[adminController.updateUser] sync failed:', (err as Error).message);
+          return null;
+        });
+        if (sync?.granted && sync.pin && sync.user) {
+          sendImplementationPinEmail(sync.user.email, sync.user.name, sync.pin, 'granted').catch((err) =>
             console.warn('[adminController.updateUser] grant email failed:', (err as Error).message)
           );
         }
       } else {
-        await revokeHardwareAccess(user.id);
+        // Role row not seeded — fall back to the legacy direct-flag flow so
+        // the admin toggle still works. Run `node prisma/seedRbac.js` to
+        // promote this to the role-based path.
+        console.warn('[adminController.updateUser] hardware-configurator role missing — using legacy direct flag flip. Run seedRbac.');
+        if (canConfigureHardware) {
+          const newPin = await grantHardwareAccess(user.id);
+          if (newPin) {
+            sendImplementationPinEmail(user.email, user.name, newPin, 'granted').catch((err) =>
+              console.warn('[adminController.updateUser] grant email failed:', (err as Error).message)
+            );
+          }
+        } else {
+          await revokeHardwareAccess(user.id);
+        }
       }
     }
 

@@ -145,6 +145,37 @@ async function main() {
     console.log(`      ${role.padEnd(12)} → ${count} user${count !== 1 ? 's' : ''}`);
   }
 
+  // 5. S(rbac-hardware) — backfill: every user with canConfigureHardware=true
+  //    needs a UserRole row pointing at the "Hardware Configurator" role so
+  //    runtime permission checks line up with the legacy direct-flag state.
+  //    Without this, the JIT sync on /me/implementation-pin would compute
+  //    "no permission" → wipe their PIN on next admin-panel visit.
+  console.log('→ Backfilling Hardware Configurator role for legacy flag holders…');
+  const hwRole = await prisma.role.findFirst({
+    where: { orgId: null, key: 'hardware-configurator', isSystem: true },
+    select: { id: true },
+  });
+  if (!hwRole) {
+    console.log('  ⚠ Hardware Configurator role missing — backfill skipped');
+  } else {
+    const flagHolders = await prisma.user.findMany({
+      where: { canConfigureHardware: true },
+      select: { id: true, email: true },
+    });
+    let added = 0, alreadyHeld = 0;
+    for (const u of flagHolders) {
+      const existing = await prisma.userRole.findUnique({
+        where: { userId_roleId: { userId: u.id, roleId: hwRole.id } },
+      });
+      if (existing) { alreadyHeld++; continue; }
+      await prisma.userRole.create({
+        data: { userId: u.id, roleId: hwRole.id },
+      });
+      added++;
+    }
+    console.log(`  ✓ Hardware Configurator backfill: ${added} added, ${alreadyHeld} already held (${flagHolders.length} legacy flag holders)`);
+  }
+
   console.log('✓ RBAC seed complete.');
 }
 

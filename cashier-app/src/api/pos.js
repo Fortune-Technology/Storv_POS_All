@@ -499,6 +499,36 @@ export const dejavooMerchantStatus = (storeId) =>
   }).then(r => r.data);
 
 /**
+ * Get the FULL Dejavoo merchant config for THIS store (with secrets masked)
+ * so the Hardware Settings modal can pre-populate fields. Admin/superadmin
+ * only — server-side `authorize('admin','superadmin')` gate. Modal also
+ * re-prompts for admin password before opening.
+ *
+ * @param {string} storeId  The active cashier's storeId.
+ */
+export const dejavooGetMerchantSetup = (storeId) =>
+  api.get('/payment/dejavoo/merchant-setup', {
+    headers: storeId ? { 'X-Store-Id': storeId } : undefined,
+  }).then(r => r.data);
+
+/**
+ * Save the Dejavoo merchant config for THIS store. Body fields:
+ *   spinTpn, spinAuthKey, spinRegisterId, spinBaseUrl, environment,
+ *   ebtEnabled, debitEnabled
+ *
+ * Auth key is sent in plaintext over the JWT-protected HTTPS channel and
+ * encrypted at rest server-side via cryptoVault. Sensitive changes
+ * (TPN / auth key / env / base URL) drop status back to `pending`.
+ *
+ * @param {string} storeId  The active cashier's storeId.
+ * @param {object} body     Patch fields. Omit a field to leave it unchanged.
+ */
+export const dejavooSaveMerchantSetup = (storeId, body) =>
+  api.patch('/payment/dejavoo/merchant-setup', body, {
+    headers: storeId ? { 'X-Store-Id': storeId } : undefined,
+  }).then(r => r.data);
+
+/**
  * Prompt the customer on the Dejavoo terminal to enter their phone number,
  * then look up the matching Customer record. Used for instant loyalty lookup
  * while the cashier is scanning products.

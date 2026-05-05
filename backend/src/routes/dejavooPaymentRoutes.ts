@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, authorize } from '../middleware/auth.js';
 import {
   dejavooSale,
   dejavooRefund,
@@ -18,6 +18,8 @@ import {
   dejavooSettle,
   dejavooMerchantStatus,
   dejavooLookupCustomer,
+  dejavooGetMerchantSetup,
+  dejavooSaveMerchantSetup,
   // Customer-facing display methods (cosmetic UX — failures non-fatal).
   dejavooPushCart,
   dejavooPushWelcome,
@@ -61,5 +63,12 @@ router.post('/display/clear',    dejavooClearDisplay);        // reset display
 
 // ── Read-only status for portal (no secrets exposed) ─────────────────────────
 router.get('/merchant-status',  dejavooMerchantStatus);
+
+// ── Cashier-side setup (Hardware Settings modal — admin/superadmin only) ────
+// GET requires admin too because the read response includes secret previews
+// (last-4 of the auth key). The modal's UI re-prompts for admin password
+// before opening; this is the server-side enforcement.
+router.get(  '/merchant-setup', authorize('admin', 'superadmin'), dejavooGetMerchantSetup);
+router.patch('/merchant-setup', authorize('admin', 'superadmin'), dejavooSaveMerchantSetup);
 
 export default router;

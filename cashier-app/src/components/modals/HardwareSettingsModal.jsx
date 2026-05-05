@@ -12,8 +12,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Loader, Shield, ChevronDown, ChevronUp, Printer,
   Scale, Tag, Check, AlertCircle, RefreshCw, Eye, EyeOff,
+  CreditCard,
 } from 'lucide-react';
-import { loginWithPassword, saveHardwareConfig } from '../../api/pos.js';
+import {
+  loginWithPassword, saveHardwareConfig,
+  dejavooGetMerchantSetup, dejavooSaveMerchantSetup, dejavooTerminalStatus,
+} from '../../api/pos.js';
 import { useStationStore } from '../../stores/useStationStore.js';
 import { isElectron } from '../../hooks/useHardware.js';
 import { connectQZ, isQZConnected, listPrinters } from '../../services/qzService.js';
@@ -45,13 +49,26 @@ const PRINTER_MODELS = [
   { id: 'other_usb',       label: 'Other USB Printer (via QZ Tray)', type: 'qz',     port: null, width: '80mm' },
 ];
 
+// Per-brand RS-232 framing defaults. Picking a brand auto-fills these
+// (the user can override via the framing dropdowns below). The Magellan
+// 9800i ships from Datalogic for retail-POS deployments configured for
+// 7 data bits, Odd parity, 1 stop bit (matches the IBM 4690 / JPOS scale
+// driver convention). Other brands default to standard 8-N-1.
 const SCALE_BRANDS = [
-  { id: 'cas',       label: 'CAS (PD-II, SW)',            baud: 9600 },
-  { id: 'mettler',   label: 'Mettler Toledo',              baud: 9600 },
-  { id: 'avery',     label: 'Avery Berkel',                baud: 9600 },
-  { id: 'digi',      label: 'Digi',                        baud: 9600 },
-  { id: 'datalogic', label: 'Datalogic Magellan 9800i',    baud: 9600 },
-  { id: 'generic',   label: 'Generic RS-232 / USB-Serial', baud: 9600 },
+  { id: 'cas',       label: 'CAS (PD-II, SW)',            baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  { id: 'mettler',   label: 'Mettler Toledo',              baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  { id: 'avery',     label: 'Avery Berkel',                baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  { id: 'digi',      label: 'Digi',                        baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  { id: 'datalogic', label: 'Datalogic Magellan 9800i',    baud: 9600, dataBits: 7, stopBits: 1, parity: 'odd'  },
+  { id: 'generic',   label: 'Generic RS-232 / USB-Serial', baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+];
+
+const DATA_BITS_OPTIONS = [7, 8];
+const STOP_BITS_OPTIONS = [1, 2];
+const PARITY_OPTIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'odd',  label: 'Odd'  },
+  { id: 'even', label: 'Even' },
 ];
 
 /**
@@ -282,6 +299,393 @@ function ScaleDetectDiagnostic({ diag, ports }) {
   return null;
 }
 
+/**
+ * DejavooSetupSection — body of the Dejavoo Pin Pad collapsible card.
+ *
+ * Mirrors the AdminMerchants edit-modal UI (admin-app/src/pages/AdminMerchants.tsx)
+ * field-for-field, label-for-label, placeholder-for-placeholder so that an
+ * admin who configures a merchant from the back-office and a cashier (with
+ * admin password) who edits it from a register see identical wording.
+ *
+ *   - Environment values are 'uat' | 'prod' (canonical — matches the SPIn
+ *     client's `merchant.environment === 'prod'` check). NOT 'production'.
+ *   - Section structure matches admin: Scope / SPIn / Features / Notes.
+ *   - Re-test warning banner appears on existing merchants (matches admin's
+ *     `am-warn am-warn-amber` block).
+ *   - Auth key placeholder + hint copy match admin verbatim.
+ *
+ * HPP fields (online-checkout credentials) are intentionally NOT exposed
+ * here — they apply to the storefront, not a register. The footer note
+ * points users to the back-office for those.
+ */
+function StatusPill({ status }) {
+  const s = (status || 'unknown').toLowerCase();
+  // Color tokens chosen to match admin's am-pill-* palette (active=green,
+  // pending=amber, disabled=grey, anything else=slate).
+  const palette = {
+    active:   { bg: 'rgba(16, 185, 129, 0.12)', fg: '#059669', border: 'rgba(16, 185, 129, 0.35)' },
+    pending:  { bg: 'rgba(245, 158, 11, 0.12)', fg: '#b45309', border: 'rgba(245, 158, 11, 0.35)' },
+    disabled: { bg: 'rgba(148, 163, 184, 0.15)', fg: '#475569', border: 'rgba(148, 163, 184, 0.35)' },
+  };
+  const tone = palette[s] || { bg: 'rgba(148, 163, 184, 0.10)', fg: '#64748b', border: 'rgba(148, 163, 184, 0.30)' };
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 10px', borderRadius: 999, fontSize: '0.68rem',
+      fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+      background: tone.bg, color: tone.fg, border: `1px solid ${tone.border}`,
+    }}>{s.toUpperCase()}</span>
+  );
+}
+
+function DejavooSetupSection({ storeId, storeName, onStatusChange }) {
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [testing, setTesting]     = useState(false);
+  const [error, setError]         = useState('');
+  const [testResult, setTestResult] = useState(null);
+
+  const [tpn, setTpn]                       = useState('');
+  const [authKey, setAuthKey]               = useState('');
+  const [authKeyPreview, setAuthKeyPreview] = useState('');
+  const [authKeySet, setAuthKeySet]         = useState(false);
+  const [showAuthKey, setShowAuthKey]       = useState(false);
+  const [registerId, setRegisterId]         = useState('');
+  const [baseUrl, setBaseUrl]               = useState('');
+  const [environment, setEnvironment]       = useState('uat');
+  const [ebtEnabled, setEbtEnabled]         = useState(false);
+  const [debitEnabled, setDebitEnabled]     = useState(true);
+  const [tokenizeEnabled, setTokenizeEnabled] = useState(false);
+  const [notes, setNotes]                   = useState('');
+  const [merchantStatus, setMerchantStatus] = useState('');
+  const [isExisting, setIsExisting]         = useState(false);
+
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await dejavooGetMerchantSetup(storeId);
+      const m = res?.merchant || {};
+      setIsExisting(!!res?.configured);
+      setTpn(m.spinTpn || '');
+      setAuthKey('');                                        // never pre-fill the secret
+      setAuthKeyPreview(m.spinAuthKeyPreview || '');
+      setAuthKeySet(!!m.spinAuthKeySet);
+      setRegisterId(m.spinRegisterId || '');
+      setBaseUrl(m.spinBaseUrl || '');
+      // Default to UAT for new merchants (matches admin DEFAULT_FORM).
+      // Coerce any legacy 'production' value to 'prod' so the SPIn client
+      // routes to the live URL correctly.
+      const env = m.environment === 'production' ? 'prod' : (m.environment || 'uat');
+      setEnvironment(env);
+      setEbtEnabled(!!m.ebtEnabled);
+      setDebitEnabled(m.debitEnabled !== false);
+      setTokenizeEnabled(!!m.tokenizeEnabled);
+      setNotes(m.notes || '');
+      setMerchantStatus(m.status || '');
+      onStatusChange?.(res?.configured && m.status === 'active' ? 'ok' : 'idle');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to load Dejavoo config.');
+    } finally {
+      setLoading(false);
+    }
+  }, [storeId, onStatusChange]);
+
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  const handleSave = async () => {
+    if (!tpn.trim()) { setError('TPN is required.'); return; }
+    if (!authKeySet && !authKey.trim()) { setError('Auth Key is required for the first save.'); return; }
+
+    setSaving(true);
+    setError('');
+    setTestResult(null);
+    try {
+      const body = {
+        spinTpn:         tpn.trim(),
+        spinRegisterId:  registerId.trim() || null,
+        spinBaseUrl:     baseUrl.trim() || null,
+        environment,                            // 'uat' | 'prod' — canonical
+        ebtEnabled,
+        debitEnabled,
+        tokenizeEnabled,
+        notes:           notes.trim() || null,
+      };
+      // Only include authKey when the user typed a new value — empty string
+      // means "leave existing unchanged"
+      if (authKey.trim()) body.spinAuthKey = authKey.trim();
+
+      const res = await dejavooSaveMerchantSetup(storeId, body);
+      const m = res?.merchant || {};
+      setIsExisting(true);
+      setAuthKey('');
+      setAuthKeyPreview(m.spinAuthKeyPreview || '');
+      setAuthKeySet(!!m.spinAuthKeySet);
+      setMerchantStatus(m.status || '');
+      onStatusChange?.(m.status === 'active' ? 'ok' : 'idle');
+      setTestResult({ success: true, message: 'Saved.' });
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Save failed.');
+      onStatusChange?.('err');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    setError('');
+    try {
+      const res = await dejavooTerminalStatus({ storeId });
+      const ok = res?.success && res?.connected !== false;
+      setTestResult({
+        success: ok,
+        message: ok
+          ? `Terminal reachable${res?.message ? ` — ${res.message}` : ''}`
+          : (res?.error || res?.message || 'Terminal not reachable.'),
+      });
+      onStatusChange?.(ok ? 'ok' : 'err');
+    } catch (err) {
+      setTestResult({
+        success: false,
+        message: err.response?.data?.error || err.message || 'Test failed.',
+      });
+      onStatusChange?.('err');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 12, fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Loader size={14} /> Loading Dejavoo config…
+      </div>
+    );
+  }
+
+  // Reused inline styles for the section headers — matches admin's
+  // .am-section-title visual weight.
+  const sectionTitleStyle = {
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: 'var(--text-muted)',
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottom: '1px solid rgba(148, 163, 184, 0.20)',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {error && (
+        <div style={{ padding: 8, borderRadius: 6, background: 'rgba(239, 68, 68, 0.08)', color: 'var(--error, #ef4444)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <AlertCircle size={13} /> {error}
+        </div>
+      )}
+
+      {/* Re-test gate warning — matches admin's am-warn-amber block */}
+      {isExisting && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: 6,
+          background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.30)',
+          color: '#92400e', fontSize: '0.78rem', lineHeight: 1.4,
+        }}>
+          <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1, color: '#b45309' }} />
+          <div>
+            Changing TPN, auth keys, environment, or base URL will reset this merchant
+            to <strong>Pending</strong> and require a fresh test before re-activation.
+          </div>
+        </div>
+      )}
+
+      {/* Scope */}
+      <div>
+        <div style={sectionTitleStyle}>Scope</div>
+        <div className="hsm-hw-grid">
+          <div>
+            <label className="hsm-label">Store</label>
+            <input className="hsm-field" value={storeName || '—'} disabled readOnly />
+          </div>
+          <div>
+            <label className="hsm-label">Status</label>
+            <div style={{ padding: '7px 0' }}><StatusPill status={merchantStatus || 'pending'} /></div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              Status is managed via Test Connection — a successful test activates the merchant.
+            </span>
+          </div>
+          <div>
+            <label className="hsm-label">Environment</label>
+            <select
+              className="hsm-select"
+              value={environment}
+              onChange={e => setEnvironment(e.target.value)}
+            >
+              <option value="uat">UAT / Sandbox</option>
+              <option value="prod">Production</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* SPIn */}
+      <div>
+        <div style={sectionTitleStyle}>SPIn — In-Person Terminal</div>
+        <div className="hsm-hw-grid">
+          <div>
+            <label className="hsm-label">TPN (Terminal Profile Number)</label>
+            <input
+              className="hsm-field"
+              value={tpn}
+              onChange={e => setTpn(e.target.value)}
+              placeholder="e.g. 220926502033"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="hsm-label">SPIn Auth Key</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="hsm-field"
+                type={showAuthKey ? 'text' : 'password'}
+                value={authKey}
+                onChange={e => setAuthKey(e.target.value)}
+                placeholder={authKeySet ? '•••• (leave blank to keep)' : 'Enter 10-char auth key'}
+                autoComplete="new-password"
+                style={{ paddingRight: 40 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowAuthKey(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', padding: 4 }}
+              >
+                {showAuthKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            {authKeySet && (
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Already saved. Leave blank to keep current value.
+              </span>
+            )}
+          </div>
+          <div>
+            <label className="hsm-label">Register Id *</label>
+            <input
+              className="hsm-field"
+              value={registerId}
+              onChange={e => setRegisterId(e.target.value)}
+              placeholder="e.g. 837602"
+              autoComplete="off"
+            />
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4, display: 'block', marginTop: 4 }}>
+              iPOSpays portal: TPN → Edit Parameter → Integration → Register Id.
+              Required by SPIn v2 — Dejavoo returns 400 without it.
+            </span>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label className="hsm-label">SPIn Base URL <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional override)</span></label>
+            <input
+              className="hsm-field"
+              value={baseUrl}
+              onChange={e => setBaseUrl(e.target.value)}
+              placeholder="Leave blank to use env default"
+              autoComplete="off"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Features */}
+      <div>
+        <div style={sectionTitleStyle}>Features</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={ebtEnabled} onChange={e => setEbtEnabled(e.target.checked)} />
+            Enable EBT (SNAP / Cash Benefit)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={debitEnabled} onChange={e => setDebitEnabled(e.target.checked)} />
+            Enable Debit (PIN entry on terminal)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={tokenizeEnabled} onChange={e => setTokenizeEnabled(e.target.checked)} />
+            Enable card tokenization (card-on-file)
+          </label>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div>
+        <div style={sectionTitleStyle}>Admin Notes</div>
+        <textarea
+          rows={3}
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Internal notes — not visible to merchant"
+          className="hsm-field"
+          style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+        />
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="hsm-save-btn"
+          onClick={handleSave}
+          disabled={saving || testing}
+          style={{ padding: '8px 16px', fontSize: '0.82rem' }}
+        >
+          {saving ? <><Loader size={13} /> Saving…</> : <><Check size={13} /> Save Merchant</>}
+        </button>
+        <button
+          type="button"
+          className="hsm-save-btn"
+          onClick={handleTest}
+          disabled={saving || testing || !tpn || (!authKeySet && !authKey)}
+          style={{ padding: '8px 16px', fontSize: '0.82rem', background: 'transparent', color: 'var(--text-primary)', border: '1px solid rgba(148, 163, 184, 0.35)' }}
+        >
+          {testing ? <><Loader size={13} /> Testing…</> : <><RefreshCw size={13} /> Test Connection</>}
+        </button>
+        <button
+          type="button"
+          className="hsm-save-btn"
+          onClick={loadConfig}
+          disabled={saving || testing || loading}
+          style={{ padding: '8px 16px', fontSize: '0.82rem', background: 'transparent', color: 'var(--text-muted)', border: '1px solid rgba(148, 163, 184, 0.35)' }}
+        >
+          <RefreshCw size={13} /> Reload
+        </button>
+      </div>
+
+      {testResult && (
+        <div
+          style={{
+            padding: 8, borderRadius: 6, fontSize: '0.78rem',
+            background: testResult.success ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+            color:      testResult.success ? 'var(--success, #10b981)' : 'var(--error, #ef4444)',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          {testResult.success ? <Check size={13} /> : <AlertCircle size={13} />}
+          {testResult.message}
+        </div>
+      )}
+
+      {/* HPP cross-link — register doesn't use HPP, but admins searching for it should know where it lives */}
+      <div style={{
+        padding: 8, borderRadius: 6, fontSize: '0.72rem', color: 'var(--text-muted)',
+        background: 'rgba(148, 163, 184, 0.06)', lineHeight: 1.4,
+      }}>
+        HPP (online-checkout) credentials, webhook secrets, and tokenization
+        keys are managed from the back-office Payment Merchants page —
+        they don't apply to a register.
+      </div>
+    </div>
+  );
+}
+
 function HWSection({ icon: Icon, title, status, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const dotCls = status === 'ok' ? 'hsm-hw-dot--ok' : status === 'err' ? 'hsm-hw-dot--err' : 'hsm-hw-dot--idle';
@@ -316,21 +720,26 @@ export default function HardwareSettingsModal({ onClose }) {
     const defaults = {
       receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
       labelPrinter:   { type: 'none', name: '', ip: '', port: 9100, acceptRoutedJobs: false, zebraName: '' },
-      scale:          { type: 'none', connection: 'serial', baud: 9600, ip: '', port: 4001, portLabel: '', comPort: '' },
+      scale:          { type: 'none', connection: 'serial', baud: 9600, dataBits: 8, stopBits: 1, parity: 'none', ip: '', port: 4001, portLabel: '', comPort: '' },
       cashDrawer:     { type: 'none' },
     };
     if (!stored) return defaults;
     // Merge to ensure new fields exist on older persisted configs
+    // (scale gained dataBits/stopBits/parity in S(scale-fix) — old configs
+    // without those fields fall through to defaults' 8-N-1 unless the
+    // station previously persisted overrides.)
     return {
       ...defaults,
       ...stored,
       labelPrinter: { ...defaults.labelPrinter, ...(stored.labelPrinter || {}) },
+      scale: { ...defaults.scale, ...(stored.scale || {}) },
     };
   });
 
   const [detectedPrinters, setDetectedPrinters] = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dejavooStatus, setDejavooStatus] = useState('idle');
 
   // ── Native COM port state ────────────────────────────────────────────────
   const [nativeComPorts, setNativeComPorts]   = useState([]);
@@ -416,7 +825,16 @@ export default function HardwareSettingsModal({ onClose }) {
         return;
       }
       try {
-        const res = await window.electronAPI.serialConnect(hw.scale.comPort, hw.scale.baud || 9600);
+        // S(scale-fix) — pass framing through so the IPC handler in main.cjs
+        // opens the port at the right data bits / parity / stop bits. Without
+        // this, the port opens at 8-N-1 and bytes from a 7-O-1 scale are garbled.
+        const res = await window.electronAPI.serialConnect(
+          hw.scale.comPort,
+          hw.scale.baud || 9600,
+          hw.scale.dataBits ?? 8,
+          hw.scale.stopBits ?? 1,
+          hw.scale.parity   ?? 'none',
+        );
         if (!res?.ok) { setScaleTestError('Failed to open ' + hw.scale.comPort + ': ' + (res?.error || 'unknown')); return; }
         setScaleTestConnected(true);
         const handler = (line) => {
@@ -470,7 +888,13 @@ export default function HardwareSettingsModal({ onClose }) {
       }
       try {
         const port = await navigator.serial.requestPort();
-        await port.open({ baudRate: hw.scale.baud || 9600 });
+        // S(scale-fix) — honor framing dropdowns for the Web Serial path too.
+        await port.open({
+          baudRate: hw.scale.baud || 9600,
+          dataBits: Number(hw.scale.dataBits ?? 8),
+          stopBits: Number(hw.scale.stopBits ?? 1),
+          parity:   String(hw.scale.parity   ?? 'none'),
+        });
         scaleSerialPort.current = port;
         setScaleTestConnected(true);
         const reader = port.readable.getReader();
@@ -657,7 +1081,19 @@ export default function HardwareSettingsModal({ onClose }) {
                   <label className="hsm-label">Scale Brand</label>
                   <select className="hsm-select" value={hw.scale.type === 'none' ? '' : hw.scale.brand || ''} onChange={e => {
                     const brand = SCALE_BRANDS.find(b => b.id === e.target.value);
-                    updHW('scale', { brand: e.target.value, type: e.target.value ? (hw.scale.connection || 'serial') : 'none', baud: brand?.baud || 9600 });
+                    // S(scale-fix) — auto-fill RS-232 framing from the brand's
+                    // documented default. User can still override via the
+                    // Data Bits / Parity / Stop Bits dropdowns. Datalogic
+                    // Magellan 9800i defaults to 7-O-1 to match retail POS
+                    // (IBM 4690 / JPOS) configurations.
+                    updHW('scale', {
+                      brand: e.target.value,
+                      type: e.target.value ? (hw.scale.connection || 'serial') : 'none',
+                      baud: brand?.baud || 9600,
+                      dataBits: brand?.dataBits ?? 8,
+                      stopBits: brand?.stopBits ?? 1,
+                      parity:   brand?.parity   ?? 'none',
+                    });
                   }}>
                     <option value="">-- None --</option>
                     {SCALE_BRANDS.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
@@ -698,6 +1134,26 @@ export default function HardwareSettingsModal({ onClose }) {
                             {BAUD_RATES.map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
+                        {/* S(scale-fix) — RS-232 framing controls. Auto-filled from
+                            the selected brand's default but user-overridable. */}
+                        <div>
+                          <label className="hsm-label">Data Bits</label>
+                          <select className="hsm-select" value={hw.scale.dataBits ?? 8} onChange={e => updHW('scale', { dataBits: Number(e.target.value) })}>
+                            {DATA_BITS_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Parity</label>
+                          <select className="hsm-select" value={hw.scale.parity ?? 'none'} onChange={e => updHW('scale', { parity: e.target.value })}>
+                            {PARITY_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Stop Bits</label>
+                          <select className="hsm-select" value={hw.scale.stopBits ?? 1} onChange={e => updHW('scale', { stopBits: Number(e.target.value) })}>
+                            {STOP_BITS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
 
                         {/* S(scale-fix) — diagnostic banner. Shown only after the user clicks Detect. */}
                         <ScaleDetectDiagnostic diag={serialDiag} ports={nativeComPorts} />
@@ -724,6 +1180,25 @@ export default function HardwareSettingsModal({ onClose }) {
                         <div>
                           <label className="hsm-label">Serial Port</label>
                           <input className="hsm-field" value={hw.scale.portLabel || ''} onChange={e => updHW('scale', { portLabel: e.target.value })} placeholder="e.g. COM3 or /dev/ttyUSB0" />
+                        </div>
+                        {/* S(scale-fix) — Web Serial path also honors framing overrides. */}
+                        <div>
+                          <label className="hsm-label">Data Bits</label>
+                          <select className="hsm-select" value={hw.scale.dataBits ?? 8} onChange={e => updHW('scale', { dataBits: Number(e.target.value) })}>
+                            {DATA_BITS_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Parity</label>
+                          <select className="hsm-select" value={hw.scale.parity ?? 'none'} onChange={e => updHW('scale', { parity: e.target.value })}>
+                            {PARITY_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="hsm-label">Stop Bits</label>
+                          <select className="hsm-select" value={hw.scale.stopBits ?? 1} onChange={e => updHW('scale', { stopBits: Number(e.target.value) })}>
+                            {STOP_BITS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
                         </div>
                       </>
                     )}
@@ -841,6 +1316,14 @@ export default function HardwareSettingsModal({ onClose }) {
                   </div>
                 )}
               </div>
+            </HWSection>
+
+            <HWSection icon={CreditCard} title="Dejavoo Pin Pad" status={dejavooStatus}>
+              <DejavooSetupSection
+                storeId={station?.storeId}
+                storeName={station?.storeName}
+                onStatusChange={setDejavooStatus}
+              />
             </HWSection>
 
             <div className="hsm-footer">

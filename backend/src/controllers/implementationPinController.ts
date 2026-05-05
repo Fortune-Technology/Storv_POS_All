@@ -85,10 +85,22 @@ export async function verifyEndpoint(req: Request, res: Response): Promise<void>
 
 // ─── GET /users/me/implementation-pin ──────────────────────────────────────
 // Authenticated. Returns the calling user's current PIN if they have the flag.
+//
+// `canConfigureHardware` is the runtime gate. It's a denormalized cache of
+// "does this user hold the `hardware_config.access` RBAC permission?" — kept
+// in sync by hooks in roleController / adminController. The permission is
+// the source of truth; the flag is the fast-path check (no perm compute on
+// every read). Run a JIT sync first to harden against stale-flag drift.
 export async function getMyPin(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Not authenticated' }); return; }
+
+    // Defense-in-depth: reconcile flag with current permission state before
+    // returning the PIN. If the user's role was deleted out of band and the
+    // hooks didn't fire, sync catches it here and revokes access.
+    const { syncHardwareAccessForUser } = await import('../services/implementationPin/service.js');
+    await syncHardwareAccessForUser(userId).catch(() => { /* best effort */ });
 
     const u = await prisma.user.findUnique({
       where: { id: userId },

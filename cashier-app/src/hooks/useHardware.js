@@ -46,17 +46,25 @@ export function useHardware({ onBarcode } = {}) {
   useEffect(() => {
     if (!hw?.scale || hw.scale.type === 'none') return;
 
+    // S(scale-fix) — pass RS-232 framing through so the boot-time auto-connect
+    // honors the per-brand framing dropdowns (e.g. Magellan 9800i → 7-O-1).
+    const framing = {
+      dataBits: hw.scale.dataBits ?? 8,
+      stopBits: hw.scale.stopBits ?? 1,
+      parity:   hw.scale.parity   ?? 'none',
+    };
+
     if (hw.scale.connection === 'tcp' && hw.scale.ip) {
       // TCP mode: connect via Electron IPC
       scale.connectTCP(hw.scale.ip, hw.scale.port || 4001).catch(() => {});
     } else if (hw.scale.connection === 'serial-native' && hw.scale.comPort) {
       // Native COM port: connect via Electron serialport
-      scale.connectSerial(hw.scale.comPort, hw.scale.baud || 9600).catch(() => {});
+      scale.connectSerial(hw.scale.comPort, hw.scale.baud || 9600, framing).catch(() => {});
     } else {
       // USB Serial mode: auto-connect to first granted port
       scale.getGrantedPorts().then(ports => {
         if (ports.length > 0) {
-          scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label);
+          scale.connectToPort(ports[0].port, hw.scale.baud || 9600, ports[0].label, framing);
         }
       });
     }

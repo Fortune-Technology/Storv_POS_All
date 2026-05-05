@@ -167,7 +167,7 @@ export function useScale({ onBarcode } = {}) {
   }, []);
 
   // ── Connect ──────────────────────────────────────────────────────────────
-  const connect = useCallback(async (baudRate = 9600, existingPort = null) => {
+  const connect = useCallback(async (baudRate = 9600, existingPort = null, framing = {}) => {
     if (!('serial' in navigator)) {
       setError('Web Serial API not supported. Use Chrome or Edge.');
       return false;
@@ -187,7 +187,10 @@ export function useScale({ onBarcode } = {}) {
       }
       if (!port) return false;
 
-      await port.open({ baudRate, dataBits: 8, stopBits: 1, parity: 'none' });
+      const dataBits = Number(framing.dataBits ?? 8);
+      const stopBits = Number(framing.stopBits ?? 1);
+      const parity   = String(framing.parity ?? 'none');
+      await port.open({ baudRate, dataBits, stopBits, parity });
       portRef.current = port;
       active.current  = true;
       setConnected(true);
@@ -211,11 +214,14 @@ export function useScale({ onBarcode } = {}) {
   }, [readLoop]);
 
   // ── Connect to a specific port object (from dropdown selection) ──────────
-  const connectToPort = useCallback(async (port, baudRate = 9600, label = '') => {
+  const connectToPort = useCallback(async (port, baudRate = 9600, label = '', framing = {}) => {
     if (!port) return false;
     try {
       setError(null);
-      await port.open({ baudRate, dataBits: 8, stopBits: 1, parity: 'none' });
+      const dataBits = Number(framing.dataBits ?? 8);
+      const stopBits = Number(framing.stopBits ?? 1);
+      const parity   = String(framing.parity ?? 'none');
+      await port.open({ baudRate, dataBits, stopBits, parity });
       portRef.current = port;
       active.current  = true;
       setConnected(true);
@@ -334,7 +340,9 @@ export function useScale({ onBarcode } = {}) {
   }, []);
 
   // ── Native COM port connection (Electron serialport) ──────────────────
-  const connectSerial = useCallback(async (comPath, baud = 9600) => {
+  // framing: { dataBits: 7|8, stopBits: 1|2, parity: 'none'|'odd'|'even' }
+  // Defaults to 9600 8-N-1 if framing is omitted.
+  const connectSerial = useCallback(async (comPath, baud = 9600, framing = {}) => {
     if (!window.electronAPI?.serialConnect) {
       setError('Native COM port requires Electron desktop app');
       return false;
@@ -373,10 +381,13 @@ export function useScale({ onBarcode } = {}) {
     });
 
     try {
-      const result = await window.electronAPI.serialConnect(comPath, baud);
+      const dataBits = Number(framing.dataBits ?? 8);
+      const stopBits = Number(framing.stopBits ?? 1);
+      const parity   = String(framing.parity ?? 'none');
+      const result = await window.electronAPI.serialConnect(comPath, baud, dataBits, stopBits, parity);
       if (result.ok) {
         setConnected(true);
-        setPortLabel(`COM ${comPath} @ ${baud}`);
+        setPortLabel(`COM ${comPath} @ ${baud} ${dataBits}-${parity[0].toUpperCase()}-${stopBits}`);
         return true;
       } else {
         setError(result.error || 'Failed to open ' + comPath);
