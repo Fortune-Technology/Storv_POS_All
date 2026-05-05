@@ -3624,8 +3624,14 @@ model FuelPump {
   orgId   String
   storeId String
 
-  // Human-visible pump number (1-N, shown in big on the tile)
-  pumpNumber Int
+  // S79b (F27) — Human-visible pump identifier shown big on the tile.
+  // Originally `Int` (1-N); migrated to `String` to allow alphanumeric
+  // labels like "A1", "Diesel-1", "Out-front" — useful for stations that
+  // don't number their pumps purely by integer (e.g. side-by-side islands
+  // labeled A/B/1/2). Existing integer values migrate cleanly via
+  // `pumpNumber::text` so old data still resolves.
+  // Validator (controller side): alphanumeric + dash + underscore, 1–16 chars.
+  pumpNumber String
   // Optional descriptor shown under the number ("Entry side", "Diesel Island")
   label      String?
   // Accent colour for the icon tile (hex). If null, fuel type's colour wins.

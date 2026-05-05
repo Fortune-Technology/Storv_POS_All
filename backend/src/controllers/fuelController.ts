@@ -325,13 +325,34 @@ export const getFuelReport = async (req: Request, res: Response): Promise<void> 
 
     const txs = await prisma.fuelTransaction.findMany({
       where: { orgId: orgId ?? undefined, storeId, createdAt: { gte: fromDate, lte: toDate } },
-      include: { fuelType: { select: { id: true, name: true, gradeLabel: true, color: true } } },
+      include: {
+        fuelType: { select: { id: true, name: true, gradeLabel: true, color: true } },
+        // S79b (F27) — pump join for per-pump breakdown. Returned alongside
+        // byType so the portal can render both views from a single fetch.
+        pump:     { select: { id: true, pumpNumber: true, label: true, color: true } },
+      },
     });
 
     // Group by fuelType + sale/refund
     const byType = new Map<string, ReportRow>();
+    // S79b (F27) — Group by pump too. Same shape, different key dimension.
+    interface PumpRow {
+      pumpId:        string;
+      pumpNumber:    string | null;
+      label:         string | null;
+      color:         string | null;
+      salesGallons:  number; salesAmount:  number; salesCount:  number;
+      refundsGallons:number; refundsAmount:number; refundsCount:number;
+      netGallons:    number; netAmount:    number;
+      avgPrice:      number;
+    }
+    const byPump = new Map<string, PumpRow>();
     let totalGallons = 0, totalAmount = 0, totalSalesGallons = 0, totalSalesAmount = 0, totalRefundsGallons = 0, totalRefundsAmount = 0;
     let txCount = 0, salesCount = 0, refundsCount = 0;
+    // Tracks how many txns had pumpId=null (legacy data before S43 pump
+    // tracking, or stations with pumpTrackingEnabled=false). Surfaced in
+    // totals so the portal can show "X transactions weren't pump-tagged".
+    let unattributedCount = 0;
 
     type FuelTxRow = (typeof txs)[number] & { fuelTypeName?: string | null };
     for (const t of txs as FuelTxRow[]) {
@@ -348,6 +369,27 @@ export const getFuelReport = async (req: Request, res: Response): Promise<void> 
           avgPrice:   0,
         });
       }
+      // Per-pump bucket. Skip null pumpId (counted in unattributedCount but
+      // not bucketed; the portal renders an "Unassigned" footer line if > 0).
+      let pumpRow: PumpRow | null = null;
+      if (t.pumpId) {
+        if (!byPump.has(t.pumpId)) {
+          byPump.set(t.pumpId, {
+            pumpId:     t.pumpId,
+            pumpNumber: t.pump?.pumpNumber ?? null,
+            label:      t.pump?.label ?? null,
+            color:      t.pump?.color ?? null,
+            salesGallons: 0, salesAmount: 0, salesCount: 0,
+            refundsGallons: 0, refundsAmount: 0, refundsCount: 0,
+            netGallons: 0, netAmount: 0,
+            avgPrice: 0,
+          });
+        }
+        pumpRow = byPump.get(t.pumpId) as PumpRow;
+      } else {
+        unattributedCount += 1;
+      }
+
       const row = byType.get(id) as ReportRow;
       const gal = Number(t.gallons);
       const amt = Number(t.amount);
@@ -355,17 +397,36 @@ export const getFuelReport = async (req: Request, res: Response): Promise<void> 
         row.refundsGallons += gal;
         row.refundsAmount  += amt;
         row.refundsCount   += 1;
+        if (pumpRow) {
+          pumpRow.refundsGallons += gal;
+          pumpRow.refundsAmount  += amt;
+          pumpRow.refundsCount   += 1;
+        }
         totalRefundsGallons += gal; totalRefundsAmount += amt; refundsCount += 1;
       } else {
         row.salesGallons   += gal;
         row.salesAmount    += amt;
         row.salesCount     += 1;
+        if (pumpRow) {
+          pumpRow.salesGallons += gal;
+          pumpRow.salesAmount  += amt;
+          pumpRow.salesCount   += 1;
+        }
         totalSalesGallons  += gal; totalSalesAmount  += amt; salesCount  += 1;
       }
       txCount += 1;
     }
 
     const rows = Array.from(byType.values()).map((r) => {
+      r.netGallons = r.salesGallons - r.refundsGallons;
+      r.netAmount  = r.salesAmount  - r.refundsAmount;
+      r.avgPrice   = r.netGallons > 0 ? r.netAmount / r.netGallons : 0;
+      return r;
+    }).sort((a, b) => b.netAmount - a.netAmount);
+
+    // S79b (F27) — finalise per-pump rows. Sort by netAmount desc same as
+    // byType so the busiest pumps land at the top.
+    const pumpRows = Array.from(byPump.values()).map((r) => {
       r.netGallons = r.salesGallons - r.refundsGallons;
       r.netAmount  = r.salesAmount  - r.refundsAmount;
       r.avgPrice   = r.netGallons > 0 ? r.netAmount / r.netGallons : 0;
@@ -381,6 +442,9 @@ export const getFuelReport = async (req: Request, res: Response): Promise<void> 
         from:   fromDate.toISOString(),
         to:     toDate.toISOString(),
         byType: rows,
+        // S79b (F27) — per-pump breakdown. Empty array when no pumps are
+        // configured OR when every transaction in the window has pumpId=null.
+        byPump: pumpRows,
         totals: {
           gallons:        totalGallons,
           amount:         totalAmount,
@@ -391,6 +455,7 @@ export const getFuelReport = async (req: Request, res: Response): Promise<void> 
           txCount,
           salesCount,
           refundsCount,
+          unattributedCount,  // F27 — txs without pumpId
           avgPrice:       totalGallons > 0 ? totalAmount / totalGallons : 0,
         },
       },
@@ -1202,6 +1267,25 @@ export const getFuelPnlReport = async (req: Request, res: Response): Promise<voi
 // FUEL PUMPS (V1.5)
 // ══════════════════════════════════════════════════════════════════════════
 
+// S79b (F27) — pumpNumber validator. Allows alphanumeric pump labels like
+// "1", "A1", "Diesel-1", "Out_front". Rules:
+//   • length 1–16
+//   • [A-Za-z0-9 _-] (no spaces, no slashes, no quotes)
+//   • input is trimmed first; legacy integer inputs are coerced to string
+//     (e.g. existing UI sending pumpNumber: 5 → "5") so back-compat holds
+const PUMP_NUMBER_RE = /^[A-Za-z0-9_-]{1,16}$/;
+function normalizePumpNumber(input: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (input === null || input === undefined || input === '') {
+    return { ok: false, error: 'pumpNumber required' };
+  }
+  // Coerce numbers from legacy callers ("5" / 5 both end up as "5").
+  const raw = typeof input === 'number' ? String(input) : String(input).trim();
+  if (!PUMP_NUMBER_RE.test(raw)) {
+    return { ok: false, error: 'pumpNumber must be 1–16 alphanumeric chars (letters, digits, dash, underscore)' };
+  }
+  return { ok: true, value: raw };
+}
+
 export const listFuelPumps = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId   = getOrgId(req);
@@ -1231,24 +1315,24 @@ export const createFuelPump = async (req: Request, res: Response): Promise<void>
     const storeId = getStore(req);
     if (!storeId) { res.status(400).json({ success: false, error: 'storeId required' }); return; }
     const body = (req.body || {}) as CreatePumpBody;
-    const { pumpNumber, label, color, tankOverrides, sortOrder } = body;
-    const n = Number(pumpNumber);
-    if (!Number.isFinite(n) || n <= 0) {
-      res.status(400).json({ success: false, error: 'pumpNumber required (positive integer)' });
-      return;
-    }
+    const { label, color, tankOverrides, sortOrder } = body;
+
+    const norm = normalizePumpNumber(body.pumpNumber);
+    if (!norm.ok) { res.status(400).json({ success: false, error: norm.error }); return; }
+    const pumpNumber = norm.value;
+
     const existing = await prisma.fuelPump.findFirst({
-      where: { orgId: orgId ?? undefined, storeId, pumpNumber: n, deleted: false },
+      where: { orgId: orgId ?? undefined, storeId, pumpNumber, deleted: false },
     });
     if (existing) {
-      res.status(409).json({ success: false, error: `Pump #${n} already exists at this store.` });
+      res.status(409).json({ success: false, error: `Pump "${pumpNumber}" already exists at this store.` });
       return;
     }
     const pump = await prisma.fuelPump.create({
       data: {
         orgId: orgId as string,
         storeId,
-        pumpNumber: n,
+        pumpNumber,
         label:      label ? String(label).trim() : null,
         color:      color || null,
         tankOverrides: (tankOverrides && typeof tankOverrides === 'object' ? tankOverrides : {}) as Prisma.InputJsonValue,
@@ -1272,13 +1356,14 @@ export const updateFuelPump = async (req: Request, res: Response): Promise<void>
     const body = (req.body || {}) as CreatePumpBody & { active?: boolean };
     const data: Record<string, unknown> = {};
     if (body.pumpNumber !== undefined) {
-      const n = Number(body.pumpNumber);
-      if (!Number.isFinite(n) || n <= 0) { res.status(400).json({ success: false, error: 'pumpNumber must be a positive integer' }); return; }
-      if (n !== pump.pumpNumber) {
-        const dup = await prisma.fuelPump.findFirst({ where: { orgId: orgId ?? undefined, storeId, pumpNumber: n, deleted: false, NOT: { id } } });
-        if (dup) { res.status(409).json({ success: false, error: `Pump #${n} already exists at this store.` }); return; }
+      const norm = normalizePumpNumber(body.pumpNumber);
+      if (!norm.ok) { res.status(400).json({ success: false, error: norm.error }); return; }
+      const newNumber = norm.value;
+      if (newNumber !== pump.pumpNumber) {
+        const dup = await prisma.fuelPump.findFirst({ where: { orgId: orgId ?? undefined, storeId, pumpNumber: newNumber, deleted: false, NOT: { id } } });
+        if (dup) { res.status(409).json({ success: false, error: `Pump "${newNumber}" already exists at this store.` }); return; }
       }
-      data.pumpNumber = n;
+      data.pumpNumber = newNumber;
     }
     if (body.label          !== undefined) data.label = body.label ? String(body.label).trim() : null;
     if (body.color          !== undefined) data.color = body.color || null;

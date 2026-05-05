@@ -60,6 +60,12 @@ const DEFAULT_CONFIG = {
     lotterySeparateFromDrawer: false,  // pulls lottery cash OUT of drawer math, renders as own section
     hideZeroRows:              true,   // only show rows where amount or count > 0
   },
+  // C3 (S79) — customer-facing display theme. Cashier-app POSScreen
+  // broadcasts this on every cart/idle/transaction message; the customer
+  // display switches to a light variant when 'light'.
+  customerDisplay: {
+    theme: 'dark',  // 'dark' | 'light'
+  },
   quickTender: ['card', 'cash', 'ebt'],
 };
 
@@ -473,6 +479,8 @@ export default function POSSettings({ embedded }) {
           stationLayouts: (posData.stationLayouts && typeof posData.stationLayouts === 'object')
             ? posData.stationLayouts
             : {},
+          // C3 — preserve nested defaults when the server returns partial.
+          customerDisplay: { ...DEFAULT_CONFIG.customerDisplay, ...(posData.customerDisplay || {}) },
         };
         setConfig(merged);
         setSaved(merged);
@@ -1054,6 +1062,44 @@ export default function POSSettings({ embedded }) {
                     <button
                       key={key}
                       onClick={() => toggleQuickTender(key)}
+                      style={{
+                        padding: '0.55rem 1.25rem',
+                        borderRadius: 8,
+                        border: `2px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: active ? 'var(--brand-10)' : 'var(--bg-tertiary)',
+                        color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
+                        fontWeight: 700, fontSize: '0.85rem',
+                        cursor: 'pointer', transition: 'all .15s',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}
+                    >
+                      {active && <Check size={12} />}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── C3 (S79): Customer Display Theme ── */}
+            <div style={cardStyle}>
+              <span style={sectionLabel}>CUSTOMER DISPLAY THEME</span>
+              <p style={{ fontSize: '0.78rem', color: '#475569', margin: '0 0 1rem' }}>
+                Theme for the customer-facing second screen. <strong>Dark</strong> matches the
+                cashier's POS screen and reads well across the counter at any distance.
+                <strong> Light</strong> is a softer, low-glare option that suits
+                bright storefronts and shops with white-themed branding.
+              </p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'dark',  label: 'Dark' },
+                  { key: 'light', label: 'Light' },
+                ].map(({ key, label }) => {
+                  const active = (config.customerDisplay?.theme || 'dark') === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setField('customerDisplay', { ...(config.customerDisplay || {}), theme: key })}
                       style={{
                         padding: '0.55rem 1.25rem',
                         borderRadius: 8,

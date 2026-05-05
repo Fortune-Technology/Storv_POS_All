@@ -48,6 +48,22 @@ export interface CommissionRates {
   machineCashing: number;
 }
 
+/**
+ * S79e (C10) — Snapshot-trail coverage for the settlement week.
+ *
+ * Tracks how many distinct calendar days in the week had at least one
+ * `close_day_snapshot` event written by the EoD wizard. Lets the UI
+ * distinguish a legitimately quiet week ($0 sales because nothing sold)
+ * from a missed-wizard week ($0 sales because no snapshots were captured).
+ *
+ * `daysInPeriod` is always 7 for a week, but kept parametric so future
+ * non-weekly settlement scopes (e.g. monthly) reuse the same shape.
+ */
+export interface SnapshotCoverage {
+  daysWithSnapshots: number;
+  daysInPeriod:      number;
+}
+
 export interface SettlementResult {
   // Online (draw-game) breakdown
   onlineGross: number;
@@ -62,6 +78,10 @@ export interface SettlementResult {
   instantSalesComm: number;
   instantCashingComm: number;
   instantSalesSource: 'snapshot' | 'pos_fallback' | 'empty';
+  // S79e (C10) — snapshot-trail coverage for the settlement week.
+  // Powers the "5/7 days have snapshots" chip on the UI so admins can
+  // distinguish a quiet week from a missed-wizard week.
+  snapshotCoverage: SnapshotCoverage;
 
   // Returns + totals
   returnsDeduction: number;
@@ -269,6 +289,14 @@ export async function computeSettlement(
   const eligibleBoxIds = [...settled, ...returned, ...unsettled].map((b: LotteryBoxWithGame) => b.id);
   let instantSales = 0;
   let instantSalesSource: SettlementResult['instantSalesSource'] = 'empty';
+  // S79e (C10) — snapshot coverage. Day count derived from the same
+  // `weekClosingEvents` query (no extra DB round-trip): unique YYYY-MM-DD
+  // values across all eligible boxes in the window. UTC date keying is
+  // consistent with how the engine writes / reads the snapshots.
+  let daysWithSnapshots = 0;
+  // Days in the settlement period — always 7 for a week, but parametric
+  // so a future monthly settlement just changes this divisor.
+  const daysInPeriod = Math.max(1, Math.round((dayEnd.getTime() - dayStart.getTime()) / (24 * 60 * 60 * 1000)));
   if (eligibleBoxIds.length) {
     const weekClosingEvents = await prisma.lotteryScanEvent.findMany({
       where: {
@@ -280,6 +308,19 @@ export async function computeSettlement(
       orderBy: { createdAt: 'asc' },
       select: { boxId: true, parsed: true, createdAt: true },
     }) as ScanEventRow[];
+
+    // S79e — count distinct calendar days (UTC) covered by any eligible-box
+    // snapshot. Cap at daysInPeriod since the window is half-open at both
+    // ends and very-late events near the boundary could otherwise overcount.
+    if (weekClosingEvents.length > 0) {
+      const dayKeys = new Set<string>();
+      for (const ev of weekClosingEvents) {
+        const d = ev.createdAt;
+        const key = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+        dayKeys.add(key);
+      }
+      daysWithSnapshots = Math.min(dayKeys.size, daysInPeriod);
+    }
     const priorEvents = await prisma.lotteryScanEvent.findMany({
       where: {
         orgId, storeId,
@@ -426,6 +467,7 @@ export async function computeSettlement(
     instantSalesComm:    round2(instantSalesComm),
     instantCashingComm:  round2(instantCashingComm),
     instantSalesSource,           // 'snapshot' | 'pos_fallback' | 'empty'
+    snapshotCoverage:    { daysWithSnapshots, daysInPeriod },
 
     // Returns + totals
     returnsDeduction:    round2(returnsDeduction),
