@@ -135,6 +135,12 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* S79f (C4) — light-theme override: white overlay disappears on white card,
+   flip to slate. */
+[data-pos-theme="light"] .npm-cancel-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 .npm-confirm-btn {
   height: 52px;
   border-radius: 10px;

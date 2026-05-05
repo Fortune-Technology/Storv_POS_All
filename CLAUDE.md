@@ -12309,6 +12309,607 @@ Existing data unchanged — `canConfigureHardware` defaults `false` on all exist
 
 *Last updated: May 2026 — Session 78 (F38 — Implementation Engineer PIN Gate): new `User.canConfigureHardware` flag (superadmin-toggle, internal-team-only) gates a 6-digit numeric PIN auto-rotated every Monday 00:00 UTC; AES-256-GCM encrypted at rest via cryptoVault (reversible for admin-panel display); `useImplementationStore` + `ImplementationPinModal` (1-hour session, indigo accent) replace direct access to cashier-app Hardware Settings; admin-app User edit toggle + AdminProfile "My Implementation PIN" card with Show/Hide/Copy/Rotate-Now actions; weekly scheduler rotates + emails fresh PIN. 36/36 pure-function smoke green, all 3 builds clean, C9 regression unaffected. V1 scope = Hardware Settings only; Station Setup re-pair queued for future session.*
 
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79 — F19 + F18 + C3 — Three-item closeout)
+
+Three small backlog items closed back-to-back: Commission report PDF export, lottery camera ticket scan in the EoD wizard, customer display light-theme toggle.
+
+### F19 — Commission report PDF + CSV export
+
+**[`Lottery/index.jsx`](frontend/src/pages/Lottery/index.jsx)** — two new helpers next to the existing `downloadReportCSV`:
+- `downloadCommissionCSV()` — emits the by-game table + a TOTAL footer row using the shared `downloadCSV(rows, cols, filename)` from [`utils/exportUtils.js`](frontend/src/utils/exportUtils.js)
+- `downloadCommissionPDF()` — uses `downloadPDF()` with 3 KPI summary cards (Total Commission / Total Sales / Avg Rate) + the by-game table (with TOTAL row appended). Lazy-loads jsPDF + autotable on first click.
+
+UI: two ⬇ buttons added next to "Apply" in the Commission tab's date-controls bar. Both disabled until `commission` data is loaded. Filenames include the date range.
+
+### F18 — Lottery camera ticket scan in EoD wizard
+
+**[`LotteryShiftModal/index.jsx`](cashier-app/src/components/modals/LotteryShiftModal/index.jsx)**:
+- New `Camera` icon import + `showCamera` state
+- New camera button next to the existing keyboard scan submit (icon-only, green outlined, 40×36)
+- `<BarcodeScannerModal>` mounted at the bottom — uses native `BarcodeDetector` when available, falls back to `@zxing/browser` lazy-loaded from CDN (Session 36 pattern, already in cashier-app for product scans)
+- On detect, modal closes itself and routes the decoded code through the existing `handleScan(value)` — so per-row routing, new-book activation, scan-log feedback all work identically to the keyboard / handheld-scanner path
+
+CSS: new `.lsm-scan-camera-btn` rule in [`LotteryShiftModal.css`](cashier-app/src/components/modals/LotteryShiftModal/LotteryShiftModal.css) for visual parity with the green Scan button.
+
+### C3 — Customer display light-theme toggle
+
+Cleanest implementation rides the existing BroadcastChannel sync:
+
+**Config**:
+- New `customerDisplay.theme: 'dark' | 'light'` in [`usePOSConfig.js`](cashier-app/src/hooks/usePOSConfig.js) `DEFAULT_POS_CONFIG`
+- Same shape mirrored in [`POSSettings.jsx`](frontend/src/pages/POSSettings.jsx) `DEFAULT_CONFIG` + the load-merge step preserves nested defaults
+
+**Broadcast**:
+- [`POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx) reads `posConfig.customerDisplay?.theme || 'dark'` and threads it into every `publishDisplay({ ... })` call (cart_update / idle / transaction_complete)
+
+**Display side**:
+- [`CustomerDisplayScreen.jsx`](cashier-app/src/screens/CustomerDisplayScreen.jsx) tracks `theme` state, updates from `data.theme` on every broadcast
+- All 3 `.cds-root` mounts now apply `cds-root--light` modifier when theme is `'light'`
+
+**CSS** ([`CustomerDisplayScreen.css`](cashier-app/src/screens/CustomerDisplayScreen.css)):
+- New `.cds-root--light { ... }` rule re-binds the same CSS variables (`--bg-base`, `--bg-panel`, `--text-primary`, `--green`, etc.) to slate-light values. **Every existing rule picks up the new values automatically** — no per-rule rewrites
+- Plus a few targeted `--light`-scoped overrides for elements that used hardcoded white-on-translucent (would read as broken-grey washes against a white background)
+
+**Back-office UI**:
+- New "CUSTOMER DISPLAY THEME" section in POSSettings between Quick Tender Methods and Quick Access Folders — Dark / Light toggle buttons styled identical to the existing Quick Tender chips. Explanatory copy describes when to use each variant
+
+### Builds + tests
+
+| Check | Result |
+|---|---|
+| Cashier-app `vite build` | ✓ clean |
+| Portal `vite build` | ✓ clean (18.43s) |
+| Existing C9 + S78 smoke | ✓ unaffected (32/32, 36/36) |
+| **S79 closeout smoke** `_smoke_s79_three_items.mjs` | ✓ **62/62 pass** |
+
+The S79 smoke covers all 3 items in one file:
+- **F19** (24 assertions) — pure-function payload check on `downloadCommissionCSV` + `downloadCommissionPDF`. Asserts column order, row count (incl. TOTAL row append), $ prefix on PDF money / no prefix on CSV, % suffix on rate, edge cases (null commission → null payload, empty byGame → CSV still has TOTAL but PDF skips it, null per-row rate → '' in CSV but 'N/A' in PDF).
+- **C3** (22 assertions) — broadcast theme threading (default 'dark' when config missing, all 3 broadcast types — idle / cart_update / transaction_complete — carry `theme`), CustomerDisplayScreen handler logic (theme update from broadcast, ignore bogus values, no-op on null payload), `rootClass(theme)` helper produces `cds-root` for dark and `cds-root cds-root--light` for light.
+- **F18** (16 assertions, structural / wiring contract) — file-source greps that confirm BarcodeScannerModal exports default + accepts `onDetected`/`open`/`onClose`, LotteryShiftModal imports it + has `showCamera` state + mounts the modal with the right props + the `onDetected` handler closes modal + calls `handleScan(value)` + the camera button toggles `setShowCamera(true)`. Camera/zxing themselves stay browser-only — but everything around them is now wire-checked.
+
+The 3 caught test bugs during initial run (JS floating-point on `(50.025).toFixed(2) → '50.02'`, plus a regex looking for `useState` BEFORE `showCamera` instead of in the destructuring order) were fixed; final run is 62/62.
+
+### Files Changed (Session 79)
+
+**Portal:**
+| File | Change |
+|---|---|
+| `frontend/src/pages/Lottery/index.jsx` | +`downloadCommissionPDF` + `downloadCommissionCSV` helpers; 2 new ⬇ buttons in Commission tab |
+| `frontend/src/pages/POSSettings.jsx` | +`customerDisplay.theme` default; merge in load-step; CUSTOMER DISPLAY THEME section in render |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/hooks/usePOSConfig.js` | +`customerDisplay: { theme: 'dark' }` default |
+| `cashier-app/src/screens/POSScreen.jsx` | Thread `customerDisplayTheme` through `publishDisplay` on cart_update / idle / transaction_complete |
+| `cashier-app/src/screens/CustomerDisplayScreen.jsx` | +`theme` state, update from broadcasts, apply `cds-root--light` on all 3 mounts |
+| `cashier-app/src/screens/CustomerDisplayScreen.css` | +`.cds-root--light` variable overrides + targeted scope-fixes |
+| `cashier-app/src/components/modals/LotteryShiftModal/index.jsx` | +`Camera` icon, `showCamera` state, camera button, `<BarcodeScannerModal>` mount |
+| `cashier-app/src/components/modals/LotteryShiftModal/LotteryShiftModal.css` | +`.lsm-scan-camera-btn` rule |
+
+---
+
+*Last updated: May 2026 — Session 79 (F19 + F18 + C3): Commission report has CSV + PDF export buttons next to Apply in the Lottery Commission tab (uses shared `exportUtils`). Lottery EoD wizard step 1 gains a camera scan button next to keyboard scan — reuses the cashier-app's BarcodeScannerModal (`@zxing/browser` fallback for iOS Safari). Customer display has a per-store dark/light theme toggle in POS Settings; theme rides on every BroadcastChannel message so the second screen switches instantly. **62/62 closeout smoke green** (24 F19 + 22 C3 + 16 F18 wiring-contract); 130/130 across the recent C9 + S78 + S79 trio with no regressions. Both builds clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79b — F27 — Per-Pump Reports + Alphanumeric Pump Numbers)
+
+User-stated spec: per-pump sales reports + "allow pump to write alpha numeric in number and lable". Two coupled changes — backend report aggregation, plus a schema migration to drop the integer-only constraint on `pumpNumber`.
+
+### Schema migration
+
+`FuelPump.pumpNumber` migrated `Int → String`. Existing integer values (1, 2, 3, ...) cast cleanly to strings ("1", "2", "3") via:
+
+```sql
+ALTER TABLE "fuel_pumps" ALTER COLUMN "pumpNumber" TYPE TEXT USING "pumpNumber"::text;
+```
+
+Migration is idempotent (checks `data_type = 'integer'` before running) so re-running is safe. Applied via [`prisma/migrations/manual_s79b_fuel_pump_number_to_text.sql`](backend/prisma/migrations/manual_s79b_fuel_pump_number_to_text.sql) → `prisma db execute` → `prisma db push --skip-generate` (already-in-sync after manual cast) → `prisma generate`.
+
+The `@@unique([orgId, storeId, pumpNumber])` constraint still works — string equality is fine.
+
+### Backend — `normalizePumpNumber(input)` validator
+
+[`fuelController.ts`](backend/src/controllers/fuelController.ts) gains a single source of truth for pump-number validation:
+- Allows: 1–16 chars of `[A-Za-z0-9_-]` — no spaces, no slashes, no quotes, no dots
+- Coerces legacy integer input (`pumpNumber: 5` from old callers → `"5"`)
+- Trims whitespace before validating
+- Returns `{ ok: true, value }` or `{ ok: false, error }` — same shape as the existing validators in `utils/validators.ts`
+
+Used in both `createFuelPump` and `updateFuelPump`. `data.pumpNumber = newNumber` is now a string — `Prisma.FuelPumpUpdateInput` accepts it directly since the column type changed.
+
+### Backend — per-pump aggregation in `getFuelReport`
+
+Existing `byType` aggregation now runs **alongside** a new `byPump` aggregation in the same query (one extra `include: { pump: { select: ... } }`). Same shape, different key dimension:
+
+| Field | Purpose |
+|---|---|
+| `pumpId` | Stable identifier (cuid) |
+| `pumpNumber` | Display label as set by admin (string, may be alphanumeric) |
+| `label` | Optional descriptor ("Front", "Diesel Island") |
+| `color` | Accent for the row dot |
+| `salesGallons / salesAmount / salesCount` | Sales bucket |
+| `refundsGallons / refundsAmount / refundsCount` | Refund bucket |
+| `netGallons / netAmount` | Net = sales − refunds |
+| `avgPrice` | `netAmount / netGallons` (or 0 when no positive net gallons) |
+
+Plus `totals.unattributedCount` — counts transactions that landed without a `pumpId` (legacy data from before S43 pump tracking, or stations with `pumpTrackingEnabled=false`). Surfaced so the portal can show "X transactions weren't pump-tagged" when the count is non-zero.
+
+Sort: descending `netAmount` (busiest pumps first). Same convention as `byType`.
+
+### Portal — PumpForm input + Reports per-pump section
+
+**[`Fuel.jsx`](frontend/src/pages/Fuel.jsx) `PumpForm`**:
+- `<CountInput min={1} ...>` (integer-only) → `<input type="text" pattern="[A-Za-z0-9_-]{1,16}" maxLength={16}>` with `autoComplete="off"` + `spellCheck={false}`
+- Save handler validation: `/^[A-Za-z0-9_-]{1,16}$/.test(...)` — mirrors backend regex exactly
+- Save payload: `String(form.pumpNumber).trim()` (was `Number(form.pumpNumber)` which would have silently produced `NaN` for "A1")
+- Field label: "Pump # (letters / digits / dash / underscore)" with placeholder "e.g. 1, A1, Diesel-1"
+
+**Reports tab**: new "By Pump" panel rendered below "By Fuel Type" — only when `byType.byPump.length > 0` so stations without pump tracking get a clean Reports view. Header carries an amber `unattributedCount` badge when any txns lack pumpId. Table columns: Pump / Label / Sales Gal / Sales $ / Refund Gal / Refund $ / Net Gal / Net $ / Avg $/gal / Tx Count.
+
+### Cashier-app — no changes needed
+
+All cashier-app references to `pumpNumber` are display-only:
+- `<FuelPumpIcon pumpNumber={...}>` template-interpolates → handles strings transparently
+- Cart line `· Pump ${pumpNumber}` badge — same
+- Refund tx picker `Pump ${tx.pump.pumpNumber}` — same
+- Hardware sync via API just passes the value through
+
+So the cashier-app picks up alphanumeric pump numbers automatically when the next config sync brings the new pump rows. Zero code changes.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Schema migration (idempotent SQL via prisma db execute) | ✓ column type now `text`, existing integer values cleanly coerced |
+| Backend tsc filtered to `fuelController.ts` | ✓ zero errors |
+| Portal `vite build` | ✓ 18.39s clean |
+| Cashier-app `vite build` | ✓ clean |
+| **F27 smoke** `_smoke_s79b_f27_per_pump.mjs` | ✓ **56/56 pass** (28 validator cases + 28 aggregation cases incl. edge / sort / mixed-format) |
+| Full regression across S77 + S78 + S79 + S79b | ✓ **186/186** with zero new failures |
+
+The 56-assertion smoke covers:
+1. **Pump number validator** (28 cases) — accepts integer / alpha-prefix / alphanumeric / dash / underscore / 16-char limit / legacy integer literals → strings / whitespace trimming. Rejects empty / null / undefined / spaces / slashes / dots / quotes / 17+ chars / special chars / emoji.
+2. **Per-pump aggregation** (28 cases) — basic sales (2 pumps, 4 transactions: counts / nets / avg / sort by netAmount desc), unattributedCount tracking, net-negative pumps (refunds exceed sales) → avgPrice clamps to 0, empty/null edge cases, sort stability across 3 pumps with different volumes, mixed alphanumeric formats coexist (1 / 2 / A1 / Diesel-1 all preserved verbatim with no NaN).
+
+### Files Changed (Session 79b)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | `FuelPump.pumpNumber` `Int` → `String` with intent comment |
+| `backend/prisma/migrations/manual_s79b_fuel_pump_number_to_text.sql` | NEW — idempotent column-type cast |
+| `backend/src/controllers/fuelController.ts` | +`normalizePumpNumber()` validator (regex `[A-Za-z0-9_-]{1,16}`, coerces legacy integers + trims), used by both `createFuelPump` + `updateFuelPump`; `getFuelReport` extended with parallel `byPump` aggregation + `unattributedCount` in totals |
+
+**Portal:**
+| File | Change |
+|---|---|
+| `frontend/src/pages/Fuel.jsx` | `PumpForm` integer input → text + alphanumeric pattern; save handler validates with same regex + sends string; Reports tab gets new "By Pump" table panel |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| (none — display-only callers handle strings transparently) | |
+
+**Tests:**
+| File | Purpose |
+|---|---|
+| `backend/tests/_smoke_s79b_f27_per_pump.mjs` | NEW — 56 pure-function assertions covering validator + aggregation contract |
+
+### Deployment steps
+
+```bash
+cd backend
+git pull
+# Restart FIRST so Prisma client can regen (DLL released)
+pm2 stop api-pos
+npx prisma db execute --file prisma/migrations/manual_s79b_fuel_pump_number_to_text.sql --schema prisma/schema.prisma
+npx prisma db push --schema prisma/schema.prisma --skip-generate
+npx prisma generate --schema prisma/schema.prisma
+pm2 start api-pos
+
+cd ../frontend
+npm run build
+```
+
+Cashier-app rebuild not strictly required (no source changes), but rebuilding is safe and keeps the PWA cache fresh so it picks up new alphanumeric pumps faster on next sync.
+
+Existing data: integer pumpNumbers (1, 2, 3) become strings ("1", "2", "3") on migration. UI continues to render them identically. New pumps can use any alphanumeric label.
+
+---
+
+*Last updated: May 2026 — Session 79b (F27 — Per-Pump Reports + Alphanumeric Pump Numbers): `FuelPump.pumpNumber` migrated `Int → String` (idempotent SQL cast preserves existing integer values); new `normalizePumpNumber()` validator (regex `[A-Za-z0-9_-]{1,16}`, coerces legacy integer callers, trims whitespace); `getFuelReport` extended with `byPump` aggregation alongside existing `byType` + `unattributedCount` in totals; portal Reports tab gets a "By Pump" table panel below "By Fuel Type" (auto-hidden when no pumpId-tagged transactions); PumpForm input + save handler updated to text + same regex. Cashier-app unchanged — display-only callers handle strings transparently. **56/56 pure-function smoke green** + 186/186 across the recent S77+S78+S79+S79b smoke trio with no regressions. Both builds clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79c — F24 — AI Conversation Export to Markdown)
+
+User picked F24. Adds a Download button to all 3 AI Assistant widgets (portal / admin-app / cashier-app) that exports the current conversation as a `.md` file.
+
+### Why markdown
+
+Claude already emits markdown in its responses (bold / lists / code blocks / tables). The export preserves that formatting without needing a renderer — `.md` opens cleanly in any text editor, GitHub, Notion, Slack, or markdown viewer. A `.txt` is just `.md` with a different extension since markdown IS plain text by design — no separate format needed.
+
+### Format
+
+```
+# StoreVeu AI Assistant Conversation
+_Exported {date} · {N} messages_
+
+---
+
+## 👤 You · {time}
+{user content}
+
+---
+
+## 🤖 Assistant · {time}
+{assistant content}
+
+_Tools used: Sales summary, Inventory check_
+
+_Filed support ticket: TICKET-12345_
+
+_Feedback: 👍 — Great answer_
+
+---
+
+_Generated by StoreVeu AI Assistant_
+```
+
+Filename: `ai-conversation-{convId-suffix}-{ISO-date}.md` (e.g. `ai-conversation-las8r-2026-05-04.md`).
+
+### Wiring
+
+`buildConversationMarkdown(conversation, messages, opts)` is duplicated as 3 sibling copies — one per widget — because each app builds independently and there's no shared workspace package between them. Function is small and stable (~50 lines), drift between copies is low-risk and contract-covered by the smoke test.
+
+Each widget's header gets a new Download icon button between History and New Conversation. Disabled when `messages.length === 0` (nothing to export). Click → builds markdown → blob download via `URL.createObjectURL()` + `<a download>` click.
+
+| Widget | File | Existing dict imported |
+|---|---|---|
+| Portal | `frontend/src/components/AIAssistantWidget.jsx` | `TOOL_LABELS` (in-app) |
+| Admin | `admin-app/src/components/AIAssistantWidget.tsx` | `TOOL_LABELS` (in-app) |
+| Cashier | `cashier-app/src/components/AIAssistantWidget.jsx` | `TOOL_LABELS` (in-app) |
+
+`TOOL_LABELS` maps Claude's tool function names (`get_store_summary`, `get_inventory_status`, etc.) to human-readable labels in the markdown. Unknown tool names fall back to the raw name.
+
+### Smoke test
+
+[`backend/tests/_smoke_s79c_f24_conversation_export.mjs`](backend/tests/_smoke_s79c_f24_conversation_export.mjs) — 68/68 assertions across 15 test groups:
+1. Empty messages → "(empty conversation)" placeholder
+2. Single user message structure
+3. User → Assistant ordering
+4. Tool calls render with comma separation + label-mapping with raw-name fallback + null/empty/missing array handling
+5. Ticket reference renders only when present
+6. Feedback renders 👍/👎 with optional note + ignores bogus values
+7. Empty/whitespace/missing content → "(empty message)" placeholder
+8. Title fallback (custom / null / missing conversation / empty conversation all default correctly)
+9. createdAt parsing (string OR Date object) + missing-date handling
+10. Filename builder (long cuid → last 6 chars, null → "session", short id passes through, always `.md`)
+11. Markdown structure (separator counts, h1 / h2 levels)
+12. Special chars preserved verbatim — markdown is plain text, NOT HTML-escaped (this is a download, not rendering)
+13. Long content (10k chars) preserved without truncation
+14. Claude's markdown formatting (bold / italic / inline code / tables / code blocks) passes through unchanged
+15. All assistant features stacked (content → tools → ticket → feedback) in correct order
+
+Caught one test bug during initial run (a confusing `.replace()` chain in the filename test) — fixed; final run 68/68.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Portal `vite build` | ✓ 16.93s clean |
+| Admin-app `vite build` | ✓ 11.68s clean |
+| Cashier-app `vite build` | ✓ clean |
+| F24 smoke | ✓ **68/68 pass** |
+| Full regression across 5 recent smokes (C9 + S78 + S79 + S79b + S79c) | ✓ **254/254** with zero new failures |
+
+### Files Changed (Session 79c)
+
+| File | Change |
+|---|---|
+| `frontend/src/components/AIAssistantWidget.jsx` | +`Download` icon import; +`buildConversationMarkdown` / `downloadMarkdown` / `buildExportFilename` helpers (top-level); +`exportConversation` callback; +export button in header |
+| `admin-app/src/components/AIAssistantWidget.tsx` | Same as portal but typed; uses `ExportMessage` interface |
+| `cashier-app/src/components/AIAssistantWidget.jsx` | Same as portal |
+| `backend/tests/_smoke_s79c_f24_conversation_export.mjs` | NEW — 68 pure-function assertions covering shape, edge cases, filename builder |
+
+---
+
+*Last updated: May 2026 — Session 79c (F24 — AI Conversation Export): Download button added to all 3 AI Assistant widgets (portal / admin-app / cashier-app) — exports current conversation as a `.md` file with title + per-message headings + content + tool calls + ticket refs + feedback. Markdown-by-default since Claude already emits markdown; opens cleanly in any editor or viewer. 68/68 pure-function smoke covers shape + 14 edge cases. **254/254 combined regression** across C9 + S78 + S79 + S79b + S79c with zero new failures. All 3 apps build clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79d — C5 — Label Preview Pixel Accuracy)
+
+User clarified the issue: *"the current UI is fine just the size and visuals are not accurate to what it actually prints and the pixel wise visuals and barcode."* So the work was surgical — fix preview accuracy, leave the editor UX alone.
+
+### Three concrete inaccuracies fixed
+
+| What was wrong | Why | Fix |
+|---|---|---|
+| **Label dimensions ignored DPI** | `scale = 3` (1in = 3rem ≈ 48px) hardcoded — same constant whether the printer was 203/300/600 DPI | `widthDots × scale` where `scale = px-per-printer-dot`. A 4×2" label at 203dpi = 812×406 dots; at 300dpi = 1200×600 dots. Preview now reflects this. |
+| **Font sizes ignored dot math** | `Math.round(opt.ptValue × 0.9)` returned an arbitrary screen-px number unrelated to ZPL's actual rendered dot height | `fontDots = pt × dpi / 72` (matches the existing ZPL generator exactly), then `fontPx = fontDots × scale`. A 12pt at 203dpi → 34 dots → 14 screen px at 40% zoom. |
+| **Barcode was fake** | Old code: `<div style={{ background: j % 3 === 0 ? '#000' : 'transparent' }}>` — random stripes with zero relationship to actual UPC encoding | Real `JsBarcode` SVG render. Format dispatched by data shape: 12-digit numeric → UPC-A, 13-digit → EAN-13, 8-digit → EAN-8, anything else → CODE128. Bar height + module width sized in dots-then-px so the on-screen barcode is the same size as the printed one (at 100% zoom). |
+
+### Math model (now mirrors ZPL generator exactly)
+
+```
+Real label in dots = inches × DPI
+Field position    = toDots(field.x, unit, dpi) × scale       (screen px)
+Font height       = (pt × dpi / 72) × scale                  (screen px)
+Barcode bars      = JsBarcode width = max(0.5, 2 × scale)    (screen px per module)
+                    JsBarcode height = max(8, 50 × scale)    (screen px)
+```
+
+`scale` is px-per-dot. `0.4` = comfortable default fit; `1.0` = actual size (1 dot per screen px). Everything in the preview scales uniformly with `scale`, so what shows on screen matches what the printer outputs.
+
+### Zoom control + size indicator
+
+Above the preview pane: 7-step zoom toolbar (25 / 40% [default] / 50 / 75 / 100% [actual size] / 150 / 200%). Live indicator on the right shows `812×406 dots → 325×162 px on screen`. Container scrolls horizontally when zoomed past visible width — admins zooming to 200% can still see the right edge.
+
+### Files Changed (Session 79d)
+
+| File | Change |
+|---|---|
+| `frontend/package.json` | +`jsbarcode ^3.12.3` |
+| `frontend/src/pages/LabelDesign.jsx` | +`import JsBarcode`; deleted obsolete `PREVIEW_FONT_SIZES` + `previewFontSize`; rewrote `LabelPreview` as DPI-driven (label dims + field positions + font sizes all flow through `dots × scale`); +`BarcodeSVG` component using `JsBarcode` via `useEffect` ref; +`barcodeFormatFor()` dispatcher; +`PREVIEW_ZOOM_OPTIONS` + `previewZoom` state; +zoom toolbar above preview with live size indicator; preview container gets `overflow: auto` for zoom-past-width scenarios |
+| `backend/tests/_smoke_s79d_c5_label_preview_math.mjs` | NEW — 74 pure-function assertions covering toDots/fromDots round-trips at 203/300/600 dpi, font-dot math (incl. legacy named sizes), label dimensions scaling with DPI, zoom-changes-px-but-not-dots invariant, barcode format dispatcher, end-to-end multi-DPI sanity |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Portal `vite build` | ✓ 34.54s clean |
+| C5 math smoke | ✓ **74/74 pass** |
+| Full regression across 6 recent smokes (C9 + S78 + S79 + S79b + S79c + S79d) | ✓ **328/328** with zero new failures |
+
+The 74 assertions cover:
+1. **Unit conversion** — pt/px/mm/dots → dots at 203/300/600 dpi (12 cases)
+2. **Round-trip preservation** — pt → dots → pt within ±0.5pt across 6 sizes × 3 DPIs (18 cases)
+3. **Font-dot math** — 12pt @ 203dpi = 34h × 22w; legacy named sizes resolve; higher DPI = more dots; 600dpi double 300dpi (10 cases)
+4. **Label dimensions** — 4×2" at 203/300/600 dpi produces correct dot counts; 2×1 vs 4×2 ratio holds; zero label = zero dots (5 cases)
+5. **Zoom invariant** — dots stay fixed, only screen px scales linearly; aspect ratio preserved across zoom levels (8 cases)
+6. **Field positioning** — pt → dots → px math at 0.4 and 1.0 zoom (4 cases)
+7. **Barcode format dispatcher** — 12 / 13 / 8 / 11-digit / non-numeric / null / empty / non-UPC field id all dispatch correctly (10 cases)
+8. **End-to-end** — same field on 2×1" label at 3 different DPIs produces the right dimensions; font-px ratio matches DPI ratio (5 cases)
+
+### Editor UX deliberately untouched
+
+User explicitly said the current UI "is fine" — no changes to:
+- Field palette (Add Field button list)
+- Field properties row (the cramped X/Y/font/B inline editor)
+- Print controls
+- Template list / save flow
+- Inline `style={{}}` blocks (out of scope for an accuracy-only fix)
+
+Those are still candidates for a future session if/when Figma comps land or the user prioritizes editor UX. For now the preview pane is the only thing that changed, and it's the only thing that needed to.
+
+---
+
+*Last updated: May 2026 — Session 79d (C5 — Label Preview Pixel Accuracy): replaced hardcoded `scale = 3` with DPI-driven math so on-screen dimensions match what actually prints (`widthDots × scale` where dots come from `inches × DPI`); replaced fake `j % 3` barcode stripes with real JsBarcode SVG (UPC-A / EAN-13 / EAN-8 / CODE128 dispatched by data shape); added 7-step zoom toolbar with 100% "actual size" 1:1 dot mapping + live `dots → px` indicator. Editor UX untouched per user spec. 74/74 math smoke + **328/328 combined regression** across the 6 recent smokes. Portal build clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79e — C10 — Settlement Snapshot-Coverage Indicator)
+
+S44 follow-up. The lottery weekly settlement engine reads `close_day_snapshot` events from `lotteryScanEvent` to compute per-week sales (the "ticket-math truth" pattern). When the cashier doesn't run the EoD wizard, no snapshots get written that day. The settlement engine has a 3-tier fallback:
+
+```
+'snapshot'      ← snapshots present (preferred)
+'pos_fallback'  ← snapshots empty, falling back to LotteryTransaction.amount
+'empty'         ← no signal at all (truly quiet week OR missing data)
+```
+
+Until C10, the settlement card showed only the dollar amount. So `Settled 3 books · $0.00` could mean a legitimately quiet week, OR a missed-wizard week with $0 because no snapshots were captured. Admins couldn't tell.
+
+### Backend — `snapshotCoverage` field
+
+[`backend/src/services/lottery/engine/settlement.ts`](backend/src/services/lottery/engine/settlement.ts) — new field on `SettlementResult`:
+
+```ts
+snapshotCoverage: {
+  daysWithSnapshots: number;  // 0..daysInPeriod
+  daysInPeriod:      number;  // 7 for a week
+}
+```
+
+Computed from the same `lotteryScanEvent` query the engine already runs for `instantSales` — no extra DB round-trip. UTC `YYYY-M-D` keying matches how the EoD wizard writes the events. Capped at `daysInPeriod` (defensive — window-boundary events shouldn't overcount). `daysInPeriod` derived from `(dayEnd - dayStart) / 86400000` rounded — works for any settlement scope (1-day, weekly, monthly).
+
+When `eligibleBoxIds` is empty (no books active in this week) the coverage stays at `0/N` — the chip will render the no-signal red tone, which is the right thing because there genuinely was no opportunity to capture snapshots.
+
+### Frontend — `SnapshotCoverageChip` component
+
+[`frontend/src/pages/LotteryWeeklySettlement.jsx`](frontend/src/pages/LotteryWeeklySettlement.jsx) — small chip rendered on the "Instant Due" column heading next to the dollar amount. Decision tree:
+
+| Source | Coverage | Tone | Label |
+|---|---|---|---|
+| `pos_fallback` | (any) | amber | `⚠ POS fallback — 0/7 snapshots` |
+| (anything) | 0/N | red | `⚠ 0/7 snapshots` |
+| (anything) | < N/2 | amber | `⚠ 3/7 days tracked` |
+| (anything) | ≥ N/2, < N | amber | `5/7 days tracked` |
+| (anything) | = N | green | `✓ 7/7 days tracked` |
+
+Hover tooltip explains the underlying state — e.g. for `pos_fallback`: *"No snapshot trail this week — settlement is using cashier-recorded LotteryTransaction sales as a fallback. Less accurate than the EoD wizard's snapshot trail. Run the EoD wizard nightly to improve this."*
+
+Chip self-hides when `row.snapshotCoverage` is missing (older settlement rows from before this field shipped get the original dollar-only display).
+
+### CSS — `lws-snapshot-chip` family
+
+3 tones (`--green` / `--amber` / `--red`) with semi-transparent backgrounds + matching borders. Right-side wrapper `lws-col-title-right` stacks the dollar amount + chip vertically so the chip lands cleanly under the dollar amount in the existing space-between flex layout.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit` filtered to `settlement.ts` | ✓ zero errors |
+| Portal `vite build` | ✓ 18.50s clean |
+| C10 smoke `_smoke_s79e_c10_snapshot_coverage.mjs` | ✓ **36/36 pass** |
+| Full regression across 7 recent smokes (C9 + S78 + S79 + S79b + S79c + S79d + S79e) | ✓ **364/364** with zero new failures |
+
+The 36 assertions cover:
+1. **Day-counting math** — distinct UTC date extraction, multi-events-same-day deduplication, midnight boundary precision, cap at daysInPeriod, single-day window edge case
+2. **UTC keying** — events 1ms apart across UTC midnight count as 2 distinct days; events spanning a single UTC day count as 1
+3. **Chip classification** — full week (green), partial high 4-6/7 (amber), partial low 1-3/7 (amber), zero (red), pos_fallback override (amber regardless of coverage), empty source falls through to day-count path
+4. **Edge cases** — null/undefined/empty coverage hides chip; source missing still classifies; non-week periods (1-day, 30-day) work; daysInPeriod=0 falls back safely
+5. **End-to-end** — real-world scenarios: 5/7 → partial_high, pos_fallback → amber, no signal → red
+
+### Files Changed (Session 79e)
+
+| File | Change |
+|---|---|
+| `backend/src/services/lottery/engine/settlement.ts` | +`SnapshotCoverage` interface; +`snapshotCoverage` field on `SettlementResult`; computed inline from existing `weekClosingEvents` query (no extra round-trip) — distinct UTC-day count capped at daysInPeriod |
+| `frontend/src/pages/LotteryWeeklySettlement.jsx` | +`SnapshotCoverageChip` component with 5-branch classification + hover tooltips; +`lws-col-title-right` wrapper to group dollar amount + chip on the right side of the space-between flex |
+| `frontend/src/pages/LotteryWeeklySettlement.css` | +`.lws-col-title-right` flex column wrapper; +`.lws-snapshot-chip` family (green/amber/red) with rounded pill styling |
+| `backend/tests/_smoke_s79e_c10_snapshot_coverage.mjs` | NEW — 36 pure-function assertions on day-counting + chip classification + UTC-keying edge cases |
+
+### Operational impact
+
+A store running the EoD wizard nightly will see `✓ 7/7 days tracked` (green) on every settlement — high confidence the dollar amount is correct.
+
+A store that misses the wizard for 2-3 days a week will see `5/7 days tracked` (amber) — a clear signal that the settlement amount may be incomplete and the operator should investigate before paying the lottery commission.
+
+A store that's never run the wizard will see `⚠ POS fallback — 0/7 snapshots` (amber) — the settlement is using POS-recorded sales as a fallback, less accurate but still operational. Tooltip nudges the operator toward the right fix.
+
+A store where the lottery module is enabled but nobody runs the wizard AND no transactions get rung up will see `⚠ 0/7 snapshots` (red) — the settlement amount is genuinely $0 and the chip explains why.
+
+---
+
+*Last updated: May 2026 — Session 79e (C10 — Settlement Snapshot-Coverage Indicator): settlement engine returns `snapshotCoverage: { daysWithSnapshots, daysInPeriod }` computed from the existing `lotteryScanEvent` query (zero extra DB round-trips); 3-tone chip on each settlement card distinguishes a quiet week from a missed-EoD-wizard week. 36/36 pure-function smoke + **364/364 combined regression** across all 7 recent smokes. Portal build clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 79f — C4 — Cashier-app Light Theme)
+
+User picked C4 next. Originally framed as "mirror of C3 but for the cashier's own POS screen — bigger CSS surface than C3 (a lot more rules to override across cart, action bar, status bar, modals)." Discovery during the survey phase changed the shape of the work substantially.
+
+### Discovery — infrastructure was already 95% built
+
+`utils/branding.js` already ships with a complete theme system from prior sessions:
+
+- **`THEMES.dark`** + **`THEMES.light`** — 25 CSS variables each, mapping every chrome surface (`--bg-base`, `--bg-panel`, `--bg-card`, `--bg-input`, `--bg-hover`, `--text-primary/secondary/muted/deposit`, `--border`, `--border-light`, `--statusbar-bg/border/divider/btn-bg/btn-border/scroll-thumb/scroll-thumb-hover`) and semantic accent (`--red/red-dim`, `--amber/amber-dim`, `--blue/blue-dim`, `--purple`)
+- **`applyBranding(config)`** — mutates `:root` CSS vars, derives `--green-dim` + `--green-border` from the requested `primaryColor`, sets `data-pos-theme="light|dark"` attribute, caches to localStorage for synchronous boot-time restore
+- **`useBranding()`** hook — fetches `/pos-terminal/branding` on mount, polls every 5min, applies on every change
+- **`App.jsx`** — calls `useBranding()` at root level
+- **Backend** — `getPosBranding` returns `store.branding` JSON
+- **Portal** — `StoreBranding.jsx` already had Dark/Light toggle UI wired with `setDraftField('theme', th)`
+
+So the bigger CSS surface was real, but most of it already used CSS variables correctly. The actual work shifted from "build light theme" to **"audit for hardcoded color bypasses that escape the CSS-var cascade"**.
+
+### Hardcoded-color audit + fixes
+
+Five real offender categories surfaced. Each was a place where someone had written a literal color (hex or `rgba(255,255,255,X)`) instead of a CSS var, breaking the theme flip:
+
+#### 1. App.css boot screen
+The "Loading…" splash screen used `background: #0f1117` + `color: #7ac143`. On a light-theme store, the cached branding was applied synchronously at module load, then the boot screen rendered as dark text on a dark bg for ~50ms before React mounted. Fixed:
+
+```css
+.app-boot {
+  background: var(--bg-base);
+  color: var(--green);
+  /* ... */
+}
+```
+
+#### 2. ActionBar.css — manager button + scrollbar + hover
+The manager button bg + action/hold hover states + scrollbar thumb all used `rgba(255, 255, 255, X)` as a "faint white tint over dark panel" trick. On a white panel the same alpha is invisible. Solution: `[data-pos-theme="light"]` selector overrides flip them to slate (`rgba(15, 23, 42, X)`) — same alpha, same visual weight, just the right color for the panel below:
+
+```css
+[data-pos-theme="light"] .ab-mgr-btn { background: rgba(15, 23, 42, 0.04); }
+[data-pos-theme="light"] .ab-mgr-btn:hover { background: rgba(15, 23, 42, 0.08); }
+[data-pos-theme="light"] .ab-action:hover,
+[data-pos-theme="light"] .ab-hold-btn:hover { background: rgba(15, 23, 42, 0.05); }
+[data-pos-theme="light"] .ab-scroll { scrollbar-color: rgba(15, 23, 42, 0.20) transparent; }
+[data-pos-theme="light"] .ab-scroll::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.18); }
+[data-pos-theme="light"] .ab-scroll::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.32); }
+```
+
+The dark rules above stay untouched — `[data-pos-theme="light"]` only matches when the attribute is set, so dark-mode rendering is bit-identical to before.
+
+#### 3. NumpadModal.css — cancel-button hover
+
+Same pattern, single rule:
+
+```css
+[data-pos-theme="light"] .npm-cancel-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+```
+
+#### 4. QuickButtonRenderer.css — folder back-button
+
+When the cashier drills into a folder of products, the "← Back" button used the same white-overlay trick. Single override:
+
+```css
+[data-pos-theme="light"] .qbr-back {
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+```
+
+#### 5. (Already in place — verified) — POSScreen + StatusBar
+
+- POSScreen.css `.pos-age-policy` strip already had light-theme overrides (S25 work)
+- StatusBar.css AI button + tobacco/alcohol age chips + 21+ chip already had light overrides
+- CartItem.css uses CSS vars throughout — no hardcoded chrome colors
+- CartTotals.css uses CSS vars — only hardcoded `#10b981` is for the `--green` savings highlight which works on both themes
+- ChangeDueOverlay.css uses `var(--bg-panel, fallback)` pattern correctly throughout
+
+### Modals intentionally left dark
+
+Several modals use literal dark backgrounds even after the audit. **These are intentional**, not bugs:
+
+- **`BarcodeScannerModal`** — full-screen camera UX, dark overlay improves video contrast and matches every barcode-scanning convention
+- **`FuelModal`** / **`ManagerPinModal`** / **`ImplementationPinModal`** — focused-action modals where a punchy purple/indigo gradient + dark surround creates visual focus separate from the surrounding POS chrome
+
+Documented this distinction in the BarcodeScannerModal.css review so future contributors don't "fix" what isn't broken.
+
+### Smoke test — 51/51
+
+[`backend/tests/_smoke_s79f_c4_cashier_light_theme.mjs`](backend/tests/_smoke_s79f_c4_cashier_light_theme.mjs) — pure-function smoke that mirrors the production `THEMES` table + `applyBranding` logic via a mock root object (no DOM dependency). Validates 8 invariants:
+
+| Suite | Checks |
+|---|---|
+| THEMES key parity | dark + light expose identical 25-key sets; 13 required core vars present in both |
+| Chrome surfaces flip | bg-base / bg-panel / bg-card / bg-input / text-primary / statusbar-bg differ between dark + light; light versions are near-white, dark versions are near-black |
+| Semantic accents present | red/amber/blue/purple in both; light theme red is darker (#dc2626) than dark theme red (#e03f3f) for white-bg contrast |
+| `hexToRgba` math | 5 cases including missing-# prefix + uppercase hex |
+| `applyBranding` mutation logic | dark mode sets `data-pos-theme="dark"`, light mode flips; `--green` follows requested primaryColor; `--green-dim` derived at 0.15, `--green-border` at 0.35 |
+| Invalid input fallbacks | unknown theme → dark vars + `data-pos-theme="dark"`; malformed hex (`#xyz` / 3-char `#abc`) → `--green` falls back to `#7ac143`; empty config / undefined config → defaults |
+| Attribute exactness | `data-pos-theme="light"` (not "Light" / "LIGHT") so CSS selectors match |
+| End-to-end swap | flipping dark → light updates bg-base + bg-panel + data-pos-theme atomically while preserving `--green` brand color |
+
+### Verification
+
+- `cashier-app` `npx vite build` → ✓ 4.89s clean (PWA generated, same pre-existing dynamic-import warnings as prior sessions, no new ones)
+- `_smoke_s79f_c4_cashier_light_theme.mjs` → ✓ 51/51 pass
+- Full smoke regression across all 8 active suites: ✓ **415/415 combined** (was 364/364 before C4)
+  - C9 cash drawer events: 32/32
+  - S78 implementation PIN: 36/36
+  - S79 (F19/F18/C3): 62/62
+  - S79b F27 per-pump: 56/56
+  - S79c F24 export: 68/68
+  - S79d C5 label preview: 74/74
+  - S79e C10 snapshot coverage: 36/36
+  - **S79f C4 light theme: 51/51 (NEW)**
+
+### Files Changed (Session 79f)
+
+| File | Change |
+|---|---|
+| `cashier-app/src/App.css` | `.app-boot` background + color swapped from hardcoded `#0f1117 / #7ac143` to CSS vars + comment explaining the flash-of-wrong-theme bug it closes |
+| `cashier-app/src/components/pos/ActionBar.css` | +6 `[data-pos-theme="light"]` overrides for manager-button, action/hold hover, scrollbar |
+| `cashier-app/src/components/pos/NumpadModal.css` | +1 light override for `.npm-cancel-btn:hover` |
+| `cashier-app/src/components/pos/QuickButtonRenderer.css` | +1 light override for `.qbr-back` |
+| `backend/tests/_smoke_s79f_c4_cashier_light_theme.mjs` | NEW — 51 pure-function assertions across 8 invariant suites |
+| `BACKLOG.md` | C4 row marked `[x]` and moved to Recently Completed; suggested-order list updated |
+
+---
+
+*Last updated: May 2026 — Session 79f (C4 — Cashier-app Light Theme): infrastructure was 95% in place from prior sessions (THEMES.dark + THEMES.light × 25 vars each, applyBranding + data-pos-theme attribute, useBranding hook, portal Dark/Light toggle). Work was the audit-and-fix pass for hardcoded color bypasses that escape the CSS-var cascade — App.css boot screen + ActionBar.css manager-btn/scrollbar/hover + NumpadModal cancel hover + QuickButtonRenderer back button. Modals like BarcodeScanner / FuelModal / ManagerPin intentionally stay dark for visual focus. 51/51 pure smoke + 415/415 combined regression across all 8 active suites. Cashier-app build clean.*
+
 
 
 

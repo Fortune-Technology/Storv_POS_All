@@ -560,6 +560,60 @@ function ReportTab({ storeId, setErr }) {
           )}
         </div>
       )}
+
+      {/* S79b (F27) — Per-Pump Breakdown. Only renders when at least one
+          transaction in the window had a pumpId attached. Stations that
+          don't track pumps OR ran their txns before pumpTrackingEnabled was
+          flipped on get an empty byPump array → section is hidden. */}
+      {byType?.byPump && byType.byPump.length > 0 && (
+        <div className="fuel-card">
+          <div className="fuel-card-head">
+            <h3>By Pump (net of refunds)</h3>
+            {byType.totals?.unattributedCount > 0 && (
+              <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>
+                ⚠ {byType.totals.unattributedCount} tx without pump attribution (legacy or pump-tracking off)
+              </span>
+            )}
+          </div>
+          <div className="fuel-table-wrap">
+            <table className="fuel-table">
+              <thead>
+                <tr>
+                  <th>Pump</th>
+                  <th>Label</th>
+                  <th style={{ textAlign: 'right' }}>Sales Gal</th>
+                  <th style={{ textAlign: 'right' }}>Sales $</th>
+                  <th style={{ textAlign: 'right' }}>Refund Gal</th>
+                  <th style={{ textAlign: 'right' }}>Refund $</th>
+                  <th style={{ textAlign: 'right' }}>Net Gal</th>
+                  <th style={{ textAlign: 'right' }}>Net $</th>
+                  <th style={{ textAlign: 'right' }}>Avg $/gal</th>
+                  <th style={{ textAlign: 'right' }}>Tx Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byType.byPump.map(r => (
+                  <tr key={r.pumpId}>
+                    <td style={{ fontWeight: 700 }}>
+                      <span className="fuel-color-dot" style={{ background: r.color || '#94a3b8' }} />
+                      Pump {r.pumpNumber || '?'}
+                    </td>
+                    <td style={{ color: '#64748b' }}>{r.label || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(r.salesGallons).toFixed(1)}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtMoney(r.salesAmount)}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(r.refundsGallons).toFixed(1)}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtMoney(r.refundsAmount)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{Number(r.netGallons).toFixed(1)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMoney(r.netAmount)}</td>
+                    <td style={{ textAlign: 'right' }}>{fmtPrice(r.avgPrice)}</td>
+                    <td style={{ textAlign: 'right' }}>{r.salesCount + r.refundsCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1799,12 +1853,20 @@ function PumpForm({ pump, types, tanks, onSave, onCancel }) {
         <div className="fuel-modal-body">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
             <div className="fuel-form-row">
-              <label>Pump #</label>
-              <CountInput
-                min={1}
+              {/* S79b (F27) — alphanumeric pump number. Mirrors the backend
+                  validator: 1–16 chars of [A-Za-z0-9_-]. Not a CountInput
+                  anymore since stations may number pumps "A1", "Diesel-1",
+                  "Out_front" — anything that's not a pure integer. */}
+              <label>Pump # <span style={{ color: '#64748b', fontWeight: 400 }}>(letters / digits / dash / underscore)</span></label>
+              <input
+                type="text"
                 value={form.pumpNumber}
-                onChange={(v) => set('pumpNumber', v)}
-                placeholder="1"
+                onChange={e => set('pumpNumber', e.target.value)}
+                placeholder="e.g. 1, A1, Diesel-1"
+                pattern="[A-Za-z0-9_-]{1,16}"
+                maxLength={16}
+                autoComplete="off"
+                spellCheck={false}
               />
             </div>
             <div className="fuel-form-row">
@@ -1877,9 +1939,11 @@ function PumpForm({ pump, types, tanks, onSave, onCancel }) {
           <button className="fuel-btn fuel-btn-ghost" onClick={onCancel}>Cancel</button>
           <button
             className="fuel-btn fuel-btn-primary"
-            disabled={!Number.isFinite(Number(form.pumpNumber)) || Number(form.pumpNumber) <= 0}
+            // S79b — validate alphanumeric (mirrors backend regex). Allows
+            // "A1" / "Diesel-1" / "1" — rejects empty, spaces, slashes, > 16 chars.
+            disabled={!/^[A-Za-z0-9_-]{1,16}$/.test(String(form.pumpNumber || '').trim())}
             onClick={() => onSave({
-              pumpNumber: Number(form.pumpNumber),
+              pumpNumber: String(form.pumpNumber).trim(),
               label:      form.label.trim() || null,
               color:      form.color || null,
               tankOverrides: form.tankOverrides || {},

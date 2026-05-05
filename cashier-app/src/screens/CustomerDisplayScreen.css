@@ -6,6 +6,13 @@
    Type scale bumped in Session 39 — this display is read by customers
    from across the counter (~2–3 ft away), so every value is sized for
    comfortable reading at that distance.
+
+   C3 (S79) — `.cds-root--light` modifier overrides the base palette so
+   the customer-facing display can render in a light theme on stores
+   that prefer it (configurable per-store in Store Settings → POS →
+   Customer Display). Toggled via `customerDisplay.theme` in posConfig;
+   POSScreen broadcasts the theme on every cart_update / idle /
+   transaction_complete message.
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Reset ── */
@@ -14,6 +21,44 @@
 .cds-root ::-webkit-scrollbar { width: 4px; }
 .cds-root ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 .cds-root ::-webkit-scrollbar-track { background: transparent; }
+
+/* ── C3 (S79) — Light-theme variable overrides (scoped) ──
+   Override the POS theme variables locally on the customer display only;
+   doesn't affect the cashier's main POS screen. We re-bind the same vars
+   (--bg-base, --bg-panel, --text-primary, etc.) so every existing rule in
+   this file picks up the new values without rewriting any selectors. */
+.cds-root--light {
+  --bg-base:       #f8fafc;
+  --bg-panel:      #ffffff;
+  --bg-card:       #f1f5f9;
+  --text-primary:  #0f172a;
+  --text-secondary:#475569;
+  --text-muted:    #94a3b8;
+  --border-light:  #e2e8f0;
+  --border:        #cbd5e1;
+  /* Keep accent green at full saturation for "savings" / positive amounts —
+     the customer's eye should still be drawn to discount text the same way
+     as in dark mode. */
+  --green:         #16a34a;
+  --green-dim:     rgba(22, 163, 74, 0.12);
+  --amber:         #d97706;
+  --red:           #dc2626;
+}
+/* In light mode the dark-theme rgba alpha tints (white-on-translucent) read
+   as faint grey washes which look broken against a white background.
+   Re-skin them to slate alpha tints scaled for the lighter surface. */
+.cds-root--light .cds-active,
+.cds-root--light .cds-customer-bar,
+.cds-root--light .cds-summary,
+.cds-root--light .cds-line-item,
+.cds-root--light .cds-grand-total {
+  background: var(--bg-panel);
+  border-color: var(--border-light);
+}
+.cds-root--light .cds-thankyou-icon {
+  background: rgba(22, 163, 74, 0.15);
+  border-color: var(--green);
+}
 
 /* ── Animations ── */
 @keyframes cds-scaleIn {

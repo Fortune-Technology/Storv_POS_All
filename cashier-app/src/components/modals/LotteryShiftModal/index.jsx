@@ -27,9 +27,14 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2 } from 'lucide-react';
+import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2, Camera } from 'lucide-react';
 import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory, getPreviousShiftReadings } from '../../../api/pos';
 import useConfirm from '../../../hooks/useConfirmDialog.jsx';
+// F18 (S79) — camera-based ticket scan for tablets / phones without a
+// handheld scanner. Reuses the same BarcodeScannerModal already used for
+// product scans (S36) — uses native BarcodeDetector when available, falls
+// back to @zxing/browser via lazy CDN import otherwise.
+import BarcodeScannerModal from '../../BarcodeScannerModal.jsx';
 import './LotteryShiftModal.css';
 
 // May 2026 — split into a folder. Helpers live in `utils.js`, the two
@@ -58,6 +63,10 @@ export default function LotteryShiftModal({
   const [notes, setNotes]           = useState('');
   const [scanValue, setScanValue]   = useState('');
   const [scanLog, setScanLog]       = useState([]);           // recent scans for operator feedback
+  // F18 (S79) — camera scanner overlay for tablets / phones. Toggled by
+  // the camera button in the scan bar; routes detected codes through the
+  // same handleScan path as keyboard / handheld scanner.
+  const [showCamera, setShowCamera] = useState(false);
   const [online, setOnline]         = useState({
     grossSales:     '',
     cancels:        '',
@@ -592,6 +601,18 @@ export default function LotteryShiftModal({
                   onClick={() => handleScan(scanValue)}
                   disabled={!scanValue.trim()}
                 >Scan</button>
+                {/* F18 — camera scan for stations without a handheld scanner.
+                    Detected value flows through handleScan → same path as
+                    keyboard / wedge scanner, so per-row routing + activation
+                    + scan-log all work identically. */}
+                <button
+                  type="button"
+                  className="lsm-scan-camera-btn"
+                  onClick={() => setShowCamera(true)}
+                  title="Scan with camera"
+                >
+                  <Camera size={16} />
+                </button>
               </div>
 
               {scanLog.length > 0 && (
@@ -926,6 +947,19 @@ export default function LotteryShiftModal({
           )}
         </div>
       </div>
+
+      {/* F18 — Camera scanner overlay. Closes itself on detect AND fires
+          handleScan with the decoded barcode. Native BarcodeDetector when
+          available; @zxing/browser fallback otherwise. */}
+      <BarcodeScannerModal
+        open={showCamera}
+        onClose={() => setShowCamera(false)}
+        onDetected={(value) => {
+          setShowCamera(false);
+          handleScan(value);
+        }}
+        title="Scan Lottery Ticket"
+      />
     </div>
   );
 }

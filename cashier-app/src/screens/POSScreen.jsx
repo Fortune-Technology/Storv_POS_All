@@ -699,12 +699,16 @@ export default function POSScreen() {
   });
 
   // ── Broadcast to customer display ───────────────────────────────────────
+  // C3 (S79) — `theme` rides on every broadcast so the customer-facing
+  // window can switch to light mode without its own config fetch.
+  const customerDisplayTheme = posConfig.customerDisplay?.theme || 'dark';
   useEffect(() => {
     if (items.length === 0) {
-      publishDisplay({ type: 'idle' });
+      publishDisplay({ type: 'idle', theme: customerDisplayTheme });
     } else {
       publishDisplay({
         type: 'cart_update',
+        theme: customerDisplayTheme,
         items,
         totals,
         bagCount,
@@ -716,7 +720,7 @@ export default function POSScreen() {
         storeName: storeBranding?.storeName || storeBranding?.name || '',
       });
     }
-  }, [items, totals, bagCount, customer, loyaltyRedemption, orderDiscount, promoResults, storeBranding]);
+  }, [items, totals, bagCount, customer, loyaltyRedemption, orderDiscount, promoResults, storeBranding, customerDisplayTheme]);
 
   // ── Age-check helper: skip if already verified this transaction ──────────
   const addWithAgeCheck = useCallback((product) => {
@@ -1111,6 +1115,8 @@ export default function POSScreen() {
     setLastCompletedTx(tx);
     publishDisplay({
       type: 'transaction_complete',
+      // C3 — keep the theme in sync across all 3 broadcast variants.
+      theme: posConfig.customerDisplay?.theme || 'dark',
       txNumber: tx.txNumber,
       change: change || tx.changeGiven || 0,
     });

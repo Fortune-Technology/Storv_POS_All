@@ -185,7 +185,17 @@ function SettlementCard({ row, onEdit }) {
           <Line label="Sales Comm"  value={fmt(row.onlineCommission)} muted />
         </div>
         <div className="lws-col">
-          <div className="lws-col-title">Instant Due <strong>{fmt(instantDue)}</strong></div>
+          <div className="lws-col-title">
+            <span>Instant Due</span>
+            {/* S79e (C10) — wrapper keeps the dollar amount + snapshot chip
+                grouped on the right side of the space-between flex layout.
+                Chip self-hides when row.snapshotCoverage is missing
+                (i.e. older settlement rows from before this field shipped). */}
+            <span className="lws-col-title-right">
+              <strong>{fmt(instantDue)}</strong>
+              <SnapshotCoverageChip source={row.instantSalesSource} coverage={row.snapshotCoverage} />
+            </span>
+          </div>
           <Line
             label={`Settled ${(row.settledBookIds?.length || 0)} book${(row.settledBookIds?.length || 0) === 1 ? '' : 's'}`}
             value={fmt(row.instantSales)} />
@@ -229,6 +239,59 @@ function Line({ label, value, muted }) {
       <span>{label}</span>
       <span>{value}</span>
     </div>
+  );
+}
+
+/**
+ * S79e (C10) — Snapshot coverage chip.
+ *
+ * Lets admins distinguish a legitimately quiet week ($0 sales because
+ * nothing sold) from a missed-wizard week ($0 sales because no
+ * close_day_snapshot events were captured).
+ *
+ * Decision tree (priority order):
+ *   1. instantSalesSource = 'pos_fallback' → amber, source label takes precedence
+ *      (no snapshots at all this week, settlement falling back to POS data)
+ *   2. snapshotCoverage = 0/N    → red    "No snapshots — POS fallback / no signal"
+ *   3. coverage < N/2  (< 50%)   → amber  "Partial — sales may be incomplete"
+ *   4. coverage < N    (50-99%)  → amber  "X/N days tracked"
+ *   5. coverage = N    (100%)    → green  "Full week tracked"
+ */
+function SnapshotCoverageChip({ source, coverage }) {
+  // No backend support yet (e.g. older settlement row before this field
+  // was added) — render nothing instead of misleading green.
+  if (!coverage || typeof coverage.daysWithSnapshots !== 'number') return null;
+
+  const { daysWithSnapshots: days, daysInPeriod: total } = coverage;
+  const safeTotal = total > 0 ? total : 7;
+
+  let tone, label, title;
+  if (source === 'pos_fallback') {
+    tone  = 'amber';
+    label = `⚠ POS fallback — 0/${safeTotal} snapshots`;
+    title = 'No snapshot trail this week — settlement is using cashier-recorded LotteryTransaction sales as a fallback. Less accurate than the EoD wizard\'s snapshot trail. Run the EoD wizard nightly to improve this.';
+  } else if (days === 0) {
+    tone  = 'red';
+    label = `⚠ 0/${safeTotal} snapshots`;
+    title = 'No snapshots captured this week — likely the cashier didn\'t run the EoD wizard. Settlement may show $0 sales even if tickets sold.';
+  } else if (days < safeTotal / 2) {
+    tone  = 'amber';
+    label = `⚠ ${days}/${safeTotal} days tracked`;
+    title = 'Partial snapshot coverage — settlement amount may be incomplete. Run the EoD wizard nightly to capture every day.';
+  } else if (days < safeTotal) {
+    tone  = 'amber';
+    label = `${days}/${safeTotal} days tracked`;
+    title = `Snapshots were captured on ${days} of ${safeTotal} days this week. Days without snapshots aren\'t reflected in the settlement amount.`;
+  } else {
+    tone  = 'green';
+    label = `✓ ${days}/${safeTotal} days tracked`;
+    title = 'Full snapshot coverage — every day in the week had at least one EoD wizard run. Settlement amount is high-confidence.';
+  }
+
+  return (
+    <span className={`lws-snapshot-chip lws-snapshot-chip--${tone}`} title={title}>
+      {label}
+    </span>
   );
 }
 

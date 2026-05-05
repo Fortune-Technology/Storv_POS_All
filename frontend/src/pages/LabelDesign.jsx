@@ -17,6 +17,7 @@ import {
   ChevronDown, X, Loader, Settings, Copy, RotateCcw, Star, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import JsBarcode from 'jsbarcode';
 import api, { submitLabelPrintJob, getLabelPrintJob } from '../services/api';
 import { connectZebra, getZebraStatus, selectZebraPrinter, printZPL, printTestLabel, isZebraAvailable } from '../services/zebraPrint';
 import { downloadCSV } from '../utils/exportUtils';
@@ -307,73 +308,185 @@ function resolveVariable(fieldDef, data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PREVIEW RENDER (CSS visual approximation of label)
+// PREVIEW — DPI-driven, pixel-accurate to printed output
 // ═══════════════════════════════════════════════════════════════════════════
+//
+// Math model (matches the ZPL generator at `generateZPL` exactly):
+//
+//   Real label in dots = inches × DPI
+//     2" × 1"  at 203dpi = 406  ×  203  dots
+//     2" × 1"  at 300dpi = 600  ×  300  dots
+//     2" × 1"  at 600dpi = 1200 ×  600  dots
+//
+//   Field position (stored in `template.unit`) → dots → screen pixels:
+//     dots    = toDots(field.x, unit, dpi)        // shared helper
+//     screenX = dots × scale                       // scale = px per dot
+//
+//   Font height (stored in pt) → dots → screen pixels:
+//     fontDots = (pt × dpi / 72)
+//     fontPx   = fontDots × scale
+//
+//   `scale` defaults to 0.4 px/dot — fits a 4×2" label at 203dpi (812×406 dots)
+//   into ~325×162 screen px. Adjustable by the parent so the user can zoom
+//   without breaking the math: every element scales proportionally.
+//
+// The previous implementation hard-coded `1 inch = 3rem ≈ 48 screen px`,
+// which threw away the DPI dimension entirely — a 4"×2" label and a 2"×1"
+// label looked the SAME on screen if both were preview-targeting different
+// printer DPIs, because dots × DPI was never in the equation.
+// Barcodes were also fake (random div stripes); now they're real Code128 /
+// UPC-A renders via JsBarcode, sized to match the actual printed barcode.
 
-const PREVIEW_FONT_SIZES = { tiny: 8, small: 10, medium: 13, large: 18, xlarge: 26 };
-// Map new pt-based font sizes to screen px for preview
-function previewFontSize(fontSize) {
-  if (PREVIEW_FONT_SIZES[fontSize]) return PREVIEW_FONT_SIZES[fontSize];
-  const opt = FONT_SIZE_OPTIONS.find(f => f.id === fontSize);
-  // pt → screen: roughly 1pt ≈ 1px at screen resolution
-  return opt ? Math.round(opt.ptValue * 0.9) : 13;
+/** Map field def → JsBarcode format string. */
+function barcodeFormatFor(fieldId, value) {
+  if (fieldId === 'upcBarcode' || fieldId === 'upc') {
+    // UPC-A is 12 digits; CODE128 is the safe fallback for shorter / non-numeric data
+    if (/^[0-9]{12}$/.test(String(value || ''))) return 'UPC';
+    if (/^[0-9]{13}$/.test(String(value || ''))) return 'EAN13';
+    if (/^[0-9]{8}$/.test(String(value || '')))  return 'EAN8';
+    return 'CODE128';
+  }
+  return 'CODE128';
 }
 
-function LabelPreview({ template, sampleData, labelSize }) {
+/** SVG barcode component — renders into a ref via JsBarcode on each prop change. */
+function BarcodeSVG({ value, format, heightPx, modulePx }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    try {
+      JsBarcode(ref.current, String(value || '012345678901'), {
+        format,
+        // JsBarcode renders barcode bars at `width` px each; default 2.
+        // We multiply by the label scale so a 2-dot module @ 0.4 scale = 0.8 px
+        // (the exact width of the actual print at this zoom level).
+        width:   Math.max(0.5, modulePx),
+        height:  Math.max(8, heightPx),
+        // Hide JsBarcode's text — we render the human-readable value separately
+        // below the bars to match how Zebra prints the UPC text under the bars.
+        displayValue: false,
+        margin:  0,
+        background: 'transparent',
+      });
+    } catch (err) {
+      // Invalid format / value combo → blank the SVG instead of throwing
+      console.warn('[LabelPreview] barcode render failed:', err.message);
+      if (ref.current) ref.current.innerHTML = '';
+    }
+  }, [value, format, heightPx, modulePx]);
+  return <svg ref={ref} />;
+}
+
+/**
+ * Render the label preview at pixel-accurate scale.
+ *
+ * @param {object} props
+ * @param {object} props.template     — current template { fields, unit, labelSize, dpi }
+ * @param {object} props.sampleData   — sample product data to substitute
+ * @param {string} props.labelSize    — fallback label size when template doesn't set one
+ * @param {number} props.scale        — px per printer-dot (default 0.4 — see math notes above)
+ */
+function LabelPreview({ template, sampleData, labelSize, scale = 0.4 }) {
   const size = LABEL_SIZES.find(s => s.id === (template?.labelSize || labelSize)) || LABEL_SIZES[1];
-  const scale = 3; // 1 inch = 3rem on screen
+  const dpi  = template?.dpi || size.dpi || 203;
+  const unit = template?.unit || 'pt';
+
+  // Real label in dots → on-screen px
+  const widthDots  = Math.round(size.w * dpi);
+  const heightDots = Math.round(size.h * dpi);
+  const widthPx    = Math.round(widthDots  * scale);
+  const heightPx   = Math.round(heightDots * scale);
 
   return (
     <div style={{
-      width: `${size.w * scale}rem`, height: `${size.h * scale}rem`,
-      border: '2px solid var(--border-color)', borderRadius: 4,
-      background: '#fff', position: 'relative', overflow: 'hidden',
-      boxShadow: 'var(--shadow-md)', flexShrink: 0,
+      width:    `${widthPx}px`,
+      height:   `${heightPx}px`,
+      border:   '2px solid var(--border-color)',
+      borderRadius: 4,
+      background: '#fff',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: 'var(--shadow-md)',
+      flexShrink: 0,
     }}>
       {(template?.fields || []).map((field, i) => {
         const def = FIELD_DEFS.find(f => f.id === field.fieldId);
         if (!def) return null;
         const value = resolveVariable(def, sampleData);
-        const fs = previewFontSize(field.fontSize || 'medium');
 
+        // Position math — field coords stored in template.unit, convert to dots → px
+        const xDots = toDots(field.x, unit, dpi);
+        const yDots = toDots(field.y, unit, dpi);
+        const xPx   = Math.round(xDots * scale);
+        const yPx   = Math.round(yDots * scale);
+
+        // ── Barcode field ────────────────────────────────────────────────
         if (def.type === 'barcode') {
+          const format = barcodeFormatFor(field.fieldId, value);
+          // ZPL barcodes default to ~50 dots tall, with a 2-dot module width.
+          // These match Zebra defaults; users can override via field config
+          // later if/when we expose barcode-specific knobs.
+          const barcodeHeightPx = Math.max(8, 50 * scale);
+          const modulePx        = Math.max(0.5, 2 * scale);
+          // Human-readable text below the bars — matches Zebra default.
+          const textFontPx      = Math.max(7, 18 * scale);
           return (
-            <div key={i} style={{
-              position: 'absolute',
-              left: `${(field.x / 72) * scale}rem`,
-              top: `${(field.y / 72) * scale}rem`,
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-            }}>
-              <div style={{ display: 'flex', gap: 1, height: 30 }}>
-                {(value || '012345678901').split('').map((c, j) => (
-                  <div key={j} style={{
-                    width: j % 2 === 0 ? 2 : 1,
-                    background: j % 3 === 0 ? '#000' : 'transparent',
-                    height: '100%',
-                  }} />
-                ))}
-              </div>
-              <span style={{ fontSize: 7, fontFamily: 'monospace', color: '#333', marginTop: 2 }}>{value}</span>
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left:     `${xPx}px`,
+                top:      `${yPx}px`,
+                display:  'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+              }}
+            >
+              <BarcodeSVG
+                value={value || (format === 'UPC' ? '012345678905' : '12345678')}
+                format={format}
+                heightPx={barcodeHeightPx}
+                modulePx={modulePx}
+              />
+              <span style={{
+                fontSize: textFontPx,
+                fontFamily: 'monospace',
+                color: '#000',
+                marginTop: 1,
+                lineHeight: 1,
+              }}>
+                {value || (format === 'UPC' ? '012345678905' : '')}
+              </span>
             </div>
           );
         }
 
+        // ── Text field — DPI-driven font size ─────────────────────────────
+        const { h: fontDots } = getFontDots(field.fontSize || 'medium', dpi);
+        const fontPx = Math.max(6, fontDots * scale);
+
         return (
-          <div key={i} style={{
-            position: 'absolute',
-            left: `${(field.x / 72) * scale}rem`,
-            top: `${(field.y / 72) * scale}rem`,
-            fontSize: fs,
-            fontWeight: field.bold ? 800 : 400,
-            color: field.fieldId === 'salePrice' ? '#dc2626' : '#000',
-            fontFamily: "'Inter', sans-serif",
-            lineHeight: 1.2,
-            maxWidth: `${(size.w * scale) - (field.x / 72 * scale)}rem`,
-            overflow: 'hidden',
-            whiteSpace: 'nowrap',
-            textOverflow: 'ellipsis',
-            textDecoration: field.fieldId === 'retailPrice' && sampleData.salePrice ? 'line-through' : 'none',
-          }}>
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left:     `${xPx}px`,
+              top:      `${yPx}px`,
+              fontSize: `${fontPx}px`,
+              fontWeight: field.bold ? 800 : 400,
+              color:    field.fieldId === 'salePrice' ? '#dc2626' : '#000',
+              fontFamily: "'Inter', sans-serif",
+              lineHeight: 1.2,
+              // Allow the text to extend up to the right edge of the label
+              maxWidth: `${widthPx - xPx}px`,
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+              textDecoration: field.fieldId === 'retailPrice' && sampleData.salePrice
+                ? 'line-through'
+                : 'none',
+            }}
+          >
             {value || def.example}
           </div>
         );
@@ -427,6 +540,23 @@ export default function LabelDesign({ embedded }) {
   const [zebraSelected, setZebraSelected] = useState('');
   const [zebraConnecting, setZebraConnecting] = useState(false);
   const [zebraPrinting, setZebraPrinting] = useState(false);
+
+  // ── C5 (S79d) — preview zoom (px-per-printer-dot) ──────────────────
+  // 0.4 px/dot is the default — fits a 4×2" label at 203dpi (812×406 dots)
+  // into ~325×162 screen px, comfortable on a 13" laptop without horizontal
+  // scroll. 1.0 = "actual size" (1 dot = 1 screen px) — useful to spot
+  // tight layouts the printer will struggle with. Each step doubles the
+  // detail so users get a clear sense of which scale is "real".
+  const PREVIEW_ZOOM_OPTIONS = [
+    { value: 0.25, label: '25%' },
+    { value: 0.4,  label: '40%', isDefault: true },
+    { value: 0.5,  label: '50%' },
+    { value: 0.75, label: '75%' },
+    { value: 1.0,  label: '100%', actualSize: true },
+    { value: 1.5,  label: '150%' },
+    { value: 2.0,  label: '200%' },
+  ];
+  const [previewZoom, setPreviewZoom] = useState(0.4);
 
   // Route via cashier-app (Electron) — needed when portal is on public HTTPS
   // because Chrome LNA blocks direct calls to localhost:9101 from storeveu.com.
@@ -904,16 +1034,80 @@ export default function LabelDesign({ embedded }) {
             </div>
           </div>
 
-          {/* Preview */}
+          {/* Preview — C5 (S79d): pixel-accurate to printer output, zoom-able */}
           <div className="p-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Label Preview — {activeLabelSize.name}
+                Label Preview — {activeLabelSize.name} @ {activeTemplate.dpi || activeLabelSize.dpi}dpi
               </div>
               <span className="p-badge p-badge-brand">{activeTemplate.fields?.length || 0} fields</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
-              <LabelPreview template={activeTemplate} sampleData={{ dualPricing, ...sampleProduct }} labelSize={activeTemplate.labelSize} />
+
+            {/* Zoom row — px-per-dot stays fixed across all label sizes so admins
+                comparing 2"×1" vs 4"×2" see the actual size difference on screen. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
+              fontSize: '0.72rem', color: 'var(--text-muted)',
+            }}>
+              <span style={{ fontWeight: 700, marginRight: 4 }}>Zoom:</span>
+              {PREVIEW_ZOOM_OPTIONS.map(opt => {
+                const active = Math.abs(previewZoom - opt.value) < 0.001;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPreviewZoom(opt.value)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                      background: active ? 'var(--brand-10)' : 'var(--bg-secondary)',
+                      color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                    title={
+                      opt.actualSize
+                        ? 'Actual size — 1 printer dot = 1 screen pixel'
+                        : opt.isDefault ? 'Default zoom — fits comfortably on screen'
+                        : `Zoom to ${opt.label}`
+                    }
+                  >
+                    {opt.label}
+                    {opt.actualSize && ' ¹⁄₁'}
+                  </button>
+                );
+              })}
+              <span style={{ marginLeft: 'auto', fontSize: '0.65rem' }}>
+                {(() => {
+                  const dpi = activeTemplate.dpi || activeLabelSize.dpi;
+                  const widthDots  = Math.round(activeLabelSize.w * dpi);
+                  const heightDots = Math.round(activeLabelSize.h * dpi);
+                  const widthPx    = Math.round(widthDots  * previewZoom);
+                  const heightPx   = Math.round(heightDots * previewZoom);
+                  return `${widthDots}×${heightDots} dots → ${widthPx}×${heightPx} px on screen`;
+                })()}
+              </span>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              padding: '1rem',
+              background: 'var(--bg-tertiary)',
+              borderRadius: 'var(--radius-sm)',
+              // When zoomed past container width the label scrolls horizontally
+              // rather than getting clipped — admins zooming to 200% need to see
+              // the right edge of the label too.
+              overflow: 'auto',
+            }}>
+              <LabelPreview
+                template={activeTemplate}
+                sampleData={{ dualPricing, ...sampleProduct }}
+                labelSize={activeTemplate.labelSize}
+                scale={previewZoom}
+              />
             </div>
           </div>
 

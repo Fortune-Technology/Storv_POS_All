@@ -18,11 +18,19 @@ export default function CustomerDisplayScreen() {
     promoResults: { totalSaving: 0, appliedPromos: [] }, storeName: '',
   });
 
+  // C3 (S79) — theme rides on every broadcast from POSScreen. Defaults to
+  // 'dark' so a freshly-opened display window before the first broadcast
+  // still renders the existing across-counter look.
+  const [theme, setTheme] = useState('dark');
+
   const [thankYou, setThankYou] = useState(null);
   const thankYouTimer = useRef(null);
 
   const handleMessage = useCallback((data) => {
     if (!data?.type) return;
+    // Apply theme from any broadcast (cart_update / idle / transaction_complete).
+    if (data.theme === 'light' || data.theme === 'dark') setTheme(data.theme);
+
     if (data.type === 'cart_update') {
       setState(data);
       setThankYou(null);
@@ -59,7 +67,7 @@ export default function CustomerDisplayScreen() {
   // ── Thank You ──
   if (thankYou) {
     return (
-      <div className="cds-root">
+      <div className={`cds-root${theme === 'light' ? ' cds-root--light' : ''}`}>
         <div className="cds-page">
           <div className="cds-thankyou-icon">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7ac143" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -81,7 +89,7 @@ export default function CustomerDisplayScreen() {
   // ── Idle ──
   if (!hasItems) {
     return (
-      <div className="cds-root">
+      <div className={`cds-root${theme === 'light' ? ' cds-root--light' : ''}`}>
         <div className="cds-page">
           <div className="cds-idle-store">{storeName || 'Welcome'}</div>
           <div className="cds-idle-clock">
@@ -94,7 +102,7 @@ export default function CustomerDisplayScreen() {
 
   // ── Active Cart ──
   return (
-    <div className="cds-root">
+    <div className={`cds-root${theme === 'light' ? ' cds-root--light' : ''}`}>
       <div className="cds-active">
         {/* Header */}
         <div className="cds-header">
