@@ -155,6 +155,49 @@ export async function sendPasswordChanged(to: string, name: string | null | unde
   return sendMail(to, 'Your password was changed Storeveu', html);
 }
 
+// ─── S78: Implementation Engineer PIN templates ──────────────────────────────
+
+export type ImplementationPinReason = 'granted' | 'rotated' | 'manual_rotate';
+
+/**
+ * Send the Implementation Engineer PIN. Fires at 3 lifecycle points:
+ *   - granted        → admin just flipped canConfigureHardware true
+ *   - rotated        → weekly scheduler rotated the PIN
+ *   - manual_rotate  → user (or admin) clicked "Rotate Now" in the panel
+ *
+ * The PIN is shown in the email body. The user can also view the current
+ * PIN at any time in the admin panel under "My Implementation PIN".
+ */
+export async function sendImplementationPinEmail(
+  to: string,
+  name: string | null | undefined,
+  pin: string,
+  reason: ImplementationPinReason,
+): Promise<boolean> {
+  const headline = reason === 'granted'
+    ? 'Hardware Configuration Access Granted'
+    : reason === 'manual_rotate'
+      ? 'Your Implementation PIN was rotated'
+      : 'Your weekly Implementation PIN has rotated';
+
+  const intro = reason === 'granted'
+    ? `<p>You've been granted hardware-configuration access on Storeveu. Use this PIN at the cashier register to unlock the Hardware Settings flow.</p>`
+    : reason === 'manual_rotate'
+      ? `<p>Your Implementation PIN has been rotated at your request. The previous PIN is no longer valid.</p>`
+      : `<p>Your weekly Implementation PIN rotation has fired. The previous PIN is no longer valid.</p>`;
+
+  const html = wrap(headline, `
+    <h2>Hi ${escapeHtml(name || 'there')},</h2>
+    ${intro}
+    <p style="text-align:center;">
+      <span style="display:inline-block; padding:18px 28px; font-size:2rem; letter-spacing:0.4em; font-weight:800; background:#0f172a; color:#fff; border-radius:10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(pin)}</span>
+    </p>
+    <p class="muted">This PIN auto-rotates every Monday at 00:00 UTC. You'll receive a fresh email each week. You can also view your current PIN at any time on your Storeveu account page.</p>
+    <p class="muted">Keep this PIN private. Don't share it with store staff — it's intended for internal implementation engineers only.</p>
+  `);
+  return sendMail(to, `[Storeveu] ${headline}`, html);
+}
+
 // ─── Invitation templates ────────────────────────────────────────────────────
 
 export interface InvitationPayload {

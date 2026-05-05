@@ -171,6 +171,61 @@
   margin-bottom: 0.85rem;
 }
 
+/* S78 — Hardware Configuration Access toggle */
+.aosu-hwflag {
+  margin-top: 0.5rem;
+  padding: 0.85rem 1rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+.aosu-hwflag-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.aosu-hwflag-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+.aosu-hwflag-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+.aosu-hwflag-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.aosu-hwflag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: #b91c1c;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+}
+.aosu-hwflag-desc {
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.45;
+}
+
 /* Wipe modal */
 .aosu-wipe-header {
   border-bottom: 2px solid rgba(239, 68, 68, 0.4) !important;

@@ -129,14 +129,16 @@ export async function readPayoutBuckets(args: {
 }): Promise<PayoutBuckets> {
   const { shiftId, orgId, storeId, windowStart, windowEnd } = args;
 
-  type DropRow = { amount: number | string };
+  type DropRow = { amount: number | string; type?: string | null };
   type PayoutRow = { amount: number | string; payoutType?: string | null };
   type VendorPayRow = { amount: number | string };
 
   const [drops, payouts, vendorCashPays] = await Promise.all([
     prisma.cashDrop.findMany({
       where: { shiftId },
-      select: { amount: true },
+      // S77 (C9) — read `type` so paid_in drops are routed to cashIn instead
+      // of cashDropsTotal. Legacy rows have type=null → treated as 'drop'.
+      select: { amount: true, type: true },
     }) as Promise<DropRow[]>,
     prisma.cashPayout.findMany({
       where: { shiftId },
@@ -158,7 +160,18 @@ export async function readPayoutBuckets(args: {
     }) as Promise<VendorPayRow[]>,
   ]);
 
-  const cashDropsTotal = drops.reduce((s, d) => s + Number(d.amount || 0), 0);
+  // S77 (C9) — split CashDrops by type. Legacy rows have type=null → 'drop'.
+  let cashDropsTotal = 0;
+  let cashInPaidInDrops = 0;
+  for (const d of drops) {
+    const amt = Number(d.amount || 0);
+    const t = String(d.type || 'drop').toLowerCase().trim();
+    if (t === 'paid_in') {
+      cashInPaidInDrops += amt;
+    } else {
+      cashDropsTotal += amt;
+    }
+  }
 
   let cashInPaidIn = 0;
   let cashInReceivedOnAcct = 0;
@@ -172,7 +185,14 @@ export async function readPayoutBuckets(args: {
       cashOutLoans += amt;
     } else if (t === 'paid_in' || t === 'received') {
       cashInPaidIn += amt;
-    } else if (t === 'received_on_acct' || t === 'on_account' || t === 'house_payment') {
+    } else if (
+      // S77 (C9) — accept canonical 'received_on_account' (full word) plus
+      // legacy abbreviated forms for back-compat with any older data.
+      t === 'received_on_account' ||
+      t === 'received_on_acct' ||
+      t === 'on_account' ||
+      t === 'house_payment'
+    ) {
       cashInReceivedOnAcct += amt;
     } else if (t === 'tip' || t === 'tips') {
       // skip — informational, doesn't affect drawer
@@ -180,7 +200,7 @@ export async function readPayoutBuckets(args: {
       cashOutPaidOut += amt; // default to paid_out
     }
   }
-  const cashIn = cashInPaidIn + cashInReceivedOnAcct;
+  const cashIn = cashInPaidInDrops + cashInPaidIn + cashInReceivedOnAcct;
   const cashOut = cashOutPaidOut + cashOutLoans;
   // Legacy `cashPayoutsTotal` field — historical surfaces summed every
   // payout regardless of bucket. Keep that semantic for back-compat.

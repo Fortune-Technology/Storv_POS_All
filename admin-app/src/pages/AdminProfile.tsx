@@ -11,9 +11,14 @@ import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { toast } from 'react-toastify';
 import {
   User, Mail, Phone, Shield, Save, Eye, EyeOff,
-  Loader, Lock, Check, AlertCircle,
+  Loader, Lock, Check, AlertCircle, KeyRound, RefreshCw, Clock,
 } from 'lucide-react';
-import { getMyProfile, updateMyProfile, changeMyPassword } from '../services/api';
+import {
+  getMyProfile, updateMyProfile, changeMyPassword,
+  getMyImplementationPin, rotateMyImplementationPin,
+  type MyImplementationPinResponse,
+} from '../services/api';
+import { useConfirm } from '../hooks/useConfirmDialog';
 import './AdminProfile.css';
 
 interface ProfileShape {
@@ -22,6 +27,7 @@ interface ProfileShape {
   email: string;
   phone?: string | null;
   role: string;
+  canConfigureHardware?: boolean;
   orgs?: Array<{ orgId: string; orgName: string }>;
 }
 
@@ -35,6 +41,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const AdminProfile = () => {
+  const confirm = useConfirm();
   const [profile, setProfile]   = useState<ProfileShape | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error,   setError]     = useState<string | null>(null);
@@ -51,6 +58,12 @@ const AdminProfile = () => {
   const [showCurrent,  setShowCurrent]  = useState(false);
   const [showNew,      setShowNew]      = useState(false);
   const [savingPw,     setSavingPw]     = useState(false);
+
+  // S78 — Implementation Engineer PIN
+  const [implPin,        setImplPin]        = useState<MyImplementationPinResponse | null>(null);
+  const [implPinLoading, setImplPinLoading] = useState(false);
+  const [showImplPin,    setShowImplPin]    = useState(false);
+  const [rotatingPin,    setRotatingPin]    = useState(false);
 
   const loadProfile = async () => {
     setLoading(true);
@@ -69,6 +82,59 @@ const AdminProfile = () => {
   };
 
   useEffect(() => { loadProfile(); }, []);
+
+  // S78 — Lazily load the Implementation PIN once the profile arrives AND
+  // the user has the flag. The endpoint returns the plaintext PIN; we mask
+  // it by default and only reveal when the user clicks "Show".
+  useEffect(() => {
+    if (!profile?.canConfigureHardware) { setImplPin(null); return; }
+    setImplPinLoading(true);
+    getMyImplementationPin()
+      .then(setImplPin)
+      .catch(() => setImplPin(null))
+      .finally(() => setImplPinLoading(false));
+  }, [profile?.canConfigureHardware]);
+
+  const handleRotatePin = async () => {
+    const ok = await confirm({
+      title: 'Rotate Implementation PIN now?',
+      message: 'Your current PIN will stop working immediately. A fresh 6-digit PIN will be generated and emailed to you.',
+      confirmLabel: 'Rotate Now',
+      danger: true,
+    });
+    if (!ok) return;
+    setRotatingPin(true);
+    try {
+      const next = await rotateMyImplementationPin();
+      setImplPin(next);
+      setShowImplPin(true); // Reveal so user can copy it immediately
+      toast.success('Implementation PIN rotated. Check your email for the new PIN.');
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } } };
+      toast.error(e.response?.data?.error || 'Failed to rotate PIN');
+    } finally {
+      setRotatingPin(false);
+    }
+  };
+
+  const handleCopyPin = async () => {
+    if (!implPin?.pin) return;
+    try {
+      await navigator.clipboard.writeText(implPin.pin);
+      toast.success('PIN copied');
+    } catch {
+      toast.error('Couldn\'t copy — please select and copy manually');
+    }
+  };
+
+  const fmtRotationDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+      });
+    } catch { return iso || '—'; }
+  };
 
   const dirty = profile && (
     (nameInput.trim() !== (profile.name || '')) ||
@@ -287,6 +353,94 @@ const AdminProfile = () => {
           </button>
         </div>
       </form>
+
+      {/* S78 — Implementation Engineer PIN — only visible to users with the
+          canConfigureHardware flag. Self-rotates every Monday at 00:00 UTC. */}
+      {profile.canConfigureHardware && (
+        <div className="amp-card amp-impl-pin-card">
+          <div className="amp-card-head">
+            <div className="amp-card-title">
+              <KeyRound size={15} /> My Implementation PIN
+              <span className="amp-impl-pin-pill">Internal team only</span>
+            </div>
+            <div className="amp-card-sub">
+              6-digit PIN that unlocks the cashier-app's Hardware Settings flow.
+              Auto-rotates every Monday at 00:00 UTC.
+            </div>
+          </div>
+
+          {implPinLoading ? (
+            <div className="amp-impl-pin-loading">
+              <Loader size={13} className="al-spin" /> Loading PIN…
+            </div>
+          ) : !implPin?.pin ? (
+            <div className="amp-impl-pin-empty">
+              <AlertCircle size={14} />
+              <span>
+                PIN not yet generated. Click <strong>Rotate Now</strong> below to
+                generate one — you'll also receive it by email.
+              </span>
+            </div>
+          ) : (
+            <div className="amp-impl-pin-body">
+              <div className="amp-impl-pin-display">
+                <div
+                  className="amp-impl-pin-value"
+                  style={{ letterSpacing: showImplPin ? '0.5em' : '0.15em' }}
+                >
+                  {showImplPin ? implPin.pin : '••••••'}
+                </div>
+                <div className="amp-impl-pin-actions">
+                  <button
+                    type="button"
+                    className="amp-btn-secondary"
+                    onClick={() => setShowImplPin(s => !s)}
+                  >
+                    {showImplPin ? <><EyeOff size={13} /> Hide</> : <><Eye size={13} /> Show</>}
+                  </button>
+                  <button
+                    type="button"
+                    className="amp-btn-secondary"
+                    onClick={handleCopyPin}
+                    disabled={!showImplPin}
+                    title={showImplPin ? 'Copy PIN to clipboard' : 'Reveal PIN first'}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <div className="amp-impl-pin-meta">
+                <div className="amp-impl-pin-meta-row">
+                  <Clock size={12} />
+                  <span>
+                    Last set: <strong>{fmtRotationDate(implPin.setAt)}</strong>
+                  </span>
+                </div>
+                <div className="amp-impl-pin-meta-row">
+                  <RefreshCw size={12} />
+                  <span>
+                    Next auto-rotation: <strong>{fmtRotationDate(implPin.nextRotationAt)}</strong>
+                  </span>
+                </div>
+              </div>
+
+              <div className="amp-actions">
+                <button
+                  type="button"
+                  className="amp-btn-danger"
+                  onClick={handleRotatePin}
+                  disabled={rotatingPin}
+                >
+                  {rotatingPin
+                    ? <><Loader size={13} className="al-spin" /> Rotating…</>
+                    : <><RefreshCw size={13} /> Rotate Now</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

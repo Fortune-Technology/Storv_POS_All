@@ -11,7 +11,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useStationStore } from '../stores/useStationStore.js';
-import { buildReceiptString, printReceiptNetwork, kickCashDrawer, buildShelfLabelZPL, printLabelQZ } from '../services/printerService.js';
+import { buildReceiptString, buildCashEventReceiptString, printReceiptNetwork, kickCashDrawer, buildShelfLabelZPL, printLabelQZ } from '../services/printerService.js';
 import { connectQZ, isQZConnected, printRaw } from '../services/qzService.js';
 import { useScale } from './useScale.js';
 import * as posApi from '../api/pos.js';
@@ -97,6 +97,55 @@ export function useHardware({ onBarcode } = {}) {
 
     } catch (err) {
       console.warn('Print failed:', err.message);
+    } finally {
+      setPrinting(false);
+    }
+  }, [hw]);
+
+  // ── S77 (C9) — Print cash drawer event receipt ───────────────────────────
+  // Mirrors printReceipt but uses buildCashEventReceiptString. The unified
+  // CashDrawerEventModal calls this via onPrint for both the auto-fired
+  // house copy AND the optional vendor / customer copy. Throws on failure
+  // so the modal can show a "Print failed" status.
+  const printCashEvent = useCallback(async (event) => {
+    if (!hw?.receiptPrinter || hw.receiptPrinter.type === 'none') {
+      throw new Error('No receipt printer configured');
+    }
+    setPrinting(true);
+    try {
+      const escpos = buildCashEventReceiptString(event, {
+        paperWidth: hw.receiptPrinter.paperWidth || event.paperWidth || '80mm',
+      });
+
+      if (isElectron()) {
+        if (hw.receiptPrinter.type === 'network') {
+          await window.electronAPI.printNetwork(
+            hw.receiptPrinter.ip,
+            hw.receiptPrinter.port || 9100,
+            escpos,
+          );
+        } else {
+          await window.electronAPI.printUSB(hw.receiptPrinter.name, escpos);
+        }
+        return;
+      }
+
+      if (hw.receiptPrinter.type === 'network') {
+        // Reuse the existing network proxy by passing the pre-built string.
+        // printReceiptNetwork only accepts a receipt-shaped object, so we
+        // do the post directly via the same backend endpoint.
+        await posApi.printNetwork
+          ? posApi.printNetwork(hw.receiptPrinter.ip, hw.receiptPrinter.port || 9100, escpos)
+          : (await import('../api/client.js')).default.post('/pos-terminal/print-network', {
+              ip: hw.receiptPrinter.ip,
+              port: hw.receiptPrinter.port || 9100,
+              data: btoa(unescape(encodeURIComponent(escpos))),
+            });
+        return;
+      }
+
+      if (!isQZConnected()) await connectQZ();
+      await printRaw(hw.receiptPrinter.name, [escpos]);
     } finally {
       setPrinting(false);
     }
@@ -267,7 +316,7 @@ export function useHardware({ onBarcode } = {}) {
   return {
     hw,
     printing, payStatus, payResult,
-    printReceipt, openDrawer, printShelfLabel,
+    printReceipt, printCashEvent, openDrawer, printShelfLabel,
     listSystemPrinters,
     processCardPayment, cancelPayment,
     hasPAX, hasReceiptPrinter, hasCashDrawer, hasScale, hasLabelPrinter,

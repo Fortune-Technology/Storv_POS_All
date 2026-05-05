@@ -28,48 +28,15 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Ticket, Check, AlertCircle, ChevronRight, ChevronLeft, ScanLine, Trash2 } from 'lucide-react';
-import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory, getPreviousShiftReadings } from '../../api/pos';
-import useConfirm from '../../hooks/useConfirmDialog.jsx';
+import { scanLotteryBarcode, upsertLotteryOnlineTotal, getLotteryBoxes, soldoutLotteryBox, getLotteryYesterdayCloses, getLotterySettings, getDailyLotteryInventory, getPreviousShiftReadings } from '../../../api/pos';
+import useConfirm from '../../../hooks/useConfirmDialog.jsx';
 import './LotteryShiftModal.css';
 
-const fmtL = (n) => {
-  const num = Number(n || 0);
-  const r = Math.round(num * 100) / 100;
-  return Math.abs(r - Math.round(r)) < 0.005
-    ? `$${Math.round(r).toLocaleString()}`
-    : `$${r.toFixed(2)}`;
-};
-
-const fmt = (n) => `$${Number(n || 0).toFixed(2)}`;
-const numInput = (v) => String(v || '').replace(/[^0-9]/g, '');
-// Browser-local "today" — NOT UTC. Earlier `new Date().toISOString().slice(0, 10)`
-// returned UTC date which broke after ~8pm in Western timezones — the wizard
-// would stamp LotteryOnlineTotal under tomorrow's date and fetch authoritative
-// total for tomorrow (returning $0 while local Step 1 sum showed actual sales).
-// Browser-local matches the back-office in 95%+ of real-world deployments
-// where the cashier register and back-office are in the same tz.
-const _pad2 = (n) => String(n).padStart(2, '0');
-const todayISO = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
-};
-
-// Slot-number comparator used for the EoD wizard's counter list. Books
-// without a slot number fall to the end. Tiebreak by gameNumber + bookNumber
-// so the order is stable when two books share a slot or both lack one.
-function byslot(a, b) {
-  const sa = a?.slotNumber == null ? Number.MAX_SAFE_INTEGER : Number(a.slotNumber);
-  const sb = b?.slotNumber == null ? Number.MAX_SAFE_INTEGER : Number(b.slotNumber);
-  if (sa !== sb) return sa - sb;
-  const ga = String(a?.game?.gameNumber || a?.gameNumber || '');
-  const gb = String(b?.game?.gameNumber || b?.gameNumber || '');
-  if (ga !== gb) return ga.localeCompare(gb);
-  const ba = String(a?.boxNumber || '');
-  const bb = String(b?.boxNumber || '');
-  return ba.localeCompare(bb);
-}
-
-const STEPS = ['Counter Scan', 'Online Sales', 'Confirm & Save'];
+// May 2026 — split into a folder. Helpers live in `utils.js`, the two
+// presentation sub-components in `OnlineField.jsx` + `ReportRow.jsx`.
+import OnlineField from './OnlineField.jsx';
+import ReportRow from './ReportRow.jsx';
+import { fmtL, fmt, numInput, todayISO, byslot, STEPS } from './utils.js';
 
 export default function LotteryShiftModal({
   open,
@@ -965,31 +932,4 @@ export default function LotteryShiftModal({
 
 /* ────────────────────────────────────────────────────────────────────── */
 
-function OnlineField({ label, hint, value, onChange }) {
-  return (
-    <div className="lsm-online-field">
-      <label>{label}</label>
-      <div className="lsm-online-input">
-        <span>$</span>
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder="0.00"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-        />
-      </div>
-      <small>{hint}</small>
-    </div>
-  );
-}
-
-function ReportRow({ label, value, good, warn }) {
-  return (
-    <div className={`lsm-report-row ${good ? 'lsm-report-row--good' : ''} ${warn ? 'lsm-report-row--warn' : ''}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
+// `OnlineField` and `ReportRow` extracted to sibling files (May 2026 split).

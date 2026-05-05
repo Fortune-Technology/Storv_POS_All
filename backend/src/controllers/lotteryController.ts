@@ -705,6 +705,53 @@ export const updateBox = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // May 2026 — validate currentTicket bounds + auto-deplete on sentinel.
+    //
+    // Per user direction: only -1 is valid as a negative for desc books
+    // (the soldout sentinel). For asc books the sentinel is `totalTickets`,
+    // and negatives are always invalid. Anything more negative than -1 (or
+    // above the cap for asc) corrupts next-day carry-over math because
+    // snapshotSales computes |prev_close - today_close| × price — if today_close
+    // is -2 instead of -1, the next day's "yesterday close" becomes -2 and
+    // the wrong amount gets attributed.
+    //
+    // When the cashier enters the SO sentinel via the ticket input (e.g. types
+    // "-1" instead of clicking the SO button), we auto-deplete the book in
+    // the same write — flips status='depleted', stamps depletedAt, and the
+    // close_day_snapshot is written below if needed. This makes the typed
+    // sentinel and the SO button-click produce identical end states.
+    let autoDepleted = false;
+    if (currentTicket != null) {
+      const ticketStr = String(currentTicket).trim();
+      const ticketNum = parseInt(ticketStr, 10);
+      const totalTicketsForCheck =
+        totalTickets != null ? Number(totalTickets) : Number(box.totalTickets || 0);
+
+      // Resolve sellDirection for bounds-check
+      const sellSettings = await prisma.lotterySettings
+        .findUnique({ where: { storeId: storeId as string }, select: { sellDirection: true } })
+        .catch(() => null);
+      const sellDir = sellSettings?.sellDirection || 'desc';
+
+      // Bounds: desc → [-1, totalTickets-1]; asc → [0, totalTickets]
+      // (-1 desc and totalTickets asc are the soldout sentinels)
+      const minPos = sellDir === 'asc' ? 0 : -1;
+      const maxPos = sellDir === 'asc' ? totalTicketsForCheck : totalTicketsForCheck - 1;
+      if (!Number.isFinite(ticketNum) || ticketNum < minPos || ticketNum > maxPos) {
+        res.status(400).json({
+          success: false,
+          error: `Ticket position ${ticketStr} is out of range for this book. Valid range: ${minPos}..${maxPos} (sellDirection=${sellDir}, pack=${totalTicketsForCheck}).`,
+        });
+        return;
+      }
+
+      // Sentinel detection — ticket equals the "fully sold" position?
+      const sentinel = sellDir === 'asc' ? totalTicketsForCheck : -1;
+      if (ticketNum === sentinel && box.status === 'active') {
+        autoDepleted = true;
+      }
+    }
+
     const patch: Prisma.LotteryBoxUpdateInput = {
       ...(slotForUpdate !== undefined && { slotNumber: slotForUpdate }),
       ...(status != null && { status }),
@@ -712,6 +759,12 @@ export const updateBox = async (req: Request, res: Response): Promise<void> => {
       ...(startTicket != null && { startTicket: String(startTicket) }),
       ...(boxNumber != null && { boxNumber: String(boxNumber) }),
       ...(status === 'depleted' && !box.depletedAt && { depletedAt: new Date() }),
+      // May 2026 — sentinel-driven auto-deplete (see block above)
+      ...(autoDepleted && {
+        status: 'depleted',
+        depletedAt: new Date(),
+        autoSoldoutReason: 'sentinel_typed',
+      }),
     };
 
     // Recompute totalValue whenever totalTickets or ticketPrice change so
@@ -728,7 +781,39 @@ export const updateBox = async (req: Request, res: Response): Promise<void> => {
       where: { id },
       data: patch,
     });
-    res.json({ success: true, data: updated });
+
+    // May 2026 — when auto-depleted, also write the close_day_snapshot so
+    // ticket-math sales on this day reflect the soldout. Mirrors what
+    // markBoxSoldout does. Fire-and-forget; failure logged but doesn't
+    // poison the response — the box state IS updated.
+    if (autoDepleted) {
+      const now = new Date();
+      prisma.lotteryScanEvent
+        .create({
+          data: {
+            orgId: orgId as string,
+            storeId: storeId as string,
+            boxId: id,
+            scannedBy: req.user?.id || null,
+            raw: `auto_soldout_via_typed_sentinel:${id}`,
+            parsed: {
+              gameNumber: null,
+              gameName: null,
+              currentTicket: String(currentTicket),
+              source: 'updateBox-sentinel',
+              soldout: true,
+            } as Prisma.InputJsonValue,
+            action: 'close_day_snapshot',
+            context: 'eod',
+            createdAt: now,
+          },
+        })
+        .catch((e: Error) =>
+          console.warn('[updateBox] auto-soldout snapshot insert failed', id, e.message),
+        );
+    }
+
+    res.json({ success: true, data: updated, autoDepleted });
   } catch (err) {
     console.error('[lottery.updateBox]', err);
     res.status(500).json({ success: false, error: errMsg(err) });
@@ -1185,11 +1270,57 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
     let snapshotsWritten = 0;
 
     if (Array.isArray(boxScans)) {
+      // May 2026 — pre-fetch box metadata + sellDirection ONCE for the whole
+      // loop. Used for ticket-position bounds checking + sentinel detection
+      // (auto-deplete when cashier types -1 instead of clicking SO).
+      const boxIdsInScan = (boxScans as BoxScanInput[])
+        .map((b) => b?.boxId)
+        .filter((x): x is string => !!x);
+      type BoxMeta = { id: string; totalTickets: number | null; status: string };
+      const boxMetaList = (await prisma.lotteryBox.findMany({
+        where: { id: { in: boxIdsInScan }, orgId, storeId },
+        select: { id: true, totalTickets: true, status: true },
+      })) as BoxMeta[];
+      const boxMetaMap = new Map<string, BoxMeta>(boxMetaList.map((b) => [b.id, b]));
+      const sellSettings = await prisma.lotterySettings
+        .findUnique({ where: { storeId: storeId as string }, select: { sellDirection: true } })
+        .catch(() => null);
+      const sellDir = sellSettings?.sellDirection || 'desc';
+
       for (const bs of boxScans as BoxScanInput[]) {
         if (!bs?.boxId) continue;
         const isSoldout = !!bs.soldout || bs.endTicket === 'SO';
         const endTicket =
           !isSoldout && bs.endTicket != null && bs.endTicket !== '' ? String(bs.endTicket) : null;
+
+        // Bounds check + sentinel detection for typed ticket values.
+        // Per user direction (May 2026): only -1 is valid as a negative for
+        // desc books. Anything more negative corrupts next-day carry-over
+        // because snapshotSales takes |prev - today| × price — if today is
+        // -2 instead of -1, "yesterday close = -2" and the next day's math
+        // attributes one ticket too many.
+        let depleteOnSentinel = false;
+        if (endTicket != null) {
+          const ticketNum = parseInt(endTicket, 10);
+          const meta = boxMetaMap.get(bs.boxId);
+          const totalT = Number(meta?.totalTickets || 0);
+          const minPos = sellDir === 'asc' ? 0 : -1;
+          const maxPos = sellDir === 'asc' ? totalT : Math.max(0, totalT - 1);
+          if (!Number.isFinite(ticketNum) || ticketNum < minPos || ticketNum > maxPos) {
+            boxUpdateFailures.push({
+              boxId: bs.boxId,
+              error: `Ticket ${endTicket} out of range ${minPos}..${maxPos} for sellDirection=${sellDir}, pack=${totalT}`,
+              attemptedTicket: endTicket,
+            });
+            continue; // skip this box — don't write a corrupted snapshot
+          }
+          // Sentinel detection — auto-deplete the box. Mirrors markBoxSoldout
+          // so cashier typing -1 produces the same end state as clicking SO.
+          const sentinel = sellDir === 'asc' ? totalT : -1;
+          if (ticketNum === sentinel && meta?.status === 'active') {
+            depleteOnSentinel = true;
+          }
+        }
 
         // Update the box if we have a real end ticket
         if (endTicket != null) {
@@ -1200,6 +1331,11 @@ export const saveLotteryShiftReport = async (req: Request, res: Response): Promi
                 currentTicket: endTicket,
                 lastShiftEndTicket: endTicket,
                 updatedAt: new Date(),
+                ...(depleteOnSentinel && {
+                  status: 'depleted',
+                  depletedAt: new Date(),
+                  autoSoldoutReason: 'sentinel_typed_via_eod_wizard',
+                }),
               },
             });
             boxesUpdated += 1;
@@ -3406,101 +3542,25 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
 };
 
 /**
- * POST /api/lottery/close-day
- * Body: { date?: 'YYYY-MM-DD' }
+ * `closeLotteryDay` — REMOVED May 2026.
  *
- * Finalises the lottery day:
- *   1. Runs the pending-move sweep (any books scheduled for move-to-safe
- *      with effectiveDate <= today get flipped now).
- *   2. Snapshots the active-book counter positions (audit trail).
- *   3. Returns a summary the UI can print / display.
+ * Was: POST /api/lottery/close-day. Snapshotted every active book's current
+ * ticket position to a `close_day_snapshot` event + ran the pending-move
+ * sweep. Removed because:
  *
- * Idempotent — calling twice on the same date is safe (sweep returns 0
- * executed on second call).
+ *   1. Per-book snapshots were redundant — the cashier-app EoD wizard
+ *      (`saveLotteryShiftReport`) already writes one canonical snapshot per
+ *      book per shift close. Calling close-day on top of that produced
+ *      duplicate snapshots that the back-office had to dedupe (the
+ *      "Apr 30 had 4× per book" pattern).
+ *
+ *   2. The pending-move sweep already runs autonomously every 15 min via
+ *      `startPendingMoveScheduler` (see services/lottery/engine/pendingMover.ts,
+ *      wired from server.ts). No manual trigger needed.
+ *
+ * If you find a code path still importing this, delete the import — the
+ * /close-day route is gone too.
  */
-export const closeLotteryDay = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const orgId = getOrgId(req) as string;
-    const storeId = getStore(req) as string;
-    const userId = req.user?.id || null;
-    const dateStr = req.body?.date || new Date().toISOString().slice(0, 10);
-    const date = parseDate(dateStr);
-    if (!date) {
-      res.status(400).json({ success: false, error: 'Invalid date' });
-      return;
-    }
-
-    // 1. Execute pending moves
-    const sweep = await _runPendingMoveSweep({ storeId, asOfDate: new Date() });
-
-    // 2. Snapshot active counter — one LotteryScanEvent per active book so
-    //    there's an immutable "end of day position" record.
-    type ActiveBox = {
-      id: string;
-      boxNumber: string | null;
-      slotNumber: number | null;
-      currentTicket: string | null;
-      startTicket: string | null;
-      ticketsSold: number | null;
-      totalTickets: number | null;
-      game: {
-        id: string;
-        name: string;
-        gameNumber: string | null;
-        ticketPrice: number | string;
-      } | null;
-    };
-    const active = (await prisma.lotteryBox.findMany({
-      where: { orgId, storeId, status: 'active' },
-      select: {
-        id: true,
-        boxNumber: true,
-        slotNumber: true,
-        currentTicket: true,
-        startTicket: true,
-        ticketsSold: true,
-        totalTickets: true,
-        game: { select: { id: true, name: true, gameNumber: true, ticketPrice: true } },
-      },
-    })) as ActiveBox[];
-
-    await Promise.all(
-      active.map((b) =>
-        prisma.lotteryScanEvent
-          .create({
-            data: {
-              orgId,
-              storeId,
-              boxId: b.id,
-              scannedBy: userId,
-              raw: `close_day:${dateStr}`,
-              parsed: {
-                gameNumber: b.game?.gameNumber ?? null,
-                gameName: b.game?.name ?? null,
-                slotNumber: b.slotNumber,
-                currentTicket: b.currentTicket,
-                ticketsSold: b.ticketsSold,
-              } as unknown as Prisma.InputJsonValue,
-              action: 'close_day_snapshot',
-              context: 'eod',
-            },
-          })
-          .catch(() => null),
-      ),
-    );
-
-    // 3. Today's inventory snapshot (same math as daily-inventory endpoint)
-    res.json({
-      success: true,
-      date: dateStr,
-      pendingMoveSweep: sweep,
-      snapshotCount: active.length,
-    });
-  } catch (err) {
-    console.error('[lottery.close-day]', err);
-    res.status(500).json({ success: false, error: errMsg(err) });
-  }
-};
 
 /**
  * GET /api/lottery/yesterday-closes?date=YYYY-MM-DD
@@ -3776,6 +3836,27 @@ export const upsertHistoricalClose = async (req: Request, res: Response): Promis
     });
 
     const t = ticket == null || ticket === '' ? null : String(ticket);
+
+    // May 2026 — bounds-check past-date close ticket. Per user direction,
+    // only -1 is valid as a negative for desc books. Anything more negative
+    // corrupts past-day snapshotSales math the same way live edits would.
+    if (t != null) {
+      const ticketNum = parseInt(t, 10);
+      const totalT = Number(box.totalTickets || 0);
+      const sellSettings = await prisma.lotterySettings
+        .findUnique({ where: { storeId }, select: { sellDirection: true } })
+        .catch(() => null);
+      const sellDir = sellSettings?.sellDirection || 'desc';
+      const minPos = sellDir === 'asc' ? 0 : -1;
+      const maxPos = sellDir === 'asc' ? totalT : Math.max(0, totalT - 1);
+      if (!Number.isFinite(ticketNum) || ticketNum < minPos || ticketNum > maxPos) {
+        res.status(400).json({
+          success: false,
+          error: `Ticket ${t} out of range ${minPos}..${maxPos} for sellDirection=${sellDir}, pack=${totalT}.`,
+        });
+        return;
+      }
+    }
 
     // Empty ticket → delete the snapshot
     if (t == null) {

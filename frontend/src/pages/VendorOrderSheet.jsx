@@ -5,7 +5,7 @@ import {
   CloudSun, PartyPopper, TrendingUp, TrendingDown, AlertTriangle,
   CalendarRange, ShoppingCart, History as HistoryIcon, Lightbulb,
   CheckCircle2, XCircle, Mail, RotateCcw, BarChart2, DollarSign,
-  Plus, ArrowLeftRight, Award,
+  Plus, ArrowLeftRight, Award, Truck,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -85,16 +85,40 @@ const fmtDate = (d) => {
 function FactorBadges({ factors }) {
   if (!factors) return null;
   const badges = [];
-  if (factors.weather)
-    badges.push(<span key="w" title={`Weather: ${factors.weather}`} className="vos-factor-badge" style={factorStyle('#3b82f6')}><CloudSun size={11} /></span>);
-  if (factors.holiday)
-    badges.push(<span key="h" title={`Holiday: ${factors.holiday}`} className="vos-factor-badge" style={factorStyle('#a855f7')}><PartyPopper size={11} /></span>);
-  if (factors.trend === 'up')
+  // Backend's OrderFactors uses nested objects (factors.weather.applied,
+  // factors.velocity.trend, factors.stockoutPenalty.applied, etc.) — read
+  // both shapes so legacy flat-shape clients keep working.
+  const weatherApplied   = factors.weather?.applied ?? !!factors.weather;
+  const holidayApplied   = factors.holiday?.applied ?? !!factors.holiday;
+  const stockoutApplied  = factors.stockoutPenalty?.applied ?? !!factors.stockout;
+  const trendValue       = factors.velocity?.trend ?? factors.trend;
+  const trendUp          = trendValue === 'up' || (typeof trendValue === 'number' && trendValue > 0.3);
+  const trendDown        = trendValue === 'down' || (typeof trendValue === 'number' && trendValue < -0.3);
+
+  if (weatherApplied)
+    badges.push(<span key="w" title="Weather forecast factored in" className="vos-factor-badge" style={factorStyle('#3b82f6')}><CloudSun size={11} /></span>);
+  if (holidayApplied)
+    badges.push(<span key="h" title="Holiday calendar factored in" className="vos-factor-badge" style={factorStyle('#a855f7')}><PartyPopper size={11} /></span>);
+  if (trendUp)
     badges.push(<span key="tu" title="Trending up" className="vos-factor-badge" style={factorStyle('#22c55e')}><TrendingUp size={11} /></span>);
-  if (factors.trend === 'down')
+  if (trendDown)
     badges.push(<span key="td" title="Trending down" className="vos-factor-badge" style={factorStyle('#f59e0b')}><TrendingDown size={11} /></span>);
-  if (factors.stockout)
-    badges.push(<span key="so" title="Stockout risk" className="vos-factor-badge" style={factorStyle('#ef4444')}><AlertTriangle size={11} /></span>);
+  if (stockoutApplied)
+    badges.push(<span key="so" title="Stockout risk — recent days with zero sales" className="vos-factor-badge" style={factorStyle('#ef4444')}><AlertTriangle size={11} /></span>);
+
+  // S71f / F31 — Vendor cover-day floor binding badge. Fires when the
+  // buyer's per-vendor "keep N days of stock" policy raised the suggested
+  // qty above the forecast-driven calculation. Tooltip surfaces the math.
+  const vcf = factors.vendorCoverFloor;
+  if (vcf?.binding) {
+    const tt = `Vendor cover floor: ${vcf.targetDays}d × avg daily = ${Number(vcf.floorUnits).toFixed(0)} units (raised order qty)`;
+    badges.push(
+      <span key="vcf" title={tt} className="vos-factor-badge" style={factorStyle('#0ea5e9')}>
+        <Truck size={11} />
+      </span>,
+    );
+  }
+
   return <span className="vos-factor-badges">{badges}</span>;
 }
 

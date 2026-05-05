@@ -10,21 +10,16 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useConfirm } from '../hooks/useConfirmDialog.jsx';
-import PriceInput from '../components/PriceInput';
-import ModuleDisabled from '../components/ModuleDisabled';
-import { useStoreModules } from '../hooks/useStoreModules';
+import { useConfirm } from '../../hooks/useConfirmDialog.jsx';
+import PriceInput from '../../components/PriceInput';
+import ModuleDisabled from '../../components/ModuleDisabled';
+import { useStoreModules } from '../../hooks/useStoreModules';
 import {
   Ticket, Plus, X, Check, Edit2, Trash2, RefreshCw,
   Package, BarChart2, Search, MapPin, AlertCircle,
   ChevronUp, ChevronDown, Bell, BookOpen, Layers,
   ScanLine,
 } from 'lucide-react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Legend,
-} from 'recharts';
-
 import {
   getLotteryGames, createLotteryGame, updateLotteryGame, deleteLotteryGame,
   getLotteryBoxes, receiveLotteryBoxOrder, activateLotteryBox, updateLotteryBox,
@@ -42,198 +37,29 @@ import {
   createLotteryTicketRequest, reviewLotteryTicketRequest,
   // Receive from catalog
   receiveFromLotteryCatalog,
-} from '../services/api';
-import LotteryDailyScan, { CounterScanModal } from './LotteryDailyScan';
-import LotteryWeeklySettlement from './LotteryWeeklySettlement';
+} from '../../services/api';
+import LotteryDailyScan, { CounterScanModal } from '../LotteryDailyScan';
+import LotteryWeeklySettlement from '../LotteryWeeklySettlement';
 import './Lottery.css';
-import './LotteryDailyScan.css';
-import './LotteryWeeklySettlement.css';
+import '../LotteryDailyScan.css';
+import '../LotteryWeeklySettlement.css';
 
-/* ── helpers ──────────────────────────────────────────────────────────────── */
-const fmt = (n) => n == null ? 'N/A' : `$${Number(n).toFixed(2)}`;
-const fmtNum = (n) => n == null ? 'N/A' : Number(n).toLocaleString();
-
-// Browser-local date string — NOT UTC. Earlier `d.toISOString().slice(0, 10)`
-// returned UTC date which broke after ~8pm in Western timezones (Reports tab
-// opened with `dateTo = tomorrow` → next day shown empty). Browser-local
-// matches the store's tz in 95%+ of real-world deployments.
-const pad2 = (n) => String(n).padStart(2, '0');
-const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const todayStr = () => toDateStr(new Date());
-const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toDateStr(d); };
-
-const statusColor = (s) => ({
-  inventory: 'lt-badge-blue',
-  active: 'lt-badge-brand',
-  depleted: 'lt-badge-amber',
-  settled: 'lt-badge-gray',
-}[s] || 'lt-badge-gray');
-
-const requestStatusClass = (s) => ({
-  pending: 'lt-badge-amber',
-  approved: 'lt-badge-green',
-  rejected: 'lt-badge-red',
-}[s] || 'lt-badge-gray');
-
-/* US States + Canadian Provinces */
-const ALL_STATES = [
-  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
-  'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
-  'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
-  'ON', 'BC', 'AB', 'MB', 'SK', 'QC', 'NS', 'NB', 'PE', 'NL', 'YT', 'NT', 'NU',
-];
-
-/* ── small shared components ──────────────────────────────────────────────── */
-const Badge = ({ label, cls = 'lt-badge-gray' }) => (
-  <span className={`lt-badge ${cls}`}>{label}</span>
-);
-
-function StatCard({ label, value, sub, color = 'var(--accent-primary)' }) {
-  return (
-    <div className="lt-stat-card">
-      <div className="lt-stat-label">{label}</div>
-      <div className="lt-stat-value" style={{ color }}>{value}</div>
-      {sub && <div className="lt-stat-sub">{sub}</div>}
-    </div>
-  );
-}
-
-/* ── Simple SVG bar chart (legacy — kept for back-compat) ───────────────── */
-function SimpleBarChart({ data, width = 600, height = 200 }) {
-  if (!data?.length) return <div className="lt-empty">No data for selected range</div>;
-  const maxVal = Math.max(...data.map(d => Math.max(d.sales || 0, d.payouts || 0)), 1);
-  const barW = Math.max(8, Math.floor((width - 60) / (data.length * 2 + data.length)));
-  const chartH = height - 40;
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg width={Math.max(width, data.length * (barW * 2 + 10) + 60)} height={height} style={{ fontFamily: 'inherit' }}>
-        {data.map((d, i) => {
-          const x = 40 + i * (barW * 2 + 10);
-          const saleH = Math.round((d.sales / maxVal) * chartH);
-          const payH = Math.round((d.payouts / maxVal) * chartH);
-          return (
-            <g key={d.date}>
-              <rect x={x} y={chartH - saleH + 10} width={barW} height={saleH} fill="#16a34a" rx={2} />
-              <rect x={x + barW + 2} y={chartH - payH + 10} width={barW} height={payH} fill="#d97706" rx={2} />
-              <text x={x + barW} y={height - 2} textAnchor="middle" fontSize={9} fill="#9ca3af">
-                {d.date?.slice(5)}
-              </text>
-            </g>
-          );
-        })}
-        <text x={10} y={20} fontSize={9} fill="#9ca3af">$</text>
-      </svg>
-      <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#16a34a', borderRadius: 2, marginRight: 4 }} />Sales</span>
-        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#d97706', borderRadius: 2, marginRight: 4 }} />Payouts</span>
-      </div>
-    </div>
-  );
-}
-
-/* ── Multi-line Reports chart (Recharts) ──────────────────────────────────
- *
- * Replaces SimpleBarChart on the Reports tab. Five toggleable series so the
- * user can isolate any combination:
- *   sales            — instant ticket sales (ticket-math, with POS fallback)
- *   payouts          — instant scratch payouts (LotteryTransaction)
- *   machineSales     — daily online machine draw sales
- *   machineCashing   — daily online machine cashings
- *   instantCashing   — daily instant ticket cashings (recorded online)
- *
- * Per-series toggle state is kept here so the parent doesn't need to rebuild
- * the chart on every checkbox click.
- */
-const REPORT_SERIES = [
-  { key: 'sales',          label: 'Instant Sales',      color: '#16a34a', defaultOn: true  },
-  { key: 'payouts',        label: 'Scratch Payouts',    color: '#d97706', defaultOn: true  },
-  { key: 'machineSales',   label: 'Machine Sales',      color: '#0ea5e9', defaultOn: true  },
-  { key: 'machineCashing', label: 'Machine Cashing',    color: '#dc2626', defaultOn: false },
-  { key: 'instantCashing', label: 'Instant Cashing',    color: '#7c3aed', defaultOn: false },
-];
-
-function LotteryReportsChart({ data, height = 320 }) {
-  const [visible, setVisible] = useState(() =>
-    Object.fromEntries(REPORT_SERIES.map(s => [s.key, s.defaultOn]))
-  );
-  const toggle = (k) => setVisible(v => ({ ...v, [k]: !v[k] }));
-
-  if (!data?.length) {
-    return <div className="lt-empty">No data for selected range</div>;
-  }
-
-  // Display dates as MM-DD when range > 7 days, else MMM-DD for clarity
-  const fmtTickDate = (s) => (s || '').slice(5);
-  const fmtTooltip  = (val, name) => [`$${Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, name];
-
-  return (
-    <div>
-      {/* Series toggle row — checkbox per series with a colored dot */}
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.82rem' }}>
-        {REPORT_SERIES.map(s => (
-          <label
-            key={s.key}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              cursor: 'pointer', userSelect: 'none',
-              padding: '4px 10px', borderRadius: 999,
-              background: visible[s.key] ? 'rgba(0,0,0,0.04)' : 'transparent',
-              border: `1px solid ${visible[s.key] ? s.color : 'var(--border-color)'}`,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={visible[s.key]}
-              onChange={() => toggle(s.key)}
-              style={{ accentColor: s.color, cursor: 'pointer' }}
-            />
-            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: s.color }} />
-            <span style={{ color: 'var(--text-primary)' }}>{s.label}</span>
-          </label>
-        ))}
-      </div>
-
-      <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-          <XAxis
-            dataKey="date"
-            tickFormatter={fmtTickDate}
-            tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
-          />
-          <YAxis
-            tickFormatter={(v) => `$${v}`}
-            tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
-            width={64}
-          />
-          <Tooltip
-            formatter={fmtTooltip}
-            labelStyle={{ color: 'var(--text-primary)', fontWeight: 700 }}
-            contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: '0.82rem' }}
-          />
-          <Legend wrapperStyle={{ fontSize: '0.78rem', paddingTop: 4 }} />
-          {REPORT_SERIES.map(s => visible[s.key] && (
-            <Line
-              key={s.key}
-              type="monotone"
-              dataKey={s.key}
-              name={s.label}
-              stroke={s.color}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-              activeDot={{ r: 5 }}
-              isAnimationActive={false}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+// May 2026 — split into a folder. Helpers live in `utils.js`. Small shared
+// presentational components in `components/`. Modals will move into `modals/`
+// in subsequent passes (this pass only extracted the easy-win helpers).
+import { fmt, fmtNum, toDateStr, todayStr, daysAgoStr, statusColor, requestStatusClass, ALL_STATES } from './utils.js';
+import Badge from './components/Badge.jsx';
+import StatCard from './components/StatCard.jsx';
+import SimpleBarChart from './components/SimpleBarChart.jsx';
+import LotteryReportsChart from './components/LotteryReportsChart.jsx';
+import TimelineRow from './components/TimelineRow.jsx';
+import AuditMetric from './components/AuditMetric.jsx';
+import ReadingRow from './components/ReadingRow.jsx';
 
 /* ══════════════════════════════════════════════════════════════════════════
    MODALS
+   (Badge / StatCard / SimpleBarChart / LotteryReportsChart all live in
+    components/ now — see the import block at the top of this file.)
 ══════════════════════════════════════════════════════════════════════════ */
 
 /* Game Modal */
@@ -540,22 +366,7 @@ function BookTimelineModal({ box, onClose }) {
     </div>
   );
 }
-function TimelineRow({ label, at, active }) {
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() + ' · ' + new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not yet';
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-      <div style={{
-        width: 12, height: 12, borderRadius: '50%',
-        background: active ? 'var(--brand-primary, #3d56b5)' : 'var(--border-color)',
-        flexShrink: 0,
-      }} />
-      <div style={{ flex: 1, fontSize: '0.88rem', fontWeight: active ? 600 : 400, color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{fmtDate(at)}</div>
-    </div>
-  );
-}
+/* TimelineRow now lives in components/TimelineRow.jsx */
 
 /* Receive Box Modal — two tabs:
  *   Manual: pick game + quantity (original flow)
@@ -2904,24 +2715,4 @@ function ShiftAuditView({ audit, loading, date, expanded, onToggleExpand, onRefr
   );
 }
 
-function AuditMetric({ label, value, accent, big }) {
-  return (
-    <div className={`lt-audit-metric lt-audit-metric--${accent} ${big ? 'big' : ''}`}>
-      <div className="lt-audit-metric-label">{label}</div>
-      <div className="lt-audit-metric-value">{value}</div>
-    </div>
-  );
-}
-
-function ReadingRow({ label, reading, delta }) {
-  const dCls = delta > 0.005 ? 'lt-audit-delta-pos'
-             : delta < -0.005 ? 'lt-audit-delta-neg'
-                              : 'lt-audit-delta-zero';
-  return (
-    <tr>
-      <td>{label}</td>
-      <td>{fmt(reading)}</td>
-      <td className={dCls}>{delta > 0 ? '+' : ''}{fmt(delta)}</td>
-    </tr>
-  );
-}
+/* AuditMetric + ReadingRow now live in components/ */

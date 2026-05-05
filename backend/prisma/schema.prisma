@@ -922,6 +922,21 @@ model User {
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
 
+  // S78 — Implementation Engineer PIN (cashier-app hardware-settings gate).
+  //   canConfigureHardware  — admin-toggle. When true, system auto-generates
+  //                           a 6-digit PIN every Monday and emails the user.
+  //                           Intended for internal implementation/support
+  //                           team only — NOT for store staff.
+  //   implementationPinEnc  — AES-256-GCM ciphertext (cryptoVault, reversible
+  //                           so the user can view their current PIN in
+  //                           the admin panel).
+  //   implementationPinSetAt — when the current PIN was written. Drives
+  //                            the weekly rotation scheduler ("rotate any
+  //                            user whose PIN is older than last Monday").
+  canConfigureHardware    Boolean   @default(false)
+  implementationPinEnc    String?
+  implementationPinSetAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1688,15 +1703,25 @@ model CashDrop {
   shift       Shift    @relation(fields: [shiftId], references: [id])
   amount      Decimal  @db.Decimal(10, 4)
   note        String?
+  // S77 (C9) — cash drawer event direction:
+  //   'drop'    = money OUT of drawer to safe (legacy default; existing rows untouched)
+  //   'paid_in' = money INTO drawer (petty cash refill, change drop, mid-shift cash-in)
+  // Drawer reconciliation flips sign per type (drop subtracts, paid_in adds).
+  type            String   @default("drop")
+  // S77 (C9) — persistent printable ref (CD-YYYYMMDD-NNN for drop, CI-YYYYMMDD-NNN for paid_in).
+  // Generated server-side on create + survives reprints. Unique per org for collision safety.
+  referenceNumber String?
   createdById String
   createdAt   DateTime @default(now())
 
+  @@unique([orgId, referenceNumber])
   @@index([orgId, shiftId])
+  @@index([orgId, type])
   @@map("cash_drops")
 }
 
 // ─────────────────────────────────────────────────
-// CASH PAYOUT  (paid out to vendor / driver)
+// CASH PAYOUT  (paid out to vendor / driver / employee)
 // ─────────────────────────────────────────────────
 model CashPayout {
   id          String   @id @default(cuid())
@@ -1706,12 +1731,25 @@ model CashPayout {
   amount      Decimal  @db.Decimal(10, 4)
   recipient   String? // vendor name / free-text recipient
   vendorId    Int? // optional FK to Vendor
-  payoutType  String? // 'expense' | 'merchandise'
+  // S77 (C9) — extended payoutType enum:
+  //   'expense' / 'merchandise'    = vendor payout (money OUT, legacy)
+  //   'loan'                       = cashier/employee cash advance (money OUT)
+  //   'received_on_account'        = charge-account customer settling balance (money IN)
+  // Drawer reconciliation flips sign per type (loan/expense/merchandise subtract, received_on_account adds).
+  payoutType  String?
+  // S77 (C9) — link Customer for received_on_account; loose scalar (no FK) so a
+  // future Customer.cashPayouts back-relation can be added without schema churn.
+  customerId  String?
+  // S77 (C9) — persistent printable ref (VP for vendor payout, LN for loan, RA for received-on-account).
+  referenceNumber String?
   note        String?
   createdById String
   createdAt   DateTime @default(now())
 
+  @@unique([orgId, referenceNumber])
   @@index([orgId, shiftId])
+  @@index([orgId, payoutType])
+  @@index([orgId, customerId])
   @@map("cash_payouts")
 }
 

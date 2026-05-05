@@ -23,6 +23,10 @@ import {
   setMyPin,
   removeMyPin,
 } from '../controllers/stationController.js';
+import {
+  getMyPin as getMyImplementationPin,
+  rotateMyPin as rotateMyImplementationPin,
+} from '../controllers/implementationPinController.js';
 
 const router = Router();
 
@@ -39,6 +43,12 @@ router.put('/me/password', changeMyPassword);
 router.get   ('/me/pins',               listMyPins);
 router.put   ('/me/pin',                setMyPin);
 router.delete('/me/pin/:storeId',       removeMyPin);
+
+// S78 — Self-service Implementation Engineer PIN (handler checks
+// `canConfigureHardware` flag; no permission gate at the route level so
+// users can fetch / rotate their own PIN without an extra grant).
+router.get ('/me/implementation-pin',         getMyImplementationPin);
+router.post('/me/implementation-pin/rotate',  rotateMyImplementationPin);
 
 // List — users.view
 router.get('/', requirePermission('users.view'), getTenantUsers);

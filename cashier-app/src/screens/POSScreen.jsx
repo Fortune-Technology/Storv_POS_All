@@ -27,6 +27,7 @@ import QuickButtonRenderer  from '../components/pos/QuickButtonRenderer.jsx';
 import { useQuickButtonLayout } from '../hooks/useQuickButtonLayout.js';
 import NumpadModal          from '../components/pos/NumpadModal.jsx';
 import ManagerPinModal      from '../components/modals/ManagerPinModal.jsx';
+import ImplementationPinModal from '../components/modals/ImplementationPinModal.jsx';
 import DiscountModal        from '../components/modals/DiscountModal.jsx';
 import HoldRecallModal      from '../components/modals/HoldRecallModal.jsx';
 import CustomerLookupModal  from '../components/modals/CustomerLookupModal.jsx';
@@ -38,13 +39,15 @@ import EndOfDayModal           from '../components/modals/EndOfDayModal.jsx';
 import ReprintReceiptModal     from '../components/modals/ReprintReceiptModal.jsx';
 import OpenShiftModal          from '../components/modals/OpenShiftModal.jsx';
 import CloseShiftModal         from '../components/modals/CloseShiftModal.jsx';
-import CashDrawerModal         from '../components/modals/CashDrawerModal.jsx';
+// S77 (C9) — CashDrawerModal + VendorPayoutModal replaced by the unified
+// CashDrawerEventModal. Old modals deleted in this session; no more imports.
+import CashDrawerEventModal    from '../components/modals/CashDrawerEventModal.jsx';
 import LotteryModal            from '../components/modals/LotteryModal.jsx';
-import LotteryShiftModal       from '../components/modals/LotteryShiftModal.jsx';
+import LotteryShiftModal       from '../components/modals/LotteryShiftModal';
 import FuelModal                from '../components/modals/FuelModal.jsx';
 import CouponModal              from '../components/modals/CouponModal.jsx';
 import BottleRedemptionModal   from '../components/modals/BottleRedemptionModal.jsx';
-import VendorPayoutModal from '../components/modals/VendorPayoutModal.jsx';
+// S77 (C9) — VendorPayoutModal replaced by CashDrawerEventModal (above).
 import PackSizePickerModal from '../components/modals/PackSizePickerModal.jsx';
 // Session 39 Round 3 — 1:1 visual port of portal ProductForm replaces the
 // older AddProductModal. The old modal is still in the tree for any code
@@ -79,6 +82,7 @@ import { useCustomerDisplayPublisher } from '../hooks/useBroadcastSync.js';
 import { useTerminalCartSync } from '../hooks/useTerminalCartSync.js';
 import { useCartStore, selectTotals, computeEffectiveDiscount } from '../stores/useCartStore.js';
 import { useManagerStore }   from '../stores/useManagerStore.js';
+import { useImplementationStore } from '../stores/useImplementationStore.js';
 import { useShiftStore }     from '../stores/useShiftStore.js';
 import { useStationStore }   from '../stores/useStationStore.js';
 import { useSyncStore }      from '../stores/useSyncStore.js';
@@ -129,6 +133,9 @@ export default function POSScreen() {
   const enqueueTx         = useSyncStore(s => s.enqueue);
 
   const requireManager = useManagerStore(s => s.requireManager);
+  // S78 — separate session for hardware-configuration unlock. 1-hour
+  // window after a valid implementation PIN, distinct from manager session.
+  const requireImplementation = useImplementationStore(s => s.requireImplementation);
   const { lookup }     = useProductLookup();
   const { manualSync } = useCatalogSync();
   const posConfig      = usePOSConfig();
@@ -136,7 +143,7 @@ export default function POSScreen() {
   const cashier        = useAuthStore(s => s.cashier);
 
   // ── Hardware (receipt printer, cash drawer) ──────────────────────────────
-  const { printReceipt, openDrawer, printShelfLabel, hasReceiptPrinter, hasCashDrawer, hasLabelPrinter, scale, hasScale } = useHardware();
+  const { printReceipt, printCashEvent, openDrawer, printShelfLabel, hasReceiptPrinter, hasCashDrawer, hasLabelPrinter, scale, hasScale } = useHardware();
 
   // ── Shift / Cash Drawer ─────────────────────────────────────────────────
   const station = useStationStore(s => s.station);
@@ -505,8 +512,11 @@ export default function POSScreen() {
   // Cash drawer / shift modals
   const [showOpenShift,   setShowOpenShift]   = useState(false);
   const [showCloseShift,  setShowCloseShift]  = useState(false);
-  const [showCashDrawer,  setShowCashDrawer]  = useState(false);
-  const [cashDrawerTab,   setCashDrawerTab]   = useState('drop'); // 'drop' | 'payout'
+  // S77 (C9) — single state for the unified CashDrawerEventModal. When
+  // null, modal is closed. Otherwise a string ∈
+  //   'cash_drop' | 'cash_in' | 'vendor_payout' | 'loan' | 'received_on_account'
+  // controls which type the modal opens with pre-selected.
+  const [cashEventKind, setCashEventKind] = useState(null);
   // Lottery modals
   const [showLottery,        setShowLottery]        = useState(false);
   const [showLotteryShift,   setShowLotteryShift]   = useState(false);
@@ -515,7 +525,7 @@ export default function POSScreen() {
   // Manufacturer coupon modal (Session 46)
   const [showCoupon,         setShowCoupon]         = useState(false);
   const [showBottleReturn,   setShowBottleReturn]   = useState(false);
-  const [showVendorPayout,   setShowVendorPayout]   = useState(false);
+  // S77 (C9) — vendor-payout state collapsed into cashEventKind above.
   const [showHardwareSettings, setShowHardwareSettings] = useState(false);
   const [editProduct,        setEditProduct]        = useState(null);  // cart item being quick-edited
   const [showTasks,          setShowTasks]          = useState(false);
@@ -1044,8 +1054,12 @@ export default function POSScreen() {
       case 'price_check':        setShowPriceCheck(true); break;
       case 'hold':
       case 'recall':             setShowHold(true); break;
-      case 'cash_drop':          setCashDrawerTab('drop'); setShowCashDrawer(true); break;
-      case 'payout':             setShowVendorPayout(true); break;
+      // S77 (C9) — cash drawer events all flow through CashDrawerEventModal.
+      case 'cash_drop':          setCashEventKind('cash_drop'); break;
+      case 'cash_in':            setCashEventKind('cash_in'); break;
+      case 'payout':             setCashEventKind('vendor_payout'); break;
+      case 'loan':               setCashEventKind('loan'); break;
+      case 'received_on_account': setCashEventKind('received_on_account'); break;
       case 'end_of_day':         setShowEndOfDay(true); break;
       case 'lottery_sale':       setShowLottery(true); break;
       case 'fuel_sale':          setFuelModalMode('sale'); break;
@@ -2309,8 +2323,9 @@ export default function POSScreen() {
         onCloseShift={() => requireManager('Close Shift', () => {
           withLotteryReconciliationGate('closeShift', () => setShowCloseShift(true));
         })}
-        onCashDrop={() => { setCashDrawerTab('drop'); setShowCashDrawer(true); }}
-        onPayout={() => setShowVendorPayout(true)}
+        // S77 (C9) — single handler. Receives a kind string and opens the
+        // unified CashDrawerEventModal pre-selected to that kind.
+        onCashEvent={(kind) => setCashEventKind(kind)}
         onLottery={() => setShowLottery(true)}
         onLotteryShift={handleOpenLotteryShift}
         lotteryEnabled={posConfig.lottery?.enabled ?? true}
@@ -2322,7 +2337,10 @@ export default function POSScreen() {
         onRefundMode={() => setRefundMode(m => !m)}
         refundModeActive={refundMode}
         onBottleReturn={() => setShowBottleReturn(true)}
-        onHardwareSettings={() => setShowHardwareSettings(true)}
+        onHardwareSettings={() => requireImplementation(
+          'Hardware Settings',
+          () => setShowHardwareSettings(true),
+        )}
         onAdminPortal={() => {
           // PIN-SSO into portal — use the freshly-authenticated manager's
           // token (captured by ManagerPinModal in useManagerStore) and
@@ -2384,6 +2402,11 @@ export default function POSScreen() {
 
       {/* Manager PIN (always mounted, renders when pendingAction is set) */}
       <ManagerPinModal />
+
+      {/* S78 — Implementation Engineer PIN (gates Hardware Settings; distinct
+          1-hour session, separate from manager). Always mounted; only
+          renders when pendingAction on useImplementationStore is set. */}
+      <ImplementationPinModal />
 
       {/* EBT Balance overlay — themed loading / success / error display */}
       {/* sits above ChooserModal (z 1500 vs 1100) so the Dejavoo round-trip */}
@@ -2609,13 +2632,29 @@ export default function POSScreen() {
         />
       )}
 
-      {showCashDrawer && (
-        <CashDrawerModal
-          defaultTab={cashDrawerTab}
-          onClose={() => setShowCashDrawer(false)}
-          onPrint={hasReceiptPrinter ? handlePrintTx : undefined}
-        />
-      )}
+      {/* S77 (C9) — unified Cash Drawer Event modal handles all 5 types
+          (cash_drop / cash_in / vendor_payout / loan / received_on_account).
+          Auto-prints house copy on save; prompts for vendor/customer copy
+          when applicable. Both prints route through useHardware.printCashEvent
+          which uses the same ESC/POS transport stack as regular receipts. */}
+      <CashDrawerEventModal
+        open={!!cashEventKind}
+        initialKind={cashEventKind || 'cash_drop'}
+        onClose={() => setCashEventKind(null)}
+        onComplete={() => setCashEventKind(null)}
+        onPrint={hasReceiptPrinter ? async (event) => {
+          await printCashEvent({
+            ...event,
+            storeName:    storeBranding.storeName    || storeBranding.name || '',
+            storeAddress: storeBranding.storeAddress || '',
+            storePhone:   storeBranding.storePhone   || '',
+            storeTaxId:   storeBranding.storeTaxId   || '',
+            taxIdLabel:   storeBranding.taxIdLabel   || 'Tax ID',
+            paperWidth:   storeBranding.receiptPaperWidth || '80mm',
+          });
+        } : undefined}
+      />
+
 
       {/* ── Lottery Modal (combined Sale + Payout) ── */}
       <LotteryModal
@@ -2671,13 +2710,8 @@ export default function POSScreen() {
         />
       )}
 
-      {/* ── Vendor Payout Modal ── */}
-      {showVendorPayout && (
-        <VendorPayoutModal
-          onClose={() => setShowVendorPayout(false)}
-          onComplete={(tx) => { setShowVendorPayout(false); }}
-        />
-      )}
+      {/* S77 (C9) — VendorPayoutModal removed; vendor payouts now flow
+          through the unified CashDrawerEventModal mounted above. */}
 
       {/* ── Pack Size Picker Modal ── */}
       {packPickerProduct && (

@@ -11690,6 +11690,625 @@ The 24 new storefront scenarios cover: lazy auto-init on first GET (verified DB 
 
 *Last updated: May 2026 — Session 71d (Storefront pricing in eCommerce settings): reused per-marketplace `pricingConfig` schema by adding 'storefront' as a synthetic platform; lazy auto-init on first GET; refactored MarketplacePricingDrawer to support inline mode; new "Pricing" tab in EcomSetup. Settings layer fully verified (88 unit + 70 marketplace + 24 storefront smokes pass; tsc + vite clean). Runtime application of the config to `EcomProduct.retailPrice` queued as F32 — needs cross-DB plumbing between POS-side StoreIntegration lookup and ecom-backend's separate Prisma client.*
 
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71e — F32 Storefront Pricing Runtime + Bug Fixes)
+
+User directive after S71d landed:
+> *"go ahead with F32. and work on bugs"*
+
+This session closes F32 (the runtime application of S71d's storefront settings) and bundles two small follow-ups: the BullMQ producer signature mismatch flagged earlier, and Option B for the marketplace pricing button (so admins can configure pricing BEFORE entering credentials).
+
+### F32 — storefront markup actually applies at sync time
+
+S71d shipped the settings UI + persistence (the admin can save `pricingConfig` for `platform='storefront'`), but the ecom-backend's sync pipeline didn't yet apply that config when writing `EcomProduct.retailPrice`. F32 closes that gap.
+
+**Architecture — cross-DB lookup via internal HTTP**
+
+POS backend owns `StoreIntegration.pricingConfig`. ecom-backend has its own Prisma client connected to a separate database (`storeveu_ecom`). Three options for the lookup:
+
+| Option | Pros | Cons |
+|---|---|---|
+| Mirror StoreIntegration into ecom DB | No HTTP per sync | Sync drift; double schema |
+| ecom-backend Prisma client to POS DB | Direct query | ecom now has 2 DB clients |
+| **Internal HTTP endpoint** (chosen) | Single source of truth; simple | One HTTP per sync (with cache) |
+
+The HTTP option won because the existing `INTERNAL_API_KEY` pattern (S45 — `ecom-stock-check` + payment HPP webhook) already covers service-to-service auth, and a 60s in-memory cache amortizes the cost across full-catalog syncs (one fetch covers thousands of product upserts).
+
+**POS-side internal endpoint** ([`storefrontPricingController.ts`](backend/src/controllers/storefrontPricingController.ts) + [`internalRoutes.ts`](backend/src/routes/internalRoutes.ts)):
+- `GET /api/internal/storefront-pricing/:storeId` — `requireInternalApiKey` middleware
+- Returns `{ pricingConfig (normalized), velocityMap, windowDays, fetchedAt }`
+- `velocityMap` is `{ [productId]: avgDaily }` — only computed when `unknownStockBehavior === 'estimate_from_velocity'`, otherwise empty (zero overhead for the default case)
+- When no row exists → returns defaults (zero markup, no rounding) so the caller can apply a no-op transform — backwards-compatible
+- `?windowDays=N` query param overrides the auto-computed `maxVelocityWindowDays(config)` (useful for testing)
+
+**ecom-backend pure helpers** ([`utils/marketplaceMarkup.js`](ecom-backend/src/utils/marketplaceMarkup.js)) — JavaScript port of the canonical TypeScript at `backend/src/services/marketplaceMarkup.ts`:
+- All public exports mirror the TS source 1:1: `normalizeConfig`, `applyMarkup`, `applyRounding` (six modes), `effectiveMarkupPercent`, `meetsMarginGuard`, `isExcluded`, `passesSyncMode`, `effectiveVelocityWindow`, `computeUnknownStockQty`, `computeMarketplacePrice`
+- The orchestrator returns the same shape `{ skipped, price, qty, markupApplied, markupSource }` so the call site is identical to a hypothetical TS version
+- Verified bit-identical to the TS source via the new transform smoke (51/51 pass)
+
+**ecom-backend client** ([`services/storefrontPricingClient.js`](ecom-backend/src/services/storefrontPricingClient.js)):
+- `getStorefrontPricing(storeId)` — fetches from POS via internal HTTP, caches per-store with 60s TTL
+- `invalidateStorefrontPricing(storeId)` — busts the cache (called when admin saves config)
+- Returns `null` on missing API key / network error / 4xx so callers fall back to raw passthrough — no half-applied configs
+
+**Sync pipeline rewire** ([`syncRoutes.js`](ecom-backend/src/routes/syncRoutes.js)):
+- New helper `applyStorefrontTransform(storeId, payload, posProductId, departmentId)` runs the pure pipeline against a product payload and returns `{ skipped, retailPrice, qty, visible }`
+- Wired into BOTH paths: `POST /sync` (single-product webhook from POS) AND `POST /sync/full` (manual "Sync Now" button — full catalog pull)
+- Excluded products → `EcomProduct.visible = false` (still upserted so the row stays consistent, just hidden from the public catalog)
+- Sync-mode filter (e.g. `in_stock_only` with qoh=0) → same: `visible: false`
+- `/sync/full` response now includes a pricing summary: `{ configActive, skippedCount, skipReasons }` for visibility into what was filtered out
+
+**Cache invalidation** ([POS `updateSettings`](backend/src/controllers/integrationController.ts) + [ecom-backend `/sync/invalidate-pricing`](ecom-backend/src/routes/syncRoutes.js)):
+- New endpoint on ecom-backend: `POST /api/internal/sync/invalidate-pricing` (same X-Internal-Api-Key)
+- POS `updateSettings` calls it after every storefront-platform save — fire-and-forget, failures don't block the save
+- Without this, admins would wait up to 60s after saving config for the next sync to pick up changes; now it's instant
+
+### Option B — marketplace pricing accessible before credentials
+
+User asked earlier why per-marketplace settings weren't visible on `/portal/integrations`. Cause: the "Pricing & Sync" button was gated on `isConnected`. Now it appears on disconnected live cards too — admins can configure markup/rounding/exclusions BEFORE entering DoorDash/UberEats credentials.
+
+**Backend** ([`integrationController.ts:getSettings`](backend/src/controllers/integrationController.ts)) — lazy auto-init expanded:
+- Was: only `platform === 'storefront'` got auto-created on missing row
+- Now: any platform in `PLATFORMS` registry with `status: 'live'` triggers lazy create
+- Marketplaces start as `status: 'inactive'` (only flips to `'active'` when `connectPlatform` runs); storefront stays `'active'` since it has no creds
+
+**Frontend** ([`IntegrationHub.jsx`](frontend/src/pages/IntegrationHub.jsx)):
+- "Pricing & Sync" button now in the disconnected `ih-cred-actions` row alongside Test Connection / Connect
+- Pricing drawer mounted on every live (non `coming_soon`) card, regardless of connection state
+- "Sync Now" button stays gated on `isConnected` (that legitimately needs creds to push)
+
+### Drive-by fix — BullMQ producer signature mismatch
+
+[`packages/queue/producers.js`](packages/queue/producers.js) — earlier the producer exported `emitProductSync(payload)` (single arg), but every call site in `catalogController.ts` passes positional args `(orgId, productId, action, payload)`. At runtime only `orgId` made it into the BullMQ payload — everything else was dropped.
+
+**Why this didn't cause a visible production bug:** the BullMQ stub in `packages/queue/index.js` returns `null` from `getQueue()`, so the producer's `await queue.add(...)` never actually fires. The HTTP fallback `POST /api/internal/sync` is the actual runtime channel today; it takes the right shape directly. The producer signature mismatch is **latent** — it would manifest the moment Redis is enabled.
+
+**Fix:** all four producers (`emitProductSync`, `emitDepartmentSync`, `emitInventorySync`, `emitPromotionSync`) now accept positional args matching the call sites, and bundle them into the BullMQ event payload internally. Removes the footgun before Redis lands.
+
+### Verification
+
+| Layer | Result |
+|---|---|
+| Backend `tsc --noEmit` filtered to `src/` | ✓ zero errors |
+| Marketplace unit tests (`marketplace_markup.test.ts`) | ✓ 88/88 pass |
+| **F32 transform smoke (NEW, pure functions)** | ✓ **51/51 pass** — covers normalizeConfig, applyMarkup, applyRounding × 6 modes, effectiveMarkupPercent, isExcluded, passesSyncMode, meetsMarginGuard, effectiveVelocityWindow, computeUnknownStockQty, full orchestrator + sync-upsert simulation |
+| ecom-backend syntax (3 new/touched JS files) | ✓ clean |
+| Portal `vite build` | ✓ 16.88s clean |
+
+**Live HTTP e2e smoke** — couldn't run in this agent session (POS backend port-bind hung, no error in logs, port wasn't held by another process — likely a Windows IPv4/IPv6 quirk). The transform logic is verified by the 51/51 pure-function smoke; user can re-run the existing storefront/marketplace HTTP smokes against their running stack to confirm the wire side.
+
+### Files Changed (Session 71e)
+
+**Backend (POS):**
+| File | Change |
+|---|---|
+| `backend/src/controllers/storefrontPricingController.ts` | NEW — `getStorefrontPricing` returns normalized config + velocity map (skipped when not in estimate mode); falls back to defaults when row missing |
+| `backend/src/routes/internalRoutes.ts` | NEW — `/api/internal/*` mount with `requireInternalApiKey` middleware; hosts `GET /storefront-pricing/:storeId` |
+| `backend/src/server.ts` | Mount `internalRoutes` at `/api/internal` |
+| `backend/src/controllers/integrationController.ts` | Lazy-init in `getSettings` extended from storefront-only to any live platform (Option B); `updateSettings` fires cache-bust to ecom-backend after storefront save (`invalidateEcomStorefrontCache` helper) |
+| `backend/.env` | +`ECOM_BACKEND_URL=http://localhost:5005` (was missing — required for cache-bust) |
+
+**ecom-backend:**
+| File | Change |
+|---|---|
+| `ecom-backend/src/utils/marketplaceMarkup.js` | NEW — JS port of canonical TS helpers (10 pure functions); kept in sync with `backend/src/services/marketplaceMarkup.ts` |
+| `ecom-backend/src/services/storefrontPricingClient.js` | NEW — fetches storefront config via internal HTTP with 60s in-memory cache; null fallback on missing key / network error |
+| `ecom-backend/src/routes/syncRoutes.js` | `applyStorefrontTransform` helper applied per-store in BOTH `/sync` (single-product) and `/sync/full` (full pull); excluded products → `visible: false`; new `/sync/invalidate-pricing` endpoint for cache busting |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/pages/IntegrationHub.jsx` | Disconnected `ih-cred-actions` row gains "Pricing & Sync" button; pricing drawer mounted on all live cards (was: connected only) |
+
+**Shared package:**
+| File | Change |
+|---|---|
+| `packages/queue/producers.js` | Producer signatures changed from single-arg `(payload)` to positional `(orgId, productId, action, payload)` matching `catalogController` call sites; latent bug fix |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `ecom-backend/tests/_smoke_storefront_transform.mjs` | NEW — 51 pure-function assertions covering all 10 helpers + sync-upsert simulation |
+
+### Architecture decisions worth remembering
+
+- **Internal HTTP for cross-DB lookup beats double-Prisma.** The 60s cache means a 7,000-product full sync issues a single HTTP call, not 7,000. Trade-off: 60s lag on config changes — mitigated by the explicit cache-bust on save.
+- **JS port instead of shared workspace package.** ecom-backend isn't a TS workspace dep — porting the 10 pure functions to JS is faster than building a shared package + cross-runtime build setup. The two files MUST be kept in sync; comment at the top of the JS port states this explicitly.
+- **`null` return from the client = raw passthrough.** Backwards-compatible: stores without storefront config get raw POS prices written to EcomProduct, exactly as before F32. No accidental zero-out.
+- **Lazy auto-init for ANY live platform.** Removes the "must connect to configure" friction. Empty rows for unconfigured marketplaces are cheap (one row each) and keep the data model uniform.
+
+### What's NOT done (explicit follow-ups)
+
+- **Live HTTP e2e smoke** — POS backend wouldn't bind in agent session. The transform pipeline is verified by 51/51 pure-function smoke + tsc + vite. User can re-run `_smoke_storefront_pricing.mjs` (24/24 from S71d) and the new `_smoke_storefront_transform.mjs` against their running stack.
+- **T6 / T7 from earlier** — browser walkthrough + DoorDash UAT smoke still need user-side hands.
+
+---
+
+*Last updated: May 2026 — Session 71e (F32 + bug fixes): Storefront pricingConfig now actually applies at sync time. POS exposes `/api/internal/storefront-pricing/:storeId` (X-Internal-Api-Key auth) returning normalized config + velocity map; ecom-backend's syncRoutes wraps every EcomProduct upsert with the pure-function transform pipeline (markup → rounding → exclusion → margin guard → smart QoH); excluded products → `visible: false`; cache-bust on save means config changes are instant. Option B ungating: pricing settings now configurable BEFORE marketplace credentials. BullMQ producer signature mismatch fixed (latent bug, would have broken when Redis lands). 51/51 transform smoke + 88/88 unit + tsc + vite clean. Live HTTP e2e deferred to user side (agent's POS backend port-bind hung).*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 71f — F31 Vendor Cover-Day Soft Floor + storeId Fallback)
+
+User picked F31 ("Vendor cover-days for smart auto-orders") as the next session after closing F32. Mid-session also got a bug report — Preview button in the new EcomSetup → Pricing tab was 400'ing with "platform and storeId are required." Bundled both.
+
+### Discovery: F31 was partially shipped already
+
+When I started, I found the schema field + validation + Vendor edit form input already existed:
+
+| Layer | State at session start |
+|---|---|
+| `Vendor.targetCoverageDays Int?` schema | ✓ already in `prisma/schema.prisma` |
+| `catalogController` create/update validation (1-180) | ✓ already there |
+| `orderEngine` use of `targetCoverageDays` as forecast-window extender | ✓ already there |
+| `VendorDetail.jsx` "Inventory Coverage (days)" input | ✓ already there |
+
+What was **NOT** in place:
+
+| Missing | Why it matters |
+|---|---|
+| The actual SOFT FLOOR mechanic Factor #15 calls for | The existing usage extends the forecast HORIZON (`forecastDemand` covers `leadTime + cover` days). That gives a similar effect when `avgDaily` is constant, but NOT when forecast varies day-to-day (Holt-Winters seasonal forecasts give different values per day). |
+| UI surfacing of the cover-floor reason | When the floor is the binding constraint, buyer should see why qty was raised. |
+
+### Architecture — soft floor distinct from window extension
+
+Both mechanisms now coexist with clear separation of concerns:
+
+- **Window extension (existing)**: `forecastDemand = Σ forecastValues[0 → leadTime + targetCoverageDays]`. Sets the SIZE of the forecast horizon.
+- **Soft floor (NEW Factor #15)**: `coverFloor = max(0, targetCoverDays × avgDaily + safetyStock − onHand − onOrder)`. Then `rawOrderQty = max(rawOrderQty, coverFloor)`. PROTECTS against forecast valleys.
+
+Concrete example: weekly Coca-Cola vendor, `targetCoverageDays=10`, `avgDaily=5`, `safetyStock=5`, `onHand=8`. Holt-Winters lands the 10-day forecast on a slow week (Memorial Day weekend, school break) and predicts only 30 units of demand. The forecast-driven qty would be `30 - 8 + 5 - 0 = 27` units. Buyer's policy: keep 10 days × 5/day + 5 safety = **55 units worth of stock on hand** after delivery. Floor: `10×5 + 5 - 8 - 0 = 47` units. With Factor #15, the order goes out at 47 instead of 27 — buyer's policy honored regardless of forecast quirks.
+
+### orderEngine.ts ([source](backend/src/services/inventory/orderEngine.ts))
+
+- Header docblock updated from "14-Factor" → "15-Factor"
+- Core formula in the docstring updated to show `coverFloor` line
+- New `OrderFactors.vendorCoverFloor: { targetDays, floorUnits, binding }`
+- Insertion point: after `rawOrderQty` is computed from `forecastDemand × stockoutPenalty - onHand + safetyStock - onOrder`, before case-pack rounding
+- Skipped entirely when `targetCoverageDays` is null/0 OR `avgDaily` is 0 (slow movers don't need a vendor floor)
+- Reason override: when `binding === true` AND existing reason was `forecast_demand` or `trending_up` (the lowest urgency cases), reorderReason flips to `'vendor_cover_floor'`. Higher-urgency reasons (`out_of_stock`, `below_lead_time`, `below_reorder_point`, `low_days_supply`) keep precedence — those are real urgency signals, the cover floor is policy.
+
+### UI surfacing ([VendorOrderSheet.jsx](frontend/src/pages/VendorOrderSheet.jsx))
+
+- New `Truck` icon import from lucide
+- `FactorBadges` extended with a sky-blue (`#0ea5e9`) badge that fires when `factors.vendorCoverFloor.binding === true`. Tooltip: `Vendor cover floor: 10d × avg daily = 50 units (raised order qty)`.
+- Drive-by fix in `FactorBadges`: handle BOTH the nested factor shape (`factors.weather.applied`, `factors.velocity.trend`) and the legacy flat shape some pre-existing callers used. Forward-compat without breaking anything.
+
+### Drive-by — `storeId` fallback fix ([integrationController.ts](backend/src/controllers/integrationController.ts))
+
+User reported: clicking Preview Impact in the new EcomSetup → Pricing tab returned `"platform and storeId are required"`. Root cause: the drawer is platform-agnostic and doesn't know the active `storeId`. Every other endpoint in the flow (`getSettings`, `updateSettings`) reads it from the `X-Store-Id` header set automatically by the API client. Only Preview + Sync Now required it in the body.
+
+Fix: both `previewSyncImpact` and `syncInventory` now accept `storeId` from the body OR fall back to `req.storeId` (set by `scopeToTenant` middleware from the header). 4-line change per endpoint. Existing smoke tests still pass because they send both header + body — fallback is purely additive.
+
+### Verification
+
+| Layer | Result |
+|---|---|
+| Backend `tsc --noEmit` filtered to `src/` | ✓ zero errors |
+| Marketplace unit tests (regression) | ✓ 88/88 pass |
+| **F31 smoke (NEW)** `_smoke_f31_vendor_cover_floor.mjs` | ✓ **19/19 pass** — covers disabled cases (targetCoverDays=0/null, avgDaily=0), binding cases (forecast lower than floor), non-binding (forecast already higher), zero-when-stock-already-covers, monthly bulk vendor (30-day cover), edge case forecast equals floor (uses strict `>` so equal = not binding) |
+| Portal `vite build` | ✓ 17.28s clean |
+
+The smoke test is intentionally pure-function — extracts the floor math into `computeCoverFloor` + `applyFactor15` helpers and verifies the contract directly. Doesn't depend on DB state or orderEngine wiring. If anyone changes the math in `orderEngine.ts`, mirror it in the smoke test.
+
+### Files Changed (Session 71f)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/src/services/inventory/orderEngine.ts` | +Factor #15 in core calculation block; `OrderFactors.vendorCoverFloor` interface; reorderReason override when binding; updated header docblock to 15-factor |
+| `backend/src/controllers/integrationController.ts` | `previewSyncImpact` + `syncInventory` accept `storeId` from header (`req.storeId`) as fallback when body missing |
+
+**Frontend:**
+| File | Change |
+|---|---|
+| `frontend/src/pages/VendorOrderSheet.jsx` | +`Truck` icon import; `FactorBadges` reads nested factor shape + adds sky-blue badge for `vendorCoverFloor.binding === true` with math tooltip |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_f31_vendor_cover_floor.mjs` | NEW — 19 pure-function assertions covering disabled / binding / non-binding scenarios |
+
+### What this gives buyers
+
+- **Weekly-delivery vendor**: set `targetCoverageDays=10`, every order calc respects "keep at least 50 units on hand after this delivery" regardless of whether the forecast happens to dip on a particular day
+- **Monthly bulk vendor**: set `targetCoverageDays=30`, orders go in big with full month's cover even when daily forecast variance pulls the forecast-driven qty low
+- **No change for vendors without a target set**: they continue to use the engine defaults (forecast horizon = leadTime + DEFAULT_REVIEW_PERIOD), Factor #15 simply doesn't fire (`if (!vendorCoverDays || avgDaily <= 0) skip`)
+- **Sky-blue Truck badge** on the Vendor Orders page makes clear when a particular row's qty was raised by the buyer's per-vendor policy vs forecast-driven
+
+---
+
+*Last updated: May 2026 — Session 71f (F31 + bug fix): Factor #15 (vendor cover-day soft floor) added to orderEngine — `coverFloor = max(0, targetCoverDays × avgDaily + safetyStock − onHand − onOrder)`, taken as `max(rawOrderQty, coverFloor)` before case-pack rounding. Distinct from existing forecast-window extension. New `vendor_cover_floor` reorderReason; sky-blue Truck badge in VendorOrderSheet. Drive-by: `previewSyncImpact` + `syncInventory` accept storeId from X-Store-Id header (fixes Preview button 400 in EcomSetup). 19/19 F31 smoke + 88/88 unit + tsc + vite clean.*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 77 — C9: Cash Drawer Event Receipts + Unified Modal)
+
+User-stated spec for C9: dedicated receipt format for cash drawer events (cash drop, vendor payout) + new modals for the missing event types (cash in, loan, received on account). Closed in this session with one unified modal replacing CashDrawerModal + VendorPayoutModal, one shared receipt builder serving all 5 event types, and a per-event reference number generator.
+
+### Architecture decisions (locked during planning round)
+
+- **Single unified modal** replaces CashDrawerModal + VendorPayoutModal — cashier picks type from a chip selector inside, OR each ActionBar button pre-selects a type
+- **One template, type-driven** — `buildCashEventReceiptString(event)` accepts a `kind` field that drives banner + body fields. Skips marketing receipt extras (footer message, return policy) — invoice-style branding (legal-entity name + address + phone + tax id)
+- **Storage = extend existing models, no new tables**:
+  - `CashDrop` gets a `type` field: `'drop'` (legacy default, money OUT to safe) or `'paid_in'` (NEW, money INTO drawer for petty cash refill)
+  - `CashPayout.payoutType` enum extended: `'expense'` / `'merchandise'` (legacy) plus `'loan'` (cashier advance, money OUT) and `'received_on_account'` (charge-account customer paying balance, money IN)
+  - Both models gain `referenceNumber String?` with `@@unique([orgId, referenceNumber])`
+  - `CashPayout` gains `customerId String?` (optional FK-less link for received_on_account)
+- **Refs are persistent** — generated server-side on create, written to the DB row, survive reprints. Format: `{prefix}-YYYYMMDD-NNN` where prefix ∈ {CD, CI, VP, LN, RA}
+- **Auto-print 1 house copy on save** + ask "Print vendor copy?" only for vendor_payout (or "Print customer copy?" for received_on_account)
+- **Signature line on house copy only** — vendor/customer copies skip the signature block
+
+### Schema (additive `prisma db push`, no data loss)
+
+```prisma
+model CashDrop {
+  // ... existing fields ...
+  type            String   @default("drop")  // 'drop' | 'paid_in'
+  referenceNumber String?
+  @@unique([orgId, referenceNumber])
+  @@index([orgId, type])
+}
+
+model CashPayout {
+  // ... existing fields ...
+  // payoutType extended (no schema change — already String?):
+  //   'expense' | 'merchandise' | 'loan' | 'received_on_account'
+  customerId      String?  // received_on_account link
+  referenceNumber String?
+  @@unique([orgId, referenceNumber])
+  @@index([orgId, payoutType])
+  @@index([orgId, customerId])
+}
+```
+
+### Backend wiring
+
+**[`services/cashEvent/reference.ts`](backend/src/services/cashEvent/reference.ts) (NEW)** — pure ref generator. Helpers:
+- `prefixForCashDropType(type)` → 'CD' | 'CI'
+- `prefixForPayoutType(payoutType)` → 'VP' | 'LN' | 'RA' (handles canonical `'received_on_account'` plus legacy `'received_on_acct'` / `'on_account'` / `'house_payment'` variants)
+- `nextCashEventReference(orgId, prefix)` → queries both `cash_drops` + `cash_payouts` for today's max suffix per prefix, returns `${prefix}-${YYYYMMDD}-${NNN}`. Counter is shared across CD + CI etc. (cosmetic) so refs visibly increment together.
+
+**[`controllers/shift/movements.ts`](backend/src/controllers/shift/movements.ts)**:
+- `addCashDrop` accepts `type` in body (defaults `'drop'`), validates against `VALID_CASH_DROP_TYPES`, generates ref via prefix mapper, persists `type` + `referenceNumber`
+- `addPayout` accepts extended `payoutType` (validates `expense` / `merchandise` / `loan` / `received_on_account`), accepts `customerId`, generates ref, persists everything
+
+**[`services/reconciliation/shift/queries.ts`](backend/src/services/reconciliation/shift/queries.ts) — drawer math direction**:
+- CashDrops split by `type`: `'drop'` → `cashDropsTotal` (subtract from drawer), `'paid_in'` → `cashIn` (add to drawer)
+- CashPayout matcher accepts both `'received_on_account'` (canonical) and legacy abbreviations
+- Final math (compute.ts unchanged from S63):
+  ```
+  expectedDrawer = openingFloat
+                 + cashSales − cashRefunds
+                 + cashIn       (paid_in CashDrops + received_on_account CashPayouts + paid_in CashPayouts)
+                 − cashOut      (expense + merchandise + loan CashPayouts)
+                 − cashDropsTotal (drop-type CashDrops)
+                 − backOfficeCashPayments (B6, S63)
+                 ± lottery contribution (S44/S61/S67)
+  ```
+
+**[`controllers/endOfDayReportController.ts`](backend/src/controllers/endOfDayReportController.ts) — bucket routing**:
+- `received_on_account` (full word) added to matcher alongside legacy `received_on_acct`
+- CashDrop bucket split: `type='paid_in'` → `paid_in` bucket, `type='drop'` (or null/legacy) → `pickups` bucket
+- All 9 PAYOUT_CATEGORIES already existed — just route to the right one. UI auto-renders.
+
+### Cashier-app
+
+**[`services/printerService.js`](cashier-app/src/services/printerService.js) (NEW exports)**:
+- `buildCashEventReceiptString(event, opts)` — single template, type-driven banner (`KIND_BANNER`), direction tag (`KIND_DIRECTION` IN/OUT), invoice-style branding (no marketing footer), conditional signature line, conditional copy label
+- `printCashEventQZ` / `printCashEventNetwork` / `printCashEvent` — transport dispatchers mirroring `printEoDReport*`
+
+**[`hooks/useHardware.js`](cashier-app/src/hooks/useHardware.js)**: new `printCashEvent(event)` exposed alongside `printReceipt`. Same Electron-direct vs network-proxy vs QZ-USB cascade as `printReceipt`. Throws on failure so the modal can surface "print failed" status.
+
+**[`components/modals/CashDrawerEventModal.jsx`](cashier-app/src/components/modals/CashDrawerEventModal.jsx) + [`.css`](cashier-app/src/components/modals/CashDrawerEventModal.css) (NEW, prefix `cdem-`)**:
+- Type chip row at top (5 options with icons + accent colors)
+- LEFT column form fields render conditionally per type:
+  - `vendor_payout` — vendor select (with search-by-id) + recipient text fallback + tender method buttons + payoutType toggle (Expense / Merchandise) + note
+  - `loan` — recipient text input + note
+  - `received_on_account` — debounced customer search (uses `searchCustomers`), pill display once selected, tender method, note
+  - `cash_drop` / `cash_in` — note only
+- RIGHT column: cent-based numpad (matches TenderModal/VendorPayoutModal style) + amount display with direction badge ("↓ INTO drawer" / "↑ OUT of drawer")
+- On Confirm: writes via `addCashDrop` or `addPayout` (extended in `useShiftStore`), receives saved row with ref, fires `onPrint(housePayload)` once
+- Success state: amount + ref + print status; "Print Vendor Copy" button shown only for `vendor_payout`, "Print Customer Copy" for `received_on_account`; otherwise "Done"
+
+**[`components/pos/ActionBar.jsx`](cashier-app/src/components/pos/ActionBar.jsx)** — 5 cash event buttons replace the old 2 (Cash Drop / Paid Out):
+- Cash Drop (amber `ArrowDownCircle`) → `onCashEvent('cash_drop')`
+- Cash In (green `ArrowDownToLine`) → `onCashEvent('cash_in')`
+- Paid Out (purple `ArrowUpCircle`) → `onCashEvent('vendor_payout')`
+- Loan (sky-blue `HandCoins`) → `onCashEvent('loan')`
+- Received (emerald `Receipt`) → `onCashEvent('received_on_account')`
+Each button gated on `show()` POS Settings flags (`cashDrop` / `cashIn` / `vendorPayout` / `cashLoan` / `receivedOnAccount`) so admins can hide buttons they don't use.
+
+**[`screens/POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx)**:
+- `cashEventKind` state replaces `showCashDrawer + cashDrawerTab + showVendorPayout`
+- Single `<CashDrawerEventModal>` mount with `onPrint` wiring branding fields from `storeBranding` into the print payload
+- QuickButton dispatcher cases extended: `cash_drop` / `cash_in` / `payout` / `loan` / `received_on_account` all set `cashEventKind`
+
+**Legacy modals deleted**: `CashDrawerModal.jsx` / `CashDropModal.css` / `VendorPayoutModal.jsx` / `VendorPayoutModal.css` removed (verified zero live references via grep).
+
+### Tests + verification
+
+**[`tests/_smoke_c9_cash_drawer_events.mjs`](backend/tests/_smoke_c9_cash_drawer_events.mjs) (NEW, pure function)** — 32 assertions across 5 suites:
+1. Ref-number prefix mappers (16 cases incl. case-insensitivity, whitespace, all 4 RA legacy aliases)
+2. CashDrop bucketing by type (drop vs paid_in)
+3. CashPayout bucketing by payoutType (expense/merchandise/loan/RA + legacy aliases + tips excluded)
+4. Drawer math direction (full scenario with all 5 types: opening $200, sales $500, refunds $50, drop $100, paid_in $50, vendor $30, loan $20, RA $75 → expected $625)
+5. Edge cases (empty, paid_in only, loan only, legacy null payoutType)
+
+**Audit harness extended** ([`prisma/seedAuditTransactions.mjs`](backend/prisma/seedAuditTransactions.mjs) + [`seedAuditAudit.mjs`](backend/prisma/seedAuditAudit.mjs)): Day 0 seed now creates 1 of each event type with explicit ref prefix (CD/CI/VP/LN/RA), tracks `expected.cashEventBuckets`, drawer math incl. `cashIn=$125 cashOut=$55 cashDropsTotal=$100`. New REPORT 16 verifies EoD payout buckets per type. New REPORT 17 verifies refNumber prefix counts.
+
+| Check | Result |
+|---|---|
+| Backend tsc filtered to touched files | ✓ zero errors |
+| Schema push (additive, accept-data-loss flag for nullable unique) | ✓ clean, all new columns confirmed via SQL |
+| Pure-function smoke `_smoke_c9_cash_drawer_events.mjs` | ✓ **32/32 pass** |
+| Cashier-app `vite build` | ✓ 5.01s clean (PWA generated) |
+
+**Live HTTP audit (REPORT 16+17)** — requires running backend; the audit harness is staged and ready for the user to re-run on their dev stack via:
+```bash
+cd backend && node prisma/seedAuditStore.mjs && node prisma/seedAuditTransactions.mjs && node prisma/seedAuditAudit.mjs
+```
+
+### Files Changed (Session 77)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`CashDrop.type` + `referenceNumber` + 2 indexes; +`CashPayout.customerId` + `referenceNumber` + 2 indexes |
+| `backend/src/services/cashEvent/reference.ts` | NEW — ref generator + prefix mappers |
+| `backend/src/controllers/shift/movements.ts` | `addCashDrop` validates type, generates CD/CI ref; `addPayout` extends payoutType enum, accepts customerId, generates VP/LN/RA ref |
+| `backend/src/services/reconciliation/shift/queries.ts` | CashDrop split by type into cashDropsTotal vs cashInPaidInDrops; payoutType matcher accepts canonical `received_on_account` |
+| `backend/src/controllers/endOfDayReportController.ts` | Same canonical accept + CashDrop bucket split (paid_in → paid_in bucket, drop → pickups) |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/services/printerService.js` | +`buildCashEventReceiptString` + `printCashEvent*` family |
+| `cashier-app/src/hooks/useHardware.js` | +`printCashEvent` exposed alongside `printReceipt` |
+| `cashier-app/src/stores/useShiftStore.js` | `addCashDrop` accepts extras (type) |
+| `cashier-app/src/components/modals/CashDrawerEventModal.jsx` + `.css` | NEW — unified 5-type modal |
+| `cashier-app/src/components/pos/ActionBar.jsx` | 2 buttons → 5 buttons + `onCashEvent` single handler |
+| `cashier-app/src/screens/POSScreen.jsx` | `cashEventKind` state, `<CashDrawerEventModal>` mount, dispatcher updates |
+
+**Deleted:**
+| File | Reason |
+|---|---|
+| `cashier-app/src/components/modals/CashDrawerModal.jsx` | Replaced by CashDrawerEventModal |
+| `cashier-app/src/components/modals/CashDropModal.css` | (legacy CSS) |
+| `cashier-app/src/components/modals/VendorPayoutModal.jsx` | Replaced |
+| `cashier-app/src/components/modals/VendorPayoutModal.css` | (legacy CSS) |
+
+**Tests + audit harness:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_c9_cash_drawer_events.mjs` | NEW — 32 pure-function assertions |
+| `backend/prisma/seedAuditTransactions.mjs` | Day 0 +5 cash events (1 of each type), expected.cashEventBuckets tracked |
+| `backend/prisma/seedAuditAudit.mjs` | +REPORT 16 (bucket verification) +REPORT 17 (ref prefix verification) |
+
+### Deployment steps
+
+```bash
+cd backend
+git pull
+# Restart backend FIRST (Prisma client regen needs the DLL released)
+pm2 stop api-pos
+npx prisma db push --schema prisma/schema.prisma --accept-data-loss
+npx prisma generate --schema prisma/schema.prisma
+pm2 start api-pos
+
+cd ../cashier-app
+git pull
+npm run build          # PWA rebuild — cashiers see new 5 buttons + unified modal on next refresh
+```
+
+Existing data unchanged: legacy CashDrop rows with `type=null` are treated as `'drop'`; legacy CashPayout rows with old `payoutType` strings continue to bucket correctly.
+
+---
+
+*Last updated: May 2026 — Session 77 (C9 — Cash Drawer Event Receipts + Unified Modal): schema extends `CashDrop.type` + `CashPayout.payoutType` enum + `referenceNumber` field on both; new `services/cashEvent/reference.ts` ref generator (CD/CI/VP/LN/RA prefix per type); `buildCashEventReceiptString` template + `printCashEvent` plumbing in printerService + useHardware; new `CashDrawerEventModal` replaces CashDrawerModal + VendorPayoutModal — single popup with 5-type chip selector; ActionBar 2 buttons → 5 buttons; reconciliation engine routes paid_in/RA to drawer-IN, drop/loan/expense/merchandise to drawer-OUT; EoD aggregator buckets all 5 types into existing 9-category PAYOUT_CATEGORIES. 32/32 pure-function smoke green, both builds clean, audit harness extended for live e2e (REPORT 16+17 ready for user-side run on running backend).*
+
+---
+
+## 📦 Recent Feature Additions (May 2026 — Session 78 — F38: Implementation Engineer PIN Gate for Hardware Settings)
+
+User-stated spec for F38: cashier-app's Hardware Settings flow should be locked behind an internal-team-only PIN so stores can't mess up hardware credentials. Specifically:
+- Implementation Engineer / Technical Support PIN, separate from manager PIN
+- Auto-generated 6-digit PIN per user
+- Auto-rotates weekly (Monday 00:00 UTC)
+- Emailed to user on rotation; also viewable in admin panel "My Profile" page
+- Granted via a new `User.canConfigureHardware` flag (superadmin-only toggle, intended for internal team)
+- 1-hour unlock window after PIN entry
+
+### Architecture decisions (locked during planning round)
+
+- **New flag `User.canConfigureHardware: boolean`** — admin-toggle, defaults `false`. Distinct from `role`. Only superadmins can flip it; intended for internal implementation/support team, NOT store staff
+- **6-digit numeric PIN** — works on POS numpad; matches manager-PIN style for muscle memory
+- **AES-256-GCM encrypted at rest** via existing `cryptoVault` (reversible — user can view their own PIN)
+- **Lifecycle triggers** — PIN auto-generated at 3 points: flag flip true / weekly Monday rotation / manual "Rotate Now" click
+- **Cross-tenant verify** — implementation engineers serve multiple stores, so the PIN endpoint scans every user with `canConfigureHardware=true` (small set, typically <20) and constant-time-compares. No org/tenant filter
+- **Distinct session store** — `useImplementationStore` parallel to `useManagerStore`, 1-hour TTL (vs manager's 10 min). Indigo accent so cashiers don't confuse the two PIN flows
+- **V1 lock scope** — Hardware Settings modal only. Future: Station Setup re-pair, printer IP edits, etc
+
+### Schema (additive, `prisma db push` clean)
+
+```prisma
+model User {
+  // ... existing fields ...
+  canConfigureHardware    Boolean   @default(false)
+  implementationPinEnc    String?   // AES-256-GCM via cryptoVault
+  implementationPinSetAt  DateTime?
+}
+```
+
+### Backend
+
+**[`services/implementationPin/service.ts`](backend/src/services/implementationPin/service.ts) (NEW)** — pure logic:
+- `generatePin()` — 6-digit numeric via `crypto.randomInt(0, 1000000)` for uniform distribution
+- `validatePinFormat(input)` — strict 6-digit numeric check, rejects null/undefined/non-string
+- `pinsEqual(a, b)` — constant-time compare via `crypto.timingSafeEqual` with fixed-length padding
+- `rotateUserPin(userId)` — generates fresh PIN, encrypts, persists, returns plaintext for caller to email
+- `clearUserPin(userId)` — wipes PIN columns
+- `getUserPinPlain(userId)` — decrypts + returns `{ pin, setAt }`
+- `verifyImplementationPin(input)` — linear-scan over users with `canConfigureHardware=true`, decrypt + constant-time compare, returns matched user (no PIN). Walks the entire list even after match for timing constancy
+- `rotateAllStalePins(now)` — finds users whose PIN is older than `mostRecentMondayUTC(now)` and rotates each. Returns `RotatedUser[]` for the scheduler to email
+- `mostRecentMondayUTC(now)` — Monday boundary helper. Pure function, easily testable
+- `grantHardwareAccess(userId)` / `revokeHardwareAccess(userId)` — flag-flip helpers used by `adminController.updateUser`
+
+**[`services/implementationPin/scheduler.ts`](backend/src/services/implementationPin/scheduler.ts) (NEW)** — weekly rotation:
+- Boots immediately + ticks every 60 minutes
+- Each tick: `rotateAllStalePins()` → for each rotated user, fire `sendImplementationPinEmail(reason='rotated')`
+- Idempotent — re-ticking mid-week without a past Monday boundary = no-op
+- Late-deployed scheduler (server down all weekend) catches up on next tick
+
+**[`controllers/implementationPinController.ts`](backend/src/controllers/implementationPinController.ts) (NEW)**:
+- `POST /api/auth/implementation-pin/verify` — public, rate-limited via `pinLimiter`. Returns `{ token, user, expiresAt, ttlSeconds }` — token is a 1-hour JWT with `purpose: 'hardware'`
+- `GET /api/users/me/implementation-pin` — JWT-required. Returns `{ pin, setAt, nextRotationAt, canConfigureHardware }`. 403 when flag is false
+- `POST /api/users/me/implementation-pin/rotate` — manual rotate. Fires email with `reason: 'manual_rotate'` + returns new PIN for instant display
+
+**[`adminController.updateUser`](backend/src/controllers/adminController.ts)** extended:
+- `UpdateUserBody.canConfigureHardware?: boolean`
+- Only superadmins can flip the flag (403 otherwise)
+- True flip → calls `grantHardwareAccess` (auto-generates PIN) + fires welcome email
+- False flip → calls `revokeHardwareAccess` (wipes PIN)
+- Audit-diff captures the flag change
+
+**[`controllers/adminController.getAllUsers`](backend/src/controllers/adminController.ts)** — adds `canConfigureHardware` to the select (encrypted PIN itself is never returned).
+
+**[`services/notifications/email.ts`](backend/src/services/notifications/email.ts)** — new `sendImplementationPinEmail(to, name, pin, reason)`. Three reasons: `'granted'` / `'rotated'` / `'manual_rotate'`, each with distinct headline + body. PIN displayed in a large monospace block. Email is best-effort — failures logged but don't crash callers.
+
+**Routes wired**:
+- `POST /api/auth/implementation-pin/verify` — public, `pinLimiter`
+- `GET /api/users/me/implementation-pin` — protect
+- `POST /api/users/me/implementation-pin/rotate` — protect
+- Scheduler started in `server.ts` alongside other schedulers
+
+### Admin panel
+
+**[`AdminProfile.tsx`](admin-app/src/pages/AdminProfile.tsx)**:
+- New "My Implementation PIN" card — only renders when `profile.canConfigureHardware === true`
+- Lazy-loads PIN via `getMyImplementationPin()` after profile loads
+- Big monospace PIN display (masked by default with `••••••`, "Show" / "Hide" toggle, "Copy" button)
+- Meta rows: "Last set: [date]" + "Next auto-rotation: [date]"
+- "Rotate Now" button (red) with confirm dialog → calls `rotateMyImplementationPin()` → reveals new PIN immediately + emails user
+
+**[`AdminOrgStoreUser.tsx`](admin-app/src/pages/AdminOrgStoreUser.tsx)**:
+- New `viewerIsSuperadmin()` helper checks `localStorage.admin_user.role`
+- `UserModal` (edit mode + superadmin viewer): new "Hardware Configuration Access" toggle row with explanatory copy
+- Submit only sends `canConfigureHardware` when it changed AND viewer is superadmin (avoids 403 from the controller-level guard)
+
+**[`services/api.ts`](admin-app/src/services/api.ts)** — 2 new helpers:
+- `getMyImplementationPin()` → `MyImplementationPinResponse`
+- `rotateMyImplementationPin()` → `MyImplementationPinResponse`
+
+### Cashier-app
+
+**[`stores/useImplementationStore.js`](cashier-app/src/stores/useImplementationStore.js) (NEW)**:
+- Mirrors `useManagerStore` shape (`isActive`, `pendingAction`, `requireImplementation`, `onPinSuccess`, `endSession`, `cancelPending`, `isSessionValid`)
+- 60-minute TTL (vs manager's 10 min)
+- Tracks `engineerId` / `engineerName` / `engineerEmail` from the verify response
+- Caps session at the smaller of local TTL and server-side JWT exp
+
+**[`components/modals/ImplementationPinModal.jsx`](cashier-app/src/components/modals/ImplementationPinModal.jsx) (NEW)**:
+- 6-digit-only numpad (auto-submits on 6th digit)
+- Indigo accent (vs manager's green) to visually distinguish
+- Wrench icon + "IMPLEMENTATION ENGINEER PIN" header + "Internal team only" hint
+- Hits `POST /auth/implementation-pin/verify`; handles 429 (rate-limited) + 400 (bad format) distinctly
+
+**[`screens/POSScreen.jsx`](cashier-app/src/screens/POSScreen.jsx)**:
+- `requireImplementation` hook from `useImplementationStore`
+- `onHardwareSettings` callback wraps the open in `requireImplementation('Hardware Settings', () => setShowHardwareSettings(true))`
+- `<ImplementationPinModal />` mounted alongside `<ManagerPinModal />`
+
+### Tests
+
+**[`tests/_smoke_s78_implementation_pin.mjs`](backend/tests/_smoke_s78_implementation_pin.mjs) (NEW)** — 36 pure-function assertions across 5 suites:
+1. PIN format validation — 16 cases (valid 6-digit numeric, leading zeros, all zeros, all nines + 12 rejection cases for wrong length / whitespace / letters / null / number type / object)
+2. `mostRecentMondayUTC` — 8 cases covering Monday at midnight, Monday afternoon, every weekday, edge cases (Sunday last second, next Monday flip, 7-day cycle)
+3. Constant-time PIN comparison — 7 cases including different first/last digit, length mismatch, edge cases
+4. PIN generation distribution — 1000-sample uniformity check across 10 first-digit buckets
+5. Prefix mapper sanity — parity with C9 cashEvent helper
+
+| Check | Result |
+|---|---|
+| Pure-function smoke `_smoke_s78_implementation_pin.mjs` | ✓ **36/36 pass** |
+| Backend `tsc --noEmit` filtered to S78 files | ✓ zero errors |
+| C9 regression smoke | ✓ 32/32 (no break) |
+| Admin-app `vite build` | ✓ clean |
+| Cashier-app `vite build` | ✓ clean |
+
+### Files Changed (Session 78)
+
+**Backend:**
+| File | Change |
+|---|---|
+| `backend/prisma/schema.prisma` | +`User.canConfigureHardware`, `implementationPinEnc`, `implementationPinSetAt` |
+| `backend/src/services/implementationPin/service.ts` | NEW — full PIN service |
+| `backend/src/services/implementationPin/scheduler.ts` | NEW — hourly tick, weekly rotation |
+| `backend/src/services/notifications/email.ts` | +`sendImplementationPinEmail` template (granted / rotated / manual_rotate) |
+| `backend/src/controllers/implementationPinController.ts` | NEW — verify + getMyPin + rotateMyPin handlers |
+| `backend/src/controllers/adminController.ts` | `UpdateUserBody.canConfigureHardware`; superadmin-only guard; flag-flip triggers grant/revoke + welcome email; user list includes flag |
+| `backend/src/routes/authRoutes.ts` | +`POST /implementation-pin/verify` (rate-limited) |
+| `backend/src/routes/userManagementRoutes.ts` | +`GET/POST /me/implementation-pin/*` |
+| `backend/src/server.ts` | Mount `startImplementationPinScheduler()` |
+
+**Admin-app:**
+| File | Change |
+|---|---|
+| `admin-app/src/services/api.ts` | +`getMyImplementationPin` + `rotateMyImplementationPin` + `MyImplementationPinResponse` |
+| `admin-app/src/pages/AdminProfile.tsx` + `.css` | "My Implementation PIN" card (lazy-load, masked display, Rotate Now confirm flow) |
+| `admin-app/src/pages/AdminOrgStoreUser.tsx` + `.css` | `viewerIsSuperadmin()` helper; "Hardware Configuration Access" toggle in user edit modal |
+
+**Cashier-app:**
+| File | Change |
+|---|---|
+| `cashier-app/src/stores/useImplementationStore.js` | NEW — 1-hour session store |
+| `cashier-app/src/components/modals/ImplementationPinModal.jsx` + `.css` | NEW — 6-digit numpad with indigo accent (`ipm-` prefix) |
+| `cashier-app/src/screens/POSScreen.jsx` | `requireImplementation` import + Hardware Settings gate + modal mount |
+
+**Tests:**
+| File | Change |
+|---|---|
+| `backend/tests/_smoke_s78_implementation_pin.mjs` | NEW — 36 pure-function assertions |
+
+### Deployment steps
+
+```bash
+cd backend
+git pull
+# Restart FIRST so Prisma client can regen (DLL released)
+pm2 stop api-pos
+npx prisma db push --schema prisma/schema.prisma --accept-data-loss
+npx prisma generate --schema prisma/schema.prisma
+pm2 start api-pos
+
+cd ../admin-app
+npm run build
+
+cd ../cashier-app
+npm run build          # PWA rebuild
+```
+
+Existing data unchanged — `canConfigureHardware` defaults `false` on all existing users (no PINs generated until a superadmin explicitly grants the flag). The scheduler is idempotent — first tick after deploy generates PINs for any user already flagged, but in practice no one is flagged yet.
+
+### What this gives you operationally
+
+- **Stores can't break their own hardware setup** — register can't open Hardware Settings without an Implementation PIN (which only your internal team has)
+- **Per-engineer accountability** — each engineer's PIN is unique, so a cashier-app `/auth/implementation-pin/verify` JWT identifies WHO unlocked the settings (audit log records `userId` + `userEmail` on every verify)
+- **Self-rotating** — weekly rotation reduces window of exposure if a PIN ever leaks; engineers don't need to remember to rotate
+- **No PIN-on-paper drift** — engineers can't write the PIN on the back of a printer because next Monday it's invalid
+
+### Future scope (queued — not blocking)
+
+- Extend gate to Station Setup re-pair (currently only Hardware Settings is gated)
+- Extend gate to printer IP / network config edits (currently lives inside Hardware Settings, so it's already gated implicitly)
+- Per-engineer audit log surface in admin panel ("Who unlocked Hardware Settings at Store X this month?")
+- Rate-limit per IP on the verify endpoint (currently uses the global `pinLimiter`; per-IP would harden brute-force resistance further)
+
+---
+
+*Last updated: May 2026 — Session 78 (F38 — Implementation Engineer PIN Gate): new `User.canConfigureHardware` flag (superadmin-toggle, internal-team-only) gates a 6-digit numeric PIN auto-rotated every Monday 00:00 UTC; AES-256-GCM encrypted at rest via cryptoVault (reversible for admin-panel display); `useImplementationStore` + `ImplementationPinModal` (1-hour session, indigo accent) replace direct access to cashier-app Hardware Settings; admin-app User edit toggle + AdminProfile "My Implementation PIN" card with Show/Hide/Copy/Rotate-Now actions; weekly scheduler rotates + emails fresh PIN. 36/36 pure-function smoke green, all 3 builds clean, C9 regression unaffected. V1 scope = Hardware Settings only; Station Setup re-pair queued for future session.*
+
 
 
 
