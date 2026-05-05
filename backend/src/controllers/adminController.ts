@@ -6,7 +6,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import prisma from '../config/postgres.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -27,6 +27,9 @@ import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { logAudit } from '../services/auditService.js';
 import { computeDiff, hasChanges } from '../services/auditDiff.js';
 import { validatePassword } from '../utils/validators.js';
+import path   from 'path';
+import fs     from 'fs';
+import multer from 'multer';
 
 // ─────────────────────────────────────────────────────────────
 // DASHBOARD
@@ -1712,9 +1715,27 @@ export const adminCreatePlan = async (req: Request, res: Response, next: NextFun
 /* PUT /api/admin/billing/plans/:id */
 export const adminUpdatePlan = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Whitelist columns that actually exist on SubscriptionPlan. The legacy
+    // PlansTab form sends `includedAddons` (UI-only — addons are a join table)
+    // and S78 sends `moduleIds` which lives on PlanModule. Both must be
+    // dropped here before the update reaches Prisma.
+    const body = (req.body || {}) as Record<string, unknown>;
+    const allowed: (keyof Prisma.SubscriptionPlanUpdateInput)[] = [
+      'name', 'slug', 'description',
+      'basePrice', 'pricePerStore', 'pricePerRegister',
+      'includedStores', 'includedRegisters', 'trialDays',
+      'isPublic', 'isActive', 'sortOrder',
+      // S78 fields
+      'tagline', 'annualPrice', 'isCustomPriced', 'currency',
+      'maxUsers', 'highlighted', 'isDefault',
+    ];
+    const data: Prisma.SubscriptionPlanUpdateInput = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) (data as any)[key] = body[key];
+    }
     const plan = await prisma.subscriptionPlan.update({
       where:   { id: req.params.id },
-      data:    req.body as Prisma.SubscriptionPlanUpdateInput,
+      data,
       include: { addons: true },
     });
     res.json(plan);
@@ -1936,10 +1957,51 @@ export const adminListEquipmentProducts = async (_req: Request, res: Response, n
   } catch (err) { next(err); }
 };
 
+/**
+ * Strip an EquipmentProduct payload down to fields the schema actually has.
+ * Defends against legacy form fields (`comparePrice`, `stock`) and metadata
+ * fields the client should never set (`id`, timestamps). Maps `stock` →
+ * `stockQty` for back-compat. `specs: null` → omit (Json columns can't
+ * accept raw null — Prisma needs `Prisma.JsonNull` or absence).
+ */
+function sanitizeEquipmentPayload(body: Record<string, unknown>): Prisma.EquipmentProductUpdateInput {
+  const out: Record<string, unknown> = {};
+  if (typeof body.name        === 'string')  out.name        = body.name;
+  if (typeof body.slug        === 'string')  out.slug        = body.slug;
+  if (typeof body.category    === 'string')  out.category    = body.category;
+  if ('description' in body && (body.description === null || typeof body.description === 'string')) {
+    out.description = body.description;
+  }
+  if (body.price != null && !Number.isNaN(Number(body.price)))   out.price = Number(body.price);
+  if (Array.isArray(body.images))                                 out.images = body.images.filter(s => typeof s === 'string');
+  if (typeof body.isActive    === 'boolean') out.isActive    = body.isActive;
+  if (typeof body.trackStock  === 'boolean') out.trackStock  = body.trackStock;
+  if (body.sortOrder != null && !Number.isNaN(Number(body.sortOrder))) out.sortOrder = Number(body.sortOrder);
+
+  // `stockQty` is the schema field. Accept legacy `stock` alias.
+  const rawStock = body.stockQty ?? body.stock;
+  if (rawStock != null && !Number.isNaN(Number(rawStock))) out.stockQty = Number(rawStock);
+
+  // Json column: undefined = leave alone, object = set, null = clear via Prisma.JsonNull.
+  if ('specs' in body) {
+    if (body.specs && typeof body.specs === 'object') {
+      out.specs = body.specs as Prisma.InputJsonValue;
+    } else if (body.specs === null) {
+      out.specs = Prisma.JsonNull;
+    }
+  }
+  return out as Prisma.EquipmentProductUpdateInput;
+}
+
 /* POST /api/admin/billing/equipment/products */
 export const adminCreateEquipmentProduct = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const product = await prisma.equipmentProduct.create({ data: req.body as Prisma.EquipmentProductCreateInput });
+    const data = sanitizeEquipmentPayload(req.body as Record<string, unknown>);
+    if (!data.name || !data.slug || !data.category || data.price == null) {
+      res.status(400).json({ error: 'name, slug, category, and price are required' });
+      return;
+    }
+    const product = await prisma.equipmentProduct.create({ data: data as Prisma.EquipmentProductCreateInput });
     res.status(201).json(product);
   } catch (err) { next(err); }
 };
@@ -1949,9 +2011,72 @@ export const adminUpdateEquipmentProduct = async (req: Request, res: Response, n
   try {
     const product = await prisma.equipmentProduct.update({
       where: { id: req.params.id },
-      data:  req.body as Prisma.EquipmentProductUpdateInput,
+      data:  sanitizeEquipmentPayload(req.body as Record<string, unknown>),
     });
     res.json(product);
+  } catch (err) { next(err); }
+};
+
+/* DELETE /api/admin/billing/equipment/products/:id
+ * Soft delete (isActive=false). Hard delete is blocked when order
+ * history references the product. */
+export const adminDeleteEquipmentProduct = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id;
+    const orderItemCount = await prisma.equipmentOrderItem.count({ where: { productId: id } });
+
+    if (orderItemCount > 0) {
+      const product = await prisma.equipmentProduct.update({
+        where: { id },
+        data:  { isActive: false },
+      });
+      res.json({ softDeleted: true, product });
+      return;
+    }
+    await prisma.equipmentProduct.delete({ where: { id } });
+    res.json({ deleted: true });
+  } catch (err) { next(err); }
+};
+
+// ── Equipment image upload (saves to backend/uploads/devices/) ─────────────
+const DEVICE_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'devices');
+if (!fs.existsSync(DEVICE_UPLOAD_DIR)) fs.mkdirSync(DEVICE_UPLOAD_DIR, { recursive: true });
+
+const deviceImageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, DEVICE_UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext  = path.extname(file.originalname).toLowerCase() || '.png';
+    const safe = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    cb(null, safe);
+  },
+});
+
+export const equipmentImageUploadMiddleware = multer({
+  storage: deviceImageStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    if (!allowed.includes(file.mimetype)) {
+      cb(new Error(`Unsupported file type: ${file.mimetype}`));
+      return;
+    }
+    cb(null, true);
+  },
+}).single('file');
+
+/* POST /api/admin/billing/equipment/upload
+ * multipart/form-data, field name: "file"
+ * Returns the public URL path (relative). Caller writes it into
+ * `EquipmentProduct.images` via the standard PUT endpoint. */
+export const adminUploadEquipmentImage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file) {
+      res.status(400).json({ error: 'No file uploaded (use field name "file")' });
+      return;
+    }
+    const url = `/uploads/devices/${file.filename}`;
+    res.status(201).json({ url, filename: file.filename, size: file.size });
   } catch (err) { next(err); }
 };
 

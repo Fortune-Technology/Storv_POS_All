@@ -65,14 +65,17 @@ const DEPARTMENTS = [
 
 // ─────────────────────────────────────────────────────────
 // TAX RULES — Maine defaults
+// Session 56b dropped the legacy `appliesTo` string column + `description` field.
+// Tax rules now match by `departmentIds Int[]`. The `taxClass` field below is
+// used at seed time to look up matching department IDs from the just-seeded
+// departments — it is NOT persisted to the TaxRule row itself.
 // ─────────────────────────────────────────────────────────
 const TAX_RULES = [
-  { name: 'Maine Grocery (Tax Exempt)',     description: 'Unprepared food items are exempt from Maine sales tax', rate: 0.0000, appliesTo: 'grocery',  ebtExempt: true,  state: 'ME' },
-  { name: 'Maine General Sales Tax',        description: 'Maine standard sales tax on non-food tangible goods',  rate: 0.0550, appliesTo: 'none',     ebtExempt: false, state: 'ME' },
-  { name: 'Maine Prepared Food Tax',        description: 'Maine tax on prepared food and restaurant meals',       rate: 0.0800, appliesTo: 'hot_food', ebtExempt: false, state: 'ME' },
-  { name: 'Maine Alcohol Tax',              description: 'Maine sales tax applied to beer, wine, and spirits',    rate: 0.0550, appliesTo: 'alcohol',  ebtExempt: false, state: 'ME' },
-  { name: 'Maine Tobacco Tax',              description: 'Maine sales tax applied to tobacco products',           rate: 0.0550, appliesTo: 'tobacco',  ebtExempt: false, state: 'ME' },
-  { name: 'Maine Lodging Tax',              description: 'Maine lodging/rental tax',                              rate: 0.0900, appliesTo: 'lodging',  ebtExempt: false, state: 'ME' },
+  { name: 'Maine Grocery (Tax Exempt)',  rate: 0.0000, taxClass: 'grocery',  ebtExempt: true,  state: 'ME' },
+  { name: 'Maine General Sales Tax',     rate: 0.0550, taxClass: 'standard', ebtExempt: false, state: 'ME' },
+  { name: 'Maine Prepared Food Tax',     rate: 0.0800, taxClass: 'hot_food', ebtExempt: false, state: 'ME' },
+  { name: 'Maine Alcohol Tax',           rate: 0.0550, taxClass: 'alcohol',  ebtExempt: false, state: 'ME' },
+  { name: 'Maine Tobacco Tax',           rate: 0.0550, taxClass: 'tobacco',  ebtExempt: false, state: 'ME' },
 ];
 
 // ─────────────────────────────────────────────────────────
@@ -334,9 +337,29 @@ async function main() {
   const deptMap  = Object.fromEntries(deptRows.map(d => [d.code, d.id]));
 
   // ── Tax Rules ────────────────────────────────────────────
+  // Look up department IDs grouped by taxClass so we can map each rule to
+  // the right set of departmentIds (Session 56b schema).
+  const allDepts = await prisma.department.findMany({
+    where: { orgId: ORG_ID, active: true },
+    select: { id: true, taxClass: true },
+  });
+  const deptIdsByTaxClass: Record<string, number[]> = {};
+  for (const d of allDepts) {
+    const k = d.taxClass || 'standard';
+    if (!deptIdsByTaxClass[k]) deptIdsByTaxClass[k] = [];
+    deptIdsByTaxClass[k].push(d.id);
+  }
   for (const rule of TAX_RULES) {
     const existing = await prisma.taxRule.findFirst({ where: { orgId: ORG_ID, name: rule.name } });
-    if (!existing) await prisma.taxRule.create({ data: { orgId: ORG_ID, ...rule } });
+    if (existing) continue;
+    const { taxClass, ...ruleFields } = rule;
+    await prisma.taxRule.create({
+      data: {
+        orgId: ORG_ID,
+        ...ruleFields,
+        departmentIds: deptIdsByTaxClass[taxClass] || [],
+      },
+    });
   }
   console.log(`  ✓ ${TAX_RULES.length} tax rules seeded`);
 
@@ -445,7 +468,14 @@ async function main() {
     if (existing) continue;
 
     const user = await prisma.user.create({
-      data: { name: u.name, email: u.email, password: hashed, role: u.role, status: 'active', orgId: u.orgId },
+      data: {
+        name: u.name, email: u.email, password: hashed, role: u.role, status: 'active', orgId: u.orgId,
+        // S77 — bypass the vendor-onboarding gate for seeded users so devs
+        // can sign in immediately. Real signups start with all three false.
+        onboardingSubmitted: true,
+        contractSigned: true,
+        vendorApproved: true,
+      },
     });
 
     // Link non-superadmin users to the default store

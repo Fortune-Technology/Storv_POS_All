@@ -68,10 +68,19 @@ export const protect: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    // Check user account status — pending users can only access onboarding endpoints
+    // Check user account status — pending users can only access onboarding endpoints.
+    // S77 added /api/vendor-onboarding to the allowlist so the new business
+    // questionnaire is reachable BEFORE admin approves the user.
+    // /api/auth/* is also allowed (e.g. verify-password, the InactivityLock unlock).
     if (user.status && user.status !== 'active') {
       const path = req.originalUrl || req.path;
-      const isOnboardingRoute = path.startsWith('/api/tenants') || path.startsWith('/api/stores');
+      const isOnboardingRoute =
+        path.startsWith('/api/tenants') ||
+        path.startsWith('/api/stores') ||
+        path.startsWith('/api/vendor-onboarding') ||
+        path.startsWith('/api/contracts') ||  // S77 Phase 2 — contract signing
+        path.startsWith('/api/plans') ||      // S78 — entitlement lookup
+        path.startsWith('/api/auth');
       const isSuperadmin = user.role === 'superadmin';
 
       if (!isOnboardingRoute && !isSuperadmin) {

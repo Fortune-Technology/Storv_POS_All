@@ -32,6 +32,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import { useConfirm } from '../hooks/useConfirmDialog.jsx';
+// S77 — read-only view of the vendor's submitted onboarding questionnaire
+import VendorOnboardingViewModal from '../components/VendorOnboardingViewModal';
 import '../styles/admin.css';
 import './AdminOrgStoreUser.css';
 
@@ -728,6 +730,8 @@ const AdminOrgStoreUser = () => {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersSearch, setUsersSearch] = useState('');
   const [userModal, setUserModal] = useState<{ open: boolean; edit: AdminUserRow | null }>({ open: false, edit: null });
+  // S77 — read-only vendor onboarding viewer (eye button on user rows)
+  const [viewOnboardingFor, setViewOnboardingFor] = useState<AdminUserRow | null>(null);
 
   const limit = 25;
 
@@ -1106,6 +1110,8 @@ const AdminOrgStoreUser = () => {
                           {u.status === 'suspended' && (
                             <button onClick={() => handleUserStatus('approve', u)} className="admin-action-btn approve"><Check size={11} /> Reactivate</button>
                           )}
+                          {/* S77 — view the user's submitted vendor onboarding questionnaire */}
+                          <button onClick={() => setViewOnboardingFor(u)} className="admin-btn-icon" title="View onboarding details"><Eye size={13} /></button>
                           <button onClick={() => setUserModal({ open: true, edit: u })} className="admin-btn-icon" title="Edit user"><Edit3 size={13} /></button>
                           {u.status === 'active' && u.role !== 'superadmin' && (
                             <button onClick={() => handleLoginAs(u)} className="admin-btn-icon" title="Login as user"><LogIn size={13} /></button>
@@ -1175,6 +1181,8 @@ const AdminOrgStoreUser = () => {
                           {u.status === 'suspended' && (
                             <button onClick={() => handleUserStatus('approve', u)} className="admin-action-btn approve"><Check size={11} /> Reactivate</button>
                           )}
+                          {/* S77 — view the user's submitted vendor onboarding questionnaire */}
+                          <button onClick={() => setViewOnboardingFor(u)} className="admin-btn-icon" title="View onboarding details"><Eye size={13} /></button>
                           <button onClick={() => setUserModal({ open: true, edit: u })} className="admin-btn-icon" title="Edit user"><Edit3 size={13} /></button>
                           {u.status === 'active' && u.role !== 'superadmin' && (
                             <button onClick={() => handleLoginAs(u)} className="admin-btn-icon" title="Login as user"><LogIn size={13} /></button>
@@ -1214,6 +1222,14 @@ const AdminOrgStoreUser = () => {
         orgId={orgId}
         storeId={storeId || undefined}
         storeName={selectedStore?.name}
+      />
+      {/* S77 — Vendor onboarding read-only viewer */}
+      <VendorOnboardingViewModal
+        open={!!viewOnboardingFor}
+        userId={viewOnboardingFor ? String(viewOnboardingFor.id) : undefined}
+        fallbackName={viewOnboardingFor?.name}
+        fallbackEmail={viewOnboardingFor?.email}
+        onClose={() => setViewOnboardingFor(null)}
       />
 
       {/* Wipe Catalog modal */}

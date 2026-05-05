@@ -14,7 +14,7 @@ import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   Plus, Edit3, Trash2, RefreshCw, Loader, Save, X,
   ChevronLeft, ChevronRight, Package, FileText,
-  CreditCard, Building2,
+  CreditCard, Building2, Ban, Eye,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -26,6 +26,10 @@ import {
   adminListInvoices, adminWriteOffInvoice, adminRetryInvoice,
   adminListEquipmentOrders, adminUpdateEquipmentOrder,
   adminListEquipmentProducts, adminCreateEquipmentProduct, adminUpdateEquipmentProduct,
+  adminDeleteEquipmentProduct, adminUploadEquipmentImage,
+  // S78 — sidebar-module assignment for plans
+  adminListPlatformModules, adminListSubPlans, adminGetSubPlan, adminUpdateSubPlan, adminCreateSubPlan,
+  type PlatformModuleRecord,
 } from '../services/api';
 import type {
   BillingPlan as Plan,
@@ -92,16 +96,29 @@ interface PlanForm {
   name: string;
   slug: string;
   description: string;
+  // S78 — marketing/display fields (also live in /admin/plans S78 page; surfaced here too).
+  tagline: string;
+  annualPrice: number | string;   // pre-discounted yearly amount; '' = blank
+  isCustomPriced: boolean;
+  highlighted: boolean;
+  isDefault: boolean;
+  maxUsers: number | string;       // '' = unlimited
+  currency: string;
+  // ── Pricing ──
   basePrice: number | string;
   pricePerStore: number | string;
   pricePerRegister: number | string;
+  // ── Quotas ──
   includedStores: number;
   includedRegisters: number;
   trialDays: number;
+  // ── Display ──
   isPublic: boolean;
   isActive: boolean;
   includedAddons: string[];
   sortOrder: number;
+  // ── S78 sidebar-module entitlement (kept as Set for fast toggling) ──
+  moduleIds: Set<string>;
 }
 
 interface AddonForm {
@@ -112,8 +129,15 @@ interface AddonForm {
   sortOrder: number;
 }
 
-const EMPTY_PLAN: PlanForm = { name:'', slug:'', description:'', basePrice:'', pricePerStore:0, pricePerRegister:0,
-  includedStores:1, includedRegisters:1, trialDays:14, isPublic:true, isActive:true, includedAddons:[], sortOrder:0 };
+const EMPTY_PLAN: PlanForm = {
+  name:'', slug:'', description:'',
+  tagline:'', annualPrice:'', isCustomPriced:false, highlighted:false, isDefault:false,
+  maxUsers:'', currency:'USD',
+  basePrice:'', pricePerStore:0, pricePerRegister:0,
+  includedStores:1, includedRegisters:1, trialDays:14,
+  isPublic:true, isActive:true, includedAddons:[], sortOrder:0,
+  moduleIds: new Set<string>(),
+};
 
 const toSlug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -123,11 +147,17 @@ function PlansTab() {
   const [addons,   setAddons]   = useState<Addon[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [editPlan, setEditPlan] = useState<Plan | 'new' | null>(null);
-  const [form,     setForm]     = useState<PlanForm>(EMPTY_PLAN);
+  const [form,     setForm]     = useState<PlanForm>({ ...EMPTY_PLAN, moduleIds: new Set<string>() });
   const [saving,   setSaving]   = useState(false);
   const [showAddonForm, setShowAddonForm] = useState(false);
   const [addonForm, setAddonForm] = useState<AddonForm>({ key:'', name:'', description:'', monthlyPrice:'', sortOrder:0 });
   const [editAddonId, setEditAddonId] = useState<string | number | null>(null);
+
+  // S78 — sidebar modules (catalog + per-plan assignment)
+  const [allModules, setAllModules] = useState<PlatformModuleRecord[]>([]);
+  const [moduleGroups, setModuleGroups] = useState<Record<string, PlatformModuleRecord[]>>({});
+  const [moduleCounts, setModuleCounts] = useState<Record<string, number>>({});
+  const [loadingPlanModules, setLoadingPlanModules] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,39 +167,153 @@ function PlansTab() {
       setAddons(r?.addons || []);
     } catch { toast.error('Failed to load plans'); }
     finally { setLoading(false); }
+    // S78 — load module catalog + per-plan module counts (best-effort, non-fatal)
+    try {
+      const m = await adminListPlatformModules();
+      setAllModules(m.modules || []);
+      setModuleGroups(m.grouped || {});
+      // Fetch per-plan module count from the S78 list endpoint (cheap — `_count.modules`).
+      const subList = await adminListSubPlans();
+      const counts: Record<string, number> = {};
+      for (const p of subList.plans) {
+        counts[p.id] = p._count?.modules ?? p.modules?.length ?? 0;
+      }
+      setModuleCounts(counts);
+    } catch (err) {
+      console.warn('[AdminBilling] Failed to load module catalog', err);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const startEdit = (plan: Plan | 'new') => {
+  const startEdit = async (plan: Plan | 'new') => {
     setEditPlan(plan);
-    setForm(plan === 'new' ? EMPTY_PLAN : {
-      name: plan.name, slug: plan.slug||'', description: plan.description||'', basePrice: plan.basePrice,
+    if (plan === 'new') {
+      setForm({ ...EMPTY_PLAN, moduleIds: new Set<string>() });
+      return;
+    }
+    // The legacy /admin/billing/plans response only carries the BillingPlan
+    // shape — S78 fields (tagline / annualPrice / isCustomPriced / etc.) live
+    // on the same SubscriptionPlan row but aren't typed there. Use a permissive
+    // cast so we can read them when present without breaking older data.
+    const ext = plan as unknown as Record<string, unknown>;
+    setForm({
+      name: plan.name, slug: plan.slug||'', description: plan.description||'',
+      tagline:        typeof ext.tagline === 'string' ? ext.tagline : '',
+      annualPrice:    ext.annualPrice == null ? '' : String(ext.annualPrice),
+      isCustomPriced: !!ext.isCustomPriced,
+      highlighted:    !!ext.highlighted,
+      isDefault:      !!ext.isDefault,
+      maxUsers:       ext.maxUsers == null ? '' : String(ext.maxUsers),
+      currency:       typeof ext.currency === 'string' ? ext.currency : 'USD',
+      basePrice: plan.basePrice,
       pricePerStore: plan.pricePerStore||0, pricePerRegister: plan.pricePerRegister||0,
       includedStores: plan.includedStores||1, includedRegisters: plan.includedRegisters||1,
       trialDays: plan.trialDays, isPublic: plan.isPublic, isActive: plan.isActive, sortOrder: plan.sortOrder,
       includedAddons: Array.isArray(plan.includedAddons) ? plan.includedAddons : [],
+      moduleIds: new Set<string>(),
     });
+    // Lazy-load currently-assigned modules for this plan from S78 endpoint.
+    setLoadingPlanModules(true);
+    try {
+      const r = await adminGetSubPlan(plan.id as string);
+      const ids = (r.plan.modules || []).map(pm => pm.moduleId);
+      setForm(f => ({ ...f, moduleIds: new Set(ids) }));
+    } catch (err) {
+      console.warn('[AdminBilling] Failed to load plan modules', err);
+    } finally {
+      setLoadingPlanModules(false);
+    }
   };
+
+  const toggleModule = (id: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return { ...f, moduleIds: next };
+  });
+  const selectAllInCategory = (cat: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    for (const m of moduleGroups[cat] || []) next.add(m.id);
+    return { ...f, moduleIds: next };
+  });
+  const clearAllInCategory = (cat: string) => setForm(f => {
+    const next = new Set(f.moduleIds);
+    for (const m of moduleGroups[cat] || []) {
+      if (m.isCore) continue; // never remove core
+      next.delete(m.id);
+    }
+    return { ...f, moduleIds: next };
+  });
 
   const handleSavePlan = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
+      // Build the payload. The legacy billing API only writes the columns it
+      // knows about (now safely whitelisted server-side). We drop:
+      // - `moduleIds`     — S78 module entitlement, persisted via PATCH /admin/plans/:id below
+      // - `includedAddons` — UI-only display state; addons are managed via the separate
+      //                     /admin/billing/addons endpoints + the PlanAddon join table.
+      const { moduleIds: _omitModuleIds, includedAddons: _omitAddons, ...billingFields } = form;
       const payload = {
-        ...form,
+        ...billingFields,
         basePrice:        Number(form.basePrice),
         pricePerStore:    Number(form.pricePerStore)    || 0,
         pricePerRegister: Number(form.pricePerRegister) || 0,
         includedStores:   Number(form.includedStores)   || 1,
         includedRegisters:Number(form.includedRegisters)|| 1,
         sortOrder:        Number(form.sortOrder)         || 0,
+        // S78 marketing/display fields
+        tagline:          form.tagline || null,
+        annualPrice:      form.annualPrice === '' ? null : Number(form.annualPrice),
+        isCustomPriced:   !!form.isCustomPriced,
+        highlighted:      !!form.highlighted,
+        isDefault:        !!form.isDefault,
+        maxUsers:         form.maxUsers === '' ? null : Number(form.maxUsers),
+        currency:         form.currency || 'USD',
       };
+      const moduleIdArray = Array.from(form.moduleIds);
       if (editPlan === 'new') {
-        await adminCreatePlan(payload);
+        // For new plans, use the S78 create endpoint so we can pass
+        // moduleIds in a single round-trip. The shape lines up because
+        // the underlying SubscriptionPlan model is shared.
+        await adminCreateSubPlan({
+          slug: payload.slug,
+          name: payload.name,
+          description: payload.description || null,
+          tagline: payload.tagline,
+          basePrice: payload.basePrice,
+          annualPrice: payload.annualPrice,
+          isCustomPriced: payload.isCustomPriced,
+          currency: payload.currency,
+          pricePerStore: payload.pricePerStore,
+          pricePerRegister: payload.pricePerRegister,
+          includedStores: payload.includedStores,
+          includedRegisters: payload.includedRegisters,
+          maxUsers: payload.maxUsers,
+          trialDays: payload.trialDays,
+          isPublic: payload.isPublic,
+          isActive: payload.isActive,
+          highlighted: payload.highlighted,
+          isDefault: payload.isDefault,
+          sortOrder: payload.sortOrder,
+          moduleIds: moduleIdArray,
+        });
         toast.success('Plan created');
       } else if (editPlan) {
+        // Editing — write billing-specific fields via the legacy PUT, then
+        // fan out the module assignment via S78 PATCH. Both target the
+        // same SubscriptionPlan row, so they compose cleanly.
         await adminUpdatePlan(editPlan.id, payload);
+        try {
+          await adminUpdateSubPlan(editPlan.id as string, { moduleIds: moduleIdArray });
+        } catch (err: any) {
+          // Surface the module-save error but don't lose the billing-side
+          // success — the user can retry just the modules.
+          console.warn('[AdminBilling] Module assignment save failed', err);
+          toast.warning('Plan saved, but module assignment failed. Try again.');
+          throw err;
+        }
         toast.success('Plan updated');
       }
       setEditPlan(null);
@@ -259,10 +403,20 @@ function PlansTab() {
                       ))}
                     </div>
                   )}
+                  {/* S78 — module assignment count chip */}
+                  {moduleCounts[plan.id as string] !== undefined && (
+                    <div className="ab-modules-chip-row">
+                      <span className="ab-modules-chip">
+                        {moduleCounts[plan.id as string]} sidebar module{moduleCounts[plan.id as string] === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="ab-plan-actions">
-                  <button onClick={() => startEdit(plan)} className="ab-btn-edit"><Edit3 size={12} /> Edit</button>
-                  <button onClick={() => handleDeletePlan(plan)} className="ab-btn-delete"><Trash2 size={12} /></button>
+                  <div className="admin-row-actions">
+                    <button onClick={() => startEdit(plan)} className="admin-btn-icon" title="Edit"><Edit3 size={14} /></button>
+                    <button onClick={() => handleDeletePlan(plan)} className="admin-btn-icon danger" title="Delete"><Trash2 size={14} /></button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -300,7 +454,11 @@ function PlansTab() {
                     <td className="ab-cell-bold">{a.name}</td>
                     <td className="ab-cell-money">{fmtMoney(a.monthlyPrice)}</td>
                     <td><Badge val={a.isActive ? 'active' : 'cancelled'} /></td>
-                    <td><button onClick={() => startEditAddon(a)} className="ab-btn-edit"><Edit3 size={11} /> Edit</button></td>
+                    <td>
+                      <div className="admin-row-actions">
+                        <button onClick={() => startEditAddon(a)} className="admin-btn-icon" title="Edit"><Edit3 size={14} /></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {addons.length === 0 && <tr><td colSpan={5} className="ab-empty">No add-ons yet</td></tr>}
@@ -328,16 +486,46 @@ function PlansTab() {
                 <input className="ab-input" value={form.slug} onChange={e=>setForm(f=>({...f,slug:toSlug(e.target.value)}))} placeholder="starter" required />
               </div>
               <div><label className="ab-label">Description</label><input className="ab-input" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} /></div>
-              <div><label className="ab-label">Base Monthly Price ($) *</label><input className="ab-input" type="number" step="0.01" min="0" value={form.basePrice} onChange={e=>setForm(f=>({...f,basePrice:e.target.value}))} required /></div>
-              <div className="ab-form-row-2">
-                <div><label className="ab-label">Price / Extra Store ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerStore} onChange={e=>setForm(f=>({...f,pricePerStore:e.target.value}))} /></div>
-                <div><label className="ab-label">Price / Extra Register ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerRegister} onChange={e=>setForm(f=>({...f,pricePerRegister:e.target.value}))} /></div>
+              <div>
+                <label className="ab-label">Tagline <span className="ab-label-hint">(short marketing line on pricing page)</span></label>
+                <input className="ab-input" value={form.tagline} onChange={e=>setForm(f=>({...f,tagline:e.target.value}))} placeholder="Perfect for single-location retailers." />
               </div>
+
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Custom-priced <span className="ab-label-hint">(show "Contact for pricing")</span></span>
+                <Toggle checked={form.isCustomPriced} onChange={v=>setForm(f=>({...f,isCustomPriced:v}))} />
+              </div>
+
+              {!form.isCustomPriced && (
+                <>
+                  <div className="ab-form-row-2">
+                    <div>
+                      <label className="ab-label">Monthly Price ($) *</label>
+                      <input className="ab-input" type="number" step="0.01" min="0" value={form.basePrice} onChange={e=>setForm(f=>({...f,basePrice:e.target.value}))} required />
+                    </div>
+                    <div>
+                      <label className="ab-label">Annual Price ($/mo) <span className="ab-label-hint">(blank = no discount)</span></label>
+                      <input className="ab-input" type="number" step="0.01" min="0" value={form.annualPrice} onChange={e=>setForm(f=>({...f,annualPrice:e.target.value}))} placeholder="e.g. 39 (shown as $39/mo billed annually)" />
+                    </div>
+                  </div>
+                  <div className="ab-form-row-2">
+                    <div><label className="ab-label">Price / Extra Store ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerStore} onChange={e=>setForm(f=>({...f,pricePerStore:e.target.value}))} /></div>
+                    <div><label className="ab-label">Price / Extra Register ($)</label><input className="ab-input" type="number" step="0.01" min="0" value={form.pricePerRegister} onChange={e=>setForm(f=>({...f,pricePerRegister:e.target.value}))} /></div>
+                  </div>
+                </>
+              )}
+
               <div className="ab-form-row-2">
                 <div><label className="ab-label">Included Stores</label><input className="ab-input" type="number" min="1" value={form.includedStores} onChange={e=>setForm(f=>({...f,includedStores:Number(e.target.value)}))} /></div>
                 <div><label className="ab-label">Included Registers</label><input className="ab-input" type="number" min="1" value={form.includedRegisters} onChange={e=>setForm(f=>({...f,includedRegisters:Number(e.target.value)}))} /></div>
               </div>
-              <div><label className="ab-label">Trial Days</label><input className="ab-input" type="number" min="0" value={form.trialDays} onChange={e=>setForm(f=>({...f,trialDays:Number(e.target.value)}))} /></div>
+              <div className="ab-form-row-2">
+                <div>
+                  <label className="ab-label">Max Users <span className="ab-label-hint">(blank = unlimited)</span></label>
+                  <input className="ab-input" type="number" min="1" value={form.maxUsers} onChange={e=>setForm(f=>({...f,maxUsers:e.target.value}))} placeholder="Unlimited" />
+                </div>
+                <div><label className="ab-label">Trial Days</label><input className="ab-input" type="number" min="0" value={form.trialDays} onChange={e=>setForm(f=>({...f,trialDays:Number(e.target.value)}))} /></div>
+              </div>
               <div className="ab-toggle-row">
                 <span className="ab-toggle-label">Public (show on pricing page)</span>
                 <Toggle checked={form.isPublic} onChange={v=>setForm(f=>({...f,isPublic:v}))} />
@@ -345,6 +533,14 @@ function PlansTab() {
               <div className="ab-toggle-row">
                 <span className="ab-toggle-label">Active</span>
                 <Toggle checked={form.isActive} onChange={v=>setForm(f=>({...f,isActive:v}))} />
+              </div>
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Highlighted (Most Popular badge)</span>
+                <Toggle checked={form.highlighted} onChange={v=>setForm(f=>({...f,highlighted:v}))} />
+              </div>
+              <div className="ab-toggle-row">
+                <span className="ab-toggle-label">Default plan for new orgs</span>
+                <Toggle checked={form.isDefault} onChange={v=>setForm(f=>({...f,isDefault:v}))} />
               </div>
               {addons.length > 0 && (
                 <div>
@@ -359,6 +555,70 @@ function PlansTab() {
                   </div>
                 </div>
               )}
+
+              {/* ── S78 — Sidebar Modules ───────────────────────────────── */}
+              <div className="ab-modules-section">
+                <div className="ab-modules-head">
+                  <label className="ab-label" style={{ margin: 0 }}>
+                    Sidebar Modules
+                    <span className="ab-label-hint" style={{ marginLeft: 6 }}>
+                      ({form.moduleIds.size}/{allModules.filter(m => m.active).length} selected)
+                    </span>
+                  </label>
+                  {loadingPlanModules && <span className="ab-modules-loading"><Loader size={11} className="spin" /> loading…</span>}
+                </div>
+                <p className="ab-modules-hint">
+                  Pick which sidebar menu items this plan unlocks for org users.
+                  <strong> Core modules</strong> (Account / Support / Billing / Live Dashboard / Chat) are always granted.
+                </p>
+                {allModules.length === 0 ? (
+                  <div className="ab-modules-empty">
+                    No modules registered. Run <code>npx tsx prisma/seedPlanModules.ts</code> to seed defaults.
+                  </div>
+                ) : (
+                  <div className="ab-modules-wrap">
+                    {Object.entries(moduleGroups)
+                      .sort(([, a], [, b]) => (a[0]?.sortOrder ?? 0) - (b[0]?.sortOrder ?? 0))
+                      .map(([cat, items]) => (
+                        <div key={cat} className="ab-module-group">
+                          <div className="ab-module-group-head">
+                            <strong>{cat}</strong>
+                            <div className="ab-module-group-actions">
+                              <button type="button" className="ab-module-mini-btn" onClick={() => selectAllInCategory(cat)}>All</button>
+                              <button type="button" className="ab-module-mini-btn" onClick={() => clearAllInCategory(cat)}>None</button>
+                            </div>
+                          </div>
+                          <div className="ab-module-list">
+                            {items.map(m => {
+                              const checked = form.moduleIds.has(m.id) || m.isCore;
+                              return (
+                                <label
+                                  key={m.id}
+                                  className={`ab-module-row ${checked ? 'is-checked' : ''} ${m.isCore ? 'is-core' : ''}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={m.isCore}
+                                    onChange={() => toggleModule(m.id)}
+                                  />
+                                  <div className="ab-module-row-body">
+                                    <div className="ab-module-row-name">
+                                      {m.name}
+                                      {m.isCore && <span className="ab-module-pill ab-module-pill--core">CORE</span>}
+                                      {!m.active && <span className="ab-module-pill ab-module-pill--inactive">INACTIVE</span>}
+                                    </div>
+                                    {m.description && <div className="ab-module-row-desc">{m.description}</div>}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
             <button type="submit" className="admin-btn admin-btn-primary ab-btn-full" disabled={saving}>
               {saving ? <><Loader size={13} className="spin" /> Saving...</> : <><Save size={13} /> Save Plan</>}
@@ -515,7 +775,9 @@ function SubscriptionsTab() {
                       ) : <span className="ab-cell-muted">None</span>}
                     </td>
                     <td>
-                      <button onClick={() => openManage(s)} className="ab-btn-edit"><Edit3 size={11} /> Manage</button>
+                      <div className="admin-row-actions">
+                        <button onClick={() => openManage(s)} className="admin-btn-icon" title="Manage"><Edit3 size={14} /></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -688,8 +950,8 @@ function InvoicesTab() {
                 <td>
                   <div className="ab-inv-actions">
                     {inv.status === 'failed' && <>
-                      <button onClick={()=>handleRetry(inv.id)} className="ab-btn-retry"><RefreshCw size={10} /> Retry</button>
-                      <button onClick={()=>handleWriteOff(inv.id)} className="ab-btn-writeoff">Write Off</button>
+                      <button onClick={()=>handleRetry(inv.id)} className="admin-btn-icon" title="Retry charge"><RefreshCw size={14} /></button>
+                      <button onClick={()=>handleWriteOff(inv.id)} className="admin-btn-icon danger" title="Write off"><Ban size={14} /></button>
                     </>}
                     {inv.status === 'paid' && <span className="ab-inv-paid">✓ Paid {fmtDate(inv.paidAt)}</span>}
                   </div>
@@ -728,14 +990,25 @@ interface ProductForm {
   slug: string;
   description: string;
   price: number | string;
-  comparePrice: number | string;
   category: string;
-  stock: number;
+  stockQty: number;
   trackStock: boolean;
   isActive: boolean;
   sortOrder: number;
   specs: string;
   images: string;
+}
+
+// Resolve relative /uploads/... paths against the API host so the
+// admin-app (port 5175) can render images served by the backend (port 5000).
+// VITE_API_URL is normally `http://localhost:5000/api` or `/api`; strip the
+// trailing `/api` so the static path lines up with the express.static mount.
+function resolveImageUrl(p: string | null | undefined): string {
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:')) return p;
+  const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
+  const host = apiBase.replace(/\/api\/?$/, '');
+  return `${host}${p.startsWith('/') ? '' : '/'}${p}`;
 }
 
 function EquipmentTab() {
@@ -748,11 +1021,14 @@ function EquipmentTab() {
   const [editOrder,    setEditOrder]    = useState<EquipmentOrder | null>(null);
   const [orderForm,    setOrderForm]    = useState<OrderForm>({ status:'', trackingNumber:'', trackingCarrier:'', notes:'' });
   const [savingOrder,  setSavingOrder]  = useState(false);
-  const [showProducts, setShowProducts] = useState(false);
+  const [showProducts, setShowProducts] = useState(true);
   const [showProdForm, setShowProdForm] = useState(false);
   const [editProduct,  setEditProduct]  = useState<Product | null>(null);
-  const [prodForm,     setProdForm]     = useState<ProductForm>({ name:'', slug:'', description:'', price:'', comparePrice:'', category:'terminal', stock:0, trackStock:true, isActive:true, sortOrder:0, specs:'', images:'' });
+  const [viewProduct,  setViewProduct]  = useState<Product | null>(null);
+  const [prodForm,     setProdForm]     = useState<ProductForm>({ name:'', slug:'', description:'', price:'', category:'terminal', stockQty:0, trackStock:true, isActive:true, sortOrder:0, specs:'', images:'' });
   const [savingProd,   setSavingProd]   = useState(false);
+  const [uploadingImg, setUploadingImg] = useState(false);
+  const confirm = useConfirm();
   const limit = 25;
 
   const loadOrders = useCallback(async () => {
@@ -769,8 +1045,11 @@ function EquipmentTab() {
 
   const loadProducts = useCallback(async () => {
     try {
+      // Backend handler returns the array directly (`res.json(products)`),
+      // not `{ data: [...] }`. Accept both shapes defensively.
       const r = await adminListEquipmentProducts();
-      setProducts(r.data || []);
+      const list = Array.isArray(r) ? r : (Array.isArray((r as any)?.data) ? (r as any).data : []);
+      setProducts(list);
     } catch { toast.error('Failed to load products'); }
   }, []);
 
@@ -799,10 +1078,12 @@ function EquipmentTab() {
     setEditProduct(prod);
     setProdForm({
       name: prod.name, slug: prod.slug, description: prod.description||'',
-      price: prod.price, comparePrice: (prod.comparePrice ?? '') as number | string,
-      category: prod.category||'terminal', stock: prod.stock, trackStock: prod.trackStock,
+      price: prod.price,
+      category: prod.category||'terminal',
+      stockQty: prod.stockQty ?? prod.stock ?? 0,
+      trackStock: prod.trackStock,
       isActive: prod.isActive, sortOrder: prod.sortOrder,
-      specs: prod.specs ? JSON.stringify(prod.specs) : '',
+      specs: prod.specs ? JSON.stringify(prod.specs, null, 2) : '',
       images: Array.isArray(prod.images) ? prod.images.join('\n') : '',
     });
     setShowProdForm(true);
@@ -812,10 +1093,29 @@ function EquipmentTab() {
     e.preventDefault();
     setSavingProd(true);
     try {
-      let specs: unknown = null;
-      try { specs = prodForm.specs ? JSON.parse(prodForm.specs) : null; } catch { specs = null; }
+      let specs: unknown = undefined;
+      try {
+        if (prodForm.specs && prodForm.specs.trim()) specs = JSON.parse(prodForm.specs);
+      } catch {
+        toast.error('Specs must be valid JSON (or leave blank).');
+        setSavingProd(false);
+        return;
+      }
       const images = prodForm.images ? prodForm.images.split('\n').map(s=>s.trim()).filter(Boolean) : [];
-      const payload = { ...prodForm, price: Number(prodForm.price), comparePrice: prodForm.comparePrice ? Number(prodForm.comparePrice) : null, specs, images };
+      const payload: Record<string, unknown> = {
+        name:        prodForm.name,
+        slug:        prodForm.slug,
+        description: prodForm.description,
+        price:       Number(prodForm.price),
+        category:    prodForm.category,
+        stockQty:    Number(prodForm.stockQty),
+        trackStock:  prodForm.trackStock,
+        isActive:    prodForm.isActive,
+        sortOrder:   Number(prodForm.sortOrder),
+        images,
+      };
+      // Only set specs when present — backend's sanitizer omits when undefined.
+      if (specs !== undefined) payload.specs = specs;
       if (editProduct) {
         await adminUpdateEquipmentProduct(editProduct.id, payload);
         toast.success('Product updated');
@@ -832,6 +1132,51 @@ function EquipmentTab() {
 
   const autoSlug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
   const totalPages = Math.ceil(ordersTotal / limit);
+
+  // Image upload — pushes file to /uploads/devices and appends URL to form state
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImg(true);
+    try {
+      const r = await adminUploadEquipmentImage(file);
+      setProdForm(f => ({
+        ...f,
+        images: f.images ? `${f.images}\n${r.url}` : r.url,
+      }));
+      toast.success('Image uploaded');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Upload failed');
+    } finally {
+      setUploadingImg(false);
+      e.target.value = ''; // allow re-uploading the same file
+    }
+  };
+
+  const removeImage = (idx: number) => {
+    setProdForm(f => {
+      const list = (f.images || '').split('\n').map(s => s.trim()).filter(Boolean);
+      list.splice(idx, 1);
+      return { ...f, images: list.join('\n') };
+    });
+  };
+
+  const handleDeleteProduct = async (prod: Product) => {
+    const ok = await confirm({
+      title: 'Delete product?',
+      message: `Permanently remove "${prod.name}"? If it has order history it will be soft-deleted (hidden) instead.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await adminDeleteEquipmentProduct(prod.id);
+      toast.success(r.softDeleted ? 'Product hidden (had order history)' : 'Product deleted');
+      loadProducts();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Delete failed');
+    }
+  };
 
   return (
     <div>
@@ -867,7 +1212,11 @@ function EquipmentTab() {
                       <td><Badge val={o.paymentStatus} /></td>
                       <td><Badge val={o.status} /></td>
                       <td className="ab-order-tracking">{o.trackingNumber ? <><span className="ab-order-tracking-carrier">{o.trackingCarrier}</span> {o.trackingNumber}</> : '—'}</td>
-                      <td><button onClick={()=>openEditOrder(o)} className="ab-btn-edit"><Edit3 size={11} /> Update</button></td>
+                      <td>
+                        <div className="admin-row-actions">
+                          <button onClick={()=>openEditOrder(o)} className="admin-btn-icon" title="Update order"><Edit3 size={14} /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -921,7 +1270,7 @@ function EquipmentTab() {
           <h3 className="ab-product-toggle" onClick={()=>setShowProducts(s=>!s)}>
             Product Catalog <span className="ab-product-toggle-hint">({showProducts?'click to hide':'click to expand'})</span>
           </h3>
-          {showProducts && <button className="admin-btn admin-btn-primary" onClick={()=>{setEditProduct(null);setProdForm({name:'',slug:'',description:'',price:'',comparePrice:'',category:'terminal',stock:0,trackStock:true,isActive:true,sortOrder:0,specs:'',images:''});setShowProdForm(s=>!s)}}><Plus size={13} /> Add Product</button>}
+          {showProducts && <button className="admin-btn admin-btn-primary" onClick={()=>{setEditProduct(null);setProdForm({name:'',slug:'',description:'',price:'',category:'terminal',stockQty:0,trackStock:true,isActive:true,sortOrder:0,specs:'',images:''});setShowProdForm(s=>!s)}}><Plus size={13} /> Add Product</button>}
         </div>
 
         {showProducts && <>
@@ -931,18 +1280,50 @@ function EquipmentTab() {
                 <div><label className="ab-label">Name *</label><input className="ab-input" value={prodForm.name} onChange={e=>{setProdForm(f=>({...f,name:e.target.value,slug:editProduct?f.slug:autoSlug(e.target.value)}))}} required /></div>
                 <div><label className="ab-label">Slug *</label><input className="ab-input" value={prodForm.slug} onChange={e=>setProdForm(f=>({...f,slug:e.target.value}))} required /></div>
                 <div><label className="ab-label">Price ($) *</label><input className="ab-input" type="number" step="0.01" value={prodForm.price} onChange={e=>setProdForm(f=>({...f,price:e.target.value}))} required /></div>
-                <div><label className="ab-label">Compare Price ($)</label><input className="ab-input" type="number" step="0.01" value={prodForm.comparePrice} onChange={e=>setProdForm(f=>({...f,comparePrice:e.target.value}))} /></div>
                 <div>
                   <label className="ab-label">Category</label>
                   <select className="admin-select ab-select-inline" value={prodForm.category} onChange={e=>setProdForm(f=>({...f,category:e.target.value}))}>
                     {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div><label className="ab-label">Stock</label><input className="ab-input" type="number" min="0" value={prodForm.stock} onChange={e=>setProdForm(f=>({...f,stock:Number(e.target.value)}))} /></div>
+                <div><label className="ab-label">Stock Qty</label><input className="ab-input" type="number" min="0" value={prodForm.stockQty} onChange={e=>setProdForm(f=>({...f,stockQty:Number(e.target.value)}))} /></div>
+                <div><label className="ab-label">Sort Order</label><input className="ab-input" type="number" min="0" value={prodForm.sortOrder} onChange={e=>setProdForm(f=>({...f,sortOrder:Number(e.target.value)}))} /></div>
               </div>
               <div className="ab-product-desc-row"><label className="ab-label">Description</label><textarea className="ab-textarea" value={prodForm.description} onChange={e=>setProdForm(f=>({...f,description:e.target.value}))} /></div>
               <div className="ab-product-form-grid">
-                <div><label className="ab-label">Image URLs (one per line)</label><textarea className="ab-textarea" value={prodForm.images} onChange={e=>setProdForm(f=>({...f,images:e.target.value}))} /></div>
+                <div>
+                  <label className="ab-label">Images</label>
+                  <div className="ab-image-uploader">
+                    <label className="admin-btn admin-btn-secondary ab-image-upload-btn">
+                      {uploadingImg ? <><Loader size={13} className="spin" /> Uploading...</> : <><Plus size={13} /> Upload image</>}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                        style={{ display: 'none' }}
+                        disabled={uploadingImg}
+                        onChange={handleImageUpload}
+                      />
+                    </label>
+                    <span className="ab-image-hint">PNG / JPG / WebP, up to 10 MB. Saved to <code>/uploads/devices/</code>.</span>
+                  </div>
+                  <div className="ab-image-grid">
+                    {(prodForm.images || '').split('\n').map(s => s.trim()).filter(Boolean).map((url, idx) => (
+                      <div key={idx} className="ab-image-thumb">
+                        <img src={resolveImageUrl(url)} alt="" onError={e => { (e.target as HTMLImageElement).style.opacity = '0.3'; }} />
+                        <button type="button" className="ab-image-thumb-remove" onClick={() => removeImage(idx)} title="Remove">
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                    {!(prodForm.images || '').trim() && (
+                      <div className="ab-image-empty">No images yet</div>
+                    )}
+                  </div>
+                  <details className="ab-image-advanced">
+                    <summary>Advanced: edit image URLs as text</summary>
+                    <textarea className="ab-textarea" rows={3} value={prodForm.images} onChange={e=>setProdForm(f=>({...f,images:e.target.value}))} placeholder="One URL per line — e.g. /uploads/devices/POS%20Terminal.png" />
+                  </details>
+                </div>
                 <div><label className="ab-label">Specs (JSON object)</label><textarea className="ab-textarea ab-textarea--mono" value={prodForm.specs} onChange={e=>setProdForm(f=>({...f,specs:e.target.value}))} placeholder='{"RAM":"4GB","Screen":"15.6 inch"}' /></div>
               </div>
               <div className="ab-product-check-row">
@@ -961,23 +1342,102 @@ function EquipmentTab() {
           )}
           <div className="admin-table-wrapper ab-table-wrap">
             <table className="admin-table">
-              <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Active</th><th>Actions</th></tr></thead>
+              <thead><tr><th></th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Active</th><th>Actions</th></tr></thead>
               <tbody>
-                {products.map(p=>(
-                  <tr key={p.id}>
-                    <td className="ab-product-name">{p.name}</td>
-                    <td className="ab-product-cat">{p.category||'—'}</td>
-                    <td className="ab-product-price">{fmtMoney(p.price)}{p.comparePrice&&<span className="ab-product-compare">{fmtMoney(p.comparePrice)}</span>}</td>
-                    <td className={p.stock<5 ? 'ab-product-stock--low' : 'ab-product-stock--ok'}>{p.stock}</td>
-                    <td><Badge val={p.isActive?'active':'cancelled'}/></td>
-                    <td><button onClick={()=>startEditProduct(p)} className="ab-btn-edit"><Edit3 size={11}/> Edit</button></td>
-                  </tr>
-                ))}
-                {products.length===0&&<tr><td colSpan={6} className="ab-empty">No products yet</td></tr>}
+                {products.map(p=>{
+                  const img = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : '';
+                  return (
+                    <tr key={p.id}>
+                      <td className="ab-product-thumb-cell">
+                        {img
+                          ? <img className="ab-product-thumb" src={resolveImageUrl(img)} alt="" onError={e=>{(e.target as HTMLImageElement).style.opacity='0.3';}} />
+                          : <div className="ab-product-thumb ab-product-thumb--empty" />}
+                      </td>
+                      <td className="ab-product-name">{p.name}</td>
+                      <td className="ab-product-cat">{p.category||'—'}</td>
+                      <td className="ab-product-price">{fmtMoney(p.price)}</td>
+                      <td className={(p.stockQty ?? p.stock ?? 0) < 5 ? 'ab-product-stock--low' : 'ab-product-stock--ok'}>{p.stockQty ?? p.stock ?? 0}</td>
+                      <td><Badge val={p.isActive?'active':'cancelled'}/></td>
+                      <td>
+                        <div className="admin-row-actions">
+                          <button onClick={()=>setViewProduct(p)} className="admin-btn-icon" title="View details"><Eye size={14} /></button>
+                          <button onClick={()=>startEditProduct(p)} className="admin-btn-icon" title="Edit"><Edit3 size={14} /></button>
+                          <button onClick={()=>handleDeleteProduct(p)} className="admin-btn-icon danger" title="Delete"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {products.length===0&&<tr><td colSpan={7} className="ab-empty">No products yet — run <code>npx tsx prisma/seedEquipment.ts</code> from the backend folder to seed the default catalog.</td></tr>}
               </tbody>
             </table>
           </div>
         </>}
+
+        {/* Product Detail (read-only view) */}
+        {viewProduct && (
+          <div className="ab-pdetail-backdrop" onClick={()=>setViewProduct(null)}>
+            <div className="ab-pdetail-card" onClick={e=>e.stopPropagation()}>
+              <div className="ab-pdetail-head">
+                <h3 className="ab-pdetail-title">{viewProduct.name}</h3>
+                <button onClick={()=>setViewProduct(null)} className="admin-btn-icon" title="Close"><X size={16} /></button>
+              </div>
+
+              <div className="ab-pdetail-body">
+                {/* Image strip */}
+                <div className="ab-pdetail-images">
+                  {Array.isArray(viewProduct.images) && viewProduct.images.length > 0
+                    ? viewProduct.images.map((url, i) => (
+                        <div key={i} className="ab-pdetail-img">
+                          <img src={resolveImageUrl(url)} alt={viewProduct.name} onError={e=>{(e.target as HTMLImageElement).style.opacity='0.3';}} />
+                        </div>
+                      ))
+                    : <div className="ab-pdetail-noimg">No images</div>}
+                </div>
+
+                {/* Field grid */}
+                <div className="ab-pdetail-grid">
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Slug</span><span className="ab-pdetail-v ab-pdetail-mono">{viewProduct.slug}</span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Category</span><span className="ab-pdetail-v">{viewProduct.category || '—'}</span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Price</span><span className="ab-pdetail-v"><strong>{fmtMoney(viewProduct.price)}</strong></span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Stock Qty</span><span className="ab-pdetail-v">{viewProduct.stockQty ?? viewProduct.stock ?? 0}</span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Track Stock</span><span className="ab-pdetail-v">{viewProduct.trackStock ? 'Yes' : 'No'}</span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Sort Order</span><span className="ab-pdetail-v">{viewProduct.sortOrder}</span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">Status</span><span className="ab-pdetail-v"><Badge val={viewProduct.isActive ? 'active' : 'cancelled'} /></span></div>
+                  <div className="ab-pdetail-row"><span className="ab-pdetail-k">ID</span><span className="ab-pdetail-v ab-pdetail-mono">{String(viewProduct.id)}</span></div>
+                </div>
+
+                {viewProduct.description && (
+                  <div className="ab-pdetail-section">
+                    <div className="ab-pdetail-section-title">Description</div>
+                    <p className="ab-pdetail-desc">{viewProduct.description}</p>
+                  </div>
+                )}
+
+                {viewProduct.specs && typeof viewProduct.specs === 'object' && Object.keys(viewProduct.specs as Record<string, unknown>).length > 0 && (
+                  <div className="ab-pdetail-section">
+                    <div className="ab-pdetail-section-title">Specifications</div>
+                    <div className="ab-pdetail-specs">
+                      {Object.entries(viewProduct.specs as Record<string, unknown>).map(([k, v]) => (
+                        <div key={k} className="ab-pdetail-spec">
+                          <span className="ab-pdetail-spec-k">{k}</span>
+                          <span className="ab-pdetail-spec-v">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="ab-pdetail-foot">
+                <button onClick={()=>setViewProduct(null)} className="admin-btn admin-btn-secondary">Close</button>
+                <button onClick={()=>{ const p = viewProduct; setViewProduct(null); startEditProduct(p); }} className="admin-btn admin-btn-primary">
+                  <Edit3 size={13} /> Edit
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

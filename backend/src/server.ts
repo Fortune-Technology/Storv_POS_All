@@ -12,6 +12,12 @@ import { fileURLToPath } from 'url';
 import apiRoutes from './routes/api.js';
 import { autoAudit } from './middleware/autoAudit.js';
 import authRoutes from './routes/authRoutes.js';
+// S77 — Vendor Onboarding (Phase 1)
+import vendorOnboardingRoutes, { adminRouter as vendorOnboardingAdminRoutes } from './routes/vendorOnboardingRoutes.js';
+// S77 — Contracts (Phase 2)
+import { vendorContractRoutes, adminContractRoutes, adminTemplateRoutes } from './routes/contractRoutes.js';
+// S78 — Plans + Modules (feature gating)
+import { userPlanRoutes, adminPlanRoutes, adminModuleRoutes } from './routes/planRoutes.js';
 import tenantRoutes from './routes/tenantRoutes.js';
 import storeRoutes from './routes/storeRoutes.js';
 import userManagementRoutes from './routes/userManagementRoutes.js';
@@ -82,7 +88,9 @@ const app  = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174,http://localhost:5175')
+// 5173 = portal, 5174 = cashier-app, 5175 = admin-app, 5176 = marketing site,
+// 3000 = ecom storefront (Next.js).
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000')
   .split(',')
   .map(s => s.trim());
 
@@ -128,12 +136,27 @@ app.use('/uploads/quick-buttons', express.static(path.join(__dirname, '..', 'upl
   maxAge: '1d',
 }));
 
+// Static files — device/equipment catalog images. Seeded set lives here, plus
+// any admin-uploaded replacements. Not immutable — admins can overwrite.
+app.use('/uploads/devices', express.static(path.join(__dirname, '..', 'uploads', 'devices'), {
+  maxAge: '1d',
+}));
+
 // Global fire-and-forget audit logger for every POST/PUT/PATCH/DELETE.
 // Runs AFTER the response is sent, so it never blocks the request path.
 app.use('/api', autoAudit({ logFailures: true }));
 
 // API routes
 app.use('/api/auth',         authRoutes);
+// S77 — vendor onboarding self-service (must be reachable by `pending` users,
+// see auth middleware allowlist). Admin review router mounted further down.
+app.use('/api/vendor-onboarding', vendorOnboardingRoutes);
+// S77 Phase 2 — vendor contract self-service (sign + view own contract).
+// Same pending-user allowlist applies.
+app.use('/api/contracts', vendorContractRoutes);
+// S78 — Per-user entitlement lookup (used by sidebar + route guard).
+// Pending-user allowlist applies so /vendor-awaiting can fetch core modules.
+app.use('/api/plans', userPlanRoutes);
 app.use('/api/tenants',      tenantRoutes);
 app.use('/api/stores',       storeRoutes);
 app.use('/api/users',        userManagementRoutes);
@@ -164,6 +187,14 @@ app.use('/api/loyalty',      loyaltyRoutes);
 app.use('/api/payment/dejavoo/hpp', dejavooHppRoutes);
 app.use('/api/payment/dejavoo',     dejavooPaymentRoutes);
 app.use('/api/admin',        adminRoutes);
+// S77 — Admin review queue for vendor onboarding submissions
+app.use('/api/admin/vendor-onboardings', vendorOnboardingAdminRoutes);
+// S77 Phase 2 — Admin contract management + template library
+app.use('/api/admin/contracts',         adminContractRoutes);
+app.use('/api/admin/contract-templates', adminTemplateRoutes);
+// S78 — Admin: subscription plans + module catalog
+app.use('/api/admin/plans',             adminPlanRoutes);
+app.use('/api/admin/modules',           adminModuleRoutes);
 app.use('/api/price-scenarios', priceScenarioRoutes);
 app.use('/api/states',          stateRoutes);
 app.use('/api/pricing',         pricingModelRoutes);

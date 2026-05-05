@@ -19,6 +19,9 @@ import AcceptInvitation from './pages/AcceptInvitation';
 import Invitations from './pages/Invitations';
 import PhoneLookup from './pages/PhoneLookup';
 import Onboarding from './pages/Onboarding';
+import VendorOnboarding from './pages/VendorOnboarding';
+import VendorAwaiting from './pages/VendorAwaiting';
+import VendorContract from './pages/VendorContract';
 
 // Portal Pages
 import Dashboard from './pages/Dashboard';
@@ -142,10 +145,43 @@ const Placeholder = ({ name }) => (
   </div>
 );
 
-// Standard protected route — requires auth token
-const ProtectedRoute = ({ children }) => {
-  const user = JSON.parse(localStorage.getItem('user'));
+// Standard protected route — requires auth token + S77 vendor onboarding gate.
+//
+// Gate order (only enforced for non-superadmin users):
+//   1. No user/token            → /login
+//   2. !onboardingSubmitted     → /vendor-onboarding (questionnaire)
+//   3. submitted but !approved  → /vendor-awaiting   (waiting on contract / admin)
+//   4. approved but no tenantId → /onboarding        (existing org+store wizard)
+//   5. else                     → render children
+//
+// Each gated route can opt out via `bypassVendorGate` for the wizard / awaiting
+// pages themselves (otherwise we'd infinite-loop redirecting away from them).
+const ProtectedRoute = ({ children, bypassVendorGate = false }) => {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
   if (!user || !user.token) return <Navigate to="/login" replace />;
+
+  // Superadmins + impersonated users skip the entire vendor gate.
+  if (user.role === 'superadmin') return children;
+
+  if (!bypassVendorGate) {
+    // Existing users (created before S77) have these flags = true via the
+    // bypass migration, so they fall straight through this block.
+    if (user.onboardingSubmitted === false) {
+      return <Navigate to="/vendor-onboarding" replace />;
+    }
+    if (user.onboardingSubmitted && !user.vendorApproved) {
+      return <Navigate to="/vendor-awaiting" replace />;
+    }
+    // S77 Phase 2 hot-fix: vendor was activated but has no real organisation
+    // yet (their orgId/tenantId is null because activation cleared the
+    // placeholder). Push them through the existing /onboarding wizard so
+    // they create their real org before hitting the portal.
+    // Skip this check on the /onboarding route itself to avoid loops.
+    if (user.vendorApproved && !user.tenantId && !window.location.pathname.startsWith('/onboarding')) {
+      return <Navigate to="/onboarding" replace />;
+    }
+  }
+
   return children;
 };
 
@@ -236,7 +272,14 @@ function App() {
         {/* ── Admin Impersonation Landing ────────────────────────────── */}
         <Route path="/impersonate" element={<ImpersonateLanding />} />
 
-        {/* ── Onboarding (auth required, no sidebar) ─────────────────── */}
+        {/* ── S77 Vendor Onboarding (questionnaire + awaiting screens) ─ */}
+        {/* These pages need bypassVendorGate so the gate doesn't loop. */}
+        <Route path="/vendor-onboarding" element={<ProtectedRoute bypassVendorGate><VendorOnboarding /></ProtectedRoute>} />
+        <Route path="/vendor-awaiting"   element={<ProtectedRoute bypassVendorGate><VendorAwaiting /></ProtectedRoute>} />
+        {/* S77 Phase 2 — Contract signing page (also bypasses gate) */}
+        <Route path="/vendor-contract/:id" element={<ProtectedRoute bypassVendorGate><VendorContract /></ProtectedRoute>} />
+
+        {/* ── Existing org + store onboarding (auth required, no sidebar) ── */}
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
 
         {/* ── Default redirect for legacy / dashboard ─────────────────── */}

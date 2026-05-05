@@ -856,4 +856,57 @@ export const markNotifRead        = (id)     => api.put(`/notifications/${id}/re
 export const markAllNotifsRead    = ()       => api.put('/notifications/read-all').then(r => r.data);
 export const dismissNotif         = (id)     => api.delete(`/notifications/${id}`).then(r => r.data);
 
+// ── VENDOR ONBOARDING (S77 — Phase 1 questionnaire) ─────────────────────
+export const getMyVendorOnboarding    = ()     => api.get('/vendor-onboarding/me').then(r => r.data);
+export const updateMyVendorOnboarding = (data) => api.put('/vendor-onboarding/me', data).then(r => r.data);
+export const submitMyVendorOnboarding = (data) => api.post('/vendor-onboarding/me/submit', data).then(r => r.data);
+
+// ── EQUIPMENT CATALOG (used by VendorOnboarding hardware step + equipment shop) ──
+export const listEquipmentProducts    = (params) => api.get('/equipment/products', { params }).then(r => r.data);
+// Resolve a relative `/uploads/...` path to a full URL the browser can fetch.
+// VITE_API_URL is normally `http://localhost:5000/api` or `/api` — strip the
+// trailing `/api` so the static path lines up with express.static.
+export const resolveStaticUrl = (p) => {
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:')) return p;
+  const apiBase = api.defaults.baseURL || '/api';
+  const host    = apiBase.replace(/\/api\/?$/, '');
+  return `${host}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
+// ── VENDOR ONBOARDING (admin review queue) ──
+export const adminListVendorOnboardings  = (params)   => api.get('/admin/vendor-onboardings', { params }).then(r => r.data);
+export const adminGetVendorOnboarding    = (id)       => api.get(`/admin/vendor-onboardings/${id}`).then(r => r.data);
+export const adminUpdateVendorOnboarding = (id, data) => api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
+
+// ── VENDOR CONTRACTS (Phase 2 — vendor self-service) ──────────────────
+export const listMyContracts    = ()           => api.get('/contracts/me').then(r => r.data);
+export const getMyContract      = (id, token)  => api.get(`/contracts/me/${id}`, { params: token ? { token } : undefined }).then(r => r.data);
+// Save vendor edits without signing — body: { values: { 'merchant.phone': '...', ... } }
+// Only fields flagged collectedAtSigning:true in MERGE_FIELDS are persisted;
+// others are silently dropped server-side.
+export const saveMyContractDraft = (id, values) => api.patch(`/contracts/me/${id}/draft`, { values }).then(r => r.data);
+export const signMyContract     = (id, data)   => api.post(`/contracts/me/${id}/sign`, data).then(r => r.data);
+// Bare URL (kept for back-compat, but `<a href download>` won't authenticate).
+// Prefer `downloadMyContractPdf()` below for authenticated browser downloads.
+export const downloadMyContract = (id)         => `${api.defaults.baseURL}/contracts/me/${id}/pdf`;
+/**
+ * Authenticated PDF download for vendors.
+ * `<a href={url} download>` doesn't carry the Bearer token — server returns
+ * 401. This fetches the blob via the configured axios instance (which auto-
+ * attaches the JWT) then triggers a programmatic download.
+ */
+export const downloadMyContractPdf = async (id, filename) => {
+  const res = await api.get(`/contracts/me/${id}/pdf`, { responseType: 'blob' });
+  const blob = new Blob([res.data], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `contract-${id}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 export default api;

@@ -1,0 +1,13 @@
+import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+const p = new PrismaClient();
+const t = await p.contractTemplate.count();
+const v = await p.contractTemplateVersion.count({ where: { status: 'published' } });
+console.log(`Templates: ${t} | Published versions: ${v}`);
+const users = await p.user.findMany({ select: { email: true, status: true, onboardingSubmitted: true, contractSigned: true, vendorApproved: true } });
+console.table(users);
+const onb = await p.vendorOnboarding.findMany({ select: { id: true, fullName: true, status: true } });
+console.log('Onboardings:', JSON.stringify(onb, null, 2));
+const contracts = await p.contract.findMany({ select: { id: true, status: true, userId: true } });
+console.log('Contracts:', JSON.stringify(contracts, null, 2));
+await p.$disconnect();

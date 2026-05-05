@@ -16,6 +16,15 @@
  * Run: cd backend && node prisma/seedAiKnowledge.js
  */
 
+// Load backend/.env so OPENAI_API_KEY is in process.env BEFORE kbService.ts
+// is imported. (kbService now lazy-inits the OpenAI client, so this matters
+// less than it used to — but explicit is better for direct invocation.)
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
 import { PrismaClient } from '@prisma/client';
 import { generateEmbedding } from '../src/services/kbService.js';
 

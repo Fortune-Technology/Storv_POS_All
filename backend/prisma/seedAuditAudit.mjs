@@ -38,6 +38,10 @@ if (!admin) {
       role: 'owner',
       organization: { connect: { id: F.orgId } },
       status: 'active',
+      // S77 — bypass vendor onboarding gate for audit admin
+      onboardingSubmitted: true,
+      contractSigned: true,
+      vendorApproved: true,
     },
   });
   await p.userOrg.create({ data: { userId: admin.id, orgId: F.orgId, role: 'owner', isPrimary: true } });

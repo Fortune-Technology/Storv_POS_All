@@ -86,6 +86,9 @@ import {
   adminListEquipmentProducts,
   adminCreateEquipmentProduct,
   adminUpdateEquipmentProduct,
+  adminDeleteEquipmentProduct,
+  adminUploadEquipmentImage,
+  equipmentImageUploadMiddleware,
   adminListEquipmentOrders,
   adminUpdateEquipmentOrder,
 } from '../controllers/adminController.js';
@@ -224,6 +227,8 @@ router.post('/billing/invoices/:id/retry',        adminRetryInvoiceNow);
 router.get('/billing/equipment/products',         adminListEquipmentProducts);
 router.post('/billing/equipment/products',        adminCreateEquipmentProduct);
 router.put('/billing/equipment/products/:id',     adminUpdateEquipmentProduct);
+router.delete('/billing/equipment/products/:id',  adminDeleteEquipmentProduct);
+router.post('/billing/equipment/upload',          equipmentImageUploadMiddleware, adminUploadEquipmentImage);
 
 // ── Admin Billing — Equipment Orders ───────────────────────────────────────
 router.get('/billing/equipment/orders',           adminListEquipmentOrders);

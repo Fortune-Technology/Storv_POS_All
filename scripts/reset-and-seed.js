@@ -10,6 +10,10 @@
  *   1. Resets POS database (prisma db push --force-reset)
  *   2. Resets Ecom database (prisma db push --force-reset)
  *   3. Seeds POS with org, store, users, departments, products
+ *   3b. Seeds default contract template (S77)
+ *   3c. Seeds plan + module catalog (S78)
+ *   3d. Seeds equipment catalog — 7 default devices for the
+ *       admin Billing → Equipment tab + vendor-onboarding hardware step.
  *   4. Seeds Ecom with store, synced products, CMS pages, test customer
  *
  * WARNING: This DESTROYS all data in both databases!
@@ -47,10 +51,28 @@ async function main() {
   run('npx prisma db push --force-reset --accept-data-loss', path.join(ROOT, 'ecom-backend'));
 
   // Step 3: Seed POS data
+  // Phase 4 TS migration: backend/prisma/seed.js was renamed to seed.ts.
+  // Run via tsx so the new TypeScript imports resolve cleanly.
   console.log('\n━━━ Step 3: Seed POS Data ━━━');
-  run('node prisma/seed.js', path.join(ROOT, 'backend'));
+  run('npx tsx prisma/seed.ts', path.join(ROOT, 'backend'));
+
+  // Step 3b: Seed default contract template (S77 Phase 2)
+  console.log('\n━━━ Step 3b: Seed Default Contract Template ━━━');
+  run('npx tsx prisma/seedContractTemplates.ts', path.join(ROOT, 'backend'));
+
+  // Step 3c: Seed plan ↔ module catalog (S78)
+  console.log('\n━━━ Step 3c: Seed Plan Modules System ━━━');
+  run('npx tsx prisma/seedPlanModules.ts', path.join(ROOT, 'backend'));
+
+  // Step 3d: Seed equipment catalog — 7 default devices (POS Terminal,
+  // Receipt Printer, Cash Drawer, Barcode Scanner, Card Terminal,
+  // Customer Display, Label Printer). Drives the admin Billing →
+  // Equipment tab AND the vendor-onboarding hardware step.
+  console.log('\n━━━ Step 3d: Seed Equipment Catalog ━━━');
+  run('npx tsx prisma/seedEquipment.ts', path.join(ROOT, 'backend'));
 
   // Step 4: Seed Ecom data (auto-detects org/store from POS database)
+  // ecom-backend seed is still plain JS — keep node invocation.
   console.log('\n━━━ Step 4: Seed E-Commerce Data ━━━');
   run('node prisma/seed.js', path.join(ROOT, 'ecom-backend'));
 

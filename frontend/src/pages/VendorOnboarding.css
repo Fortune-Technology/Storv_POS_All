@@ -1,0 +1,795 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Vendor Onboarding Wizard — S77 Phase 1 (light brand theme)
+   Prefix: vob-
+   Aligns with portal CSS variables (--brand-primary, --bg-secondary, etc.)
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vob-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 20% 0%, var(--brand-08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, var(--brand-sec-10) 0%, transparent 50%),
+    var(--bg-primary, #f8fafc);
+  padding: 32px 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.vob-card {
+  width: 100%;
+  max-width: 880px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  animation: vob-fade 250ms ease-out;
+}
+
+@keyframes vob-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vob-loading {
+  padding: 80px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--brand-primary);
+}
+
+.vob-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.vob-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms;
+}
+
+.vob-save-btn:hover {
+  background: var(--brand-08);
+  color: var(--brand-primary);
+  border-color: var(--brand-25);
+}
+
+.vob-save-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ── Step indicator ── */
+.vob-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 28px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.vob-step-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.vob-step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-muted, #64748b);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  transition: all 200ms;
+}
+
+.vob-step-dot.is-active {
+  background: var(--accent-gradient, linear-gradient(135deg, #3d56b5 0%, #7b95e0 100%));
+  border-color: var(--brand-primary);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px var(--brand-15);
+}
+
+.vob-step-dot.is-done {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #16a34a;
+}
+
+.vob-step-label {
+  font-size: 0.72rem;
+  color: var(--text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+/* ── Step head ── */
+.vob-step-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.vob-step-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--brand-08);
+  border: 1px solid var(--brand-25);
+  color: var(--brand-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vob-step-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+}
+
+.vob-step-subtitle {
+  margin: 2px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+.vob-step-desc {
+  color: var(--text-secondary, #475569);
+  margin: 0 0 18px 0;
+  font-size: 0.9rem;
+}
+
+/* ── Field grid ── */
+.vob-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+
+.vob-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.vob-field:has(.vob-textarea) {
+  grid-column: 1 / -1;
+}
+
+.vob-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #475569);
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.vob-req {
+  color: #dc2626;
+}
+
+.vob-hint {
+  margin-left: auto;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 400;
+  font-size: 0.72rem;
+}
+
+.vob-input {
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #cbd5e1);
+  color: var(--text-primary, #0f172a);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 120ms, box-shadow 120ms;
+  /* Native select dropdowns inherit the same colors so options remain
+     readable in light browsers (Chrome respects the page color for the
+     <select> control but the popup uses native styling per OS). */
+  color-scheme: light;
+}
+
+.vob-input:focus {
+  outline: none;
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 3px var(--brand-15);
+}
+
+/* Force <select> options to render with explicit light colors so they
+   stay readable on any platform — issue #2 from S77 P2 hot-fix. */
+.vob-input option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.vob-textarea {
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+}
+
+.vob-field-error {
+  color: #dc2626;
+  font-size: 0.74rem;
+  margin: 2px 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Modules ── */
+.vob-modules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.vob-module {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.vob-module:hover {
+  border-color: var(--brand-30);
+  background: var(--brand-05);
+}
+
+.vob-module.is-checked {
+  background: var(--brand-08);
+  border-color: var(--brand-primary);
+}
+
+.vob-module.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.vob-module input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--brand-primary);
+  cursor: inherit;
+}
+
+.vob-module-name {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vob-req-pill {
+  background: rgba(34, 197, 94, 0.18);
+  color: #16a34a;
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.vob-module-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+/* ── Hardware ── */
+.vob-hardware {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vob-hw-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+}
+
+.vob-hw-label {
+  color: var(--text-primary, #0f172a);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.vob-hw-input {
+  width: 80px;
+  text-align: center;
+}
+
+.vob-hw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-secondary, #475569);
+  font-size: 0.86rem;
+}
+
+.vob-hw-toggle input {
+  accent-color: var(--brand-primary);
+}
+
+/* ── Summary block ── */
+.vob-summary {
+  background: var(--brand-05);
+  border: 1px solid var(--brand-25);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin: 18px 0;
+}
+
+.vob-summary-title {
+  color: var(--brand-primary);
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.vob-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  font-size: 0.86rem;
+  color: var(--text-secondary, #475569);
+}
+
+/* ── Terms ── */
+.vob-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--text-secondary, #475569);
+  line-height: 1.5;
+}
+
+.vob-terms.has-error {
+  border-color: rgba(220, 38, 38, 0.5);
+  background: rgba(254, 226, 226, 0.5);
+}
+
+.vob-terms input {
+  margin-top: 3px;
+  accent-color: var(--brand-primary);
+}
+
+.vob-terms-error {
+  margin-top: 6px;
+}
+
+/* ── Footer / nav ── */
+.vob-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+.vob-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 120ms;
+}
+
+.vob-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vob-btn-back {
+  background: var(--bg-secondary, #ffffff);
+  border-color: var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #475569);
+}
+
+.vob-btn-back:hover:not(:disabled) {
+  background: var(--bg-tertiary, #f1f5f9);
+}
+
+.vob-btn-primary {
+  background: var(--accent-gradient, linear-gradient(135deg, #3d56b5 0%, #7b95e0 100%));
+  color: #ffffff;
+  border-color: var(--brand-primary);
+}
+
+.vob-btn-primary:hover:not(:disabled) {
+  background: var(--brand-dark, #2d3f8a);
+}
+
+.vob-btn-submit {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: #ffffff;
+  border-color: #16a34a;
+}
+
+.vob-btn-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+}
+
+.vob-spinner {
+  animation: vob-spin 800ms linear infinite;
+}
+
+@keyframes vob-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+  .vob-card {
+    padding: 20px 18px;
+  }
+
+  .vob-grid,
+  .vob-modules,
+  .vob-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vob-step-label {
+    display: none;
+  }
+
+  .vob-step-title {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .vob-page {
+    padding: 16px 8px;
+  }
+
+  .vob-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+}
+
+/* ── Device catalog grid (Step 3 — Hardware) ───────────────────────────── */
+.vob-device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.vob-device-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.9rem;
+  padding: 24px;
+  justify-content: center;
+}
+
+.vob-device-card {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  padding: 14px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.vob-device-card--selected {
+  border-color: var(--brand-primary, #3d56b5);
+  box-shadow: 0 0 0 3px rgba(61, 86, 181, 0.12);
+}
+
+.vob-device-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.025);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.vob-device-img img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.vob-device-img-empty {
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.vob-device-body {
+  flex: 1;
+}
+
+.vob-device-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 4px;
+}
+
+.vob-device-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.vob-device-price {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand-primary, #3d56b5);
+  margin-bottom: 10px;
+}
+
+.vob-device-qty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  padding-top: 10px;
+}
+
+.vob-qty-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.vob-qty-btn:hover:not(:disabled) {
+  background: rgba(61, 86, 181, 0.08);
+  border-color: var(--brand-primary, #3d56b5);
+  color: var(--brand-primary, #3d56b5);
+}
+
+.vob-qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vob-qty-input {
+  flex: 1;
+  height: 32px;
+  text-align: center;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  -moz-appearance: textfield;
+}
+
+.vob-qty-input::-webkit-outer-spin-button,
+.vob-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Integrations sub-section (fuel + scale) */
+.vob-integrations {
+  margin-top: 8px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
+}
+
+.vob-integrations-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  margin: 0 0 12px;
+}
+
+/* ── Live order summary (Step 3 — Hardware cart) ───────────────────────── */
+.vob-cart {
+  margin-top: 24px;
+  background: linear-gradient(180deg, rgba(61, 86, 181, 0.04) 0%, rgba(61, 86, 181, 0.08) 100%);
+  border: 1px solid rgba(61, 86, 181, 0.18);
+  border-radius: 12px;
+  padding: 18px 20px;
+  bottom: 16px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+.vob-cart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.vob-cart-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  letter-spacing: -0.01em;
+}
+
+.vob-cart-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.vob-cart-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.vob-cart-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.vob-cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0;
+  font-size: 0.88rem;
+  transition: background 100ms ease;
+}
+
+.vob-cart-line:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.vob-cart-line-name {
+  color: var(--text-primary, #0f172a);
+  font-weight: 500;
+}
+
+.vob-cart-line-qty {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
+
+.vob-cart-line-total {
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  font-variant-numeric: tabular-nums;
+  min-width: 80px;
+  text-align: right;
+}
+
+.vob-cart-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 4px;
+  border-top: 2px solid rgba(61, 86, 181, 0.25);
+  margin-top: 4px;
+}
+
+.vob-cart-total-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  letter-spacing: -0.01em;
+}
+
+.vob-cart-total-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--brand-primary, #3d56b5);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.vob-cart-note {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.4;
+  font-style: italic;
+}
+
+@media (max-width: 560px) {
+  .vob-cart-line {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .vob-cart-line-total {
+    text-align: left;
+    min-width: 0;
+  }
+}

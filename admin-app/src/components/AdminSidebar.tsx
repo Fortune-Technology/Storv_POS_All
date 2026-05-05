@@ -27,6 +27,7 @@ import {
   Compass,
   Percent,
   UserCircle,
+  Workflow,
 } from 'lucide-react';
 import api from '../services/api';
 import { getRoutePermission } from '../rbac/routePermissions';
@@ -69,6 +70,10 @@ const adminMenuGroups: MenuGroup[] = [
     label: 'Management',
     items: [
       { name: 'Organization / Store', icon: <Building2 size={13} />, path: '/org-store' },
+      // Tabbed hub merging the former /vendor-onboardings + /contracts —
+      // both are stages of the same S77 vendor pipeline, so they share
+      // a single sidebar entry now. Old URLs redirect with ?tab=…
+      { name: 'Vendor Pipeline',  icon: <Workflow size={13} />,  path: '/vendor-pipeline' },
       { name: 'States',           icon: <MapPin size={13} />,    path: '/states' },
       { name: 'Vendor Templates', icon: <FileText size={13} />,  path: '/vendor-templates' },
       { name: 'Roles',            icon: <Shield size={13} />,    path: '/roles' },
@@ -80,6 +85,7 @@ const adminMenuGroups: MenuGroup[] = [
       { name: 'Merchants (Dejavoo)', icon: <CreditCard size={13} />, path: '/merchants' },
       { name: 'Payment Models',      icon: <Percent size={13} />,    path: '/payment-models' },
       { name: 'Pricing Tiers',       icon: <Percent size={13} />,    path: '/pricing-tiers' },
+      { name: 'Subscription Plans',  icon: <CreditCard size={13} />, path: '/plans' },
       { name: 'SaaS Margin',         icon: <Percent size={13} />,    path: '/saas-margin' },
     ],
   },

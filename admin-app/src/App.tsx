@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
@@ -38,12 +38,31 @@ import AdminLottery         from './pages/AdminLottery';
 import AdminPaymentModels   from './pages/AdminPaymentModels';
 import AdminPricingTiers    from './pages/AdminPricingTiers';
 import AdminSaasMargin      from './pages/AdminSaasMargin';
+// S77 — Vendor onboarding review queue
+import AdminVendorOnboardings from './pages/AdminVendorOnboardings';
+// S77 Phase 2 — Contracts pipeline
+import AdminContracts from './pages/AdminContracts';
+// Tabbed hub merging the two above (Onboardings + Contracts share workflow + RBAC).
+import AdminVendorPipeline from './pages/AdminVendorPipeline';
+// S78 — Subscription plans + module catalog
+import AdminPlans from './pages/AdminPlans';
 
 import PermissionRoute from './components/PermissionRoute';
 
 interface ProtectedRouteProps {
   children: ReactNode;
 }
+
+/**
+ * Legacy `/contracts/:id` redirector.
+ * The Contracts page used to live at its own route; it's now a tab inside
+ * /vendor-pipeline. Preserve the deep-link by bouncing through
+ * ?tab=contracts&contractId=<id> which AdminContracts reads on mount.
+ */
+const LegacyContractDetailRedirect = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/vendor-pipeline?tab=contracts&contractId=${id}`} replace />;
+};
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   // Route-level permission checks happen in <PermissionRoute>. This wrapper
@@ -89,6 +108,18 @@ function App() {
         <Route path="/payment-models" element={<ProtectedRoute><AdminLayout><AdminPaymentModels /></AdminLayout></ProtectedRoute>} />
         <Route path="/pricing-tiers"  element={<ProtectedRoute><AdminLayout><AdminPricingTiers /></AdminLayout></ProtectedRoute>} />
         <Route path="/saas-margin"    element={<ProtectedRoute><AdminLayout><AdminSaasMargin /></AdminLayout></ProtectedRoute>} />
+        {/* S77 — Vendor pipeline (tabbed hub: Onboardings + Contracts).
+            The two sub-pages share the same RBAC + Management group, so they
+            now live behind a single sidebar entry. Old URLs redirect with
+            ?tab=… so existing bookmarks land on the right tab. */}
+        <Route path="/vendor-pipeline"    element={<ProtectedRoute><AdminLayout><AdminVendorPipeline /></AdminLayout></ProtectedRoute>} />
+        <Route path="/vendor-onboardings" element={<Navigate to="/vendor-pipeline?tab=onboardings" replace />} />
+        <Route path="/contracts"          element={<Navigate to="/vendor-pipeline?tab=contracts"   replace />} />
+        {/* Legacy detail-page deep links — preserve `?contractId=` so the
+            embedded AdminContracts auto-opens that contract. */}
+        <Route path="/contracts/:id"      element={<LegacyContractDetailRedirect />} />
+        {/* S78 — Subscription plans + module catalog */}
+        <Route path="/plans"              element={<ProtectedRoute><AdminLayout><AdminPlans /></AdminLayout></ProtectedRoute>} />
 
         {/* Redirects */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

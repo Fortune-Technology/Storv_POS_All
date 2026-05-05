@@ -456,14 +456,19 @@ export interface EquipmentProduct {
   slug: string;
   description?: string;
   price: DecimalString;
-  comparePrice?: DecimalString | null;
   category?: string;
-  stock: number;
+  // `stockQty` is the schema field. Legacy `stock` alias kept readable for
+  // forms that still pass it through — the backend's sanitizer maps it.
+  stockQty: number;
+  /** @deprecated use stockQty — kept for older form code; unused on writes */
+  stock?: number;
   trackStock: boolean;
   isActive: boolean;
   sortOrder: number;
   specs?: unknown;
   images?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

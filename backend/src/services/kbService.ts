@@ -19,15 +19,25 @@ import prisma from '../config/postgres.js';
 const EMBED_MODEL = 'text-embedding-3-small';
 const EMBED_DIM   = 1536;
 
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
+// Lazy-init the OpenAI client. Reading OPENAI_API_KEY at module-import time
+// would freeze the client to whatever value process.env had at first import —
+// which is empty when this file is imported before dotenv.config() runs (e.g.
+// from a seed script that doesn't load .env explicitly). Defer the read until
+// the first generateEmbedding() call so dotenv has a chance to populate env.
+let _openai: OpenAI | null | undefined;   // undefined = not yet attempted
+function getOpenAI(): OpenAI | null {
+  if (_openai !== undefined) return _openai;
+  const key = process.env.OPENAI_API_KEY;
+  _openai = key ? new OpenAI({ apiKey: key }) : null;
+  return _openai;
+}
 
 /**
  * Generate an embedding for a string. Returns null if OpenAI is not configured
  * or the call fails — callers should treat a null embedding as "skip RAG".
  */
 export async function generateEmbedding(text: string | null | undefined): Promise<number[] | null> {
+  const openai = getOpenAI();
   if (!openai || !text) return null;
   try {
     const clean = String(text).replace(/\s+/g, ' ').trim().slice(0, 8000);

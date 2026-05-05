@@ -52,8 +52,11 @@ const Signup = () => {
       localStorage.removeItem('storv:il:lockedFor');
       localStorage.setItem('user', JSON.stringify(data));
       window.dispatchEvent(new Event('storv:auth-change'));
-      toast.success("Account created! Let's set up your organisation.");
-      navigate('/onboarding');
+      // S77 — every new vendor goes through the business questionnaire first.
+      // Org/store creation (the existing /onboarding wizard) only kicks in
+      // AFTER admin has reviewed + signed the contract + activated the account.
+      toast.success("Account created! Tell us about your business to get started.");
+      navigate('/vendor-onboarding');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Registration failed');
     } finally {

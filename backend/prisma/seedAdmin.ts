@@ -6,7 +6,7 @@
  *   node prisma/seedAdmin.js
  *
  * Default credentials (change after first login):
- *   Email:    admin@storeveu.com
+ *   Email:    nishant@thefortunetech.com
  *   Password: Admin@123
  */
 
@@ -16,7 +16,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  const email = 'admin@storeveu.com';
+  const email = 'nishant@thefortunetech.com';
   const password = 'Admin@123';
 
   // Check if superadmin already exists
@@ -53,6 +53,11 @@ async function main() {
       role:     'superadmin',
       status:   'active',
       orgId:    defaultOrg.id,
+      // S77 — bypass vendor onboarding gate (superadmin already bypasses on the
+      // frontend, but this keeps the DB row consistent with seeded users).
+      onboardingSubmitted: true,
+      contractSigned:      true,
+      vendorApproved:      true,
     },
   });
 

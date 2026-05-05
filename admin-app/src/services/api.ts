@@ -272,9 +272,17 @@ export const adminWriteOffInvoice        = (id: string | number): Promise<{ invo
 export const adminRetryInvoice           = (id: string | number): Promise<{ invoice: BillingInvoice }> => api.post(`/admin/billing/invoices/${id}/retry`).then(r => r.data);
 
 // ── Admin Billing — Equipment ─────────────────────────────────────────────────
-export const adminListEquipmentProducts  = ():           Promise<{ data: EquipmentProduct[] }> => api.get('/admin/billing/equipment/products').then(r => r.data);
+// Backend returns the raw array (not wrapped in { data }). Type kept as
+// EquipmentProduct[] so callers don't need to dereference `.data`.
+export const adminListEquipmentProducts  = ():           Promise<EquipmentProduct[]> => api.get('/admin/billing/equipment/products').then(r => r.data);
 export const adminCreateEquipmentProduct = (data: unknown): Promise<{ product: EquipmentProduct }> => api.post('/admin/billing/equipment/products', data).then(r => r.data);
 export const adminUpdateEquipmentProduct = (id: string | number, data: unknown): Promise<{ product: EquipmentProduct }> => api.put(`/admin/billing/equipment/products/${id}`, data).then(r => r.data);
+export const adminDeleteEquipmentProduct = (id: string | number): Promise<{ deleted?: boolean; softDeleted?: boolean }> => api.delete(`/admin/billing/equipment/products/${id}`).then(r => r.data);
+export const adminUploadEquipmentImage   = (file: File): Promise<{ url: string; filename: string; size: number }> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return api.post('/admin/billing/equipment/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
 export const adminListEquipmentOrders    = (params?: Params): Promise<MetaPaginatedResponse<EquipmentOrder>> => api.get('/admin/billing/equipment/orders', { params }).then(r => r.data);
 export const adminUpdateEquipmentOrder   = (id: string | number, data: unknown): Promise<{ order: EquipmentOrder }> => api.put(`/admin/billing/equipment/orders/${id}`, data).then(r => r.data);
 
@@ -511,6 +519,164 @@ export const adminListBroadcasts = (params?: Params): Promise<PaginatedResponse<
 export const adminRecallBroadcast = (id: string): Promise<SuccessResponse> =>
   api.delete(`/admin/notifications/${id}`).then(r => r.data);
 
+// ── S77 Vendor Onboarding (admin review queue) ──────────────────────────
+export interface VendorOnboardingRecord {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  businessLegalName: string | null;
+  dbaName: string | null;
+  businessAddress: string | null;
+  businessCity: string | null;
+  businessState: string | null;
+  businessZip: string | null;
+  businessType: string | null;
+  ein: string | null;
+  yearsInBusiness: string | null;
+  industry: string | null;
+  numStoresRange: string | null;
+  numStoresExact: number | null;
+  numRegistersPerStore: number | null;
+  monthlyVolumeRange: string | null;
+  avgTxPerDay: number | null;
+  currentPOS: string | null;
+  goLiveTimeline: string | null;
+  requestedModules: string[];
+  hardwareNeeds: Record<string, number | boolean | null>;
+  hearAboutUs: string | null;
+  referralSource: string | null;
+  specialRequirements: string | null;
+  agreedToTerms: boolean;
+  status: string;
+  currentStep: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewedById: string | null;
+  rejectionReason: string | null;
+  adminNotes: string | null;
+  suggestedPricingTierId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string; name: string; email: string; phone: string | null;
+    status: string; createdAt: string;
+    onboardingSubmitted?: boolean; contractSigned?: boolean; vendorApproved?: boolean;
+  };
+  reviewedBy?: { id: string; name: string; email: string } | null;
+}
+
+export const adminListVendorOnboardings = (params?: Params): Promise<{ onboardings: VendorOnboardingRecord[]; countsByStatus: Record<string, number> }> =>
+  api.get('/admin/vendor-onboardings', { params }).then(r => r.data);
+export const adminGetVendorOnboarding    = (id: string): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.get(`/admin/vendor-onboardings/${id}`).then(r => r.data);
+export const adminGetVendorOnboardingByUser = (userId: string): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.get(`/admin/vendor-onboardings/by-user/${userId}`).then(r => r.data);
+
+// ── S77 Phase 2 — Contracts (admin) ─────────────────────────────────────
+export interface ContractRecord {
+  id: string;
+  vendorOnboardingId: string | null;
+  userId: string;
+  organizationId: string | null;
+  templateId: string;
+  templateVersionId: string;
+  bodyHtmlSnapshot: string;
+  mergeValues: Record<string, any>;
+  status: string;
+  signingToken: string;
+  createdById: string;
+  sentAt: string | null;
+  viewedAt: string | null;
+  signedAt: string | null;
+  cancelledAt: string | null;
+  expiresAt: string | null;
+  cancelReason: string | null;
+  signerName: string | null;
+  signerTitle: string | null;
+  signerEmail: string | null;
+  signerIp: string | null;
+  signedPdfPath: string | null;
+  assignedPricingTierId: string | null;
+  activatedAt: string | null;
+  activatedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: { id: string; name: string; email: string; status: string } | null;
+  template?: { id: string; name: string; slug?: string } | null;
+  templateVersion?: { id: string; versionNumber: number; mergeFields: any } | null;
+  events?: Array<{ id: string; eventType: string; createdAt: string; meta?: any; actorId?: string | null; actorRole?: string | null }>;
+  createdBy?: { id: string; name: string; email: string } | null;
+}
+export interface ContractTemplateRecord {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  active: boolean;
+  versions: Array<{
+    id: string;
+    versionNumber: number;
+    status: string;
+    publishedAt: string | null;
+    changeNotes: string | null;
+    bodyHtml?: string;
+    mergeFields?: any;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const adminListContracts    = (params?: Params): Promise<{ contracts: ContractRecord[]; countsByStatus: Record<string, number> }> =>
+  api.get('/admin/contracts', { params }).then(r => r.data);
+export const adminGetContract      = (id: string): Promise<{ contract: ContractRecord; renderedHtml: string }> =>
+  api.get(`/admin/contracts/${id}`).then(r => r.data);
+export const adminCreateContract   = (body: { vendorOnboardingId?: string; userId: string; templateId?: string; mergeValues: Record<string, any> }): Promise<{ contract: ContractRecord }> =>
+  api.post('/admin/contracts', body).then(r => r.data);
+export const adminUpdateContract   = (id: string, body: { mergeValues: Record<string, any> }): Promise<{ contract: ContractRecord }> =>
+  api.patch(`/admin/contracts/${id}`, body).then(r => r.data);
+export const adminSendContract     = (id: string): Promise<{ contract: ContractRecord; emailSent: boolean }> =>
+  api.post(`/admin/contracts/${id}/send`).then(r => r.data);
+export const adminResendContract   = (id: string): Promise<{ emailSent: boolean; recipientEmail: string }> =>
+  api.post(`/admin/contracts/${id}/resend`).then(r => r.data);
+export const adminCancelContract   = (id: string, reason?: string): Promise<{ contract: ContractRecord }> =>
+  api.post(`/admin/contracts/${id}/cancel`, { reason }).then(r => r.data);
+export const adminActivateContract = (id: string, pricingTierId: string | null): Promise<{ contract: ContractRecord }> =>
+  api.post(`/admin/contracts/${id}/activate`, { pricingTierId }).then(r => r.data);
+export const adminDownloadContractPdfUrl = (id: string): string =>
+  `${api.defaults.baseURL}/admin/contracts/${id}/pdf`;
+
+/**
+ * Authenticated PDF download.
+ * `<a href={url} download>` doesn't work for protected endpoints — the
+ * browser navigates without the Authorization header, server returns 401.
+ * Fetch the blob via the axios instance (which auto-attaches Bearer JWT
+ * via the request interceptor), then trigger a programmatic download.
+ */
+export const adminDownloadContractPdf = async (id: string, filename?: string): Promise<void> => {
+  const res = await api.get(`/admin/contracts/${id}/pdf`, { responseType: 'blob' });
+  const blob = new Blob([res.data], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `contract-${id}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Free the blob URL on next tick — keeping it alive a beat lets the
+  // browser's download manager pick it up cleanly.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+export const adminListContractTemplates = (): Promise<{ templates: ContractTemplateRecord[] }> =>
+  api.get('/admin/contract-templates').then(r => r.data);
+export const adminGetContractTemplate   = (id: string): Promise<{ template: ContractTemplateRecord }> =>
+  api.get(`/admin/contract-templates/${id}`).then(r => r.data);
+export const adminUpdateVendorOnboarding = (id: string, data: Record<string, unknown>): Promise<{ onboarding: VendorOnboardingRecord }> =>
+  api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
+
 export default api;
 
 // Re-export types for consumers — makes `import { AdminUser } from '../services/api'` work too.
@@ -528,3 +694,76 @@ export type {
   PriceScenario, SystemConfig,
   ImageRehostStatus, ImageRehostResult,
 };
+// S77 — VendorOnboardingRecord is already exported at its declaration above.
+
+// ─────────────────────────────────────────────────
+// S78 — Plans + Modules (feature gating)
+// ─────────────────────────────────────────────────
+export interface PlatformModuleRecord {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  icon: string | null;
+  routePaths: string[];
+  isCore: boolean;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PlanModuleAssignment {
+  planId: string;
+  moduleId: string;
+  module?: PlatformModuleRecord;
+}
+export interface SubscriptionPlanRecord {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  description: string | null;
+  basePrice: number | string;
+  annualPrice: number | string | null;
+  isCustomPriced: boolean;
+  currency: string;
+  pricePerStore: number | string;
+  pricePerRegister: number | string;
+  includedStores: number;
+  includedRegisters: number;
+  maxUsers: number | null;
+  trialDays: number;
+  isPublic: boolean;
+  isActive: boolean;
+  highlighted: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { modules?: number; subscriptions?: number };
+  modules?: PlanModuleAssignment[];
+}
+
+// S78 — namespace prefix `Sub` to avoid collision with the older billing-side
+// adminListPlans/adminCreatePlan etc that target /admin/billing/plans (legacy).
+// These S78 helpers target /admin/plans which carries module assignment.
+export const adminListSubPlans = (): Promise<{ plans: SubscriptionPlanRecord[] }> =>
+  api.get('/admin/plans').then(r => r.data);
+export const adminGetSubPlan = (id: string): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.get(`/admin/plans/${id}`).then(r => r.data);
+export const adminCreateSubPlan = (data: Partial<SubscriptionPlanRecord> & { moduleIds?: string[] }): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.post('/admin/plans', data).then(r => r.data);
+export const adminUpdateSubPlan = (id: string, data: Partial<SubscriptionPlanRecord> & { moduleIds?: string[] }): Promise<{ plan: SubscriptionPlanRecord }> =>
+  api.patch(`/admin/plans/${id}`, data).then(r => r.data);
+export const adminDeleteSubPlan = (id: string): Promise<{ success: true }> =>
+  api.delete(`/admin/plans/${id}`).then(r => r.data);
+
+export const adminListPlatformModules = (): Promise<{ modules: PlatformModuleRecord[]; grouped: Record<string, PlatformModuleRecord[]> }> =>
+  api.get('/admin/modules').then(r => r.data);
+export const adminCreatePlatformModule = (data: Partial<PlatformModuleRecord>): Promise<{ module: PlatformModuleRecord }> =>
+  api.post('/admin/modules', data).then(r => r.data);
+export const adminUpdatePlatformModule = (id: string, data: Partial<PlatformModuleRecord>): Promise<{ module: PlatformModuleRecord }> =>
+  api.patch(`/admin/modules/${id}`, data).then(r => r.data);
+export const adminDeletePlatformModule = (id: string): Promise<{ success: true }> =>
+  api.delete(`/admin/modules/${id}`).then(r => r.data);
