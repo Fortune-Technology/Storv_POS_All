@@ -882,7 +882,31 @@ export const adminUpdateVendorOnboarding = (id, data) => api.patch(`/admin/vendo
 // ── VENDOR CONTRACTS (Phase 2 — vendor self-service) ──────────────────
 export const listMyContracts    = ()           => api.get('/contracts/me').then(r => r.data);
 export const getMyContract      = (id, token)  => api.get(`/contracts/me/${id}`, { params: token ? { token } : undefined }).then(r => r.data);
+// Save vendor edits without signing — body: { values: { 'merchant.phone': '...', ... } }
+// Only fields flagged collectedAtSigning:true in MERGE_FIELDS are persisted;
+// others are silently dropped server-side.
+export const saveMyContractDraft = (id, values) => api.patch(`/contracts/me/${id}/draft`, { values }).then(r => r.data);
 export const signMyContract     = (id, data)   => api.post(`/contracts/me/${id}/sign`, data).then(r => r.data);
+// Bare URL (kept for back-compat, but `<a href download>` won't authenticate).
+// Prefer `downloadMyContractPdf()` below for authenticated browser downloads.
 export const downloadMyContract = (id)         => `${api.defaults.baseURL}/contracts/me/${id}/pdf`;
+/**
+ * Authenticated PDF download for vendors.
+ * `<a href={url} download>` doesn't carry the Bearer token — server returns
+ * 401. This fetches the blob via the configured axios instance (which auto-
+ * attaches the JWT) then triggers a programmatic download.
+ */
+export const downloadMyContractPdf = async (id, filename) => {
+  const res = await api.get(`/contracts/me/${id}/pdf`, { responseType: 'blob' });
+  const blob = new Blob([res.data], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `contract-${id}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 
 export default api;

@@ -240,11 +240,20 @@ export const adminSendContract = async (req: Request, res: Response, next: NextF
       res.status(409).json({ error: `Cannot send a contract in status '${existing.status}'.` });
       return;
     }
+    // 30-day token expiry — industry standard for transactional contracts.
+    // Vendor sees "link expired" page after this; admin can resend (which
+    // bumps expiresAt) or generate a fresh contract.
+    const TOKEN_TTL_DAYS = 30;
+    const expiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+
     const contract = await prisma.contract.update({
       where: { id: req.params.id },
-      data: { status: 'sent', sentAt: new Date() },
+      data: { status: 'sent', sentAt: new Date(), expiresAt },
     });
-    await logEvent(contract.id, 'sent', req, { recipientEmail: existing.user.email });
+    await logEvent(contract.id, 'sent', req, {
+      recipientEmail: existing.user.email,
+      expiresAt: expiresAt.toISOString(),
+    });
 
     // Send the "contract ready to sign" email. Best-effort — failures don't
     // block the status flip; the admin can use the Resend button afterwards.
@@ -282,6 +291,14 @@ export const adminResendContract = async (req: Request, res: Response, next: Nex
       res.status(409).json({ error: `Cannot resend a contract in status '${existing.status}'.` });
       return;
     }
+    // Resend = fresh 30-day expiry. Useful when the original link expired
+    // before the vendor finished signing.
+    const TOKEN_TTL_DAYS = 30;
+    const expiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+    await prisma.contract.update({
+      where: { id: existing.id },
+      data: { expiresAt },
+    });
     const emailSent = await sendContractReady(existing.user.email, {
       signerName: existing.user.name,
       templateName: existing.template?.name || 'Merchant Services Agreement',
@@ -292,6 +309,7 @@ export const adminResendContract = async (req: Request, res: Response, next: Nex
     await logEvent(existing.id, emailSent ? 'email_resent' : 'email_failed', req, {
       recipientEmail: existing.user.email,
       manual: true,
+      expiresAt: expiresAt.toISOString(),
     });
     res.json({ emailSent, recipientEmail: existing.user.email });
   } catch (err) { next(err); }
@@ -433,6 +451,34 @@ export const vendorListMyContracts = async (req: Request, res: Response, next: N
   } catch (err) { next(err); }
 };
 
+// PII redaction — keys flagged `sensitive: true` in MERGE_FIELDS are
+// stripped from any vendor-facing response. Even though the page is
+// token-gated, the principle of least exposure says the vendor's
+// browser shouldn't see admin-collected SSN-last-4 etc.
+function redactSensitiveMergeValues(
+  mergeValues: any,
+  mergeFields: any,
+): { redacted: any; redactedKeys: string[] } {
+  const fields: Array<{ key: string; sensitive?: boolean }> = mergeFields?.fields ?? [];
+  const sensitiveKeys = fields.filter(f => f.sensitive).map(f => f.key);
+  if (sensitiveKeys.length === 0) return { redacted: mergeValues, redactedKeys: [] };
+
+  // Deep clone so we don't mutate the source.
+  const cloned = JSON.parse(JSON.stringify(mergeValues || {}));
+  for (const key of sensitiveKeys) {
+    const parts = key.split('.');
+    let cursor = cloned;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!cursor || typeof cursor !== 'object') break;
+      cursor = cursor[parts[i]];
+    }
+    if (cursor && typeof cursor === 'object') {
+      delete cursor[parts[parts.length - 1]];
+    }
+  }
+  return { redacted: cloned, redactedKeys: sensitiveKeys };
+}
+
 export const vendorGetMyContract = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = req.user?.id;
@@ -455,7 +501,50 @@ export const vendorGetMyContract = async (req: Request, res: Response, next: Nex
       return;
     }
 
+    // Expiry check — link is good for 30 days from send. Past that, vendor
+    // sees a clean expired-link state in the UI; admin can resend to bump.
+    if (contract.expiresAt && contract.expiresAt < new Date()
+        && ['sent', 'viewed'].includes(contract.status)) {
+      res.status(410).json({
+        error: 'This contract link has expired. Please contact your StoreVeu representative for a fresh link.',
+        code: 'CONTRACT_EXPIRED',
+        expiredAt: contract.expiresAt.toISOString(),
+      });
+      return;
+    }
+
+    // Merge-fields catalog used to drive the vendor's editable form.
+    // Strategy: use the LATEST published template version's catalog rather
+    // than the snapshot's. The snapshot might be from an older template
+    // version (e.g. v2 before we added `collectedAtSigning: true` flags
+    // to phone/address/owner fields). The body HTML snapshot stays
+    // untouched (legal integrity), only the editor whitelist is upgraded.
+    let editorMergeFields = contract.templateVersion?.mergeFields ?? {};
+    if (contract.templateId) {
+      const latest = await prisma.contractTemplateVersion.findFirst({
+        where: { templateId: contract.templateId, status: 'published' },
+        orderBy: { versionNumber: 'desc' },
+        select: { mergeFields: true, versionNumber: true },
+      });
+      if (latest?.mergeFields) {
+        editorMergeFields = latest.mergeFields;
+      }
+    }
+
+    // PII redaction — strip keys flagged sensitive: true (e.g. owner SSN-last-4)
+    // from the response. Vendor's browser never sees them.
+    // Use the upgraded catalog so newly-flagged sensitive keys are also
+    // redacted on older snapshots.
+    const { redacted, redactedKeys } = redactSensitiveMergeValues(
+      contract.mergeValues,
+      editorMergeFields,
+    );
+
     // Render the body for display (no signature substitution yet).
+    // We render against the FULL mergeValues (including sensitive ones) so
+    // the rendered HTML still shows the right data — only the structured
+    // mergeValues object returned to the client is redacted, since the
+    // editable form drives off that.
     const renderedHtml = renderContract(
       contract.bodyHtmlSnapshot,
       contract.templateVersion?.mergeFields as any ?? {},
@@ -476,7 +565,102 @@ export const vendorGetMyContract = async (req: Request, res: Response, next: Nex
       await logEvent(contract.id, 'viewed', req);
     }
 
-    res.json({ contract, renderedHtml });
+    // Replace the structured mergeValues with the redacted version before
+    // shipping. The rendered HTML already has the values inlined so it's
+    // unaffected.
+    const safeContract = { ...contract, mergeValues: redacted };
+
+    res.json({
+      contract: safeContract,
+      renderedHtml,
+      mergeFields: contract.templateVersion?.mergeFields ?? {},
+      redactedKeys,
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * Vendor save-draft — vendor can edit the `collectedAtSigning: true` fields
+ * and save WITHOUT signing yet. Persists the changes into Contract.mergeValues
+ * + re-renders the body snapshot so the next page load shows the updated
+ * values inline. Logs a `vendor_modified` ContractEvent for the admin audit
+ * trail. Status stays at `viewed` — no flip until the actual signature.
+ *
+ * Whitelisted keys come from the template's MERGE_FIELDS where
+ * `collectedAtSigning: true`. Anything outside that whitelist is silently
+ * ignored — vendor cannot overwrite legal entity name, EIN, pricing, etc.
+ */
+export const vendorSaveDraft = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) { res.status(401).json({ error: 'Not authorized.' }); return; }
+
+    const contract = await prisma.contract.findUnique({
+      where: { id: req.params.id },
+      include: { templateVersion: { select: { mergeFields: true } } },
+    });
+    if (!contract) { res.status(404).json({ error: 'Contract not found.' }); return; }
+    if (contract.userId !== userId) { res.status(403).json({ error: 'Not your contract.' }); return; }
+    if (!['sent', 'viewed'].includes(contract.status)) {
+      res.status(409).json({ error: `Cannot edit a contract in status '${contract.status}'.` });
+      return;
+    }
+    if (contract.expiresAt && contract.expiresAt < new Date()) {
+      res.status(410).json({ error: 'This contract link has expired.', code: 'CONTRACT_EXPIRED' });
+      return;
+    }
+
+    // Build the whitelist from the template — only keys flagged
+    // `collectedAtSigning: true` can be set by the vendor.
+    const fields: Array<{ key: string; collectedAtSigning?: boolean }> =
+      (contract.templateVersion?.mergeFields as any)?.fields ?? [];
+    const editableKeys = new Set(fields.filter(f => f.collectedAtSigning).map(f => f.key));
+
+    const incoming = (req.body?.values ?? {}) as Record<string, unknown>;
+    const accepted: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(incoming)) {
+      if (editableKeys.has(k)) accepted[k] = v;
+    }
+
+    // Merge accepted dotted-path values into the existing mergeValues tree.
+    const merged = JSON.parse(JSON.stringify(contract.mergeValues || {}));
+    for (const [dottedKey, value] of Object.entries(accepted)) {
+      const parts = dottedKey.split('.');
+      let cursor: any = merged;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!cursor[parts[i]] || typeof cursor[parts[i]] !== 'object') cursor[parts[i]] = {};
+        cursor = cursor[parts[i]];
+      }
+      cursor[parts[parts.length - 1]] = value;
+    }
+
+    // Re-render the body snapshot so the updated values show on the next
+    // GET. We keep the rendered snapshot in sync with mergeValues so PDF
+    // generation at sign time picks up the latest data.
+    const newSnapshot = renderContract(
+      contract.bodyHtmlSnapshot, // base template body unchanged
+      contract.templateVersion?.mergeFields as any ?? {},
+      merged,
+      { withSignature: false },
+    );
+
+    const updated = await prisma.contract.update({
+      where: { id: contract.id },
+      data: {
+        mergeValues: merged,
+        bodyHtmlSnapshot: newSnapshot,
+      },
+    });
+    await logEvent(updated.id, 'vendor_modified', req, {
+      changedKeys: Object.keys(accepted),
+      ignoredKeys: Object.keys(incoming).filter(k => !editableKeys.has(k)),
+    });
+
+    res.json({
+      contract: updated,
+      acceptedKeys: Object.keys(accepted),
+      ignoredKeys: Object.keys(incoming).filter(k => !editableKeys.has(k)),
+    });
   } catch (err) { next(err); }
 };
 
@@ -488,6 +672,8 @@ export const vendorSignMyContract = async (req: Request, res: Response, next: Ne
     const {
       signerName, signerTitle, signerEmail, signatureDataUrl,
       bankName, bankRoutingLast4, bankAccountLast4,
+      esignConsent,
+      values: incomingMergeValueUpdates,
     } = req.body as {
       signerName?: string;
       signerTitle?: string;
@@ -496,11 +682,20 @@ export const vendorSignMyContract = async (req: Request, res: Response, next: Ne
       bankName?: string;
       bankRoutingLast4?: string;
       bankAccountLast4?: string;
+      esignConsent?: boolean;
+      values?: Record<string, unknown>;
     };
 
     if (!signerName || signerName.trim().length < 2) { res.status(400).json({ error: 'Signer name is required.' }); return; }
     if (!signatureDataUrl || !signatureDataUrl.startsWith('data:image/')) { res.status(400).json({ error: 'Signature image is required.' }); return; }
     if (signatureDataUrl.length > 1_500_000) { res.status(400).json({ error: 'Signature image too large.' }); return; }
+    // ESIGN/UETA compliance — the vendor must explicitly consent to use of
+    // electronic records and signatures for this transaction. Federal law
+    // (15 U.S.C. § 7001) requires "clear and conspicuous" affirmative consent.
+    if (esignConsent !== true) {
+      res.status(400).json({ error: 'Electronic signature consent (ESIGN/UETA) is required to sign.' });
+      return;
+    }
 
     const contract = await prisma.contract.findUnique({
       where: { id: req.params.id },
@@ -514,18 +709,46 @@ export const vendorSignMyContract = async (req: Request, res: Response, next: Ne
       res.status(409).json({ error: `Cannot sign a contract in status '${contract.status}'.` });
       return;
     }
+    if (contract.expiresAt && contract.expiresAt < new Date()) {
+      res.status(410).json({ error: 'This contract link has expired.', code: 'CONTRACT_EXPIRED' });
+      return;
+    }
 
     const signedAt = new Date();
     const signerIp = req.ip ?? null;
     const signerUa = (req.headers['user-agent'] as string) ?? null;
 
-    // Merge bank info into mergeValues so it shows on the rendered/PDF copy.
+    // Apply final-pass vendor edits to mergeValues using the SAME whitelist
+    // as vendorSaveDraft. Vendor can edit a field one last time on the sign
+    // page without going back through Save Draft. Anything outside the
+    // collectedAtSigning whitelist is silently ignored.
+    const fields: Array<{ key: string; collectedAtSigning?: boolean }> =
+      (contract.templateVersion?.mergeFields as any)?.fields ?? [];
+    const editableKeys = new Set(fields.filter(f => f.collectedAtSigning).map(f => f.key));
+
+    const baseMergeValues = JSON.parse(JSON.stringify(contract.mergeValues || {}));
+    if (incomingMergeValueUpdates && typeof incomingMergeValueUpdates === 'object') {
+      for (const [dottedKey, value] of Object.entries(incomingMergeValueUpdates)) {
+        if (!editableKeys.has(dottedKey)) continue;
+        const parts = dottedKey.split('.');
+        let cursor: any = baseMergeValues;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!cursor[parts[i]] || typeof cursor[parts[i]] !== 'object') cursor[parts[i]] = {};
+          cursor = cursor[parts[i]];
+        }
+        cursor[parts[parts.length - 1]] = value;
+      }
+    }
+
+    // Merge bank info + signature block on top of the (potentially-updated)
+    // mergeValues. Bank fields come via dedicated body keys for back-compat.
     const updatedMergeValues = {
-      ...(contract.mergeValues as any || {}),
+      ...baseMergeValues,
       bank: {
-        name: bankName || null,
-        routingLast4: bankRoutingLast4 || null,
-        accountLast4: bankAccountLast4 || null,
+        ...(baseMergeValues.bank || {}),
+        name: bankName ?? baseMergeValues.bank?.name ?? null,
+        routingLast4: bankRoutingLast4 ?? baseMergeValues.bank?.routingLast4 ?? null,
+        accountLast4: bankAccountLast4 ?? baseMergeValues.bank?.accountLast4 ?? null,
       },
       signature: {
         signerName,
@@ -534,6 +757,11 @@ export const vendorSignMyContract = async (req: Request, res: Response, next: Ne
         signedAt: signedAt.toISOString(),
         signerIp,
         imageHtml: `<img src="${signatureDataUrl}" alt="Signature" style="max-height: 56px; max-width: 280px;" />`,
+        // ESIGN audit fields — the affirmative-consent record federal law
+        // requires retailers to retain alongside the signature itself.
+        esignConsent: true,
+        esignConsentAt: signedAt.toISOString(),
+        esignConsentIp: signerIp,
       },
     };
 

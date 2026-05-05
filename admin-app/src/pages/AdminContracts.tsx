@@ -6,6 +6,7 @@
 //   • Per-status actions: Send (draft) → Cancel (sent/viewed) → Activate (signed)
 // ─────────────────────────────────────────────────
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
   FileText, RefreshCw, Loader, Send, X, CheckCircle2, Download, AlertCircle, ExternalLink, Repeat,
@@ -17,7 +18,7 @@ import {
   adminResendContract,
   adminCancelContract,
   adminActivateContract,
-  adminDownloadContractPdfUrl,
+  adminDownloadContractPdf,
   type ContractRecord,
 } from '../services/api';
 import { useConfirm } from '../hooks/useConfirmDialog';
@@ -66,15 +67,25 @@ interface AdminContractsProps {
 }
 
 export default function AdminContracts({ embedded = false }: AdminContractsProps = {}) {
+  // Deep-link support — `?contractId=…` opens that contract on mount.
+  // Used by the GenerateContractModal "Open Contract" button after a draft
+  // is created, so admins land directly on the new contract's preview.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialContractId = searchParams.get('contractId');
+
   const [tab, setTab] = useState('');
   const [list, setList] = useState<ContractRecord[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loadingList, setLoadingList] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialContractId);
   const [detail, setDetail] = useState<ContractRecord | null>(null);
   const [renderedHtml, setRenderedHtml] = useState('');
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [activateOpen, setActivateOpen] = useState(false);
+  // Tracks which action button is currently in-flight so only that button
+  // shows a spinner (instead of disabling the entire panel).
+  // Values: 'send' | 'resend' | 'cancel' | 'download' | null
+  const [busyAction, setBusyAction] = useState<null | 'send' | 'resend' | 'cancel' | 'download'>(null);
   const confirm = useConfirm();
 
   const loadList = async (status: string) => {
@@ -83,11 +94,25 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
       const res = await adminListContracts(status ? { status } : {});
       setList(res.contracts || []);
       setCounts(res.countsByStatus || {});
+      // Honour the deep-link target on first load. Otherwise fall back to
+      // the first row so the right pane has something to show.
       if (!selectedId && res.contracts?.length) setSelectedId(res.contracts[0].id);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to load contracts.');
     } finally { setLoadingList(false); }
   };
+
+  // Strip ?contractId once we've consumed it so reloads of the page don't
+  // keep clobbering whatever the admin clicks afterwards. Other query
+  // params (?tab=, ?status=) are preserved.
+  useEffect(() => {
+    if (initialContractId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('contractId');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadDetail = async (id: string) => {
     setLoadingDetail(true);
@@ -104,13 +129,14 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
   useEffect(() => { if (selectedId) loadDetail(selectedId); }, [selectedId]);
 
   const handleSend = async () => {
-    if (!detail) return;
+    if (!detail || busyAction) return;
     const ok = await confirm({
       title: 'Send contract for signature?',
       message: `The vendor (${detail.user?.email}) will see this contract on their awaiting page AND receive an email with a direct sign link.`,
       confirmLabel: 'Send to vendor',
     });
     if (!ok) return;
+    setBusyAction('send');
     try {
       const res = await adminSendContract(detail.id);
       setDetail(res.contract);
@@ -124,17 +150,20 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
       }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to send.');
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleResend = async () => {
-    if (!detail) return;
+    if (!detail || busyAction) return;
     const ok = await confirm({
       title: 'Resend contract email?',
       message: `Re-send the sign link email to ${detail.user?.email}? The contract status and signing token are unchanged.`,
       confirmLabel: 'Resend email',
     });
     if (!ok) return;
+    setBusyAction('resend');
     try {
       const res = await adminResendContract(detail.id);
       await loadDetail(detail.id); // refresh audit events
@@ -145,11 +174,32 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
       }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to resend.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  // Authenticated PDF download. Native `<a href download>` doesn't work
+  // for protected endpoints — the browser navigates without the
+  // Authorization header → 401. Fetch via axios (Bearer auto-attached
+  // by the request interceptor), then trigger a blob download.
+  const handleDownloadPdf = async () => {
+    if (!detail || busyAction) return;
+    setBusyAction('download');
+    try {
+      const merchantName = (detail.mergeValues as any)?.merchant?.businessLegalName
+        || detail.user?.name || 'contract';
+      const safeName = String(merchantName).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      await adminDownloadContractPdf(detail.id, `${safeName}-${detail.id.slice(-6)}.pdf`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.message || 'Failed to download PDF.');
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleCancel = async () => {
-    if (!detail) return;
+    if (!detail || busyAction) return;
     const reason = window.prompt('Reason for cancellation (optional):');
     const ok = await confirm({
       title: 'Cancel this contract?',
@@ -158,6 +208,7 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
       danger: true,
     });
     if (!ok) return;
+    setBusyAction('cancel');
     try {
       const res = await adminCancelContract(detail.id, reason || undefined);
       setDetail(res.contract);
@@ -165,6 +216,8 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
       toast.success('Contract cancelled.');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to cancel.');
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -238,30 +291,56 @@ export default function AdminContracts({ embedded = false }: AdminContractsProps
                 </div>
                 <div className="ac-detail-actions">
                   {detail.status === 'draft' && (
-                    <button className="ac-btn ac-btn-primary" onClick={handleSend}>
-                      <Send size={14} /> Send to Vendor
+                    <button
+                      className="ac-btn ac-btn-primary"
+                      onClick={handleSend}
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === 'send'
+                        ? <><Loader size={14} className="ac-spin" /> Sending…</>
+                        : <><Send size={14} /> Send to Vendor</>}
                     </button>
                   )}
                   {/* Resend the contract email — visible while awaiting signature */}
                   {['sent', 'viewed'].includes(detail.status) && (
-                    <button className="ac-btn" onClick={handleResend} title="Re-send the sign link email to the vendor">
-                      <Repeat size={14} /> Resend Email
+                    <button
+                      className="ac-btn"
+                      onClick={handleResend}
+                      title="Re-send the sign link email to the vendor"
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === 'resend'
+                        ? <><Loader size={14} className="ac-spin" /> Resending…</>
+                        : <><Repeat size={14} /> Resend Email</>}
                     </button>
                   )}
                   {detail.status === 'signed' && (
-                    <button className="ac-btn ac-btn-success" onClick={() => setActivateOpen(true)}>
+                    <button className="ac-btn ac-btn-success" onClick={() => setActivateOpen(true)} disabled={busyAction !== null}>
                       <CheckCircle2 size={14} /> Approve &amp; Activate
                     </button>
                   )}
                   {['draft', 'sent', 'viewed'].includes(detail.status) && (
-                    <button className="ac-btn ac-btn-danger" onClick={handleCancel}>
-                      <X size={14} /> Cancel
+                    <button
+                      className="ac-btn ac-btn-danger"
+                      onClick={handleCancel}
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === 'cancel'
+                        ? <><Loader size={14} className="ac-spin" /> Cancelling…</>
+                        : <><X size={14} /> Cancel</>}
                     </button>
                   )}
                   {detail.signedPdfPath && (
-                    <a className="ac-btn" href={adminDownloadContractPdfUrl(detail.id)} download>
-                      <Download size={14} /> PDF
-                    </a>
+                    <button
+                      className="ac-btn"
+                      onClick={handleDownloadPdf}
+                      disabled={busyAction !== null}
+                      title="Download signed PDF"
+                    >
+                      {busyAction === 'download'
+                        ? <><Loader size={14} className="ac-spin" /> Downloading…</>
+                        : <><Download size={14} /> PDF</>}
+                    </button>
                   )}
                 </div>
               </div>

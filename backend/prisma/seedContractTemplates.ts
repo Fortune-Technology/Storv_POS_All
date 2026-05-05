@@ -25,23 +25,35 @@ const RAW_HTML_PATH = path.resolve(__dirname, '..', 'scripts', '_contract_defaul
 // labelled input. The render function (in services/contractRender.ts)
 // substitutes {{merchant.businessLegalName}} etc. at draft + display time.
 const MERGE_FIELDS = {
+  // Field-level access control matrix:
+  //   collectedAtSigning: true   → vendor can edit at signing time AND admin can edit during draft
+  //   (no flag)                  → admin-only; locked for vendor
+  //   sensitive: true            → never returned in vendor-side API response (PII redaction)
+  //
+  // Industry standard for merchant agreements:
+  //   • Legal entity identity (name, EIN, business type, state of incorp) is admin-only —
+  //     comes from official records, vendor shouldn't be able to overwrite at signing.
+  //   • Owner SSN-last-4 is collected by admin via secure channel, never shown to vendor.
+  //   • Contact + operational details (address, phone, email, owner contact) legitimately
+  //     change between draft and signing → vendor-editable.
+  //   • Pricing + legal terms locked.
   fields: [
     // ── Merchant identity ──
     { key: 'merchant.businessLegalName',    label: 'Legal Business Name',    type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.dbaName',              label: 'DBA / Trade Name',       type: 'text',     required: false, group: 'Merchant Identity' },
-    { key: 'merchant.address',              label: 'Business Address',       type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.cityStateZip',         label: 'City / State / ZIP',     type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.phone',                label: 'Business Phone',         type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.email',                label: 'Business Email',         type: 'email',    required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.website',              label: 'Website',                type: 'text',     required: false, group: 'Merchant Identity' },
+    { key: 'merchant.dbaName',              label: 'DBA / Trade Name',       type: 'text',     required: false, group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.address',              label: 'Business Address',       type: 'text',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.cityStateZip',         label: 'City / State / ZIP',     type: 'text',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.phone',                label: 'Business Phone',         type: 'text',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.email',                label: 'Business Email',         type: 'email',    required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.website',              label: 'Website',                type: 'text',     required: false, group: 'Merchant Identity', collectedAtSigning: true },
     { key: 'merchant.ein',                  label: 'Federal Tax ID (EIN)',   type: 'text',     required: true,  group: 'Merchant Identity' },
     { key: 'merchant.businessType',         label: 'Business Type',          type: 'choice',   required: true,  group: 'Merchant Identity', choices: ['LLC', 'Corp', 'Sole Prop', 'Partnership'] },
     { key: 'merchant.stateOfIncorporation', label: 'State of Incorporation', type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.numLocations',         label: 'Number of Locations',    type: 'number',   required: true,  group: 'Merchant Identity', default: 1 },
-    { key: 'merchant.ownerName',            label: 'Primary Owner Name',     type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.ownerSsnLast4',        label: 'Owner SSN/EIN (last 4)', type: 'text',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.ownerDob',             label: 'Owner Date of Birth',    type: 'date',     required: true,  group: 'Merchant Identity' },
-    { key: 'merchant.ownerPhone',           label: 'Owner Phone',            type: 'text',     required: true,  group: 'Merchant Identity' },
+    { key: 'merchant.numLocations',         label: 'Number of Locations',    type: 'number',   required: true,  group: 'Merchant Identity', default: 1, collectedAtSigning: true },
+    { key: 'merchant.ownerName',            label: 'Primary Owner Name',     type: 'text',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.ownerSsnLast4',        label: 'Owner SSN/EIN (last 4)', type: 'text',     required: true,  group: 'Merchant Identity', sensitive: true },
+    { key: 'merchant.ownerDob',             label: 'Owner Date of Birth',    type: 'date',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
+    { key: 'merchant.ownerPhone',           label: 'Owner Phone',            type: 'text',     required: true,  group: 'Merchant Identity', collectedAtSigning: true },
     { key: 'agreementDate',                 label: 'Agreement Effective Date', type: 'date',   required: true,  group: 'Agreement' },
     { key: 'merchant.mccCode',              label: 'MCC Code',               type: 'text',     required: false, group: 'Merchant Identity', default: 'TBD' },
 
@@ -78,15 +90,21 @@ const MERGE_FIELDS = {
 };
 
 /**
- * Transform the raw mammoth HTML output into a templated version with
- * {{mergeKey}} placeholders. The raw DOCX has labelled blanks like:
- *   <p><strong>Business Legal Name:</strong></p><p>___________________________</p>
- * We walk a list of (label → mergeKey) mappings and replace each blank
- * that immediately follows the labelled paragraph.
+ * Transform the source HTML into a templated version with {{mergeKey}}
+ * placeholders. Two source shapes are supported:
  *
- * Also injects the special markers:
- *   <!--HARDWARE_ROWS-->  for the dynamic equipment table
- *   <!--SIGNATURE_BLOCK--> for the signature canvas
+ *   (a) Raw mammoth output from the legacy DOCX — has labelled blanks
+ *       like `<p><strong>Business Legal Name:</strong></p><p>___</p>`.
+ *       The regex passes below convert each blank to its merge tag.
+ *
+ *   (b) Hand-crafted templated HTML with {{tags}} already inline (the
+ *       new styled contract). The regex passes below are no-ops on this
+ *       shape — they only match the legacy underscore-blank pattern.
+ *
+ * In both cases the seeder is idempotent: re-running with already-templated
+ * HTML produces the same output (no double-substitution). The signature
+ * block append is also idempotent — guarded by a sentinel comment so it
+ * isn't appended twice.
  */
 function transformHtmlToTemplate(rawHtml: string): string {
   let html = rawHtml;
@@ -152,8 +170,11 @@ function transformHtmlToTemplate(rawHtml: string): string {
     '${{pricing.saas.baseMonthlyFee}}/month',
   );
 
-  // Signature marker — append at the very end before the final </body> if any
-  html += `
+  // Signature block — append once. Idempotency guard via the sentinel
+  // comment so re-runs of the seeder against already-processed HTML don't
+  // stack multiple signature blocks at the bottom.
+  if (!html.includes('<!--SIGNATURE_BLOCK-->')) {
+    html += `
     <!--SIGNATURE_BLOCK-->
     <div class="signature-block" style="margin-top: 60px; border-top: 2px solid #1f2937; padding-top: 24px;">
       <p style="margin: 0 0 4px;"><strong>MERCHANT</strong></p>
@@ -175,6 +196,7 @@ function transformHtmlToTemplate(rawHtml: string): string {
       </table>
     </div>
   `;
+  }
 
   return html;
 }

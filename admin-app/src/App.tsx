@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
@@ -53,6 +53,17 @@ interface ProtectedRouteProps {
   children: ReactNode;
 }
 
+/**
+ * Legacy `/contracts/:id` redirector.
+ * The Contracts page used to live at its own route; it's now a tab inside
+ * /vendor-pipeline. Preserve the deep-link by bouncing through
+ * ?tab=contracts&contractId=<id> which AdminContracts reads on mount.
+ */
+const LegacyContractDetailRedirect = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/vendor-pipeline?tab=contracts&contractId=${id}`} replace />;
+};
+
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   // Route-level permission checks happen in <PermissionRoute>. This wrapper
   // just ensures an admin session exists; non-superadmins are redirected.
@@ -104,6 +115,9 @@ function App() {
         <Route path="/vendor-pipeline"    element={<ProtectedRoute><AdminLayout><AdminVendorPipeline /></AdminLayout></ProtectedRoute>} />
         <Route path="/vendor-onboardings" element={<Navigate to="/vendor-pipeline?tab=onboardings" replace />} />
         <Route path="/contracts"          element={<Navigate to="/vendor-pipeline?tab=contracts"   replace />} />
+        {/* Legacy detail-page deep links — preserve `?contractId=` so the
+            embedded AdminContracts auto-opens that contract. */}
+        <Route path="/contracts/:id"      element={<LegacyContractDetailRedirect />} />
         {/* S78 — Subscription plans + module catalog */}
         <Route path="/plans"              element={<ProtectedRoute><AdminLayout><AdminPlans /></AdminLayout></ProtectedRoute>} />
 

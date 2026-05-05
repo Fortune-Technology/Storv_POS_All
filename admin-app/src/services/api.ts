@@ -648,6 +648,28 @@ export const adminActivateContract = (id: string, pricingTierId: string | null):
 export const adminDownloadContractPdfUrl = (id: string): string =>
   `${api.defaults.baseURL}/admin/contracts/${id}/pdf`;
 
+/**
+ * Authenticated PDF download.
+ * `<a href={url} download>` doesn't work for protected endpoints — the
+ * browser navigates without the Authorization header, server returns 401.
+ * Fetch the blob via the axios instance (which auto-attaches Bearer JWT
+ * via the request interceptor), then trigger a programmatic download.
+ */
+export const adminDownloadContractPdf = async (id: string, filename?: string): Promise<void> => {
+  const res = await api.get(`/admin/contracts/${id}/pdf`, { responseType: 'blob' });
+  const blob = new Blob([res.data], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `contract-${id}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Free the blob URL on next tick — keeping it alive a beat lets the
+  // browser's download manager pick it up cleanly.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 export const adminListContractTemplates = (): Promise<{ templates: ContractTemplateRecord[] }> =>
   api.get('/admin/contract-templates').then(r => r.data);
 export const adminGetContractTemplate   = (id: string): Promise<{ template: ContractTemplateRecord }> =>

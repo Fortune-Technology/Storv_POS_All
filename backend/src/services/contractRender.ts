@@ -111,9 +111,13 @@ export function renderContract(
 
   // 2. Replace every {{key}} placeholder.
   html = html.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_match, key) => {
-    // Skip signature.* keys when rendering pre-sign preview.
+    // Pre-sign preview: blank out signature.* placeholders so the rendered
+    // HTML shows the empty signature line (just the underline from the
+    // seeder's signature block), NOT the literal `{{signature.imageHtml}}`
+    // text. After signing, options.withSignature flips true and the real
+    // values get substituted via the normal path below.
     if (!options.withSignature && key.startsWith('signature.')) {
-      return `{{${key}}}`;
+      return '';
     }
     let v = getPath(mergeValues, key);
     if (v === undefined || v === null || v === '') v = defaultByKey[key];

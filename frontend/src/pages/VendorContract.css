@@ -341,4 +341,106 @@
   .vc-form-grid { grid-template-columns: 1fr; }
   .vc-doc-body { padding: 20px 18px; max-height: 58vh; }
   .vc-main { padding: 16px; }
+  /* Card-header items wrap on narrow viewports — the section hint moves
+     below the title instead of being squeezed into the right edge. */
+  .vc-card-header { flex-wrap: wrap; padding: 14px 18px; }
+  .vc-section-hint { width: 100%; margin-left: 0; }
+  .vc-edit-section > p,
+  .vc-edit-section > .vc-edit-group,
+  .vc-edit-section > .vc-edit-actions { padding-left: 18px; padding-right: 18px; }
+  .vc-edit-section > .vc-edit-intro { margin-left: 18px; margin-right: 18px; }
 }
+
+/* ── Editable section (vendor-side mergeValues editing) ──────────────────── */
+.vc-edit-section { background: linear-gradient(180deg, #fff 0%, #f8faff 100%); }
+/* Card content padding — `.vc-card-header` keeps its own padding so we
+   only pad the body children. Bottom padding lives on the actions row. */
+.vc-edit-section > p,
+.vc-edit-section > .vc-edit-group,
+.vc-edit-section > .vc-edit-actions {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.vc-edit-section > .vc-edit-intro { margin-left: 24px; margin-right: 24px; padding-left: 12px; padding-right: 12px; }
+.vc-section-hint {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-muted, #94a3b8);
+  margin-left: auto;
+}
+.vc-edit-intro {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border-left: 3px solid #94a3b8;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 18px 0 18px;
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.45;
+}
+.vc-edit-group {
+  margin-top: 4px;
+  margin-bottom: 22px;
+}
+.vc-edit-group h3 {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #475569;
+  margin: 0 0 10px;
+}
+.vc-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  padding-bottom: 18px;
+  margin-top: 4px;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+.vc-edit-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+.vc-btn--secondary {
+  background: #fff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+}
+.vc-btn--secondary:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+/* ── ESIGN consent checkbox row ──────────────────────────────────────────── */
+.vc-esign-consent {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px;
+  margin: 16px 0;
+  background: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #1f2937;
+}
+.vc-esign-consent input[type="checkbox"] {
+  flex-shrink: 0;
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  accent-color: #3d56b5;
+  cursor: pointer;
+}
+.vc-esign-consent strong { color: #1f2937; font-weight: 600; }

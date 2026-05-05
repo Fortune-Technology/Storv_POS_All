@@ -10,7 +10,7 @@ import express from 'express';
 import { protect } from '../middleware/auth.js';
 import {
   // vendor
-  vendorListMyContracts, vendorGetMyContract, vendorSignMyContract, vendorDownloadMyPdf,
+  vendorListMyContracts, vendorGetMyContract, vendorSignMyContract, vendorSaveDraft, vendorDownloadMyPdf,
   // admin contracts
   adminListContracts, adminGetContract, adminCreateContract, adminUpdateContract,
   adminSendContract, adminResendContract, adminCancelContract, adminActivateContract, adminDownloadPdf,
@@ -22,6 +22,7 @@ import {
 const vendorContractRoutes = express.Router();
 vendorContractRoutes.get   ('/me',                   protect, vendorListMyContracts);
 vendorContractRoutes.get   ('/me/:id',               protect, vendorGetMyContract);
+vendorContractRoutes.patch ('/me/:id/draft',         protect, vendorSaveDraft);
 vendorContractRoutes.post  ('/me/:id/sign',          protect, vendorSignMyContract);
 vendorContractRoutes.get   ('/me/:id/pdf',           protect, vendorDownloadMyPdf);
 

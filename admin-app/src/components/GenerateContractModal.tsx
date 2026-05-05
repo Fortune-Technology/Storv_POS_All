@@ -209,7 +209,7 @@ export default function GenerateContractModal({ open, onboarding, onClose, onCre
               <p>The contract has been created in <strong>draft</strong> status. Open it from the Contracts page to review the rendered preview, fine-tune any fields, and send to the merchant for signature.</p>
               <div className="gcm-success-actions">
                 <button className="gcm-btn" onClick={onClose}>Close</button>
-                <a className="gcm-btn gcm-btn--primary" href={`/contracts/${createdId}`}>Open Contract</a>
+                <a className="gcm-btn gcm-btn--primary" href={`/vendor-pipeline?tab=contracts&contractId=${createdId}`}>Open Contract</a>
               </div>
             </div>
           ) : (

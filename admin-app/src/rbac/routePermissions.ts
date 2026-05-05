@@ -39,6 +39,7 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/vendor-pipeline':              'admin_organizations.view',
   '/vendor-onboardings':           'admin_organizations.view',
   '/contracts':                    'admin_organizations.view',
+  '/contracts/:id':                'admin_organizations.view',
   // S78 — Subscription plans + module catalog (uses pricing-tier perm family)
   '/plans':                        'admin_pricing_tiers.view',
 };

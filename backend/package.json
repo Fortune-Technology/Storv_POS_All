@@ -25,6 +25,8 @@
     "db:seed:loyalty": "tsx prisma/seedLoyalty.ts",
     "db:seed:chat": "tsx prisma/seedChat.ts",
     "db:seed:tasks": "tsx prisma/seedTasks.ts",
+    "db:seed:contracts": "tsx prisma/seedContractTemplates.ts",
+    "db:seed:equipment": "tsx prisma/seedEquipment.ts",
     "db:studio": "prisma studio"
   },
   "keywords": [
