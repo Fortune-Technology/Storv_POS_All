@@ -1839,16 +1839,19 @@ export const getShiftAudit = async (req: Request, res: Response): Promise<void> 
       res.status(400).json({ success: false, error: 'orgId + storeId required' });
       return;
     }
-    const dateStr = (req.query?.date as string | undefined) || new Date().toISOString().slice(0, 10);
-    const date = parseDate(dateStr);
-    if (!date) {
+    // Default + day-boundary math both anchored to STORE-LOCAL time. Pre-fix
+    // a Pacific-time store on a UTC server queried "today" using UTC midnight
+    // and missed the entire evening of local-day shifts.
+    const { getStoreTimezone, formatLocalDate, localDayStartUTC, localDayEndUTC } =
+      await import('../utils/dateTz.js');
+    const tz = await getStoreTimezone(storeId, prisma);
+    const dateStr = (req.query?.date as string | undefined) || formatLocalDate(new Date(), tz);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
       res.status(400).json({ success: false, error: 'date required (YYYY-MM-DD)' });
       return;
     }
-
-    // Local-day boundary (matches listShifts pattern)
-    const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+    const dayStart = localDayStartUTC(dateStr, tz);
+    const dayEnd   = localDayEndUTC(dateStr, tz);
 
     // 1. Closed shifts opened on this day, chronologically ascending
     interface ShiftLite {
@@ -3356,24 +3359,20 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
   try {
     const orgId = getOrgId(req) as string;
     const storeId = getStore(req) as string;
-    const dateStr = (req.query?.date as string | undefined) || new Date().toISOString().slice(0, 10);
-    const date = parseDate(dateStr);
-    if (!date) {
-      res.status(400).json({ success: false, error: 'Invalid date' });
-      return;
-    }
-
     // Apr 2026 — store-local day boundaries. Without this, books received
     // at 9pm EST (= 01:00 UTC next day) showed up under TOMORROW's "Received"
     // total because the queries used UTC midnight. Same bug class as the
-    // lottery sales math fix from Session 59 (B9). Use the shared
-    // dateTz helpers so day boundaries always mean store-local day.
-    const store = await prisma.store.findUnique({
-      where: { id: storeId },
-      select: { timezone: true },
-    });
-    const tz = store?.timezone || 'UTC';
-    const { localDayStartUTC, localDayEndUTC } = await import('../utils/dateTz.js');
+    // lottery sales math fix from Session 59 (B9). Default "today" is also
+    // anchored to STORE-LOCAL — UTC `toISOString` advances 5-8 hours early
+    // in negative-offset timezones.
+    const { getStoreTimezone, formatLocalDate, localDayStartUTC, localDayEndUTC } =
+      await import('../utils/dateTz.js');
+    const tz = await getStoreTimezone(storeId, prisma);
+    const dateStr = (req.query?.date as string | undefined) || formatLocalDate(new Date(), tz);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      res.status(400).json({ success: false, error: 'Invalid date' });
+      return;
+    }
     const dayStart = localDayStartUTC(dateStr, tz);
     const dayEnd = localDayEndUTC(dateStr, tz);
 
@@ -3443,7 +3442,7 @@ export const getDailyLotteryInventory = async (req: Request, res: Response): Pro
     // field tells the UI which tier produced the value.
     // Compare requested date to TODAY in the store's tz (not UTC) so the
     // live tier fires on the right day for non-UTC stores.
-    const { formatLocalDate } = await import('../utils/dateTz.js');
+    // (formatLocalDate already imported at top of this handler.)
     const todayLocal = formatLocalDate(new Date(), tz);
     const isToday = dateStr === todayLocal;
     const real = await _bestEffortDailySales({ orgId, storeId, dayStart, dayEnd, isToday });

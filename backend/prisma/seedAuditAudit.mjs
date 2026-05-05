@@ -543,6 +543,35 @@ console.log('──────────────────────�
   console.log(diffNumbers('ref.RA count',  1, raCount, { tolerance: 0 }));
 }
 
+// ────────────────────────────────────────────────────────────────────
+// REPORT 18 — DST BOUNDARY BUCKETING (B1 follow-up, May 2026)
+// ────────────────────────────────────────────────────────────────────
+// Verifies that fixed-date DST-boundary transactions inserted in Stage 2
+// (seedAuditTransactions.mjs) bucket into the correct STORE-LOCAL day.
+//
+// Pre-fix: localDayStartUTC + localDayEndUTC used noon-sample which gave
+// wrong offsets on DST days. The Nov 2 "extra hour" tx (04:30 UTC Nov 3
+// = 23:30 EST Nov 2) was DROPPED from /sales/daily?from=2025-11-02&to=
+// 2025-11-02 because old localDayEndUTC returned 03:59:59 UTC Nov 3.
+// Similarly, the Mar 9 04:30 UTC tx (= 23:30 EST Mar 8) was wrongly
+// included in Mar 9's bucket because old localDayStartUTC for Mar 9
+// was 04:00 UTC (post-EDT offset) instead of 05:00 UTC (true midnight EST).
+{
+  console.log('\n── REPORT 18: DST BOUNDARY BUCKETING ──');
+  const expectedDst = expected.dst || {};
+  for (const [dateStr, exp] of Object.entries(expectedDst)) {
+    const r = await GET('/sales/daily', { storeId: F.storeId, from: dateStr, to: dateStr });
+    const data = r.body?.data || r.body || [];
+    const arr = Array.isArray(data) ? data : (data.daily || []);
+    const row = arr.find((d) => d.Date === dateStr);
+    const actualNet     = row ? Number(row.TotalNetSales || row.NetSales || 0) : 0;
+    const actualTxCount = row ? Number(row.TransactionCount || 0) : 0;
+
+    console.log(diffNumbers(`dst.${dateStr}.txCount`,  exp.txCount,         actualTxCount, { tolerance: 0 }));
+    console.log(diffNumbers(`dst.${dateStr}.netTotal`, exp.expectedNetTotal, actualNet,    { tolerance: 0.01 }));
+  }
+}
+
 // ── Drift summary ──────────────────────────────────────────────────────
 const totalChecks = drift.length;
 const matches = drift.filter(d => d.matches).length;

@@ -6,6 +6,7 @@
 //   POST   /:date/close → flip status to 'closed' (irreversible)
 
 import type { Request, Response } from 'express';
+import prisma from '../config/postgres.js';
 import {
   computeDailySale,
   saveDailySaleAdjustments,
@@ -21,15 +22,21 @@ function getStore(req: Request): string | null | undefined {
     || (req.query.storeId as string | undefined);
 }
 
-function parseDateParam(raw: unknown): string | null {
-  if (!raw) {
-    const today = new Date();
-    return today.toISOString().slice(0, 10);
-  }
-  // Accept YYYY-MM-DD; reject anything else
+// Validate-only — caller computes the default in store-local tz.
+function validateDateParam(raw: unknown): string | null {
+  if (!raw) return null;  // caller must default
   if (typeof raw !== 'string') return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
   return raw;
+}
+
+// "Today" in the store's timezone (not the server's). Without this, a
+// Pacific-time admin opening the daily-sale page at 9pm PT sees the next
+// day by default.
+async function _todayInStoreTz(storeId: string): Promise<string> {
+  const { getStoreTimezone, formatLocalDate } = await import('../utils/dateTz.js');
+  const tz = await getStoreTimezone(storeId, prisma);
+  return formatLocalDate(new Date(), tz);
 }
 
 export const getDailySale = async (req: Request, res: Response): Promise<void> => {
@@ -38,8 +45,10 @@ export const getDailySale = async (req: Request, res: Response): Promise<void> =
     const storeId = getStore(req) as string;
     if (!storeId) { res.status(400).json({ success: false, error: 'X-Store-Id header is required' }); return; }
 
-    const dateStr = parseDateParam(req.params.date || req.query.date);
-    if (!dateStr) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    const raw = req.params.date || req.query.date;
+    let dateStr = validateDateParam(raw);
+    if (!dateStr && raw) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    if (!dateStr) dateStr = await _todayInStoreTz(storeId);
 
     const data = await computeDailySale({ orgId, storeId, dateStr });
     res.json({ success: true, data });
@@ -56,8 +65,10 @@ export const saveDailySale = async (req: Request, res: Response): Promise<void> 
     const storeId = getStore(req) as string;
     if (!storeId) { res.status(400).json({ success: false, error: 'X-Store-Id header is required' }); return; }
 
-    const dateStr = parseDateParam(req.params.date || req.query.date);
-    if (!dateStr) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    const raw = req.params.date || req.query.date;
+    let dateStr = validateDateParam(raw);
+    if (!dateStr && raw) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    if (!dateStr) dateStr = await _todayInStoreTz(storeId);
 
     const data = await saveDailySaleAdjustments({
       orgId, storeId, dateStr,
@@ -78,8 +89,10 @@ export const closeDailySaleReport = async (req: Request, res: Response): Promise
     const storeId = getStore(req) as string;
     if (!storeId) { res.status(400).json({ success: false, error: 'X-Store-Id header is required' }); return; }
 
-    const dateStr = parseDateParam(req.params.date || req.query.date);
-    if (!dateStr) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    const raw = req.params.date || req.query.date;
+    let dateStr = validateDateParam(raw);
+    if (!dateStr && raw) { res.status(400).json({ success: false, error: 'Invalid date (expect YYYY-MM-DD)' }); return; }
+    if (!dateStr) dateStr = await _todayInStoreTz(storeId);
 
     const data = await closeDailySale({ orgId, storeId, dateStr, userId: req.user?.id || null });
     res.json({ success: true, data });
