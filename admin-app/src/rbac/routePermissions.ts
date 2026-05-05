@@ -32,10 +32,12 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   '/payment-models/:storeId':      'admin_pricing_model.view',
   '/pricing-tiers':                'admin_pricing_tiers.view',
   '/saas-margin':                  'admin_pricing_model.view',
-  // S77 — Vendor onboarding review queue (reuses admin_organizations since
-  // it gates org creation prerequisites).
+  // S77 — Vendor pipeline hub (Onboardings + Contracts in one tabbed
+  // page). Reuses admin_organizations since it gates org creation
+  // prerequisites. Legacy paths kept so the redirect routes evaluate
+  // RBAC consistently before falling through to <Navigate>.
+  '/vendor-pipeline':              'admin_organizations.view',
   '/vendor-onboardings':           'admin_organizations.view',
-  // S77 Phase 2 — Contract management
   '/contracts':                    'admin_organizations.view',
   // S78 — Subscription plans + module catalog (uses pricing-tier perm family)
   '/plans':                        'admin_pricing_tiers.view',

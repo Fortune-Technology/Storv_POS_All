@@ -77,7 +77,12 @@ function fmtDate(iso?: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
-export default function AdminVendorOnboardings() {
+interface AdminVendorOnboardingsProps {
+  /** Mounted inside a hub (AdminVendorPipeline) — hide the page-level header. */
+  embedded?: boolean;
+}
+
+export default function AdminVendorOnboardings({ embedded = false }: AdminVendorOnboardingsProps = {}) {
   // S77 — accept ?status=… so the admin dashboard's Pending Approval card
   // can deep-link to the right tab.
   const [searchParams] = useSearchParams();
@@ -195,14 +200,16 @@ export default function AdminVendorOnboardings() {
   }, [detail]);
 
   return (
-    <div className="vor-page">
-      <header className="vor-page-header">
-        <div className="vor-page-header-icon"><FileText size={20} /></div>
-        <div>
-          <h1>Vendor Onboarding Reviews</h1>
-          <p>Business questionnaire submissions awaiting administrator review.</p>
-        </div>
-      </header>
+    <div className={`vor-page${embedded ? ' vor-page--embedded' : ''}`}>
+      {!embedded && (
+        <header className="vor-page-header">
+          <div className="vor-page-header-icon"><FileText size={20} /></div>
+          <div>
+            <h1>Vendor Onboarding Reviews</h1>
+            <p>Business questionnaire submissions awaiting administrator review.</p>
+          </div>
+        </header>
+      )}
 
       <div className="vor-tabs">
         {STATUS_TABS.map(t => (

@@ -197,6 +197,32 @@
   justify-content: center;
 }
 
+/* ── Light-theme overrides (S79f / C4) ─────────────────────────────────────
+   Dark theme uses rgba(255,255,255,0.04..0.08) for the manager-button bg,
+   the action/hold hover states, and the scrollbar thumb. On a near-black
+   panel that reads as a soft white tint; on a white panel it's invisible.
+   Flip those to slate overlays so the chrome stays legible in light mode.
+   The dark rules above are untouched. */
+[data-pos-theme="light"] .ab-mgr-btn {
+  background: rgba(15, 23, 42, 0.04);    /* slate-900 @ 4% */
+}
+[data-pos-theme="light"] .ab-mgr-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+[data-pos-theme="light"] .ab-action:hover,
+[data-pos-theme="light"] .ab-hold-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+[data-pos-theme="light"] .ab-scroll {
+  scrollbar-color: rgba(15, 23, 42, 0.20) transparent;
+}
+[data-pos-theme="light"] .ab-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+}
+[data-pos-theme="light"] .ab-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+}
+
 /* ── Responsive ── */
 @media (max-width: 1024px) {
   .ab-action {

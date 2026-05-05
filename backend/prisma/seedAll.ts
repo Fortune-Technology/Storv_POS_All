@@ -71,6 +71,9 @@ const CORE_STEPS = [
   { file: 'seedPlanModules.ts',       args: [],              label: 'sidebar modules + 3 default subscription plans (S78)' },
   // S77 — default merchant agreement template for the vendor-onboarding flow.
   { file: 'seedContractTemplates.ts', args: [],              label: 'default contract template (S77)' },
+  // Default 7-device equipment catalog (admin Billing → Equipment tab +
+  // vendor-onboarding hardware step). Idempotent — admin edits survive.
+  { file: 'seedEquipment.ts',         args: [],              label: 'equipment catalog (POS terminal / printer / drawer / etc.)' },
   { file: 'seedLotteryCatalog.ts',    args: [],              label: 'multi-state lottery catalog' },
   { file: 'seedTransactions.ts',      args: [],              label: '90 days of historical POS transactions' },
   { file: 'seedOrgCatalog.ts',        args: [],              label: 'clone catalog into every non-system org' },

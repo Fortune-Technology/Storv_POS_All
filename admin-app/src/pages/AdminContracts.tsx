@@ -60,7 +60,12 @@ function fmtDate(iso?: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
-export default function AdminContracts() {
+interface AdminContractsProps {
+  /** Mounted inside a hub (AdminVendorPipeline) — hide the page-level header. */
+  embedded?: boolean;
+}
+
+export default function AdminContracts({ embedded = false }: AdminContractsProps = {}) {
   const [tab, setTab] = useState('');
   const [list, setList] = useState<ContractRecord[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -164,14 +169,16 @@ export default function AdminContracts() {
   };
 
   return (
-    <div className="ac-page">
-      <header className="ac-page-header">
-        <div className="ac-page-header-icon"><FileText size={20} /></div>
-        <div>
-          <h1>Contracts</h1>
-          <p>Generate, send, and activate merchant agreements.</p>
-        </div>
-      </header>
+    <div className={`ac-page${embedded ? ' ac-page--embedded' : ''}`}>
+      {!embedded && (
+        <header className="ac-page-header">
+          <div className="ac-page-header-icon"><FileText size={20} /></div>
+          <div>
+            <h1>Contracts</h1>
+            <p>Generate, send, and activate merchant agreements.</p>
+          </div>
+        </header>
+      )}
 
       <div className="ac-tabs">
         {STATUS_TABS.map(t => (

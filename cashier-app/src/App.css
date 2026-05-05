@@ -1,11 +1,18 @@
-/* App.css — prefix: app- */
+/* App.css — prefix: app-
+ * S79f (C4) — boot screen now uses CSS variables so it flips with the
+ * cached light/dark theme. The hardcoded dark `#0f1117` background +
+ * brand-green text would have shown up as dark text on dark background
+ * for ~50ms on light-theme stores during boot, even though
+ * branding.js applies the cached variables synchronously at module
+ * load.
+ */
 .app-boot {
   height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f1117;
-  color: #7ac143;
+  background: var(--bg-base);
+  color: var(--green);
   font-size: 0.84rem;
   font-weight: 700;
   letter-spacing: 0.081em;

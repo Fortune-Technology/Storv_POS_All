@@ -50,6 +50,13 @@ export const DEFAULT_POS_CONFIG = {
     tobacco: 21,
     alcohol: 21,
   },
+  // C3 (S79) — customer-facing display theme. POSScreen broadcasts this on
+  // every cart_update; CustomerDisplayScreen applies a `cds-root--light`
+  // modifier class to override its CSS variables when 'light'. Default
+  // 'dark' preserves the existing across-counter look.
+  customerDisplay: {
+    theme: 'dark',  // 'dark' | 'light'
+  },
   // Manufacturer-coupon redemption thresholds (Session 46). When any limit is
   // exceeded by a single coupon or the cumulative cart, the cashier must enter
   // the manager PIN before the coupon is applied.

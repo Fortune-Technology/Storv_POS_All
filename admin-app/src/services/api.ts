@@ -272,9 +272,17 @@ export const adminWriteOffInvoice        = (id: string | number): Promise<{ invo
 export const adminRetryInvoice           = (id: string | number): Promise<{ invoice: BillingInvoice }> => api.post(`/admin/billing/invoices/${id}/retry`).then(r => r.data);
 
 // ── Admin Billing — Equipment ─────────────────────────────────────────────────
-export const adminListEquipmentProducts  = ():           Promise<{ data: EquipmentProduct[] }> => api.get('/admin/billing/equipment/products').then(r => r.data);
+// Backend returns the raw array (not wrapped in { data }). Type kept as
+// EquipmentProduct[] so callers don't need to dereference `.data`.
+export const adminListEquipmentProducts  = ():           Promise<EquipmentProduct[]> => api.get('/admin/billing/equipment/products').then(r => r.data);
 export const adminCreateEquipmentProduct = (data: unknown): Promise<{ product: EquipmentProduct }> => api.post('/admin/billing/equipment/products', data).then(r => r.data);
 export const adminUpdateEquipmentProduct = (id: string | number, data: unknown): Promise<{ product: EquipmentProduct }> => api.put(`/admin/billing/equipment/products/${id}`, data).then(r => r.data);
+export const adminDeleteEquipmentProduct = (id: string | number): Promise<{ deleted?: boolean; softDeleted?: boolean }> => api.delete(`/admin/billing/equipment/products/${id}`).then(r => r.data);
+export const adminUploadEquipmentImage   = (file: File): Promise<{ url: string; filename: string; size: number }> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return api.post('/admin/billing/equipment/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data);
+};
 export const adminListEquipmentOrders    = (params?: Params): Promise<MetaPaginatedResponse<EquipmentOrder>> => api.get('/admin/billing/equipment/orders', { params }).then(r => r.data);
 export const adminUpdateEquipmentOrder   = (id: string | number, data: unknown): Promise<{ order: EquipmentOrder }> => api.put(`/admin/billing/equipment/orders/${id}`, data).then(r => r.data);
 

@@ -48,6 +48,8 @@ import '../LotteryWeeklySettlement.css';
 // presentational components in `components/`. Modals will move into `modals/`
 // in subsequent passes (this pass only extracted the easy-win helpers).
 import { fmt, fmtNum, toDateStr, todayStr, daysAgoStr, statusColor, requestStatusClass, ALL_STATES } from './utils.js';
+// F19 (S79) — PDF/CSV export helpers (jspdf-autotable underneath; lazy-loaded)
+import { downloadPDF, downloadCSV } from '../../utils/exportUtils';
 import Badge from './components/Badge.jsx';
 import StatCard from './components/StatCard.jsx';
 import SimpleBarChart from './components/SimpleBarChart.jsx';
@@ -1809,6 +1811,79 @@ function LotteryBody({ urlTab } = {}) {
     a.click(); URL.revokeObjectURL(a.href);
   };
 
+  /* ── F19 (S79) — Commission CSV + PDF Download ────────────────────────── */
+  // CSV: by-game breakdown rows + a TOTAL footer row. Mirrors the table on
+  // screen so the spreadsheet matches what the user sees.
+  const downloadCommissionCSV = () => {
+    if (!commission) return;
+    const fmtRate   = (n) => n != null ? `${(Number(n) * 100).toFixed(2)}%` : '';
+    const fmtMoney2 = (n) => n != null ? Number(n).toFixed(2) : '';
+    const cols = [
+      { key: 'gameName',   label: 'Game' },
+      { key: 'rate',       label: 'Rate' },
+      { key: 'sales',      label: 'Sales' },
+      { key: 'commission', label: 'Commission' },
+    ];
+    const rows = (commission.byGame || []).map(g => ({
+      gameName:   g.gameName || '',
+      rate:       fmtRate(g.rate),
+      sales:      fmtMoney2(g.sales),
+      commission: fmtMoney2(g.commission),
+    }));
+    rows.push({
+      gameName:   'TOTAL',
+      rate:       commission.avgRate ? fmtRate(commission.avgRate) : '',
+      sales:      fmtMoney2(commission.totalSales),
+      commission: fmtMoney2(commission.totalCommission),
+    });
+    downloadCSV(rows, cols, `lottery-commission-${dateFrom}-${dateTo}`);
+  };
+
+  // PDF: summary KPI cards (Total Commission / Total Sales / Avg Rate) +
+  // the same by-game table. Title carries the date range as subtitle.
+  const downloadCommissionPDF = async () => {
+    if (!commission) return;
+    const fmtRate   = (n) => n != null ? `${(Number(n) * 100).toFixed(2)}%` : 'N/A';
+    const fmtMoney2 = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
+
+    const summary = [
+      { label: 'Total Commission', value: fmtMoney2(commission.totalCommission) },
+      { label: 'Total Sales',      value: fmtMoney2(commission.totalSales) },
+      { label: 'Avg Rate',         value: fmtRate(commission.avgRate) },
+    ];
+
+    const cols = [
+      { key: 'gameName',   label: 'Game' },
+      { key: 'rate',       label: 'Rate' },
+      { key: 'sales',      label: 'Sales' },
+      { key: 'commission', label: 'Commission' },
+    ];
+    const data = (commission.byGame || []).map(g => ({
+      gameName:   g.gameName || '',
+      rate:       fmtRate(g.rate),
+      sales:      fmtMoney2(g.sales),
+      commission: fmtMoney2(g.commission),
+    }));
+    // Append TOTAL row so the PDF reader sees what the on-screen view shows.
+    if (data.length > 0) {
+      data.push({
+        gameName:   'TOTAL',
+        rate:       commission.avgRate ? fmtRate(commission.avgRate) : '',
+        sales:      fmtMoney2(commission.totalSales),
+        commission: fmtMoney2(commission.totalCommission),
+      });
+    }
+
+    await downloadPDF({
+      title:    'Lottery Commission Report',
+      subtitle: `${dateFrom} → ${dateTo}`,
+      summary,
+      data,
+      columns:  cols,
+      filename: `lottery-commission-${dateFrom}-${dateTo}`,
+    });
+  };
+
   /* ── Game actions ─────────────────────────────────────────────────────── */
   const handleSaveGame = async (data) => {
     if (gameModal && gameModal !== 'new') { await updateLotteryGame(gameModal.id, data); }
@@ -2333,6 +2408,9 @@ function LotteryBody({ urlTab } = {}) {
                 <input type="date" className="lt-input" value={dateTo} onChange={e => { setDateTo(e.target.value); setDatePreset('Custom'); }} style={{ maxWidth: 160 }} />
               </div>
               <button className="lt-btn lt-btn-primary" onClick={() => loadCommission(dateFrom, dateTo)}>Apply</button>
+              {/* F19 — CSV / PDF export. Disabled until commission data loads. */}
+              <button className="lt-btn lt-btn-ghost" onClick={downloadCommissionCSV} disabled={!commission}>⬇ CSV</button>
+              <button className="lt-btn lt-btn-ghost" onClick={downloadCommissionPDF} disabled={!commission}>⬇ PDF</button>
             </div>
             <div className="lt-filter-bar" style={{ marginBottom: 0 }}>
               {['Today', 'This Week', 'This Month', 'Last Month', 'Custom'].map(p => (

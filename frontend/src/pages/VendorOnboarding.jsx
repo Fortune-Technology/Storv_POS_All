@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Loader, CheckCircle2, Building2, Store,
-  ShoppingBag, Cpu, MessageSquare, Save, AlertCircle,
+  ShoppingBag, Cpu, MessageSquare, Save, AlertCircle, Plus, Minus,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import StoreveuLogo from '../components/StoreveuLogo';
@@ -16,6 +16,8 @@ import {
   getMyVendorOnboarding,
   updateMyVendorOnboarding,
   submitMyVendorOnboarding,
+  listEquipmentProducts,
+  resolveStaticUrl,
 } from '../services/api';
 import './VendorOnboarding.css';
 
@@ -63,17 +65,9 @@ const MODULES = [
   { value: 'predictions',   label: 'Sales Predictions', desc: 'Holt-Winters forecasts with weather correlation' },
 ];
 
-const HARDWARE_ITEMS = [
-  { key: 'posTerminal',     label: 'POS Terminal', counted: true },
-  { key: 'receiptPrinter',  label: 'Receipt Printer', counted: true },
-  { key: 'cashDrawer',      label: 'Cash Drawer', counted: true },
-  { key: 'scanner',         label: 'Barcode Scanner', counted: true },
-  { key: 'cardTerminal',    label: 'Card Terminal (Dejavoo)', counted: true },
-  { key: 'customerDisplay', label: 'Customer Display', counted: true },
-  { key: 'labelPrinter',    label: 'Label Printer', counted: true },
-  { key: 'fuelIntegration', label: 'Fuel Pump Integration', counted: false },
-  { key: 'scaleIntegration', label: 'Scale Integration', counted: false },
-];
+// Hardware items are fetched live from /api/equipment/products (the same
+// catalog the admin Billing → Equipment tab manages). Fuel + Scale
+// integrations are rendered separately as toggles below the device grid.
 
 const HEAR_ABOUT_OPTIONS = [
   { value: 'search',   label: 'Search engine' },
@@ -125,6 +119,7 @@ export default function VendorOnboarding() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [devices, setDevices] = useState([]); // active EquipmentProduct rows
   const [form, setForm] = useState({
     fullName: '', email: '', phone: '',
     businessLegalName: '', dbaName: '',
@@ -138,6 +133,24 @@ export default function VendorOnboarding() {
     agreedToTerms: false,
   });
   const dirty = useRef(false);
+
+  // ── Load equipment catalog (single source of truth — same data the
+  //    Billing → Equipment tab manages). Failure is non-fatal: vendors
+  //    can still submit; admin will follow up about hardware separately. ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listEquipmentProducts();
+        if (cancelled) return;
+        const rows = Array.isArray(list) ? list : (list?.data || []);
+        setDevices(rows.filter(d => d.isActive !== false));
+      } catch (err) {
+        if (!cancelled) console.warn('[VendorOnboarding] device catalog fetch failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Initial load ──
   useEffect(() => {
@@ -214,6 +227,26 @@ export default function VendorOnboarding() {
     dirty.current = true;
     setForm(prev => ({ ...prev, hardwareNeeds: { ...prev.hardwareNeeds, [key]: value } }));
   };
+
+  // Live cart calculation for the hardware step. Recomputes on every qty
+  // change so the total card stays in sync with the +/- buttons. Numeric-
+  // counted devices use slug → qty × price; integration toggles are
+  // intentionally excluded (not billable hardware — quoted separately).
+  const cart = useMemo(() => {
+    const lines = [];
+    let total = 0;
+    let totalUnits = 0;
+    for (const d of devices) {
+      const qty = Number(form.hardwareNeeds[d.slug] || 0);
+      if (qty <= 0) continue;
+      const unit  = Number(d.price || 0);
+      const lineTotal = unit * qty;
+      lines.push({ id: d.id, slug: d.slug, name: d.name, qty, unit, lineTotal });
+      total += lineTotal;
+      totalUnits += qty;
+    }
+    return { lines, total, totalUnits };
+  }, [devices, form.hardwareNeeds]);
 
   const toggleModule = (value) => {
     if (value === 'pos_core') return; // always required
@@ -471,31 +504,138 @@ export default function VendorOnboarding() {
         {step === 3 && (
           <div>
             <p className="vob-step-desc">How many of each item do you need? Leave 0 if you already have your own. We'll quote pricing in your contract.</p>
-            <div className="vob-hardware">
-              {HARDWARE_ITEMS.map(item => (
-                <div key={item.key} className="vob-hw-row">
-                  <span className="vob-hw-label">{item.label}</span>
-                  {item.counted ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={999}
-                      value={form.hardwareNeeds[item.key] ?? ''}
-                      onChange={e => setHw(item.key, e.target.value === '' ? null : Math.max(0, Number(e.target.value)))}
-                      className="vob-input vob-hw-input"
-                    />
-                  ) : (
-                    <label className="vob-hw-toggle">
-                      <input
-                        type="checkbox"
-                        checked={!!form.hardwareNeeds[item.key]}
-                        onChange={e => setHw(item.key, e.target.checked)}
-                      />
-                      <span>Yes, I need this</span>
-                    </label>
-                  )}
+
+            {/* Devices fetched from /api/equipment/products — same catalog
+                the admin Billing → Equipment tab manages. Use the device
+                slug as the storage key so admins can add new device types
+                without code changes. */}
+            <div className="vob-device-grid">
+              {devices.length === 0 ? (
+                <div className="vob-device-empty">
+                  <Loader size={16} className="spin" /> Loading equipment catalog…
                 </div>
-              ))}
+              ) : devices.map(d => {
+                const qty = Number(form.hardwareNeeds[d.slug] || 0);
+                const img = Array.isArray(d.images) && d.images.length > 0 ? d.images[0] : '';
+                return (
+                  <div key={d.id} className={`vob-device-card${qty > 0 ? ' vob-device-card--selected' : ''}`}>
+                    <div className="vob-device-img">
+                      {img
+                        ? <img src={resolveStaticUrl(img)} alt={d.name} onError={e => { e.target.style.opacity = '0.3'; }} />
+                        : <div className="vob-device-img-empty">No image</div>}
+                    </div>
+                    <div className="vob-device-body">
+                      <div className="vob-device-name">{d.name}</div>
+                      {d.description && <div className="vob-device-desc">{d.description}</div>}
+                      {d.price != null && <div className="vob-device-price">${Number(d.price).toFixed(2)}</div>}
+                    </div>
+                    <div className="vob-device-qty">
+                      <button
+                        type="button"
+                        className="vob-qty-btn"
+                        onClick={() => setHw(d.slug, Math.max(0, qty - 1))}
+                        disabled={qty <= 0}
+                        aria-label={`Decrease ${d.name}`}
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        className="vob-qty-input"
+                        value={qty}
+                        onChange={e => {
+                          const v = e.target.value === '' ? 0 : Math.max(0, Math.min(999, Number(e.target.value)));
+                          setHw(d.slug, v);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="vob-qty-btn"
+                        onClick={() => setHw(d.slug, Math.min(999, qty + 1))}
+                        aria-label={`Increase ${d.name}`}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Integration toggles — stay separate from the device catalog,
+                per spec. Fuel + Scale integrations live on their respective
+                modules and aren't billable hardware items. */}
+            <div className="vob-integrations">
+              <h4 className="vob-integrations-title">Integrations</h4>
+              <div className="vob-hardware">
+                <div className="vob-hw-row">
+                  <span className="vob-hw-label">Fuel Pump Integration</span>
+                  <label className="vob-hw-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!!form.hardwareNeeds.fuelIntegration}
+                      onChange={e => setHw('fuelIntegration', e.target.checked)}
+                    />
+                    <span>Yes, I need this</span>
+                  </label>
+                </div>
+                <div className="vob-hw-row">
+                  <span className="vob-hw-label">Scale Integration</span>
+                  <label className="vob-hw-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!!form.hardwareNeeds.scaleIntegration}
+                      onChange={e => setHw('scaleIntegration', e.target.checked)}
+                    />
+                    <span>Yes, I need this</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Live order summary — updates as +/- buttons / qty input fire.
+                Empty state when nothing selected so the card doesn't clutter
+                the screen prematurely. */}
+            <div className="vob-cart">
+              <div className="vob-cart-head">
+                <h4 className="vob-cart-title">Estimated Hardware Total</h4>
+                <span className="vob-cart-sub">
+                  {cart.lines.length === 0
+                    ? 'No equipment selected'
+                    : `${cart.lines.length} item${cart.lines.length === 1 ? '' : 's'} · ${cart.totalUnits} unit${cart.totalUnits === 1 ? '' : 's'}`}
+                </span>
+              </div>
+
+              {cart.lines.length === 0 ? (
+                <div className="vob-cart-empty">
+                  Use the <Plus size={12} /> buttons above to add equipment to your order.
+                </div>
+              ) : (
+                <>
+                  <div className="vob-cart-lines">
+                    {cart.lines.map(line => (
+                      <div key={line.id} className="vob-cart-line">
+                        <span className="vob-cart-line-name">{line.name}</span>
+                        <span className="vob-cart-line-qty">
+                          ${line.unit.toFixed(2)} × {line.qty}
+                        </span>
+                        <span className="vob-cart-line-total">${line.lineTotal.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="vob-cart-total-row">
+                    <span className="vob-cart-total-label">Estimated Total</span>
+                    <span className="vob-cart-total-value">${cart.total.toFixed(2)}</span>
+                  </div>
+                  <p className="vob-cart-note">
+                    This is a non-binding estimate based on current list prices.
+                    Final pricing — including bundle discounts, taxes, shipping, and
+                    integration fees — is confirmed in your contract.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -861,6 +861,19 @@ export const getMyVendorOnboarding    = ()     => api.get('/vendor-onboarding/me
 export const updateMyVendorOnboarding = (data) => api.put('/vendor-onboarding/me', data).then(r => r.data);
 export const submitMyVendorOnboarding = (data) => api.post('/vendor-onboarding/me/submit', data).then(r => r.data);
 
+// ── EQUIPMENT CATALOG (used by VendorOnboarding hardware step + equipment shop) ──
+export const listEquipmentProducts    = (params) => api.get('/equipment/products', { params }).then(r => r.data);
+// Resolve a relative `/uploads/...` path to a full URL the browser can fetch.
+// VITE_API_URL is normally `http://localhost:5000/api` or `/api` — strip the
+// trailing `/api` so the static path lines up with express.static.
+export const resolveStaticUrl = (p) => {
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:')) return p;
+  const apiBase = api.defaults.baseURL || '/api';
+  const host    = apiBase.replace(/\/api\/?$/, '');
+  return `${host}${p.startsWith('/') ? '' : '/'}${p}`;
+};
+
 // ── VENDOR ONBOARDING (admin review queue) ──
 export const adminListVendorOnboardings  = (params)   => api.get('/admin/vendor-onboardings', { params }).then(r => r.data);
 export const adminGetVendorOnboarding    = (id)       => api.get(`/admin/vendor-onboardings/${id}`).then(r => r.data);

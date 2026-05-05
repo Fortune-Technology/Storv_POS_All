@@ -42,6 +42,8 @@ import AdminSaasMargin      from './pages/AdminSaasMargin';
 import AdminVendorOnboardings from './pages/AdminVendorOnboardings';
 // S77 Phase 2 — Contracts pipeline
 import AdminContracts from './pages/AdminContracts';
+// Tabbed hub merging the two above (Onboardings + Contracts share workflow + RBAC).
+import AdminVendorPipeline from './pages/AdminVendorPipeline';
 // S78 — Subscription plans + module catalog
 import AdminPlans from './pages/AdminPlans';
 
@@ -95,10 +97,13 @@ function App() {
         <Route path="/payment-models" element={<ProtectedRoute><AdminLayout><AdminPaymentModels /></AdminLayout></ProtectedRoute>} />
         <Route path="/pricing-tiers"  element={<ProtectedRoute><AdminLayout><AdminPricingTiers /></AdminLayout></ProtectedRoute>} />
         <Route path="/saas-margin"    element={<ProtectedRoute><AdminLayout><AdminSaasMargin /></AdminLayout></ProtectedRoute>} />
-        {/* S77 — Vendor onboarding review queue */}
-        <Route path="/vendor-onboardings" element={<ProtectedRoute><AdminLayout><AdminVendorOnboardings /></AdminLayout></ProtectedRoute>} />
-        {/* S77 Phase 2 — Contracts pipeline */}
-        <Route path="/contracts"          element={<ProtectedRoute><AdminLayout><AdminContracts /></AdminLayout></ProtectedRoute>} />
+        {/* S77 — Vendor pipeline (tabbed hub: Onboardings + Contracts).
+            The two sub-pages share the same RBAC + Management group, so they
+            now live behind a single sidebar entry. Old URLs redirect with
+            ?tab=… so existing bookmarks land on the right tab. */}
+        <Route path="/vendor-pipeline"    element={<ProtectedRoute><AdminLayout><AdminVendorPipeline /></AdminLayout></ProtectedRoute>} />
+        <Route path="/vendor-onboardings" element={<Navigate to="/vendor-pipeline?tab=onboardings" replace />} />
+        <Route path="/contracts"          element={<Navigate to="/vendor-pipeline?tab=contracts"   replace />} />
         {/* S78 — Subscription plans + module catalog */}
         <Route path="/plans"              element={<ProtectedRoute><AdminLayout><AdminPlans /></AdminLayout></ProtectedRoute>} />
 

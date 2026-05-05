@@ -136,6 +136,12 @@ app.use('/uploads/quick-buttons', express.static(path.join(__dirname, '..', 'upl
   maxAge: '1d',
 }));
 
+// Static files — device/equipment catalog images. Seeded set lives here, plus
+// any admin-uploaded replacements. Not immutable — admins can overwrite.
+app.use('/uploads/devices', express.static(path.join(__dirname, '..', 'uploads', 'devices'), {
+  maxAge: '1d',
+}));
+
 // Global fire-and-forget audit logger for every POST/PUT/PATCH/DELETE.
 // Runs AFTER the response is sent, so it never blocks the request path.
 app.use('/api', autoAudit({ logFailures: true }));

@@ -17,20 +17,27 @@
  *                                 vendor-onboarding contract pipeline.
  *   5.  seedDeptAttributes        department-attribute presets (alcohol/wine/tobacco)
  *   6.  seedVendorTemplates       3 wholesale-CSV import templates (AGNE / etc.)
- *   7.  seedTobaccoManufacturers  ITG / Altria / RJR scan-data feed catalog
- *   8.  seedUSStates              State catalog (codes + names + lottery defaults)
- *   9.  seedStateSurchargeRules   dual-pricing policy fields per state (NEEDS #8)
- *   10. seedPricingTiers          PricingTier rows for dual-pricing surcharge
- *   11. seedProductTours          5 narrated AI walkthroughs (add-product, etc.)
- *   12. seedLotteryCatalog        per-state scratch ticket catalog
- *   13. seedAiKnowledge           AI Assistant KB (40 articles + embeddings)
+ *   7.  seedEquipment             EquipmentProduct catalog — 7 default devices
+ *                                 (POS Terminal / Receipt Printer / Cash Drawer /
+ *                                 Barcode Scanner / Card Terminal / Customer
+ *                                 Display / Label Printer). Drives the admin
+ *                                 Billing → Equipment tab + the vendor-onboarding
+ *                                 hardware step. Idempotent — admin edits to
+ *                                 price/description/images survive re-runs.
+ *   8.  seedTobaccoManufacturers  ITG / Altria / RJR scan-data feed catalog
+ *   9.  seedUSStates              State catalog (codes + names + lottery defaults)
+ *   10. seedStateSurchargeRules   dual-pricing policy fields per state (NEEDS #9)
+ *   11. seedPricingTiers          PricingTier rows for dual-pricing surcharge
+ *   12. seedProductTours          5 narrated AI walkthroughs (add-product, etc.)
+ *   13. seedLotteryCatalog        per-state scratch ticket catalog
+ *   14. seedAiKnowledge           AI Assistant KB (40 articles + embeddings)
  *
  * All seeders are idempotent — safe to re-run on an already-seeded production
  * DB. seedAiKnowledge requires OPENAI_API_KEY (warning logged + step skipped
  * if absent); every other step works without external API keys.
  *
  * Dependency notes:
- *   • #9 (StateSurchargeRules) updates rows created by #8 (USStates) — must
+ *   • #10 (StateSurchargeRules) updates rows created by #9 (USStates) — must
  *     run after.
  *   • #2 (RBAC) writes UserRole rows that reference the superadmin from #1
  *     via syncUserDefaultRole — must run after.
@@ -98,6 +105,10 @@ const STEPS = [
   { file: 'seedContractTemplates.ts',    label: 'Default merchant agreement contract template' },
   { file: 'seedDeptAttributes.ts',       label: 'Department attribute presets' },
   { file: 'seedVendorTemplates.ts',      label: 'Vendor CSV import templates' },
+  // Default equipment catalog — drives admin Billing → Equipment tab AND
+  // the vendor-onboarding hardware step. Idempotent: pass --force on
+  // re-runs only if you genuinely want to overwrite admin edits.
+  { file: 'seedEquipment.ts',            label: 'Equipment catalog (POS terminals, printers, scanners, etc.)' },
   { file: 'seedTobaccoManufacturers.ts', label: 'Tobacco manufacturer catalog (Altria/RJR/ITG)' },
   { file: 'seedUSStates.ts',             label: 'US State catalog' },
   { file: 'seedStateSurchargeRules.ts',  label: 'Dual-pricing rules per state' },
