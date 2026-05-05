@@ -1088,6 +1088,73 @@ expected.cashMovements.vendorPayments.push({
 });
 console.log(`Vendor payments: 1 cash ($60), 1 cheque ($250)`);
 
+// ──────────────────────────────────────────────────────────────────────
+// DST BOUNDARY TRANSACTIONS (B1 follow-up)
+// ──────────────────────────────────────────────────────────────────────
+// Fixed historical dates that exercise the spring-forward (Mar 9 2025)
+// and fall-back (Nov 2 2025) transitions in the audit store's tz
+// (America/New_York). Each tx is inserted at a UTC instant chosen to
+// land on a specific local-clock label that ONLY parses correctly with
+// the tz-aware `dateTz.ts` helpers.
+//
+// Pre-fix: `localDayStartUTC('2025-11-02', NY)` returned 05:00 UTC (post-
+// DST EST offset). A tx at 04:30 UTC Nov 2 (= 00:30 EDT, the FIRST
+// half-hour of local Nov 2) would have been excluded from `/sales/daily?
+// from=2025-11-02&to=2025-11-02`. Same shape on the fall-back "extra
+// hour" at 04:30 UTC Nov 3 (= 23:30 EST Nov 2 — exists ONLY on fall-back
+// days). Old `localDayEndUTC` cut it off.
+//
+// Post-fix: every tx below is correctly bucketed to its STORE-LOCAL day.
+// REPORT 18 in seedAuditAudit.mjs verifies all four show up under Nov 2,
+// and the spring-forward txs verify Mar 8/9 boundary.
+expected.dst = {
+  // 'YYYY-MM-DD' (store-local) → { txCount, expectedNetTotal }
+  '2025-11-02': { txCount: 4, expectedNetTotal: 0 },  // fall-back day, 4 txs in 25h local
+  '2025-03-08': { txCount: 1, expectedNetTotal: 0 },  // 23:30 EST Mar 8 (= 04:30 UTC Mar 9, just before spring-forward day's local midnight)
+  '2025-03-09': { txCount: 1, expectedNetTotal: 0 },  // mid-day Mar 9, post-jump local
+};
+
+// Helper to insert a single tx at an exact UTC instant.
+async function insertDSTTx(utcIsoStr, dayKey) {
+  const txn = buildTx({
+    items: [{ productKey: 'milk', qty: 1 }],  // grocery, $4.99 + 5% tax = $5.24 grandTotal
+    tender: 'cash', cashierId: cashierAlice, stationId: station1,
+    shiftId: null, createdAt: new Date(utcIsoStr), dayOffset: 0,
+  });
+  // Don't track in byDay (these are FIXED dates outside the relative-date harness)
+  // but track in expected.dst and create the DB row.
+  await p.transaction.create({ data: txn.insert });
+  expected.dst[dayKey].expectedNetTotal = round2(
+    expected.dst[dayKey].expectedNetTotal + Number(txn.insert.subtotal),
+  );
+  return txn;
+}
+
+console.log('\nDST boundary txs (fixed dates 2025-11-02 + 2025-03-09):');
+
+// Fall-back day (Nov 2 2025, America/New_York is in EDT until 02:00 EDT,
+// then falls back to 01:00 EST. Local day is 25 hours.)
+//   04:30 UTC Nov 2  =  00:30 EDT Nov 2 (start of local day)
+//   05:30 UTC Nov 2  =  01:30 EDT Nov 2 (first occurrence of 1:30 AM)
+//   06:30 UTC Nov 2  =  01:30 EST Nov 2 (second occurrence — post-fall-back)
+//   04:30 UTC Nov 3  =  23:30 EST Nov 2 (the "extra" 25th hour — pre-fix
+//                                        localDayEndUTC missed this)
+await insertDSTTx('2025-11-02T04:30:00.000Z', '2025-11-02');
+await insertDSTTx('2025-11-02T05:30:00.000Z', '2025-11-02');
+await insertDSTTx('2025-11-02T06:30:00.000Z', '2025-11-02');
+await insertDSTTx('2025-11-03T04:30:00.000Z', '2025-11-02');  // <-- the killer regression test
+
+// Spring-forward (Mar 9 2025, EST → EDT at 02:00 local. Local day is 23h.)
+//   04:30 UTC Mar 9  =  23:30 EST Mar 8 (NOT Mar 9 — pre-fix would have
+//                                        wrongly bucketed this into Mar 9)
+//   16:30 UTC Mar 9  =  12:30 EDT Mar 9 (clearly mid-day Mar 9 post-jump)
+await insertDSTTx('2025-03-09T04:30:00.000Z', '2025-03-08');
+await insertDSTTx('2025-03-09T16:30:00.000Z', '2025-03-09');
+
+console.log('  ✓ 4 txs on 2025-11-02 (fall-back, 25-hour local day)');
+console.log('  ✓ 1 tx on 2025-03-08 (23:30 EST = 04:30 UTC Mar 9 — should bucket to Mar 8)');
+console.log('  ✓ 1 tx on 2025-03-09 (post-spring-forward mid-day)');
+
 // ── Round all expected totals to 2dp for clean comparison ─────────────
 for (const day of Object.values(expected.byDay)) {
   for (const k of Object.keys(day)) {

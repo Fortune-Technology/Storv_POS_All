@@ -145,8 +145,12 @@ export const listExpiry = async (req: Request, res: Response): Promise<void> => 
       },
     }) as unknown as StoreProductWithProduct[];
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // S(tz-reports) — "today" anchored to STORE-LOCAL midnight, not the
+    // server's local midnight. Without this, a Pacific-time store on a UTC
+    // server marks items "expired today" up to 8 hours early.
+    const { getStoreTimezone, formatLocalDate, localDayStartUTC } = await import('../utils/dateTz.js');
+    const tz = await getStoreTimezone(storeId, prisma);
+    const today = localDayStartUTC(formatLocalDate(new Date(), tz), tz);
 
     const items = rows.map((r) => {
       const bucket = classify(r.expiryDate, today);
@@ -215,8 +219,10 @@ export const getExpirySummary = async (req: Request, res: Response): Promise<voi
       select: { expiryDate: true, quantityOnHand: true, masterProduct: { select: { defaultRetailPrice: true } } },
     });
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Same "today" anchor as listExpiry — STORE-LOCAL midnight (see comment above).
+    const { getStoreTimezone, formatLocalDate, localDayStartUTC } = await import('../utils/dateTz.js');
+    const tz = await getStoreTimezone(storeId, prisma);
+    const today = localDayStartUTC(formatLocalDate(new Date(), tz), tz);
 
     const buckets: Record<string, { count: number; valueAtRisk: number }> = {
       expired:     { count: 0, valueAtRisk: 0 },

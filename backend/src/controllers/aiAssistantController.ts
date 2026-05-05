@@ -19,6 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import prisma from '../config/postgres.js';
 import { userHasPermission } from '../rbac/permissionService.js';
 import { searchKB, formatKBForPrompt } from '../services/kbService.js';
+import { getNDaysWindow, formatLocalDate, getStoreTimezone, addDays } from '../utils/dateTz.js';
 
 /* ── Anthropic client ────────────────────────────────────────────────────── */
 
@@ -241,8 +242,11 @@ async function toolLotterySummary(input: ToolInput, orgId: string, storeId: stri
     return { error: 'You do not have permission to view lottery data.' };
   }
   const days = clamp(input.days, 1, 90);
-  const from = new Date(); from.setDate(from.getDate() - (days - 1)); from.setHours(0, 0, 0, 0);
-  const to = new Date(); to.setHours(23, 59, 59, 999);
+  // Tz-aware window: covers the last N store-local days. Without this,
+  // a store on PT shows "today" starting at 00:00 server-time which is
+  // 17:00 PT the previous day — mis-attributed sales.
+  const w = await getNDaysWindow(days, storeId, prisma);
+  const { from, to } = w;
 
   const where: Prisma.LotteryTransactionWhereInput = { orgId, createdAt: { gte: from, lte: to } };
   if (storeId) where.storeId = storeId;
@@ -283,7 +287,7 @@ async function toolLotterySummary(input: ToolInput, orgId: string, storeId: stri
     .map((g) => ({ name: g.name, sales: Number(g.sales.toFixed(2)) }));
 
   return {
-    period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), days },
+    period: { from: w.fromStr, to: w.toStr, days, timezone: w.tz },
     netSales:          Number((sales - payouts).toFixed(2)),
     grossSales:        Number(sales.toFixed(2)),
     payoutsTotal:      Number(payouts.toFixed(2)),
@@ -301,8 +305,8 @@ async function toolFuelSummary(input: ToolInput, orgId: string, storeId: string 
     return { error: 'You do not have permission to view fuel data.' };
   }
   const days = clamp(input.days, 1, 90);
-  const from = new Date(); from.setDate(from.getDate() - (days - 1)); from.setHours(0, 0, 0, 0);
-  const to = new Date(); to.setHours(23, 59, 59, 999);
+  const w = await getNDaysWindow(days, storeId, prisma);
+  const { from, to } = w;
 
   const where: Prisma.FuelTransactionWhereInput = { orgId, createdAt: { gte: from, lte: to } };
   if (storeId) where.storeId = storeId;
@@ -343,7 +347,7 @@ async function toolFuelSummary(input: ToolInput, orgId: string, storeId: string 
   }
 
   return {
-    period:         { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), days },
+    period:         { from: w.fromStr, to: w.toStr, days, timezone: w.tz },
     netGallons:     Number((grossGallons - refundGallons).toFixed(3)),
     netAmount:      Number((grossAmount - refundAmount).toFixed(2)),
     grossGallons:   Number(grossGallons.toFixed(3)),
@@ -359,8 +363,8 @@ async function toolEmployeeHours(input: ToolInput, orgId: string, storeId: strin
     return { error: 'You do not have permission to view employee data.' };
   }
   const days = clamp(input.days, 1, 60);
-  const from = new Date(); from.setDate(from.getDate() - (days - 1)); from.setHours(0, 0, 0, 0);
-  const to = new Date(); to.setHours(23, 59, 59, 999);
+  const w = await getNDaysWindow(days, storeId, prisma);
+  const { from, to } = w;
 
   const where: Prisma.ClockEventWhereInput = { orgId, createdAt: { gte: from, lte: to } };
   if (storeId) where.storeId = storeId;
@@ -419,7 +423,7 @@ async function toolEmployeeHours(input: ToolInput, orgId: string, storeId: strin
   result.sort((a, b) => b.totalHours - a.totalHours);
 
   return {
-    period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), days },
+    period: { from: w.fromStr, to: w.toStr, days, timezone: w.tz },
     employeeCount: result.length,
     currentlyClockedIn: result.filter((r) => r.activeNow).map((r) => r.name),
     employees: result.slice(0, 30),
@@ -432,10 +436,14 @@ async function toolEndOfDayReport(input: ToolInput, orgId: string, storeId: stri
   if (!(await userHasPermission(req, 'reports.view'))) {
     return { error: 'You do not have permission to view reports.' };
   }
-  const dateStr = (input.date as string | undefined) || new Date().toISOString().slice(0, 10);
-  const from = new Date(dateStr + 'T00:00:00.000Z');
-  const to   = new Date(dateStr + 'T23:59:59.999Z');
-  if (isNaN(from.getTime())) return { error: 'Invalid date format. Use YYYY-MM-DD.' };
+  // Resolve store tz first so a "today" default uses the store's local day.
+  const tz = await getStoreTimezone(storeId, prisma);
+  const dateStr = (input.date as string | undefined) || formatLocalDate(new Date(), tz);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return { error: 'Invalid date format. Use YYYY-MM-DD.' };
+  // Tz-aware day window — handles DST correctly (no missed/extra hour).
+  const { localDayStartUTC, localDayEndUTC } = await import('../utils/dateTz.js');
+  const from = localDayStartUTC(dateStr, tz);
+  const to   = localDayEndUTC(dateStr, tz);
 
   const where: Prisma.TransactionWhereInput = { orgId, createdAt: { gte: from, lte: to }, status: { in: ['complete', 'refund'] } };
   if (storeId) where.storeId = storeId;
@@ -498,10 +506,10 @@ async function toolSalesPredictions(input: ToolInput, orgId: string, storeId: st
   }
   const daysAhead = clamp(input.days_ahead, 1, 30);
 
-  // Pull 90 days of history.
-  const from = new Date(); from.setDate(from.getDate() - 90); from.setHours(0, 0, 0, 0);
-  const to = new Date(); to.setHours(23, 59, 59, 999);
-  const where: Prisma.TransactionWhereInput = { orgId, createdAt: { gte: from, lte: to }, status: { in: ['complete', 'refund'] } };
+  // Pull 90 days of history — windowed in store-local time so partial-day
+  // edges don't smear across two calendar days.
+  const w = await getNDaysWindow(91, storeId, prisma);
+  const where: Prisma.TransactionWhereInput = { orgId, createdAt: { gte: w.from, lte: w.to }, status: { in: ['complete', 'refund'] } };
   if (storeId) where.storeId = storeId;
 
   const txs = await prisma.transaction.findMany({
@@ -510,10 +518,11 @@ async function toolSalesPredictions(input: ToolInput, orgId: string, storeId: st
     take: 50000,
   });
 
-  // Build daily totals.
+  // Build daily totals — bucket by STORE-LOCAL date (not UTC) so each
+  // bucket aligns with the store's business day.
   const byDay = new Map<string, number>();
   for (const t of txs) {
-    const key = new Date(t.createdAt).toISOString().slice(0, 10);
+    const key = formatLocalDate(new Date(t.createdAt), w.tz);
     const v = Number(t.grandTotal || 0) * (t.status === 'refund' ? -1 : 1);
     byDay.set(key, (byDay.get(key) || 0) + v);
   }
@@ -531,28 +540,26 @@ async function toolSalesPredictions(input: ToolInput, orgId: string, storeId: st
     if (!runHoltWinters) throw new Error('runHoltWinters unavailable');
     const series = [...byDay.entries()].sort().map(([d, v]) => ({ date: d, value: v }));
     const forecast = runHoltWinters(series.map((s) => s.value), daysAhead, 7);
-    const today = new Date();
     const days: Array<{ date: string; predicted: number }> = [];
     for (let i = 1; i <= daysAhead; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      days.push({ date: d.toISOString().slice(0, 10), predicted: Number((forecast[i - 1] || 0).toFixed(2)) });
+      // Forecast date = today_local + i (date-string arithmetic, tz-safe + DST-safe)
+      days.push({ date: addDays(w.toStr, i), predicted: Number((forecast[i - 1] || 0).toFixed(2)) });
     }
     const total = days.reduce((sum, d) => sum + d.predicted, 0);
     return {
       forecast:        days,
       totalForecasted: Number(total.toFixed(2)),
       basedOnDays:     series.length,
+      timezone:        w.tz,
       note: 'Holt-Winters forecast with 7-day seasonality. Doesn\'t account for promotions or one-off events.',
     };
   } catch {
     // Simple fallback: average of last 14 days of data.
     const recent = [...byDay.values()].slice(-14);
     const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
-    const today = new Date();
     const days: Array<{ date: string; predicted: number }> = [];
     for (let i = 1; i <= daysAhead; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      days.push({ date: d.toISOString().slice(0, 10), predicted: Number(avg.toFixed(2)) });
+      days.push({ date: addDays(w.toStr, i), predicted: Number(avg.toFixed(2)) });
     }
     return {
       forecast: days,
@@ -814,8 +821,8 @@ async function toolStoreSummary(input: ToolInput, orgId: string, storeId: string
   }
 
   const days = clamp(input.days, 1, 30);
-  const to = new Date(); to.setHours(23, 59, 59, 999);
-  const from = new Date(); from.setDate(from.getDate() - (days - 1)); from.setHours(0, 0, 0, 0);
+  const w = await getNDaysWindow(days, storeId, prisma);
+  const { from, to } = w;
 
   const where: Prisma.TransactionWhereInput = { orgId, createdAt: { gte: from, lte: to }, status: { in: ['complete', 'refund'] } };
   if (storeId) where.storeId = storeId;
@@ -868,7 +875,7 @@ async function toolStoreSummary(input: ToolInput, orgId: string, storeId: string
     .map((p) => ({ name: p.name, qty: p.qty, revenue: Number(p.revenue.toFixed(2)) }));
 
   return {
-    period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), days },
+    period: { from: w.fromStr, to: w.toStr, days, timezone: w.tz },
     netSales:    Number(netSales.toFixed(2)),
     grossSales:  Number(grossSales.toFixed(2)),
     taxCollected: Number(taxTotal.toFixed(2)),
@@ -998,12 +1005,15 @@ async function toolSearchTransactions(input: ToolInput, orgId: string, storeId: 
   const limit = clamp(input.limit, 1, 50);
   const dateFrom = typeof input.date_from === 'string' ? input.date_from : null;
   const dateTo = typeof input.date_to === 'string' ? input.date_to : null;
-  const from = dateFrom
-    ? new Date(dateFrom + 'T00:00:00.000Z')
-    : (() => { const d = new Date(); d.setDate(d.getDate() - 7); d.setHours(0, 0, 0, 0); return d; })();
-  const to = dateTo
-    ? new Date(dateTo + 'T23:59:59.999Z')
-    : (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })();
+  // Tz-aware bookends so explicit YYYY-MM-DD inputs and the "last 7 days"
+  // default both align with the store's local calendar.
+  const tz = await getStoreTimezone(storeId, prisma);
+  const { localDayStartUTC, localDayEndUTC } = await import('../utils/dateTz.js');
+  const todayLocal = formatLocalDate(new Date(), tz);
+  const fromStr = dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) ? dateFrom : addDays(todayLocal, -7);
+  const toStr   = dateTo   && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)   ? dateTo   : todayLocal;
+  const from = localDayStartUTC(fromStr, tz);
+  const to   = localDayEndUTC(toStr, tz);
 
   const where: Prisma.TransactionWhereInput = { orgId, createdAt: { gte: from, lte: to } };
   if (storeId) where.storeId = storeId;
@@ -1030,8 +1040,9 @@ async function toolSearchTransactions(input: ToolInput, orgId: string, storeId: 
 
   return {
     query: {
-      from: from.toISOString().slice(0, 10),
-      to:   to.toISOString().slice(0, 10),
+      from: fromStr,
+      to:   toStr,
+      timezone: tz,
       ...(input.min_amount != null ? { minAmount: input.min_amount } : {}),
       ...(input.max_amount != null ? { maxAmount: input.max_amount } : {}),
       ...(input.tender_method ? { tenderMethod: input.tender_method } : {}),

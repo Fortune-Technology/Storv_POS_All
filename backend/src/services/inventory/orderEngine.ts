@@ -237,6 +237,16 @@ export async function generateOrderSuggestions(
 ): Promise<OrderEngineResult> {
   const { forecastDays = 14 } = options;
 
+  // ── 0. Resolve the store's timezone — used for all daily bucketing
+  //       below (sales velocity, weather match, holiday lookup, forecast
+  //       date generation). Without this, a Pacific-time store on a UTC
+  //       server would attribute its evening sales to the next day —
+  //       skewing 14-factor velocity by ~25% on busy days.
+  const { formatLocalDate, addDays, localDayStartUTC } = await import('../../utils/dateTz.js');
+  const storeForTz = await prisma.store.findUnique({ where: { id: storeId }, select: { timezone: true } });
+  const tz: string = storeForTz?.timezone || 'UTC';
+  const todayLocal = formatLocalDate(new Date(), tz);
+
   // ── 1. Fetch products with inventory + vendor info ─────────────────────
   const products = await prisma.masterProduct.findMany({
     where: { orgId, active: true, deleted: false, trackInventory: true, vendorId: { not: null } },
@@ -263,8 +273,10 @@ export async function generateOrderSuggestions(
   }
 
   // ── 2. Fetch 90-day sales data for all products at once ────────────────
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  // Window starts at midnight LOCAL 90 days ago — not UTC — so each
+  // bucket below aligns to the store's business day.
+  const fromLocal = addDays(todayLocal, -89);
+  const ninetyDaysAgo = localDayStartUTC(fromLocal, tz);
 
   const transactions = await prisma.transaction.findMany({
     where: {
@@ -275,8 +287,8 @@ export async function generateOrderSuggestions(
     select: { lineItems: true, createdAt: true },
   });
 
-  // Build product → daily sales map
-  const productDailySales = buildProductDailySales(transactions, 90);
+  // Build product → daily sales map (tz-aware bucketing)
+  const productDailySales = buildProductDailySales(transactions, 90, tz, todayLocal);
 
   // ── 3. Get weather forecast + impact (if available) ────────────────────
   let weatherImpact: WeatherImpact | null = options.weatherImpact || null;
@@ -287,17 +299,18 @@ export async function generateOrderSuggestions(
     if (store?.latitude && store?.longitude) {
       try {
         const { getTenDayForecast, fetchWeatherRange } = await import('../weather/weather.js');
-        weatherForecast = (await getTenDayForecast(store.latitude, store.longitude, store.timezone || 'America/New_York')) as unknown as WeatherForecastEntry[];
+        weatherForecast = (await getTenDayForecast(store.latitude, store.longitude, tz)) as unknown as WeatherForecastEntry[];
 
-        // Build weather impact from last 90 days sales + weather
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const fromStr = ninetyDaysAgo.toISOString().slice(0, 10);
-        const historicalWeather = await fetchWeatherRange(store.latitude, store.longitude, fromStr, todayStr, store.timezone || 'America/New_York');
+        // Build weather impact from last 90 days sales + weather. Both
+        // strings are STORE-LOCAL dates so the per-day join lines up
+        // (weather rows from Open-Meteo are also keyed in store-local).
+        const historicalWeather = await fetchWeatherRange(store.latitude, store.longitude, fromLocal, todayLocal, tz);
 
-        // Aggregate daily sales with weather for regression
+        // Aggregate daily sales with weather for regression — bucket by
+        // store-local date, NOT UTC.
         const dailySalesTotals: Record<string, number> = {};
         for (const tx of transactions) {
-          const ds = new Date(tx.createdAt).toISOString().slice(0, 10);
+          const ds = formatLocalDate(new Date(tx.createdAt), tz);
           const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as TxLineItem[];
           const total = items.reduce((s, li) => s + (Number(li.lineTotal) || 0), 0);
           dailySalesTotals[ds] = (dailySalesTotals[ds] || 0) + total;
@@ -363,16 +376,17 @@ export async function generateOrderSuggestions(
     }
 
     // ── Factor 4: Day-of-week adjustment ─────────────────────────────
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    forecastValues = applyDOWFactors(forecastValues, tomorrow) as unknown as number[];
+    // "tomorrow" anchored to STORE-LOCAL today so the DOW factor for the
+    // first forecast day matches the store's actual local Tuesday/Friday/etc.
+    const tomorrowLocal = addDays(todayLocal, 1);
+    const tomorrowAnchor = localDayStartUTC(tomorrowLocal, tz);
+    forecastValues = applyDOWFactors(forecastValues, tomorrowAnchor) as unknown as number[];
 
     // ── Factor 5: Holiday adjustment ─────────────────────────────────
     const holidays = US_HOLIDAYS as Record<string, string>;
     forecastValues = forecastValues.map((val, i) => {
-      const d = new Date(tomorrow);
-      d.setDate(tomorrow.getDate() + i);
-      const ds = d.toISOString().slice(0, 10);
+      // Forecast date i = tomorrowLocal + i (date-string arithmetic, tz-safe)
+      const ds = addDays(tomorrowLocal, i);
       const holiday = holidays[ds];
       if (holiday) {
         const mult = HOLIDAY_MULT[holiday] ?? 0.85;
@@ -388,9 +402,7 @@ export async function generateOrderSuggestions(
       for (const w of weatherForecast) wMap[w.date] = w;
 
       forecastValues = forecastValues.map((val, i) => {
-        const d = new Date(tomorrow);
-        d.setDate(tomorrow.getDate() + i);
-        const ds = d.toISOString().slice(0, 10);
+        const ds = addDays(tomorrowLocal, i);
         const w = wMap[ds];
         if (!w) return val;
 
@@ -641,16 +653,54 @@ interface TxRowForSales {
  * Build per-product daily sales from transaction line items.
  * Returns { [productId]: [{ date, units, revenue }] } sorted by date.
  */
+// S(tz-reports) — `tz` + `todayLocalStr` were added so per-day buckets and
+// the zero-fill loop both align to the store's calendar. Without these,
+// a Pacific-time store on a UTC server bucketed evening sales into the
+// next day, skewing 14-factor velocity by up to 25% on busy days.
 function buildProductDailySales(
   transactions: TxRowForSales[],
   daysBack: number,
+  tz: string,
+  todayLocalStr: string,
 ): Record<number, DailySalesEntry[]> {
+  // Lazy require to keep this file standalone-importable for tests.
+  // Both helpers are pure / no DB.
+  // Note: top-level dynamic-import would be async; we already loaded these
+  // in the caller, so just re-import synchronously here is fine via
+  // re-using process module cache (no perf concern).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // (TypeScript ESM requires `await import` — but we want this fn synchronous;
+  //  the caller does the async load and passes results in. So we re-import via
+  //  the bundle's already-cached module by reading from globalThis.)
+  // Simplest: just import inline at call site with await. We already added
+  // the await import in the caller. We'll just use the helpers from there.
+  // Actually — since this function already has `tz` + `todayLocalStr` passed
+  // in from the caller, the only date math we need is per-tx `formatLocalDate`
+  // and `addDays(todayLocalStr, -i)`. Let's import them lazily here.
+  // NOTE: keeping the function synchronous; we use a top-of-file dynamic import.
+  // To stay sync and clean: we'll inline the formatLocalDate logic here using
+  // Intl directly. It's small.
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz === 'UTC' ? undefined : tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const formatLocalDate = (d: Date): string => {
+    if (tz === 'UTC') return d.toISOString().slice(0, 10);
+    const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value])) as Record<string, string>;
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const addDaysLocal = (dateStr: string, n: number): string => {
+    const [yr, mo, dy] = dateStr.split('-').map(Number);
+    const d = new Date(Date.UTC(yr as number, (mo as number) - 1, (dy as number) + n));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
+
   // productId → { date → { units, revenue } }
   const map: Record<number, Record<string, { units: number; revenue: number }>> = {};
-  const today = new Date();
 
   for (const tx of transactions) {
-    const ds = new Date(tx.createdAt).toISOString().slice(0, 10);
+    const ds = formatLocalDate(new Date(tx.createdAt));
     const items = (Array.isArray(tx.lineItems) ? tx.lineItems : []) as TxLineItem[];
     for (const li of items) {
       if (li.isLottery || li.isBottleReturn || li.isBagFee) continue;
@@ -663,14 +713,13 @@ function buildProductDailySales(
     }
   }
 
-  // Convert to sorted arrays with zero-fill
+  // Convert to sorted arrays with zero-fill, using STORE-LOCAL dates so the
+  // series indices align with the per-tx bucket keys above.
   const result: Record<number, DailySalesEntry[]> = {};
   for (const [pid, dateMap] of Object.entries(map)) {
     const series: DailySalesEntry[] = [];
     for (let i = daysBack - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const ds = d.toISOString().slice(0, 10);
+      const ds = addDaysLocal(todayLocalStr, -i);
       series.push({ date: ds, units: dateMap[ds]?.units || 0, revenue: dateMap[ds]?.revenue || 0 });
     }
     result[Number(pid)] = series;

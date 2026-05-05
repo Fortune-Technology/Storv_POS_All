@@ -363,6 +363,14 @@ export const generateSuggestions = async (req: Request, res: Response): Promise<
 
 // ── Stub generator ────────────────────────────────────────────────────
 // Pure-server, deterministic. Pulls from S74 expiry + dead-stock data.
+// S(tz-reports) — "today" anchored to STORE-LOCAL midnight, not the
+// server's local midnight. Matches the listExpiry / getDeadStock pattern.
+async function _storeLocalToday(storeId: string): Promise<Date> {
+  const { getStoreTimezone, formatLocalDate, localDayStartUTC } = await import('../utils/dateTz.js');
+  const tz = await getStoreTimezone(storeId, prisma);
+  return localDayStartUTC(formatLocalDate(new Date(), tz), tz);
+}
+
 async function runStubGenerator(orgId: string, storeId: string): Promise<{
   created: SuggestionRow[];
   meta: { created: number; skipped: number; sources: { expiring: number; deadCandidates: number } };
@@ -397,8 +405,7 @@ async function runStubGenerator(orgId: string, storeId: string): Promise<{
       },
     });
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = await _storeLocalToday(storeId);
 
     for (const row of expiryRows) {
       const r = row as unknown as {
@@ -693,8 +700,7 @@ const CLAUDE_TOOLS = [
 async function tool_get_expiring_products(orgId: string, storeId: string, args: { daysWindow?: number }): Promise<unknown> {
   const daysWindow = Math.max(1, Math.min(60, Number(args.daysWindow ?? 7)));
   const cutoff = new Date(Date.now() + daysWindow * 86_400_000);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = await _storeLocalToday(storeId);
 
   const rows = await prisma.storeProduct.findMany({
     where: {
@@ -952,8 +958,7 @@ Stop calling tools and end your response when you've proposed all the promos you
       }
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = await _storeLocalToday(storeId);
     const days = Math.max(1, Math.min(90, Number(p.durationDays || 7)));
     const startDate = new Date(today);
     const endDate = new Date(today);
