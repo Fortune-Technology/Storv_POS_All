@@ -26,9 +26,24 @@ export default function CounterRow({
   // "Yesterday" = openingTicket from the snapshot (prior day's close OR
   // this book's startTicket if it's the first day). Final fallback to
   // legacy fields preserves old behavior when snapshot data is missing.
+  //
+  // May 2026 — defensive guard: if box.lastShiftEndTicket is a soldout
+  // sentinel (-1 for desc, totalTickets for asc) but the book's status
+  // is active, the book was restored from soldout. The restore endpoint
+  // clears this for new restores, but historical data may still carry
+  // the stale sentinel — skip it so yesterday doesn't show -1 → phantom
+  // whole-pack sale on this row.
+  const lastEndNum = box.lastShiftEndTicket != null && box.lastShiftEndTicket !== ''
+    ? Number(box.lastShiftEndTicket) : null;
+  const isStaleSentinel =
+    box.status === 'active' &&
+    lastEndNum != null &&
+    ((sellDirection === 'desc' && lastEndNum === -1) ||
+      (sellDirection === 'asc'  && total > 0 && lastEndNum === total));
+  const lastShiftEndForFallback = isStaleSentinel ? null : box.lastShiftEndTicket;
   const yesterday = (openingTicket != null && openingTicket !== '')
     ? openingTicket
-    : (box.lastShiftEndTicket ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1))));
+    : (lastShiftEndForFallback ?? box.startTicket ?? (sellDirection === 'asc' ? '0' : String(Math.max(0, total - 1))));
 
   // "Today" column behavior:
   //   • today + scan mode           → blank (fills on scan)

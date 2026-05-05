@@ -2956,6 +2956,14 @@ export const restoreBoxToCounter = async (req: Request, res: Response): Promise<
         returnedAt: null,                       // ← Apr 2026: also clear returnedAt for returned-book restores
         autoSoldoutReason: null,
         currentTicket: restoredTicket,
+        // May 2026 — also reset lastShiftEndTicket so the EoD wizard's
+        // "yesterday" column doesn't carry a stale soldout sentinel (-1
+        // for desc, totalTickets for asc) on the day after a restore.
+        // Without this, the wizard reads box.lastShiftEndTicket=-1 even
+        // though currentTicket was restored to e.g. 149, then today
+        // auto-fills to 149 and the math computes |(-1) − 149| × price
+        // as a phantom whole-pack sale on the day of the restore.
+        lastShiftEndTicket: restoredTicket,
         ticketsSold,
         salesAmount,
         updatedAt: new Date(),

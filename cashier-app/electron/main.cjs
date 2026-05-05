@@ -625,7 +625,7 @@ ipcMain.handle('serial:list', async () => {
   }
 });
 
-ipcMain.handle('serial:connect', async (_, { path: comPath, baud = 9600 }) => {
+ipcMain.handle('serial:connect', async (_, { path: comPath, baud = 9600, dataBits = 8, stopBits = 1, parity = 'none' }) => {
   if (!SerialPort) return { ok: false, error: 'serialport module not available' };
 
   // Close existing connection
@@ -639,9 +639,9 @@ ipcMain.handle('serial:connect', async (_, { path: comPath, baud = 9600 }) => {
       const port = new SerialPort({
         path: comPath,
         baudRate: Number(baud),
-        dataBits: 8,
-        stopBits: 1,
-        parity: 'none',
+        dataBits: Number(dataBits),
+        stopBits: Number(stopBits),
+        parity: String(parity),
         autoOpen: false,
       });
 

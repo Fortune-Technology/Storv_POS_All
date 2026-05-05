@@ -115,6 +115,28 @@ const ADMIN_MODULES: ModuleDef[] = [
   // Session 50 — Platform pricing tier catalog (tier_1 / tier_2 / tier_3 / etc.)
   // Used for SaaS billing tiers. Superadmin manages these.
   { module: 'admin_pricing_tiers', label: 'Pricing Tiers Catalog',     actions: ['view','create','edit','delete'] },
+  // ── Implementation-engineer hardware-config gate ───────────────────────
+  // Holding `hardware_config.access` causes the implementationPin service to
+  // auto-issue a 6-digit weekly-rotating PIN for the user. The cashier-app
+  // accepts that PIN to unlock Hardware Settings (printer / scale / cash
+  // drawer / Dejavoo pin pad).
+  //
+  // Admin-scope on purpose: org admins MUST NOT be able to grant this to
+  // themselves or their own staff. Only superadmins manage admin-scope roles
+  // (enforced in roleController.updateRole + setUserRoles).
+  //
+  // Granting paths:
+  //   1. Assign user to the built-in "Hardware Configurator" admin role
+  //      (cleanest — visible in the admin-app role mgmt UI)
+  //   2. Assign user to ANY admin-scope custom role that includes this key
+  //   3. Toggle the shortcut "Hardware Configuration Access" in the User
+  //      edit modal — under the hood, this assigns role #1 above
+  {
+    module:  'hardware_config',
+    label:   'Hardware Configuration Access',
+    actions: ['access'],
+    desc:    'Issues the holder a 6-digit weekly-rotating PIN that unlocks the cashier-app Hardware Settings flow (printer / scale / cash drawer / Dejavoo pin pad). Intended for the internal implementation/support team. Granted via the built-in "Hardware Configurator" role or any admin-scope role.',
+  },
 ];
 
 function expand(modules: ModuleDef[], scope: Scope): PermissionDef[] {
@@ -149,6 +171,7 @@ function actionLabel(a: string): string {
     configure: 'Configure Mapping & Coupons',
     redeem: 'Redeem at POS',
     approve: 'Approve High-Value (Manager)',
+    access: 'Has Access',
   };
   return labels[a] || a;
 }
@@ -267,20 +290,44 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
     description: 'Minimal view-only access. Promoted once onboarded.',
     permissions: ['dashboard.view'],
   },
+  // Internal implementation/support team. Holders get an auto-generated,
+  // weekly-rotating 6-digit PIN that unlocks the cashier-app Hardware
+  // Settings modal. Only assignable by superadmin (admin-scope).
+  {
+    key: 'hardware-configurator',
+    name: 'Hardware Configurator',
+    scope: 'admin',
+    description: 'Internal team. Issues a 6-digit PIN that unlocks Hardware Settings on the register (printer / scale / cash drawer / Dejavoo pin pad).',
+    permissions: ['hardware_config.access'],
+  },
 ];
 
+// Permissions that wildcard grants ('*' / 'admin:*') deliberately skip —
+// callers must list them explicitly in a role's `permissions` array. This
+// is for keys whose mere presence triggers a side-effect (PIN generation,
+// auto-email) that we don't want to fire for every superadmin/owner just
+// because they hold the catch-all role.
+const WILDCARD_EXEMPT = new Set<string>([
+  'hardware_config.access',  // S78/F38 — auto-generates a 6-digit PIN + email when granted
+]);
+
 // Expand wildcard grants against the permission catalog.
-// '*'        → all org-scope permissions
-// 'admin:*'  → all admin-scope permissions
-// plain keys → literal match
+// '*'        → all org-scope permissions      (minus WILDCARD_EXEMPT)
+// 'admin:*'  → all admin-scope permissions    (minus WILDCARD_EXEMPT)
+// plain keys → literal match (always wins, even if exempt)
 export function expandPermissionGrants(grants: string[]): string[] {
   const out = new Set<string>();
   for (const g of grants) {
     if (g === '*') {
-      for (const p of ALL_PERMISSIONS) if (p.scope === 'org') out.add(p.key);
+      for (const p of ALL_PERMISSIONS) {
+        if (p.scope === 'org' && !WILDCARD_EXEMPT.has(p.key)) out.add(p.key);
+      }
     } else if (g === 'admin:*') {
-      for (const p of ALL_PERMISSIONS) if (p.scope === 'admin') out.add(p.key);
+      for (const p of ALL_PERMISSIONS) {
+        if (p.scope === 'admin' && !WILDCARD_EXEMPT.has(p.key)) out.add(p.key);
+      }
     } else {
+      // Literal key — bypass the exemption (explicit grants always win)
       out.add(g);
     }
   }

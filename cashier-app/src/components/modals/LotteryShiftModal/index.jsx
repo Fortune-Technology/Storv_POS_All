@@ -269,9 +269,23 @@ export default function LotteryShiftModal({
     //   4. currentTicket (last-resort live fallback)
     //   5. '—' (truly no data)
     const snapTicket = yesterdayCloses[box.id]?.ticket;
+    // May 2026 — defensive guard: if lastShiftEndTicket is a soldout
+    // sentinel (-1 for desc, totalTickets for asc) but the book is
+    // currently `active`, the book was restored from soldout. The
+    // restore endpoint clears this for new restores (May 2026 fix), but
+    // historical data may still carry the stale sentinel. Skip it so
+    // yesterday's column doesn't show -1 → phantom whole-pack sale.
+    const totalForSentinel = Number(box.totalTickets || 0);
+    const lastEnd = box.lastShiftEndTicket;
+    const lastEndNum = lastEnd != null && lastEnd !== '' ? Number(lastEnd) : null;
+    const isStaleSentinel =
+      box.status === 'active' &&
+      lastEndNum != null &&
+      ((sellDirection === 'desc' && lastEndNum === -1) ||
+        (sellDirection === 'asc'  && totalForSentinel > 0 && lastEndNum === totalForSentinel));
     const yesterdayEnd =
-      (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== ''
-        ? String(box.lastShiftEndTicket)
+      (!isStaleSentinel && lastEnd != null && lastEnd !== ''
+        ? String(lastEnd)
         : null) ||
       (snapTicket != null && snapTicket !== '' ? String(snapTicket) : null) ||
       box.startTicket ||

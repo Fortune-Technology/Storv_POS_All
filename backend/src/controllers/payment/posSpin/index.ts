@@ -34,3 +34,6 @@ export {
 
 // Read-only merchant configuration for the portal
 export { dejavooMerchantStatus } from './status.js';
+
+// Cashier-side setup (Hardware Settings modal)
+export { dejavooGetMerchantSetup, dejavooSaveMerchantSetup } from './merchantSetup.js';

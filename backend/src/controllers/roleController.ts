@@ -328,6 +328,35 @@ export async function updateRole(req: Request, res: Response, next: NextFunction
       });
     }
 
+    // S(rbac-hardware) — if the role's permission set changed AND the
+    // change touched `hardware_config.access`, every user assigned to this
+    // role needs a flag/PIN reconciliation. Skip the sync entirely when
+    // the diff doesn't touch that key (avoids fan-out for unrelated edits).
+    if (
+      permissionDiff &&
+      (permissionDiff.added.includes('hardware_config.access') ||
+       permissionDiff.removed.includes('hardware_config.access'))
+    ) {
+      try {
+        const holders = await prisma.userRole.findMany({
+          where: { roleId: role.id },
+          select: { userId: true },
+        });
+        const { syncHardwareAccessForUser } = await import('../services/implementationPin/service.js');
+        const { sendImplementationPinEmail } = await import('../services/notifications/email.js');
+        for (const h of holders) {
+          const sync = await syncHardwareAccessForUser(h.userId).catch(() => null);
+          if (sync?.granted && sync.pin && sync.user) {
+            sendImplementationPinEmail(sync.user.email, sync.user.name, sync.pin, 'granted').catch((err) =>
+              console.warn('[roleController.updateRole] grant email failed:', (err as Error).message)
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('[roleController.updateRole] hardware sync failed:', (err as Error).message);
+      }
+    }
+
     res.json({ success: true });
   } catch (err) { next(err); }
 }
@@ -450,6 +479,22 @@ export async function setUserRoles(req: Request, res: Response, next: NextFuncti
       logAudit(req, 'update', 'user_roles', userId, {
         changes: { roles: { added, removed } },
       });
+    }
+
+    // S(rbac-hardware) — reconcile the hardware-config flag + PIN if any
+    // of the added/removed roles affect the `hardware_config.access`
+    // permission. Cheap to run unconditionally on every role change.
+    try {
+      const { syncHardwareAccessForUser } = await import('../services/implementationPin/service.js');
+      const { sendImplementationPinEmail } = await import('../services/notifications/email.js');
+      const sync = await syncHardwareAccessForUser(userId);
+      if (sync.granted && sync.pin && sync.user) {
+        sendImplementationPinEmail(sync.user.email, sync.user.name, sync.pin, 'granted').catch((err) =>
+          console.warn('[roleController.setUserRoles] grant email failed:', (err as Error).message)
+        );
+      }
+    } catch (err) {
+      console.warn('[roleController.setUserRoles] hardware sync failed:', (err as Error).message);
     }
 
     res.json({ success: true });

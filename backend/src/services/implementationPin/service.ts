@@ -276,3 +276,127 @@ export async function revokeHardwareAccess(userId: string): Promise<void> {
   });
 }
 
+// ── RBAC sync: permission ↔ flag + PIN ─────────────────────────────────
+/**
+ * S(rbac-hardware) — keep `User.canConfigureHardware` in sync with the
+ * RBAC permission `hardware_config.access`.
+ *
+ * Called whenever a user's roles change, a role's permissions change, or
+ * an admin flips the shortcut toggle. Recomputes the user's effective
+ * permissions; flips the flag + PIN to match.
+ *
+ *   has-perm + flag-false → grant: flag=true, generate PIN, return pin (caller emails)
+ *   no-perm + flag-true   → revoke: flag=false, clear PIN
+ *   no-op transitions     → return changed=false
+ *
+ * Superadmin users are skipped — they shouldn't auto-receive a PIN merely
+ * because their catch-all role expanded to include the key. (The wildcard
+ * is exempt from this key in expandPermissionGrants, so this guard is
+ * belt-and-suspenders.)
+ */
+export interface HardwareSyncResult {
+  changed: boolean;
+  granted: boolean;        // true when this call generated a fresh PIN
+  revoked: boolean;        // true when this call cleared a PIN
+  pin?: string;            // plaintext PIN, present only when granted=true
+  user?: { id: string; name: string; email: string };
+}
+
+export async function syncHardwareAccessForUser(userId: string): Promise<HardwareSyncResult> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true, name: true, email: true, role: true, orgId: true,
+      canConfigureHardware: true,
+      status: true,
+    },
+  });
+  if (!user) return { changed: false, granted: false, revoked: false };
+
+  // Suspended users: revoke any active PIN regardless of permission state.
+  if (user.status !== 'active' && user.canConfigureHardware) {
+    await revokeHardwareAccess(userId);
+    return { changed: true, granted: false, revoked: true, user: { id: user.id, name: user.name, email: user.email } };
+  }
+
+  // Skip superadmins — they don't auto-receive a PIN. If a superadmin needs
+  // hardware access for testing, an admin assigns them the role explicitly.
+  if (user.role === 'superadmin') {
+    return { changed: false, granted: false, revoked: false };
+  }
+
+  // Compute effective permissions (org context = user's home org for the
+  // permission lookup; admin-scope perms aren't org-bound but the function
+  // handles that internally).
+  const { computeUserPermissions } = await import('../../rbac/permissionService.js');
+  const perms = await computeUserPermissions(user, user.orgId || null);
+  const hasAccess = perms.includes('hardware_config.access');
+
+  if (hasAccess && !user.canConfigureHardware) {
+    // Grant + generate fresh PIN
+    const pin = generatePin();
+    const enc = vaultEncrypt(pin);
+    if (!enc) throw new Error('Failed to encrypt implementation PIN');
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        canConfigureHardware: true,
+        implementationPinEnc: enc,
+        implementationPinSetAt: new Date(),
+      },
+    });
+    return {
+      changed: true, granted: true, revoked: false, pin,
+      user: { id: user.id, name: user.name, email: user.email },
+    };
+  }
+
+  if (!hasAccess && user.canConfigureHardware) {
+    // Permission was revoked — clear flag + PIN
+    await revokeHardwareAccess(userId);
+    return {
+      changed: true, granted: false, revoked: true,
+      user: { id: user.id, name: user.name, email: user.email },
+    };
+  }
+
+  return { changed: false, granted: false, revoked: false };
+}
+
+// ── Hardware Configurator role helpers ─────────────────────────────────
+/**
+ * Find the system "Hardware Configurator" role row. Returns null when
+ * seedRbac hasn't been run yet — callers MUST handle the null case
+ * gracefully (typically: log a warning + skip the role assignment, then
+ * fall back to the legacy direct-flag-flip behavior).
+ */
+export async function findHardwareConfiguratorRole(): Promise<{ id: string } | null> {
+  return prisma.role.findFirst({
+    where: { key: 'hardware-configurator', orgId: null, isSystem: true, status: 'active' },
+    select: { id: true },
+  });
+}
+
+/** Idempotent: assigns user to the Hardware Configurator role. */
+export async function assignHardwareConfiguratorRole(userId: string): Promise<boolean> {
+  const role = await findHardwareConfiguratorRole();
+  if (!role) {
+    console.warn('[implementationPin] Hardware Configurator role not found — run seedRbac first.');
+    return false;
+  }
+  await prisma.userRole.upsert({
+    where:  { userId_roleId: { userId, roleId: role.id } },
+    create: { userId, roleId: role.id },
+    update: {},
+  });
+  return true;
+}
+
+/** Idempotent: removes user from the Hardware Configurator role. */
+export async function removeHardwareConfiguratorRole(userId: string): Promise<boolean> {
+  const role = await findHardwareConfiguratorRole();
+  if (!role) return false;
+  await prisma.userRole.deleteMany({ where: { userId, roleId: role.id } });
+  return true;
+}
+

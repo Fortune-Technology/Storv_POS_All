@@ -99,8 +99,12 @@ export async function computeUserPermissions(
       try {
         const { ALL_PERMISSIONS } = await import('./permissionCatalog.js');
         const scope: 'org' | null = effectiveRoleKey === 'superadmin' ? null /* both scopes */ : 'org';
+        // S(rbac-hardware) — same exemption list as `expandPermissionGrants`:
+        // don't soft-grant side-effect-bearing keys via the catch-all path.
+        const SOFT_GRANT_EXEMPT = new Set<string>(['hardware_config.access']);
         return ALL_PERMISSIONS
           .filter((p) => scope === null || p.scope === scope)
+          .filter((p) => !SOFT_GRANT_EXEMPT.has(p.key))
           .map((p) => p.key);
       } catch { /* catalog import failed — return empty below */ }
     }

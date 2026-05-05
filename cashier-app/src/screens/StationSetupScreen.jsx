@@ -76,15 +76,27 @@ const PRINTER_MODELS = [
   { id: 'other_usb',      label: 'Other USB Printer (via QZ Tray)',  type: 'qz',     port: null, width: '80mm', tip: '' },
 ];
 
-// Default baud rate per scale brand
-const SCALE_BAUD_DEFAULTS = {
-  cas:       9600,
-  mettler:   9600,
-  avery:     9600,
-  digi:      9600,
-  datalogic: 9600,
-  generic:   9600,
+// Default RS-232 framing per scale brand. Datalogic Magellan 9800i ships from
+// Datalogic for retail-POS deployments configured for 7 data bits, Odd parity,
+// 1 stop bit (matches the IBM 4690 / JPOS scale driver convention). Other brands
+// default to standard 8-N-1.
+const SCALE_DEFAULTS = {
+  cas:       { baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  mettler:   { baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  avery:     { baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  digi:      { baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+  datalogic: { baud: 9600, dataBits: 7, stopBits: 1, parity: 'odd'  },
+  generic:   { baud: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
 };
+
+// Convenience for framing dropdowns (mirrors HardwareSettingsModal).
+const STN_DATA_BITS_OPTIONS = [7, 8];
+const STN_STOP_BITS_OPTIONS = [1, 2];
+const STN_PARITY_OPTIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'odd',  label: 'Odd'  },
+  { id: 'even', label: 'Even' },
+];
 
 // ── Style helpers (retained for backward compat with deeply nested form elements) ──
 const S = {
@@ -174,7 +186,7 @@ export default function StationSetupScreen() {
   const [hw, setHW] = useState({
     receiptPrinter: { model: '', type: 'none', name: '', ip: '', port: 9100, width: '80mm' },
     labelPrinter:   { type: 'none', name: '', ip: '', port: 9100 },
-    scale:          { type: 'none', connection: 'serial', baud: 9600, portLabel: '', ip: '', port: 4001, comPort: '' },
+    scale:          { type: 'none', connection: 'serial', baud: 9600, dataBits: 8, stopBits: 1, parity: 'none', portLabel: '', ip: '', port: 4001, comPort: '' },
     paxTerminal:    { enabled: false, model: 'A35', ip: '', port: 10009 },
     cashDrawer:     { type: 'none' },
   });
@@ -357,7 +369,15 @@ export default function StationSetupScreen() {
       try {
         const comPath = hw.scale.comPort;
         if (!comPath) { setScaleTestWeight('no signal'); setScaleTestingState(false); alert('Select a COM port first.'); return; }
-        const res = await window.electronAPI.serialConnect(comPath, hw.scale.baud || 9600);
+        // S(scale-fix) — pass framing so the test honors the configured
+        // data bits / parity / stop bits (Magellan 9800i in retail is 7-O-1).
+        const res = await window.electronAPI.serialConnect(
+          comPath,
+          hw.scale.baud || 9600,
+          hw.scale.dataBits ?? 8,
+          hw.scale.stopBits ?? 1,
+          hw.scale.parity   ?? 'none',
+        );
         if (!res?.ok) { setScaleTestWeight('no signal'); setScaleTestingState(false); return; }
 
         let found = false;
@@ -996,7 +1016,16 @@ export default function StationSetupScreen() {
                     value={hw.scale.type}
                     onChange={e => {
                       const t = e.target.value;
-                      updHW('scale', { type: t, baud: SCALE_BAUD_DEFAULTS[t] ?? 9600 });
+                      // S(scale-fix) — auto-fill RS-232 framing from the brand's
+                      // documented default (e.g. Datalogic Magellan 9800i = 7-O-1).
+                      const def = SCALE_DEFAULTS[t];
+                      updHW('scale', {
+                        type: t,
+                        baud:     def?.baud     ?? 9600,
+                        dataBits: def?.dataBits ?? 8,
+                        stopBits: def?.stopBits ?? 1,
+                        parity:   def?.parity   ?? 'none',
+                      });
                       setDetectedPorts([]);
                       setScaleTestWeight(null);
                     }}
@@ -1087,10 +1116,38 @@ export default function StationSetupScreen() {
                           </select>
                         </Field>
 
+                        {/* S(scale-fix) — RS-232 framing. Auto-filled per brand,
+                            but exposed here so the cashier can override if the
+                            POS terminal's COM port expects different framing
+                            (e.g. some IBM 4690 / Wincor / Toshiba scale ports). */}
+                        <div className="sss-grid-equal-3">
+                          <Field label="Data Bits">
+                            <select value={hw.scale.dataBits ?? 8} onChange={e => updHW('scale', { dataBits: Number(e.target.value) })} className="sss-select">
+                              {STN_DATA_BITS_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="Parity">
+                            <select value={hw.scale.parity ?? 'none'} onChange={e => updHW('scale', { parity: e.target.value })} className="sss-select">
+                              {STN_PARITY_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="Stop Bits">
+                            <select value={hw.scale.stopBits ?? 1} onChange={e => updHW('scale', { stopBits: Number(e.target.value) })} className="sss-select">
+                              {STN_STOP_BITS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </Field>
+                        </div>
+
                         <div style={{ background: 'rgba(61,86,181,.08)', border: '1px solid rgba(61,86,181,.2)', borderRadius: 8, padding: '10px 12px', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7 }}>
                           <div style={{ fontWeight: 700, color: '#7b95e0', marginBottom: 4 }}>Native COM Port</div>
                           Direct RS-232 serial connection via the PC's built-in COM ports. Requires the <strong style={{ color: '#e8eaf0' }}>desktop Electron app</strong>.
                           Use this when the scale is connected with an RS-232 cable (DB9 / RJ45-to-DB9).
+                          {hw.scale.type === 'datalogic' && (
+                            <div style={{ marginTop: 4, color: '#cbd5e1' }}>
+                              Magellan 9800i ships configured for <strong style={{ color: '#e8eaf0' }}>9600 7-O-1</strong> in retail-POS mode (matches IBM 4690 / JPOS).
+                              If you previously had it working in MarketPOS, leave the framing as <strong style={{ color: '#e8eaf0' }}>7 / Odd / 1</strong>.
+                            </div>
+                          )}
                         </div>
                       </>
                     ) : hw.scale.connection === 'tcp' ? (

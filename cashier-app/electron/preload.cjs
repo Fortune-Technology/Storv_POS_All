@@ -76,8 +76,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Scale / Scanner (Native COM Port) ─────────────────────────────────────
   /** List available COM ports */
   serialList:       ()             => ipcRenderer.invoke('serial:list'),
-  /** Connect to a COM port at given baud rate — data arrives via onScaleData */
-  serialConnect:    (path, baud)   => ipcRenderer.invoke('serial:connect', { path, baud }),
+  /** Connect to a COM port at given baud rate + framing — data arrives via onScaleData.
+   *  dataBits: 7|8, stopBits: 1|2, parity: 'none'|'odd'|'even'. Defaults: 9600 8-N-1. */
+  serialConnect:    (path, baud, dataBits, stopBits, parity) =>
+    ipcRenderer.invoke('serial:connect', { path, baud, dataBits, stopBits, parity }),
   serialDisconnect: ()             => ipcRenderer.invoke('serial:disconnect'),
   serialSend:       (cmd)          => ipcRenderer.invoke('serial:send', cmd),
 

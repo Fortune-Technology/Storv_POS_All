@@ -755,15 +755,29 @@
   border-color: var(--border-color, #e5e7eb);
 }
 
+/* May 2026 — DO NOT use `opacity: <1` here. Opacity creates a new
+   stacking context which traps `.lbo-actmenu-pop` (the per-row 3-dot
+   menu) inside this row — its z-index can no longer escape to float
+   above subsequent rows, so the popup paints BEHIND the next row.
+   Mute the cells via `color` only; the row's stacking context stays
+   default and ActionMenu pops above siblings as expected. */
 .lbo-cnt-row--untouched {
   border-color: var(--border-color, #e5e7eb);
-  opacity: 0.7;
+  background: #fafafa;
 }
 .lbo-cnt-row--untouched .lbo-cnt-y,
 .lbo-cnt-row--untouched .lbo-cnt-dash,
-.lbo-cnt-row--untouched .lbo-cnt-tickets input {
+.lbo-cnt-row--untouched .lbo-cnt-tickets input,
+.lbo-cnt-row--untouched .lbo-cnt-bookno,
+.lbo-cnt-row--untouched .lbo-cnt-book small,
+.lbo-cnt-row--untouched .lbo-cnt-slot,
+.lbo-cnt-row--untouched .lbo-cnt-sold,
+.lbo-cnt-row--untouched .lbo-cnt-amt {
   color: var(--text-muted, #9ca3af);
 }
+/* (Pack pill keeps its native color — visually a tiny price chip on
+   muted rows is fine. Avoid `filter` / `opacity` / `transform` at row
+   scope for the same stacking-context reason as above.) */
 
 /* May 2026 — Empty slot placeholder row. Renders between occupied slots
    so the manager sees gaps at a glance (e.g. slots 1, 3, 5 occupied →
