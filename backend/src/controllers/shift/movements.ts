@@ -23,28 +23,64 @@ import prisma from '../../config/postgres.js';
 import { nanoid } from 'nanoid';
 
 import { getOrgId } from './helpers.js';
+import {
+  nextCashEventReference,
+  prefixForCashDropType,
+  prefixForPayoutType,
+} from '../../services/cashEvent/reference.js';
+
+// S77 (C9) — allowed CashDrop types:
+//   'drop'    = legacy / default — money OUT of drawer to safe (pickup)
+//   'paid_in' = NEW — money INTO drawer (petty cash refill, change drop)
+const VALID_CASH_DROP_TYPES = ['drop', 'paid_in'] as const;
+
+// S77 (C9) — allowed CashPayout payoutTypes:
+//   'expense'              = vendor payout — money OUT (legacy)
+//   'merchandise'          = vendor merchandise payment — money OUT (legacy)
+//   'loan'                 = NEW — cashier/employee cash advance (money OUT)
+//   'received_on_account'  = NEW — charge-account customer settling balance (money IN)
+const VALID_PAYOUT_TYPES = ['expense', 'merchandise', 'loan', 'received_on_account'] as const;
 
 // ── POST /shift/:id/drop ─────────────────────────────────────────────────
 export const addCashDrop = async (req: Request, res: Response): Promise<void> => {
   try {
     const orgId = getOrgId(req);
     const { id }           = req.params;
-    const body = (req.body || {}) as { amount?: number | string; note?: string | null };
+    const body = (req.body || {}) as {
+      amount?: number | string;
+      note?: string | null;
+      // S77 (C9) — type defaults to 'drop' for back-compat with existing
+      // CashDrawerModal callers. New "Cash In" modal sends 'paid_in'.
+      type?: string | null;
+    };
     const { amount, note } = body;
+    const type = body.type || 'drop';
 
     if (!amount || parseFloat(String(amount)) <= 0) { res.status(400).json({ error: 'amount must be > 0' }); return; }
+    if (!(VALID_CASH_DROP_TYPES as readonly string[]).includes(type)) {
+      res.status(400).json({ error: `type must be one of: ${VALID_CASH_DROP_TYPES.join(', ')}` });
+      return;
+    }
 
     const shift = await prisma.shift.findFirst({ where: { id, orgId: orgId ?? undefined, status: 'open' } });
     if (!shift) { res.status(404).json({ error: 'Active shift not found' }); return; }
 
+    // S77 (C9) — generate human-readable ref before create.
+    const referenceNumber = await nextCashEventReference(
+      orgId as string,
+      prefixForCashDropType(type),
+    );
+
     const drop = await prisma.cashDrop.create({
       data: {
-        id:          nanoid(),
-        orgId:       orgId as string,
-        shiftId:     id,
-        amount:      parseFloat(String(amount)),
-        note:        note || null,
-        createdById: req.user!.id,
+        id:              nanoid(),
+        orgId:           orgId as string,
+        shiftId:         id,
+        amount:          parseFloat(String(amount)),
+        note:            note || null,
+        type,
+        referenceNumber,
+        createdById:     req.user!.id,
       },
     });
 
@@ -65,25 +101,40 @@ export const addPayout = async (req: Request, res: Response): Promise<void> => {
       note?: string | null;
       vendorId?: number | string | null;
       payoutType?: string | null;
+      // S77 (C9) — link a Customer for received_on_account events.
+      customerId?: string | null;
     };
-    const { amount, recipient, note, vendorId, payoutType } = body;
+    const { amount, recipient, note, vendorId, customerId } = body;
+    const payoutType = body.payoutType || 'expense';
 
     if (!amount || parseFloat(String(amount)) <= 0) { res.status(400).json({ error: 'amount must be > 0' }); return; }
+    if (!(VALID_PAYOUT_TYPES as readonly string[]).includes(payoutType)) {
+      res.status(400).json({ error: `payoutType must be one of: ${VALID_PAYOUT_TYPES.join(', ')}` });
+      return;
+    }
 
     const shift = await prisma.shift.findFirst({ where: { id, orgId: orgId ?? undefined, status: 'open' } });
     if (!shift) { res.status(404).json({ error: 'Active shift not found' }); return; }
 
+    // S77 (C9) — generate human-readable ref before create.
+    const referenceNumber = await nextCashEventReference(
+      orgId as string,
+      prefixForPayoutType(payoutType),
+    );
+
     const payout = await prisma.cashPayout.create({
       data: {
-        id:          nanoid(),
-        orgId:       orgId as string,
-        shiftId:     id,
-        amount:      parseFloat(String(amount)),
-        recipient:   recipient || null,
-        vendorId:    vendorId ? parseInt(String(vendorId)) : null,
-        payoutType:  payoutType || null,
-        note:        note || null,
-        createdById: req.user!.id,
+        id:              nanoid(),
+        orgId:           orgId as string,
+        shiftId:         id,
+        amount:          parseFloat(String(amount)),
+        recipient:       recipient || null,
+        vendorId:        vendorId ? parseInt(String(vendorId)) : null,
+        payoutType,
+        customerId:      customerId || null,
+        referenceNumber,
+        note:            note || null,
+        createdById:     req.user!.id,
       },
     });
 

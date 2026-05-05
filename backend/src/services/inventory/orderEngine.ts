@@ -1,7 +1,7 @@
 /**
  * Order Engine — Multi-Factor Demand-Driven Reorder System
  *
- * 14-Factor Algorithm:
+ * 15-Factor Algorithm:
  * ┌────────────────────────────────────────────────────────────┐
  * │  1. Sales Velocity        8. Lead Time                     │
  * │  2. Trend Direction       9. Safety Stock (Z × σ × √LT)   │
@@ -10,6 +10,7 @@
  * │  5. Holiday Calendar      12. Shelf Life / Perishability   │
  * │  6. Weather Forecast      13. Demand Variability (CV)      │
  * │  7. Current Inventory     14. Stockout History             │
+ * │ 15. Vendor Cover Floor    (S71f / F31)                     │
  * └────────────────────────────────────────────────────────────┘
  *
  * Core Formula:
@@ -17,8 +18,18 @@
  *   forecastDemand = Σ dailyDemand[today → today + leadTime + reviewPeriod]
  *   safetyStock    = Z(serviceLevel) × σ(dailyDemand) × √(leadTime)
  *   orderQty       = max(0, forecastDemand - onHand + safetyStock - onOrder)
+ *   coverFloor     = max(0, vendorTargetCover × avgDaily + safetyStock - onHand - onOrder)
+ *   orderQty       = max(orderQty, coverFloor)              ← Factor #15
  *   orderQty       = roundUpToCaseQty(orderQty, casePacks)
  *   orderQty       = max(orderQty, minOrderQty)
+ *
+ * Factor #15 (vendor cover floor) is a SOFT FLOOR distinct from the existing
+ * use of `Vendor.targetCoverageDays` as a forecast-window extender:
+ *   - Window extension (existing): forecast horizon = leadTime + cover
+ *   - Floor (NEW):                  raw qty ≥ cover × avgDaily + safetyStock − onHand − onOrder
+ * Both can coexist — the window controls forecast SIZING, the floor protects
+ * against quirky forecast valleys (slow weekday, holiday dip) where the
+ * forecast-driven qty would otherwise drop below the buyer's preferred cover.
  */
 
 import prisma from '../../config/postgres.js';
@@ -83,6 +94,11 @@ export interface OrderFactors {
   shelfLife:       { applied: boolean; days?: number | null };
   stockoutPenalty: { applied: boolean; days: number; multiplier: number };
   demandCV:        { value: number; level: 'low' | 'medium' | 'high' };
+  // S71f / F31 — Factor #15. `binding=true` means this floor raised the order
+  // qty above what the forecast-driven calculation produced; UI can show a chip.
+  // `floorUnits` = the post-floor qty we would have hit if binding (or 0 when
+  // not configured). `targetDays` = vendor's targetCoverageDays (0 if null).
+  vendorCoverFloor: { targetDays: number; floorUnits: number; binding: boolean };
 }
 
 export interface OrderSuggestion {
@@ -437,6 +453,30 @@ export async function generateOrderSuggestions(
     let rawOrderQty = Math.max(0, (forecastDemand * stockoutPenalty) - onHand + safetyStock - onOrder);
     if (!isFinite(rawOrderQty) || isNaN(rawOrderQty)) rawOrderQty = 0;
 
+    // ── Factor 15 (S71f / F31): Vendor cover-day soft floor ──────────
+    // Distinct from the forecast-window extension above (which sizes the
+    // forecast HORIZON). This floor protects against forecast valleys
+    // (slow weekday, holiday dip) where the forecast-driven qty would
+    // otherwise drop below the buyer's preferred per-vendor cover.
+    //   coverFloor = max(0, targetCoverageDays × avgDaily + safetyStock - onHand - onOrder)
+    // Take max(rawOrderQty, coverFloor). Skipped when targetCoverageDays
+    // is null/0 OR avgDaily is 0 (slow movers don't need a vendor floor).
+    const vendorCoverDays = vendor.targetCoverageDays && vendor.targetCoverageDays > 0
+      ? vendor.targetCoverageDays
+      : 0;
+    let coverFloor = 0;
+    let coverFloorBinding = false;
+    if (vendorCoverDays > 0 && avgDaily > 0) {
+      coverFloor = Math.max(
+        0,
+        vendorCoverDays * avgDaily + safetyStock - onHand - onOrder,
+      );
+      if (coverFloor > rawOrderQty) {
+        rawOrderQty = coverFloor;
+        coverFloorBinding = true;
+      }
+    }
+
     // ── Factor 10: Round up to case quantity ─────────────────────────
     let orderUnits = casePacks > 1 ? Math.ceil(rawOrderQty / casePacks) * casePacks : Math.ceil(rawOrderQty);
     let orderCases = casePacks > 1 ? Math.ceil(rawOrderQty / casePacks) : orderUnits;
@@ -465,6 +505,15 @@ export async function generateOrderSuggestions(
     else if (daysOfSupply < leadTime + reviewPeriod) { urgency = 'medium'; reorderReason = 'low_days_supply'; }
     else if (trend > 0.3) { urgency = 'low'; reorderReason = 'trending_up'; }
     else { urgency = 'low'; reorderReason = 'forecast_demand'; }
+
+    // S71f / F31 — When the vendor cover floor was the binding constraint
+    // (i.e. raised the qty above forecast-driven), surface that as the reason
+    // unless a more urgent condition already won. The cover floor often fires
+    // on slow days when the forecast dipped — the buyer still wants stock per
+    // their per-vendor policy. Don't override true urgency signals.
+    if (coverFloorBinding && (reorderReason === 'forecast_demand' || reorderReason === 'trending_up')) {
+      reorderReason = 'vendor_cover_floor';
+    }
 
     suggestions.push({
       productId:      product.id,
@@ -519,6 +568,8 @@ export async function generateOrderSuggestions(
         shelfLife:      { applied: !!product.shelfLifeDays, days: product.shelfLifeDays },
         stockoutPenalty:{ applied: stockoutPenalty > 1, days: stockoutDays, multiplier: stockoutPenalty },
         demandCV:       { value: r4(cv), level: (cv > 1 ? 'high' : cv > 0.5 ? 'medium' : 'low') as 'low' | 'medium' | 'high' },
+        // S71f / F31 — vendor cover-day soft floor
+        vendorCoverFloor: { targetDays: vendorCoverDays, floorUnits: r2(coverFloor), binding: coverFloorBinding },
       },
     });
   }

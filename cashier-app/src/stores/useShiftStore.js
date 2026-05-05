@@ -75,12 +75,16 @@ export const useShiftStore = create((set, get) => ({
     }
   },
 
-  /** Add a cash drop (remove cash from drawer mid-shift). */
-  addCashDrop: async (amount, note) => {
+  /**
+   * Add a cash drop (remove cash from drawer mid-shift) OR a cash-in (add
+   * money INTO drawer mid-shift, S77 / C9). Pass extras.type='paid_in'
+   * for the cash-in variant; defaults to legacy 'drop' (drawer pickup).
+   */
+  addCashDrop: async (amount, note, extras = {}) => {
     const { shift } = get();
     if (!shift) return { ok: false, error: 'No active shift' };
     try {
-      const drop = await apiAddCashDrop(shift.id, { amount, note });
+      const drop = await apiAddCashDrop(shift.id, { amount, note, ...extras });
       set(s => ({
         shift: s.shift ? { ...s.shift, drops: [...(s.shift.drops || []), drop] } : s.shift,
       }));

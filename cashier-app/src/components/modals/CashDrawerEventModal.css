@@ -1,0 +1,530 @@
+/* S77 (C9) — CashDrawerEventModal — prefix: cdem- */
+
+.cdem-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cdem-modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  width: 720px;
+  max-width: 100%;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cdem-modal--narrow {
+  width: 460px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.cdem-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cdem-header-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cdem-header-title h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.cdem-header-title p {
+  margin: 1px 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.cdem-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.cdem-close-btn:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* ── Type chip selector row ──────────────────────────────────────────── */
+.cdem-type-chips {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+  overflow-x: auto;
+}
+
+.cdem-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+
+.cdem-type-chip:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.cdem-type-chip--active {
+  /* active styles set inline (per-kind accent) */
+}
+
+/* ── Body: 2-column ─────────────────────────────────────────────────── */
+.cdem-body {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.cdem-left-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cdem-right-col {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Form bits ─────────────────────────────────────────────────────── */
+.cdem-section-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 5px;
+}
+
+.cdem-input,
+.cdem-select,
+.cdem-note {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.cdem-input:focus,
+.cdem-select:focus,
+.cdem-note:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+}
+
+.cdem-note {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.cdem-select-wrap {
+  position: relative;
+}
+
+.cdem-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.cdem-select-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+/* Tender + subtype button rows */
+.cdem-tender-btns,
+.cdem-subtype-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cdem-tender-btn,
+.cdem-subtype-btn {
+  flex: 1 1 auto;
+  padding: 7px 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  min-width: 70px;
+}
+
+.cdem-tender-btn:hover,
+.cdem-subtype-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.cdem-tender-btn--active,
+.cdem-subtype-btn--active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+}
+
+/* Customer search results dropdown */
+.cdem-customer-results {
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cdem-customer-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 11px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.cdem-customer-result:last-child {
+  border-bottom: none;
+}
+
+.cdem-customer-result:hover {
+  background: #f1f5f9;
+}
+
+.cdem-customer-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.cdem-customer-meta {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+.cdem-customer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 7px 11px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1.5px solid #10b981;
+  border-radius: 8px;
+  color: #047857;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.cdem-customer-clear {
+  background: transparent;
+  border: none;
+  color: #047857;
+  padding: 2px;
+  margin-left: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cdem-customer-clear:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.cdem-error {
+  padding: 8px 11px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 0.82rem;
+}
+
+/* ── Amount display + numpad ────────────────────────────────────────── */
+.cdem-amount-display {
+  background: #f8fafc;
+  border: 2px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+}
+
+.cdem-amount-direction {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cdem-amount-value {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.cdem-amount-placeholder {
+  color: #cbd5e1;
+}
+
+.cdem-amount-hint {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+.cdem-numpad {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.cdem-key {
+  padding: 11px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.06s ease;
+}
+
+.cdem-key:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.cdem-key:active {
+  background: #e2e8f0;
+}
+
+.cdem-key--clear {
+  color: #b91c1c;
+}
+
+.cdem-key--backspace {
+  color: #b45309;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+.cdem-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.cdem-btn-cancel,
+.cdem-btn-confirm,
+.cdem-btn-print,
+.cdem-btn-done {
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1.5px solid transparent;
+  transition: all 0.1s ease;
+}
+
+.cdem-btn-cancel {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.cdem-btn-cancel:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.cdem-btn-confirm {
+  background: #6366f1; /* overridden inline per kind */
+  color: #fff;
+}
+
+.cdem-btn-confirm:hover {
+  filter: brightness(0.95);
+}
+
+.cdem-btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cdem-btn-print {
+  background: #0ea5e9;
+  color: #fff;
+}
+
+.cdem-btn-print:hover {
+  background: #0284c7;
+}
+
+.cdem-btn-done {
+  background: #16a34a;
+  color: #fff;
+}
+
+.cdem-btn-done:hover {
+  background: #15803d;
+}
+
+/* ── Success state ──────────────────────────────────────────────────── */
+.cdem-success {
+  padding: 24px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.cdem-success-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.cdem-success-amount {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.cdem-success-direction {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.cdem-success-ref {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85rem;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.cdem-success-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #047857;
+  margin-top: 2px;
+}
+
+.cdem-success-status--warn {
+  color: #b45309;
+}
+
+.cdem-success-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .cdem-modal {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  .cdem-body {
+    flex-direction: column;
+  }
+  .cdem-right-col {
+    width: 100%;
+  }
+  .cdem-amount-value {
+    font-size: 2.1rem;
+  }
+}

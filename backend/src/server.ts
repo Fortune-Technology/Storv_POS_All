@@ -57,6 +57,7 @@ import labelQueueRoutes  from './routes/labelQueueRoutes.js';
 import labelPrintJobRoutes from './routes/labelPrintJobRoutes.js';
 import roleRoutes        from './routes/roleRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
+import internalRoutes    from './routes/internalRoutes.js';     // F32 — service-to-service
 import webhookRoutes     from './routes/webhookRoutes.js';
 import storefrontAuthRoutes from './routes/storefrontAuthRoutes.js';
 import exchangeRoutes       from './routes/exchangeRoutes.js';
@@ -69,6 +70,7 @@ import { startPendingMoveScheduler } from './services/lottery/index.js';
 import { startScanDataScheduler } from './services/scanData/scanDataScheduler.js';
 import { startSyntheticDataScheduler } from './services/syntheticDataScheduler.js';
 import { startAckPoller } from './services/scanData/ackPoller.js';
+import { startImplementationPinScheduler } from './services/implementationPin/scheduler.js';
 import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 
 dotenv.config();
@@ -182,6 +184,7 @@ app.use('/api/public',         publicRoutes);
 app.use('/api/tickets',        ticketRoutes);
 app.use('/api/notifications',  notificationRoutes);
 app.use('/api/integrations',   integrationRoutes);
+app.use('/api/internal',       internalRoutes);   // F32 — auth via X-Internal-Api-Key
 app.use('/api/storefront',     storefrontAuthRoutes);
 app.use('/api/exchange',       exchangeRoutes);
 app.use('/api/ai-assistant',   aiAssistantRoutes);
@@ -229,6 +232,10 @@ const startServer = async () => {
   startPendingMoveScheduler();
   startScanDataScheduler();
   startAckPoller();
+  // S78 — weekly Implementation Engineer PIN rotation (Monday 00:00 UTC).
+  // Hourly sweep is idempotent; rotates only users whose PIN is older
+  // than the most-recent Monday boundary.
+  startImplementationPinScheduler();
   // Test-only: synthetic transaction generator. Fires daily after the
   // configured UTC hour, gated by ENABLE_SYNTHETIC_DATA=true. Idempotent
   // per (org, UTC day) — safe across server restarts.

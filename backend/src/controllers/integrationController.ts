@@ -359,24 +359,32 @@ export const getSettings = async (req: Request, res: Response, next: NextFunctio
       },
     });
 
-    // S71d — lazy init for the storefront row
-    if (!integration && platform === 'storefront') {
-      const created = await prisma.storeIntegration.create({
-        data: {
-          orgId, storeId, platform: 'storefront',
-          credentials: {} as Prisma.InputJsonValue,
-          config: {} as Prisma.InputJsonValue,
-          inventoryConfig: {} as Prisma.InputJsonValue,
-          pricingConfig: {} as Prisma.InputJsonValue,
-          status: 'active',
-          storeName: 'Self-hosted storefront',
-        },
-        select: {
-          id: true, config: true, inventoryConfig: true, pricingConfig: true,
-          status: true, storeName: true,
-        },
-      });
-      integration = created;
+    // S71d / Option B — lazy init for ANY live platform (storefront or
+    // marketplace) so admins can configure pricing BEFORE connecting credentials.
+    // Status starts as 'inactive' for marketplaces (only flips to 'active' once
+    // connectPlatform succeeds with valid creds); 'storefront' is always active
+    // since it has no third-party credentials.
+    if (!integration) {
+      const meta = PLATFORMS[platform];
+      if (meta && meta.status === 'live') {
+        const isStorefront = platform === 'storefront';
+        const created = await prisma.storeIntegration.create({
+          data: {
+            orgId, storeId, platform,
+            credentials: {} as Prisma.InputJsonValue,
+            config: {} as Prisma.InputJsonValue,
+            inventoryConfig: {} as Prisma.InputJsonValue,
+            pricingConfig: {} as Prisma.InputJsonValue,
+            status: isStorefront ? 'active' : 'inactive',
+            storeName: isStorefront ? 'Self-hosted storefront' : null,
+          },
+          select: {
+            id: true, config: true, inventoryConfig: true, pricingConfig: true,
+            status: true, storeName: true,
+          },
+        });
+        integration = created;
+      }
     }
 
     if (!integration) {
@@ -450,6 +458,16 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
       fields: Object.keys(data),
     });
 
+    // F32 — when admin saves the storefront's pricingConfig, bust the
+    // ecom-backend's in-memory cache so the next sync picks up the change
+    // immediately (vs waiting up to 60s TTL). Fire-and-forget — failures
+    // don't block the save.
+    if (platform === 'storefront' && pricingConfig !== undefined) {
+      void invalidateEcomStorefrontCache(storeId).catch((err) => {
+        console.warn('[updateSettings] failed to bust ecom cache:', err instanceof Error ? err.message : err);
+      });
+    }
+
     // Return with normalized pricingConfig for UI consistency
     const responsePricing = normalizePricingConfig(
       (updated.pricingConfig as unknown as MarketplacePricingConfig) ?? {},
@@ -457,6 +475,26 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
     res.json({ ...updated, pricingConfig: responsePricing });
   } catch (err) { next(err); }
 };
+
+/**
+ * F32 — POST a cache-invalidation request to ecom-backend so it drops its
+ * cached storefront pricingConfig for the given store. Best-effort: if
+ * ECOM_BACKEND_URL or INTERNAL_API_KEY isn't configured (e.g. dev without
+ * ecom-backend running), we no-op silently.
+ */
+async function invalidateEcomStorefrontCache(storeId: string): Promise<void> {
+  const ecomUrl = process.env.ECOM_BACKEND_URL;
+  const internalKey = process.env.INTERNAL_API_KEY;
+  if (!ecomUrl || !internalKey) return;
+  await fetch(`${ecomUrl.replace(/\/$/, '')}/api/internal/sync/invalidate-pricing`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Api-Key': internalKey,
+    },
+    body: JSON.stringify({ storeId }),
+  });
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  INVENTORY SYNC
@@ -468,7 +506,12 @@ export const updateSettings = async (req: Request, res: Response, next: NextFunc
 export const syncInventory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const orgId = req.orgId;
-    const { platform, storeId } = req.body as { platform?: string; storeId?: string };
+    const body = req.body as { platform?: string; storeId?: string };
+    const platform = body.platform;
+    // S71e fix — accept storeId from body OR from the X-Store-Id header (set
+    // by scopeToTenant middleware). The drawer's "Save & Sync Now" button
+    // doesn't have storeId in its props; it relies on the header.
+    const storeId = body.storeId || (req.storeId as string | undefined);
 
     if (!platform || !storeId) {
       res.status(400).json({ error: 'platform and storeId are required' });
@@ -526,11 +569,18 @@ export const syncInventory = async (req: Request, res: Response, next: NextFunct
 export const previewSyncImpact = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const orgId = req.orgId as string;
-    const { platform, storeId, pricingConfig } = req.body as {
+    const body = req.body as {
       platform?: string;
       storeId?: string;
       pricingConfig?: unknown;
     };
+    const platform = body.platform;
+    // S71e fix — accept storeId from body OR from the X-Store-Id header (set
+    // by scopeToTenant middleware). The drawer mounted in EcomSetup doesn't
+    // know the storeId — it relies on the header set by every API call. Same
+    // pattern as the existing getSettings / updateSettings endpoints.
+    const storeId = body.storeId || (req.storeId as string | undefined);
+    const pricingConfig = body.pricingConfig;
 
     if (!platform || !storeId) {
       res.status(400).json({ error: 'platform and storeId are required' });

@@ -547,7 +547,7 @@ export const returnLotteryBoxToLotto  = (id, d)  => api.post(`/lottery/boxes/${i
 export const cancelLotteryPendingMove = (id)     => api.delete(`/lottery/boxes/${id}/pending-move`).then(lotteryUnwrap);
 export const runLotteryPendingMoves   = ()       => api.post('/lottery/run-pending-moves').then(lotteryUnwrap);
 
-// Phase 1b: Daily Scan + Online Totals + Close Day
+// Phase 1b: Daily Scan + Online Totals
 export const getLotteryOnlineTotal    = (params) => api.get('/lottery/online-total', { params }).then(lotteryUnwrap);
 export const upsertLotteryOnlineTotal = (data)   => api.put('/lottery/online-total', data).then(lotteryUnwrap);
 export const getDailyLotteryInventory = (params) => api.get('/lottery/daily-inventory', { params }).then(lotteryUnwrap);
@@ -568,7 +568,10 @@ export const getLotteryCounterSnapshot = (params) =>
 // delete the snapshot.
 export const upsertLotteryHistoricalClose = (data) =>
   api.put('/lottery/historical-close', data).then(lotteryUnwrap);
-export const closeLotteryDay          = (data)   => api.post('/lottery/close-day', data).then(lotteryUnwrap);
+// May 2026 — `closeLotteryDay` removed. Pending-move sweep runs every 15
+// min via the backend scheduler; per-book snapshots come from the cashier-
+// app EoD wizard's `saveLotteryShiftReport`. The button was redundant +
+// caused duplicate snapshots when admins clicked it multiple times.
 
 // Phase 2: Weekly Settlement
 export const listLotterySettlements      = (params)        => api.get('/lottery/settlements', { params }).then(lotteryUnwrap);
