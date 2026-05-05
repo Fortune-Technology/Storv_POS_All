@@ -853,17 +853,28 @@ export const getEndOfDayReport = async (req: Request, res: Response, _next: Next
       let bucket = 'paid_out'; // default
       if (ptype === 'loan' || ptype === 'loans')             bucket = 'loans';
       else if (ptype === 'paid_in' || ptype === 'received')  bucket = 'paid_in';
-      else if (ptype === 'received_on_acct' || ptype === 'on_account' || ptype === 'house_payment') bucket = 'received_on_acct';
+      // S77 (C9) — accept full-word 'received_on_account' (canonical for new
+      // code) alongside legacy abbreviated forms.
+      else if (
+        ptype === 'received_on_account' ||
+        ptype === 'received_on_acct' ||
+        ptype === 'on_account' ||
+        ptype === 'house_payment'
+      ) bucket = 'received_on_acct';
       else if (ptype === 'tip' || ptype === 'tips')          bucket = 'tips';
       else                                                   bucket = 'paid_out';
       payoutMap[bucket].count  += 1;
       payoutMap[bucket].amount += amt;
     }
 
-    // CashDrop rows → Pickups
+    // CashDrop rows → Pickups (default) OR Paid-in (S77 type='paid_in').
+    // Legacy rows with type=null are treated as 'drop' → Pickups.
     for (const d of cashEvents.drops) {
-      payoutMap.pickups.count  += 1;
-      payoutMap.pickups.amount += Number(d.amount) || 0;
+      const amt = Number(d.amount) || 0;
+      const dtype = String((d as unknown as { type?: string }).type || 'drop').toLowerCase().trim();
+      const bucket = dtype === 'paid_in' ? 'paid_in' : 'pickups';
+      payoutMap[bucket].count  += 1;
+      payoutMap[bucket].amount += amt;
     }
 
     // Cashback from transactions

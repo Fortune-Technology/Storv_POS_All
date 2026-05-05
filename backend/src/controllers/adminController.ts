@@ -21,6 +21,8 @@ import {
   sendTicketReplyToAssignee,
   type TicketSummary,
 } from '../services/emailService.js';
+import { sendImplementationPinEmail } from '../services/notifications/email.js';
+import { grantHardwareAccess, revokeHardwareAccess } from '../services/implementationPin/service.js';
 import { syncUserDefaultRole } from '../rbac/permissionService.js';
 import { logAudit } from '../services/auditService.js';
 import { computeDiff, hasChanges } from '../services/auditDiff.js';
@@ -165,6 +167,10 @@ export const getAllUsers = async (req: Request, res: Response, next: NextFunctio
         select: {
           id: true, name: true, email: true, phone: true,
           role: true, status: true, orgId: true, createdAt: true,
+          // S78 — surface the hardware-access flag so admin user list can
+          // render the toggle inline. The encrypted PIN is NEVER returned
+          // here; only the boolean flag.
+          canConfigureHardware: true,
           organization: { select: { id: true, name: true, slug: true, plan: true, isActive: true } },
           stores: { select: { store: { select: { id: true, name: true } } } },
         },
@@ -385,16 +391,27 @@ interface UpdateUserBody {
   role?: string;
   status?: string;
   orgId?: string;
+  // S78 — superadmin-only flag. Flipping true → auto-generates a fresh
+  // implementation PIN + emails the user. Flipping false → clears the PIN.
+  canConfigureHardware?: boolean;
 }
 
 export const updateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const body = (req.body || {}) as UpdateUserBody;
-    const { name, email, phone, role, status, orgId } = body;
+    const { name, email, phone, role, status, orgId, canConfigureHardware } = body;
 
     // Only existing superadmins can promote a user to superadmin.
     if (role === 'superadmin' && req.user?.role !== 'superadmin') {
       res.status(403).json({ error: 'Only a superadmin can promote a user to superadmin.' });
+      return;
+    }
+
+    // S78 — only superadmins can grant hardware-configuration access.
+    // The flag protects internal credentials, so the gate to grant it is
+    // narrow on purpose — admin/owner can't elevate their own team here.
+    if (canConfigureHardware !== undefined && req.user?.role !== 'superadmin') {
+      res.status(403).json({ error: 'Only a superadmin can change canConfigureHardware.' });
       return;
     }
 
@@ -403,7 +420,7 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
     // separately in the diff payload.
     const before = await prisma.user.findUnique({
       where: { id: req.params.id },
-      select: { name: true, email: true, phone: true, role: true, status: true, orgId: true },
+      select: { name: true, email: true, phone: true, role: true, status: true, orgId: true, canConfigureHardware: true },
     });
 
     const data: Prisma.UserUpdateInput = {};
@@ -413,12 +430,33 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
     if (role !== undefined)   data.role = role;
     if (status !== undefined) data.status = status;
     if (orgId !== undefined)  data.organization = { connect: { id: orgId } };
+    // S78 — flag toggle is handled via service helpers below (which also
+    // generate / clear the encrypted PIN). Don't write it directly here.
 
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data,
-      select: { id: true, name: true, email: true, role: true, status: true, orgId: true },
+      select: { id: true, name: true, email: true, role: true, status: true, orgId: true, canConfigureHardware: true },
     });
+
+    // S78 — handle the canConfigureHardware flip AFTER the main update so
+    // the order stays clean. grantHardwareAccess is idempotent (no-op if
+    // already true) and revokeHardwareAccess is safe on a user that
+    // never had it granted.
+    if (canConfigureHardware !== undefined && canConfigureHardware !== before?.canConfigureHardware) {
+      if (canConfigureHardware) {
+        const newPin = await grantHardwareAccess(user.id);
+        if (newPin) {
+          // Fire welcome email — best-effort; the panel still surfaces the
+          // PIN at /users/me/implementation-pin so a missed email isn't fatal.
+          sendImplementationPinEmail(user.email, user.name, newPin, 'granted').catch((err) =>
+            console.warn('[adminController.updateUser] grant email failed:', (err as Error).message)
+          );
+        }
+      } else {
+        await revokeHardwareAccess(user.id);
+      }
+    }
 
     // Keep the primary UserOrg row in sync with admin-made changes.
     if (orgId !== undefined || role !== undefined) {
@@ -445,6 +483,7 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
     if (role   !== undefined) patchView.role   = role;
     if (status !== undefined) patchView.status = status;
     if (orgId  !== undefined) patchView.orgId  = orgId;
+    if (canConfigureHardware !== undefined) patchView.canConfigureHardware = canConfigureHardware;
 
     const diff = computeDiff(before as unknown as Record<string, unknown>, patchView);
     if (hasChanges(diff)) {

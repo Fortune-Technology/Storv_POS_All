@@ -510,6 +510,210 @@ export const printEoDReport = async (config, report) => {
   await printEoDReportQZ(qzName, report, paperWidth);
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// S77 (C9) — CASH DRAWER EVENT RECEIPT — ESC/POS template
+// ─────────────────────────────────────────────────────────────────────────
+// Single template covers all 5 event types via the `kind` field. Every type
+// shares the layout (header → banner → meta → body → amount → signature →
+// footer); body fields vary per kind, signature only renders on the house
+// copy.
+//
+// Branding: full legal-entity header (name + address + phone + tax id).
+// Skips the customer-facing receipt extras (marketing header lines, return
+// policy, "thank you" footer) since these are internal/audit documents.
+//
+// Input shape (caller assembles from the persisted CashDrop / CashPayout):
+//   {
+//     kind: 'cash_drop' | 'cash_in' | 'vendor_payout' | 'loan' | 'received_on_account',
+//     amount: number,
+//     referenceNumber: string,    // e.g. 'VP-20260504-003'
+//     createdAt: Date | string,
+//     cashierName: string,
+//     stationName?: string,
+//     shiftId?: string,
+//     vendorName?: string,         // vendor_payout only
+//     payoutType?: string,         // 'expense' | 'merchandise'
+//     tenderMethod?: string,       // 'cash' / 'cheque' / etc.
+//     customerName?: string,       // received_on_account only
+//     recipient?: string,          // loan only — free-text
+//     note?: string,
+//     copyLabel?: 'STORE COPY' | 'VENDOR COPY' | 'CUSTOMER COPY' | null,
+//     showSignatureLine?: boolean, // true = house copy
+//   }
+// Plus header fields piped from storeBranding:
+//   storeName, storeAddress, storePhone, storeTaxId, taxIdLabel, paperWidth
+//
+const KIND_BANNER = {
+  cash_drop:           'CASH DROP',
+  cash_in:             'CASH IN / PAID-IN',
+  vendor_payout:       'VENDOR PAYOUT',
+  loan:                'CASHIER LOAN',
+  received_on_account: 'RECEIVED ON ACCOUNT',
+};
+const KIND_DIRECTION = {
+  cash_drop:           'OUT',  // money OUT of drawer to safe
+  cash_in:             'IN',   // money INTO drawer
+  vendor_payout:       'OUT',  // money OUT to vendor
+  loan:                'OUT',  // money OUT (cashier advance)
+  received_on_account: 'IN',   // money IN (customer paying balance)
+};
+
+export const buildCashEventReceiptString = (event, opts = {}) => {
+  const W = (event.paperWidth === '58mm' || opts.paperWidth === '58mm') ? 32 : 42;
+  const money = (n) => {
+    if (n == null) return '—';
+    const v = Number(n);
+    if (!Number.isFinite(v)) return '—';
+    return `$${Math.abs(v).toFixed(2)}`;
+  };
+  const row      = (left, right) => line(left, right, W);
+  const divider  = '-'.repeat(W) + LF;
+  const hr       = '='.repeat(W) + LF;
+
+  const kind     = event.kind || 'cash_drop';
+  const banner   = KIND_BANNER[kind]    || 'CASH DRAWER EVENT';
+  const direction = KIND_DIRECTION[kind] || 'OUT';
+
+  let r = '';
+  r += ESCPOS.INIT;
+  r += ESCPOS.ALIGN_CENTER;
+
+  // ── HEADER (legal entity / invoice-style branding) ─────────────────────
+  if (event.storeName) {
+    r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE;
+    r += event.storeName + LF;
+    r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
+  }
+  if (event.storeAddress) r += event.storeAddress + LF;
+  if (event.storePhone)   r += event.storePhone   + LF;
+  if (event.storeTaxId) {
+    const label = event.taxIdLabel || 'Tax ID';
+    r += label + ': ' + event.storeTaxId + LF;
+  }
+  r += LF;
+
+  // ── EVENT BANNER ────────────────────────────────────────────────────────
+  r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE;
+  r += '*** ' + banner + ' ***' + LF;
+  r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
+  r += hr;
+  r += ESCPOS.ALIGN_LEFT;
+
+  // ── META (ref / date / cashier / register / shift) ─────────────────────
+  if (event.referenceNumber) {
+    r += row('Ref:',      event.referenceNumber);
+  }
+  const ts = event.createdAt ? new Date(event.createdAt) : new Date();
+  r += row('Date:',     ts.toLocaleString());
+  if (event.cashierName) r += row('Cashier:',  event.cashierName);
+  if (event.stationName) r += row('Register:', event.stationName);
+  if (event.shiftId)     r += row('Shift:',    String(event.shiftId).slice(-8));
+
+  r += divider;
+
+  // ── BODY (type-specific fields) ────────────────────────────────────────
+  if (kind === 'vendor_payout') {
+    if (event.payoutType) {
+      const ptypeLabel = event.payoutType === 'merchandise' ? 'Merchandise' : 'Expense';
+      r += row('Type:',   ptypeLabel);
+    }
+    if (event.vendorName)   r += row('Vendor:',  event.vendorName);
+    if (event.tenderMethod) r += row('Tender:',  event.tenderMethod);
+  } else if (kind === 'loan') {
+    if (event.recipient)    r += row('Loan to:', event.recipient);
+  } else if (kind === 'received_on_account') {
+    if (event.customerName) r += row('From:',    event.customerName);
+    if (event.tenderMethod) r += row('Tender:',  event.tenderMethod);
+  }
+  // cash_drop and cash_in: just note (no extra body fields)
+
+  if (event.note) {
+    r += 'Note:' + LF;
+    // Wrap note across lines at W-2 width with 2-space indent
+    const noteText = String(event.note);
+    for (let i = 0; i < noteText.length; i += W - 2) {
+      r += '  ' + noteText.substring(i, i + (W - 2)) + LF;
+    }
+  }
+
+  if (kind === 'vendor_payout' || kind === 'loan' || kind === 'received_on_account' || event.note) {
+    r += divider;
+  }
+
+  // ── AMOUNT (large/bold, with direction tag) ────────────────────────────
+  r += LF;
+  r += ESCPOS.ALIGN_CENTER;
+  r += ESCPOS.BOLD_ON + ESCPOS.DOUBLE_SIZE;
+  r += money(event.amount) + LF;
+  r += ESCPOS.NORMAL_SIZE + ESCPOS.BOLD_OFF;
+  r += '(Money ' + direction + ' of drawer)' + LF;
+  r += LF;
+  r += ESCPOS.ALIGN_LEFT;
+
+  // ── SIGNATURE LINE (house copy only) ───────────────────────────────────
+  if (event.showSignatureLine) {
+    r += divider;
+    r += LF;
+    r += 'Cashier signature:' + LF;
+    r += '_'.repeat(W - 2) + LF;
+    r += LF;
+    // Vendor payouts get a vendor / receiver acknowledgment line on the
+    // house copy too — proves the vendor accepted the cash.
+    if (kind === 'vendor_payout' || kind === 'received_on_account') {
+      const otherLabel = kind === 'vendor_payout' ? 'Vendor signature:' : 'Customer signature:';
+      r += otherLabel + LF;
+      r += '_'.repeat(W - 2) + LF;
+      r += LF;
+    }
+  }
+
+  // ── FOOTER (copy label) ────────────────────────────────────────────────
+  r += hr;
+  r += ESCPOS.ALIGN_CENTER;
+  if (event.copyLabel) {
+    r += ESCPOS.BOLD_ON + '*** ' + event.copyLabel + ' ***' + LF + ESCPOS.BOLD_OFF;
+  }
+  r += LF;
+  r += 'Printed: ' + new Date().toLocaleString() + LF;
+  r += ESCPOS.FEED_3;
+  r += ESCPOS.CUT_PARTIAL;
+  return r;
+};
+
+// ── Print cash drawer event — routes through QZ Tray or network-proxy ────
+export const printCashEventQZ = async (printerName, event, paperWidth = '80mm') => {
+  if (!isQZConnected()) await connectQZ();
+  const data = buildCashEventReceiptString(event, { paperWidth });
+  await printRaw(printerName, [data]);
+};
+
+export const printCashEventNetwork = async (ip, port, event, paperWidth = '80mm') => {
+  const data = buildCashEventReceiptString(event, { paperWidth });
+  await api.post('/pos-terminal/print-network', {
+    ip, port,
+    data: btoa(unescape(encodeURIComponent(data))),
+  });
+};
+
+// Top-level dispatcher — same shape as printEoDReport / printReceipt.
+// Caller passes `event` already enriched with branding fields (the modal /
+// POSScreen know storeBranding); this function only handles transport.
+export const printCashEvent = async (config, event) => {
+  const method     = config?.receiptPrinter?.method || 'qz';
+  const qzName     = config?.receiptPrinter?.qzName || config?.receiptPrinter?.name;
+  const ip         = config?.receiptPrinter?.ip;
+  const port       = config?.receiptPrinter?.port || 9100;
+  const paperWidth = config?.receiptPrinter?.paperWidth || '80mm';
+
+  if (method === 'network') {
+    if (!ip) throw new Error('Receipt printer network IP not configured');
+    await printCashEventNetwork(ip, port, event, paperWidth);
+    return;
+  }
+  if (!qzName) throw new Error('Receipt printer name not configured');
+  await printCashEventQZ(qzName, event, paperWidth);
+};
+
 // ── Build ZPL shelf label ────────────────────────────────────────────────
 export const buildShelfLabelZPL = ({ productName = '', price = '0.00', upc = '', size = '' }) => `
 ^XA

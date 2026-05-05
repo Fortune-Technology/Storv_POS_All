@@ -78,6 +78,20 @@ interface AdminUserRow {
   orgId?: string;
   organization?: { id?: string | number; name?: string } | null;
   createdAt?: string;
+  // S78 — superadmin-only flag controlling cashier-app Hardware Settings
+  // unlock. Surfaced in the user list + edit form so the panel can render
+  // a toggle. Plaintext PIN is NEVER part of the list response.
+  canConfigureHardware?: boolean;
+}
+
+/** Returns true when the currently-signed-in admin user is a superadmin. */
+function viewerIsSuperadmin(): boolean {
+  try {
+    const raw = localStorage.getItem('admin_user');
+    if (!raw) return false;
+    const u = JSON.parse(raw) as { role?: string };
+    return u?.role === 'superadmin';
+  } catch { return false; }
 }
 
 const PLAN_OPTIONS = ['trial', 'starter', 'pro', 'enterprise'] as const;
@@ -481,6 +495,7 @@ interface UserModalProps {
 
 const UserModal = ({ open, onClose, onSaved, editUser, orgId, storeId, storeName }: UserModalProps) => {
   const isEdit = !!editUser;
+  const isSuperadminViewer = viewerIsSuperadmin();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -490,14 +505,19 @@ const UserModal = ({ open, onClose, onSaved, editUser, orgId, storeId, storeName
   const [showPw, setShowPw] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tempPwShown, setTempPwShown] = useState<string | null>(null);
+  // S78 — superadmin-only toggle. When flipped on (or off), the backend
+  // generates / clears the Implementation Engineer PIN and emails the user.
+  const [canConfigureHardware, setCanConfigureHardware] = useState(false);
 
   useEffect(() => {
     if (editUser) {
       setName(editUser.name || ''); setEmail(editUser.email || ''); setPhone(editUser.phone || '');
       setRole(editUser.role || 'staff'); setStatus(editUser.status || 'active');
+      setCanConfigureHardware(!!editUser.canConfigureHardware);
     } else {
       setName(''); setEmail(''); setPhone(''); setRole(storeId ? 'cashier' : 'staff'); setStatus('active');
       setPassword(''); setTempPwShown(null);
+      setCanConfigureHardware(false);
     }
   }, [editUser, open, storeId]);
 
@@ -510,8 +530,23 @@ const UserModal = ({ open, onClose, onSaved, editUser, orgId, storeId, storeName
     setSaving(true);
     try {
       if (isEdit && editUser) {
-        await updateAdminUser(editUser.id, { name: name.trim(), email: email.trim(), phone: phone || null, role, status });
-        toast.success('User updated');
+        const updates: Record<string, unknown> = {
+          name: name.trim(), email: email.trim(), phone: phone || null, role, status,
+        };
+        // S78 — only send the flag when the viewer is a superadmin AND it
+        // changed. Backend rejects this field otherwise (403 from the
+        // 'canConfigureHardware' guard in adminController.updateUser).
+        if (isSuperadminViewer && canConfigureHardware !== !!editUser.canConfigureHardware) {
+          updates.canConfigureHardware = canConfigureHardware;
+        }
+        await updateAdminUser(editUser.id, updates);
+        toast.success(
+          updates.canConfigureHardware === true
+            ? 'User updated. Implementation PIN generated — check email.'
+            : updates.canConfigureHardware === false
+              ? 'User updated. Implementation PIN cleared.'
+              : 'User updated'
+        );
         onSaved();
         onClose();
       } else {
@@ -623,6 +658,33 @@ const UserModal = ({ open, onClose, onSaved, editUser, orgId, storeId, storeName
               </div>
             )}
           </div>
+
+          {/* S78 — Hardware Configuration Access (superadmin viewer only).
+              Visible always for superadmins editing or creating; flipping it
+              ON triggers PIN generation + email; OFF clears the PIN. */}
+          {isSuperadminViewer && isEdit && (
+            <div className="aosu-hwflag">
+              <label className="aosu-hwflag-row">
+                <input
+                  type="checkbox"
+                  checked={canConfigureHardware}
+                  onChange={(e) => setCanConfigureHardware(e.target.checked)}
+                />
+                <span className="aosu-hwflag-content">
+                  <span className="aosu-hwflag-title">
+                    Hardware Configuration Access
+                    <span className="aosu-hwflag-pill">Internal team only</span>
+                  </span>
+                  <span className="aosu-hwflag-desc">
+                    When ON, this user can unlock the cashier-app's Hardware Settings
+                    flow with a 6-digit PIN. The system auto-generates the PIN now
+                    and rotates it every Monday at 00:00 UTC. The PIN is emailed to
+                    the user and visible in their Storeveu account page.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
 
           <div className="admin-modal-footer">
             <button type="button" className="admin-modal-cancel" onClick={onClose}>Cancel</button>

@@ -253,6 +253,41 @@
   cursor: pointer;
 }
 
+/* ── S(scale-fix) Detect diagnostic banner ───────────────────────────── */
+.hsm-scale-diag {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.hsm-scale-diag svg { flex-shrink: 0; margin-top: 2px; }
+.hsm-scale-diag code {
+  background: rgba(255,255,255,0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.hsm-scale-diag--ok {
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.25);
+  color: #86efac;
+}
+.hsm-scale-diag--warn {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.28);
+  color: #fcd34d;
+}
+.hsm-scale-diag--err {
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.25);
+  color: #fca5a5;
+}
+
 /* ── Scale test area ────────────────────────────────────────────────── */
 .hsm-scale-test {
   margin-top: 0.75rem;

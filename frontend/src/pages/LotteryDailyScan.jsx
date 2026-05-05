@@ -32,7 +32,7 @@ import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import { CheckCircle2, Info, Loader2, Lock, Plus, ScanLine, Ticket, Wallet, X } from 'lucide-react';
 import {
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
-  getDailyLotteryInventory, closeLotteryDay,
+  getDailyLotteryInventory,
   listPosShifts, closePosShift, openPosShift, listPosStations,
   getLotteryBoxes, updateLotteryBox, scanLotteryBarcode,
   getStoreEmployees,
@@ -55,8 +55,7 @@ export default function LotteryDailyScan() {
   const [onlineTotal, setOnlineTotal]     = useState({ instantCashing: 0, machineSales: 0, machineCashing: 0, notes: '' });
   const [onlineSaving, setOnlineSaving]   = useState(false);
   const [onlineSaved, setOnlineSaved]     = useState(false);
-  const [closeResult, setCloseResult]     = useState(null);
-  const [closing, setClosing]             = useState(false);
+  // May 2026 — `closeResult` / `closing` removed (Close-Day button retired).
   const [openShifts, setOpenShifts]       = useState([]);
   const [shiftToClose, setShiftToClose]   = useState(null);
   const [openShiftOpen, setOpenShiftOpen] = useState(false);   // "Open Shift" modal visibility
@@ -99,28 +98,7 @@ export default function LotteryDailyScan() {
     }
   };
 
-  const runCloseDay = async () => {
-    if (!await confirm({
-      title: 'Close lottery day?',
-      message: `Close the lottery day for ${date}?\n\n` +
-        '• Saves any unsaved machine totals\n' +
-        '• Executes scheduled book moves\n' +
-        '• Snapshots active books to audit log\n\n' +
-        'Safe to re-run.',
-      confirmLabel: 'Close Day',
-    })) return;
-    setClosing(true);
-    try {
-      await upsertLotteryOnlineTotal({ date, ...onlineTotal }).catch(() => {});
-      const res = await closeLotteryDay({ date });
-      setCloseResult(res);
-      await loadDate();
-    } catch (e) {
-      alert(e?.response?.data?.error || e.message);
-    } finally {
-      setClosing(false);
-    }
-  };
+  // May 2026 — `runCloseDay` removed. See comment at top of file.
 
   return (
     <div className="lds-wrap">
@@ -131,7 +109,7 @@ export default function LotteryDailyScan() {
           <input
             type="date"
             value={date}
-            onChange={e => { setDate(e.target.value); setCloseResult(null); }}
+            onChange={e => setDate(e.target.value)}
           />
         </div>
         <div className="lds-header-hint">
@@ -262,22 +240,10 @@ export default function LotteryDailyScan() {
           )}
         </div>
 
-        {closeResult ? (
-          <div className="lds-close-result">
-            <CheckCircle2 size={22} />
-            <div>
-              <strong>Day closed.</strong>
-              <div>Executed {closeResult.pendingMoveSweep?.executed || 0} pending move{(closeResult.pendingMoveSweep?.executed || 0) === 1 ? '' : 's'}.</div>
-              <div>Snapshotted {closeResult.snapshotCount || 0} active book position{(closeResult.snapshotCount || 0) === 1 ? '' : 's'}.</div>
-            </div>
-          </div>
-        ) : (
-          <div className="lds-actions">
-            <button className="lt-btn lt-btn-success" onClick={runCloseDay} disabled={closing}>
-              {closing ? <><Loader2 size={14} className="lds-spin" /> Closing…</> : <><CheckCircle2 size={14} /> Close the Day</>}
-            </button>
-          </div>
-        )}
+        {/* May 2026 — Close-Day button removed. Pending-move sweep runs
+            every 15 min via the backend scheduler; per-book snapshots come
+            from the cashier-app EoD wizard. Online totals on this page
+            cover everything an admin needs without a manual day-close. */}
       </section>
 
       {/* Back-office shift-close modal */}

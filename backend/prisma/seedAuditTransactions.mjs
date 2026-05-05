@@ -725,8 +725,69 @@ async function saveTx(tx) {
   });
   await saveTx(tx); txs.push(tx);
 
+  // ── S77 (C9) — exercise all 5 cash drawer event types on Day 0 ────────
+  // Each one produces a referenceNumber via the new generator and writes
+  // through addCashDrop / addPayout (extended endpoints). The audit harness
+  // verifies the EoD report buckets these correctly and the drawer math
+  // honors the in/out direction per type.
+
+  // Cash Drop $100 — money OUT to safe (legacy default)
+  await p.cashDrop.create({
+    data: {
+      orgId: F.orgId, shiftId: shift.id, amount: 100,
+      type: 'drop',
+      referenceNumber: `CD-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-001`,
+      note: 'Mid-shift safe drop',
+      createdById: cashierAlice, createdAt: at(0, 13, 0),
+    },
+  });
+
+  // Cash In $50 — petty cash refill, money INTO drawer (S77 NEW)
+  await p.cashDrop.create({
+    data: {
+      orgId: F.orgId, shiftId: shift.id, amount: 50,
+      type: 'paid_in',
+      referenceNumber: `CI-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-001`,
+      note: 'Petty cash refill',
+      createdById: cashierAlice, createdAt: at(0, 14, 0),
+    },
+  });
+
+  // Vendor Payout $35 — paid out to a vendor (legacy)
+  await p.cashPayout.create({
+    data: {
+      orgId: F.orgId, shiftId: shift.id, amount: 35,
+      payoutType: 'expense', recipient: 'Audit Cleaning Co.',
+      referenceNumber: `VP-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-001`,
+      note: 'Janitor cash payment',
+      createdById: cashierAlice, createdAt: at(0, 15, 0),
+    },
+  });
+
+  // Loan $20 — cashier cash advance, money OUT (S77 NEW)
+  await p.cashPayout.create({
+    data: {
+      orgId: F.orgId, shiftId: shift.id, amount: 20,
+      payoutType: 'loan', recipient: 'Alice Smith — register loan',
+      referenceNumber: `LN-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-001`,
+      note: 'Cash advance, repay Friday',
+      createdById: cashierAlice, createdAt: at(0, 15, 30),
+    },
+  });
+
+  // Received on Account $75 — charge-account customer pays balance (S77 NEW)
+  await p.cashPayout.create({
+    data: {
+      orgId: F.orgId, shiftId: shift.id, amount: 75,
+      payoutType: 'received_on_account', recipient: 'House Customer',
+      referenceNumber: `RA-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-001`,
+      note: 'House charge payment',
+      createdById: cashierAlice, createdAt: at(0, 16, 0),
+    },
+  });
+
   // Today's shift stays OPEN — don't close it. Closes at end of business.
-  console.log(`Day 0 (today): 1 shift (Alice, still open), ${txs.length} transactions`);
+  console.log(`Day 0 (today): 1 shift (Alice, still open), ${txs.length} transactions, 5 cash drawer events (drop $100, cash in $50, vendor payout $35, loan $20, received-on-acct $75)`);
 
   // Track the open shift for expected totals
   let cashSales = 0;
@@ -735,6 +796,18 @@ async function saveTx(tx) {
       if (tl.method === 'cash') cashSales += tl.amount;
     }
   }
+  // S77 (C9) drawer math:
+  //   expected = opening + cashSales - cashRefunds
+  //            + cashIn       (paid_in drops + RA payouts)
+  //            - cashOut      (vendor + loan payouts)
+  //            - cashDropsTotal (drop-type CashDrop only)
+  // Day 0: opening=$200, cashSales=cash sale total,
+  //        cashIn = 50 (paid_in) + 75 (RA) = 125,
+  //        cashOut = 35 (vendor) + 20 (loan) = 55,
+  //        cashDropsTotal = 100 (drop-type)
+  const c9CashIn  = 50 + 75;   // paid_in CashDrop + received_on_account CashPayout
+  const c9CashOut = 35 + 20;   // expense + loan CashPayouts
+  const c9DropsTotal = 100;    // drop-type CashDrop only
   expected.byShift.push({
     shiftId: shift.id,
     cashierId: cashierAlice,
@@ -742,11 +815,25 @@ async function saveTx(tx) {
     closedAt: null,
     openingFloat: shift.openingFloat,
     cashSales: round2(cashSales),
-    cashRefunds: 0, cashDropsTotal: 0, cashPayoutsTotal: 0,
-    expectedDrawer: round2(shift.openingFloat + cashSales),
+    cashRefunds: 0,
+    cashDropsTotal: c9DropsTotal,
+    cashIn:  c9CashIn,
+    cashOut: c9CashOut,
+    cashPayoutsTotal: c9CashOut + c9CashIn, // legacy total = sum of all CashPayout amounts
+    expectedDrawer: round2(shift.openingFloat + cashSales + c9CashIn - c9CashOut - c9DropsTotal),
     closingFloat: null,
     open: true,
   });
+
+  // S77 (C9) — explicit EoD bucket expectations for the new types. Audit
+  // verifies the back-office EoD endpoint returns these counts/amounts.
+  expected.cashEventBuckets = {
+    pickups:          { count: 1, amount: 100 },
+    paid_in:          { count: 1, amount: 50  },
+    paid_out:         { count: 1, amount: 35  },
+    loans:            { count: 1, amount: 20  },
+    received_on_acct: { count: 1, amount: 75  },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -259,7 +259,11 @@ function PlatformCard({ platformKey, data, onRefresh }) {
         </div>
       )}
 
-      {/* Disconnected: show credential form (only for live platforms) */}
+      {/* Disconnected: show credential form (only for live platforms).
+          S71d Option B — also show "Pricing & Sync" button so admins can
+          configure pricing BEFORE connecting credentials. The drawer
+          auto-creates a StoreIntegration row on first GET (lazy-init in
+          backend getSettings handler — works for any live platform). */}
       {!isConnected && meta.status !== 'coming_soon' && (
         <div className="ih-cred-form">
           {meta.credentialFields.map(field => (
@@ -275,6 +279,9 @@ function PlatformCard({ platformKey, data, onRefresh }) {
             </div>
           ))}
           <div className="ih-cred-actions">
+            <button className="p-btn p-btn-ghost p-btn-sm" onClick={() => setPricingOpen(true)} disabled={busy} title="Configure pricing, rounding, exclusions before connecting">
+              <Sliders size={13} /> Pricing &amp; Sync
+            </button>
             <button className="p-btn p-btn-ghost p-btn-sm" onClick={handleTest} disabled={testing}>
               {testing ? <><Loader2 size={13} /> Testing...</> : 'Test Connection'}
             </button>
@@ -319,8 +326,11 @@ function PlatformCard({ platformKey, data, onRefresh }) {
         </div>
       </div>
 
-      {/* S71 — pricing drawer (only for connected live platforms) */}
-      {isConnected && (
+      {/* S71 + S71d Option B — pricing drawer for any live platform regardless
+          of connection state. Backend lazy-creates the StoreIntegration row
+          on first GET, so admins can configure markup/rounding/exclusions
+          before they connect credentials. */}
+      {meta.status !== 'coming_soon' && (
         <MarketplacePricingDrawer
           open={pricingOpen}
           onClose={() => setPricingOpen(false)}

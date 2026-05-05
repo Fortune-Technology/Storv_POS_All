@@ -26,7 +26,7 @@ import {
   scanLotteryBarcode, parseLotteryScan, moveBoxToSafe, markBoxSoldout, restoreBoxToCounter, returnBoxToLotto,
   cancelPendingMove, runPendingMovesNow,
   getLotteryOnlineTotal, upsertLotteryOnlineTotal,
-  getDailyLotteryInventory, closeLotteryDay, getYesterdayCloses, getCounterSnapshot,
+  getDailyLotteryInventory, getYesterdayCloses, getCounterSnapshot,
   upsertHistoricalClose,
   listLotterySettlements, getLotterySettlement,
   upsertLotterySettlement, finalizeLotterySettlement, markLotterySettlementPaid,
@@ -111,11 +111,15 @@ router.delete('/boxes/:id/pending-move',     requirePermission('lottery.manage')
 // On-demand pending-move sweep — called by "Close the Day"
 router.post('/run-pending-moves', requirePermission('lottery.manage'), runPendingMovesNow);
 
-// ── Phase 1b: Daily Scan + Online Totals + Close Day ─────────────────────
+// ── Phase 1b: Daily Scan + Online Totals ─────────────────────────────────
+// May 2026 — `/close-day` route removed. Pending-move sweep runs every 15
+// min via `startPendingMoveScheduler` (server.ts), and per-book snapshots
+// are written by the cashier-app EoD wizard's saveLotteryShiftReport. The
+// manual button was redundant + caused duplicate snapshots when admins
+// clicked it multiple times.
 router.get( '/online-total',    requirePermission('lottery.view'),   getLotteryOnlineTotal);
 router.put( '/online-total',    requirePermission('lottery.manage'), upsertLotteryOnlineTotal);
 router.get( '/daily-inventory', requirePermission('lottery.view'),   getDailyLotteryInventory);
-router.post('/close-day',       requirePermission('lottery.manage'), closeLotteryDay);
 // April 2026: per-box previous-close snapshot map for the Daily page's
 // "yesterday" column. Driven by close_day_snapshot LotteryScanEvent rows.
 router.get( '/yesterday-closes', requirePermission('lottery.view'), getYesterdayCloses);

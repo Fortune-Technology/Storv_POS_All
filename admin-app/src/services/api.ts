@@ -101,6 +101,18 @@ export const updateMyProfile   = (data: { name?: string; phone?: string | null }
 export const changeMyPassword  = (currentPassword: string, newPassword: string) =>
   api.put('/users/me/password', { currentPassword, newPassword }).then(r => r.data);
 
+// S78 — Self-service Implementation Engineer PIN
+export interface MyImplementationPinResponse {
+  pin: string | null;
+  setAt: string | null;
+  nextRotationAt: string;
+  canConfigureHardware: boolean;
+}
+export const getMyImplementationPin = (): Promise<MyImplementationPinResponse> =>
+  api.get('/users/me/implementation-pin').then(r => r.data);
+export const rotateMyImplementationPin = (): Promise<MyImplementationPinResponse> =>
+  api.post('/users/me/implementation-pin/rotate').then(r => r.data);
+
 // ── Admin Dashboard ──────────────────────────────────────────────────────────
 // Response is `{ data: { totalUsers, chartData[], recentTickets[], ... } }` —
 // the inner shape is free-form so pages destructure what they need. Pages

@@ -6,7 +6,8 @@ import React, { useEffect, useState } from 'react';
 import {
   Tag, PauseCircle, Printer, DollarSign,
   RotateCcw, Ban, BarChart2, Lock, Unlock, X,
-  ArrowDownCircle, ArrowUpCircle, LockKeyhole, UnlockKeyhole, Ticket, Fuel, History, Recycle,
+  ArrowDownCircle, ArrowUpCircle, ArrowDownToLine, HandCoins, Receipt,
+  LockKeyhole, UnlockKeyhole, Ticket, Fuel, History, Recycle,
   ClipboardList, Settings, Monitor, MessageSquare, Edit3, Leaf, ExternalLink,
   Camera, ScanLine,
 } from 'lucide-react';
@@ -52,7 +53,11 @@ export default function ActionBar({
   tasksCount = 0,
   onChat,
   chatUnread = 0,
-  onOpenShift, onCloseShift, onCashDrop, onPayout,
+  onOpenShift, onCloseShift,
+  // S77 (C9) — single handler. POSScreen receives a kind string and opens
+  // the unified CashDrawerEventModal pre-selected to that kind. Replaces
+  // the old `onCashDrop` + `onPayout` pair.
+  onCashEvent,
   onEbtBalance,
   shiftOpen = false,
   lotteryEnabled = true,
@@ -176,8 +181,14 @@ export default function ActionBar({
           {onScanCamera && (
             <ACT icon={Camera} label="Scan" onClick={onScanCamera} color="#0ea5e9" />
           )}
-          <ACT icon={ArrowDownCircle} label="Cash Drop" onClick={onCashDrop} color="var(--amber)" />
-          <ACT icon={ArrowUpCircle} label="Paid Out" onClick={onPayout} color="#a855f7" />
+          {/* S77 (C9) — 5 cash drawer event buttons, all opening the unified
+              CashDrawerEventModal pre-selected to the matching kind. Show()
+              guards let admins hide individual buttons via POS Settings. */}
+          {show('cashDrop')          && <ACT icon={ArrowDownCircle}  label="Cash Drop"     onClick={() => onCashEvent?.('cash_drop')}           color="var(--amber)" />}
+          {show('cashIn')            && <ACT icon={ArrowDownToLine} label="Cash In"       onClick={() => onCashEvent?.('cash_in')}             color="#16a34a" />}
+          {show('vendorPayout')      && <ACT icon={ArrowUpCircle}    label="Paid Out"      onClick={() => onCashEvent?.('vendor_payout')}       color="#a855f7" />}
+          {show('cashLoan')          && <ACT icon={HandCoins}        label="Loan"          onClick={() => onCashEvent?.('loan')}                color="#0ea5e9" />}
+          {show('receivedOnAccount') && <ACT icon={Receipt}          label="Received"      onClick={() => onCashEvent?.('received_on_account')} color="#10b981" />}
           <Divider />
           {lotteryEnabled && (
             <>

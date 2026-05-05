@@ -1,0 +1,173 @@
+/* S78 — ImplementationPinModal.css — Implementation Engineer PIN gate
+ * Prefix: ipm-
+ * Indigo accent (vs ManagerPinModal's green) so cashiers can tell
+ * the two PIN flows apart at a glance.
+ */
+
+.ipm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ipm-modal {
+  background: var(--bg-panel);
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  padding: 2rem;
+  width: 340px;
+  text-align: center;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+}
+
+.ipm-shield {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  margin: 0 auto 1rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ipm-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #6366f1;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.ipm-action-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.ipm-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 1.4rem;
+  line-height: 1.4;
+}
+
+/* PIN dots */
+.ipm-dots {
+  display: flex;
+  gap: 11px;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.ipm-dots--shake {
+  animation: ipm-shake 0.5s ease;
+}
+
+.ipm-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: background 0.1s;
+}
+
+.ipm-dot--filled {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+/* Error */
+.ipm-error {
+  color: var(--red);
+  font-size: 0.78rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+.ipm-error-spacer { height: 22px; }
+
+/* Numpad */
+.ipm-numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 1rem;
+}
+
+.ipm-key {
+  height: 56px;
+  border-radius: 12px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+}
+
+.ipm-key--empty {
+  background: transparent;
+  border: none;
+  cursor: default;
+}
+
+.ipm-key--delete {
+  background: var(--red-dim);
+  border-color: rgba(224, 63, 63, 0.2);
+  color: var(--red);
+}
+
+/* Confirm button */
+.ipm-confirm-btn {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 800;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+}
+
+.ipm-confirm-btn--active {
+  background: #6366f1;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ipm-confirm-btn--disabled {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Cancel link */
+.ipm-cancel-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+@keyframes ipm-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+
+@media (max-width: 768px) {
+  .ipm-modal { width: 300px; padding: 1.5rem; }
+}
