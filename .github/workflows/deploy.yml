@@ -123,6 +123,22 @@ jobs:
           echo "→ Running vendor templates seed (AGNE / Sante / Pine State)"
           npx tsx prisma/seedVendorTemplates.ts || echo "  ⚠ seedVendorTemplates.ts had warnings (non-fatal)"
 
+          # Default Merchant Services Agreement — drives the admin "Generate
+          # Contract" wizard. Idempotent: creates v1 only if the slug
+          # 'merchant-services-agreement' is missing, otherwise bumps to a new
+          # version when the source HTML or merge-field catalog changes.
+          # Reads scripts/_contract_default.html (committed alongside this file).
+          echo "→ Running contract template seed (Merchant Services Agreement)"
+          npx tsx prisma/seedContractTemplates.ts || echo "  ⚠ seedContractTemplates.ts had warnings (non-fatal)"
+
+          # Equipment product catalog (Billing → Equipment tab). Idempotent
+          # upsert by `slug`; existing rows are NOT overwritten unless --force
+          # is passed, so admin edits to price/description/images via the panel
+          # survive deploys. Image files live in /var/www/.../uploads/devices/
+          # outside the repo — DB stores only relative URL paths.
+          echo "→ Running equipment catalog seed (POS terminal, printer, drawer, etc.)"
+          npx tsx prisma/seedEquipment.ts || echo "  ⚠ seedEquipment.ts had warnings (non-fatal)"
+
           # PM2 restart — then VERIFY the process actually recycled. The old
           # `|| echo` fallback silently swallowed failures; PM2 would print
           # success messages even when the Node process hadn't truly
