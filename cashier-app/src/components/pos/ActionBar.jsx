@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useManagerStore } from '../../stores/useManagerStore.js';
 import { useCartStore }    from '../../stores/useCartStore.js';
+import useEntitlements     from '../../hooks/useEntitlements.js';
 import './ActionBar.css';
 
 // ── Reusable action button ─────────────────────────────────────────────────
@@ -75,6 +76,10 @@ export default function ActionBar({
   const expiresAt      = useManagerStore(s => s.expiresAt);
   const endSession     = useManagerStore(s => s.endSession);
   const isSessionValid = useManagerStore(s => s.isSessionValid);
+  // S80 — entitlement gates. AND-combined with the existing legacy POS-config
+  // flags (lotteryEnabled, fuelEnabled props) so per-store override works
+  // alongside the subscription check.
+  const { has: hasModule } = useEntitlements();
   const [remaining, setRemaining] = useState('');
 
   useEffect(() => {
@@ -190,14 +195,16 @@ export default function ActionBar({
           {show('cashLoan')          && <ACT icon={HandCoins}        label="Loan"          onClick={() => onCashEvent?.('loan')}                color="#0ea5e9" />}
           {show('receivedOnAccount') && <ACT icon={Receipt}          label="Received"      onClick={() => onCashEvent?.('received_on_account')} color="#10b981" />}
           <Divider />
-          {lotteryEnabled && (
+          {/* S80 — Lottery actions gated by both subscription (`lottery` module)
+              AND the legacy posConfig.lottery.enabled flag for back-compat. */}
+          {lotteryEnabled && hasModule('lottery') && (
             <>
               <ACT icon={Ticket} label="Lottery" onClick={onLottery} color="var(--green)" />
               <ACT icon={ClipboardList} label="Lotto Shift" onClick={onLotteryShift} color="#f59e0b" />
               <Divider />
             </>
           )}
-          {fuelEnabled && (
+          {fuelEnabled && hasModule('fuel') && (
             <>
               <ACT icon={Fuel} label="Fuel Sale" onClick={onFuelSale} color="#dc2626" />
               {fuelRefundsEnabled && (
@@ -206,7 +213,8 @@ export default function ActionBar({
               <Divider />
             </>
           )}
-          {onCoupon && (
+          {/* Manufacturer-coupon scan → Tobacco Scan Data feature */}
+          {onCoupon && hasModule('scan_data') && (
             <>
               <ACT icon={ScanLine} label="Coupon" onClick={onCoupon} color="#7c3aed" />
               <Divider />

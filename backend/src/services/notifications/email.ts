@@ -21,7 +21,17 @@ function getTransporter(): Transporter | null {
 }
 
 // ─── Core send (non-blocking, never throws) ──────────────────────────────────
-async function sendMail(to: string, subject: string, html: string): Promise<boolean> {
+interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+async function sendMail(
+  to: string | string[],
+  subject: string,
+  html: string,
+  opts: { cc?: string | string[]; attachments?: EmailAttachment[] } = {},
+): Promise<boolean> {
   const transporter = getTransporter();
   if (!transporter) {
     console.warn('[Email] SMTP not configured skipping:', subject);
@@ -31,10 +41,12 @@ async function sendMail(to: string, subject: string, html: string): Promise<bool
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to,
+      cc: opts.cc,
       subject,
       html,
+      attachments: opts.attachments,
     });
-    console.log(`[Email] Sent "${subject}" → ${to}`);
+    console.log(`[Email] Sent "${subject}" → ${Array.isArray(to) ? to.join(', ') : to}`);
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -747,4 +759,51 @@ function escapeHtml(s: unknown): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// ─── Invoice email — S81 ────────────────────────────────────────────────────
+// Sent when admin clicks "Send Invoice" on the AdminBilling page. Recipients
+// are the org's billingEmail and/or store owner; both copies receive the same
+// PDF attachment as the Get Invoice download (single source of truth).
+export async function sendInvoiceEmail(opts: {
+  to: string | string[];
+  cc?: string | string[];
+  invoiceNumber: string;
+  storeName?: string | null;
+  orgName?: string | null;
+  totalAmount: number;
+  periodStart: Date | string;
+  periodEnd: Date | string;
+  status: string;
+  pdfBuffer: Buffer;
+}): Promise<boolean> {
+  const { to, cc, invoiceNumber, storeName, orgName, totalAmount, periodStart, periodEnd, status, pdfBuffer } = opts;
+  const fmtDate = (d: Date | string) => {
+    const date = d instanceof Date ? d : new Date(d);
+    return isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const isPaid = String(status).toLowerCase() === 'paid';
+  const statusLine = isPaid
+    ? `<p style="color:#16a34a;font-weight:600">Status: Paid</p>`
+    : `<p style="color:#f59e0b;font-weight:600">Status: ${escapeHtml(status)}</p>`;
+  const html = wrap(isPaid ? 'Invoice Receipt' : 'New Invoice', `
+    <h2>Invoice ${escapeHtml(invoiceNumber)}</h2>
+    <p>Hi ${escapeHtml(storeName || orgName || 'there')},</p>
+    <p>Please find your subscription invoice attached as a PDF.</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+      <tr><td style="padding:6px 0;color:#64748b">Invoice number</td><td style="padding:6px 0;font-weight:600;text-align:right">${escapeHtml(invoiceNumber)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Billing period</td><td style="padding:6px 0;font-weight:600;text-align:right">${fmtDate(periodStart)} – ${fmtDate(periodEnd)}</td></tr>
+      <tr><td style="padding:6px 0;color:#64748b">Amount</td><td style="padding:6px 0;font-weight:700;text-align:right;font-size:16px;color:#3d56b5">$${Number(totalAmount).toFixed(2)}</td></tr>
+    </table>
+    ${statusLine}
+    <p class="muted">Questions about this invoice? Reply to this email or contact billing@storeveu.com.</p>
+  `);
+  return sendMail(to, `[Storeveu] Invoice ${invoiceNumber}`, html, {
+    cc,
+    attachments: [{
+      filename: `invoice-${invoiceNumber}.pdf`,
+      content: pdfBuffer,
+      contentType: 'application/pdf',
+    }],
+  });
 }

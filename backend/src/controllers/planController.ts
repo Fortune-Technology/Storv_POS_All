@@ -98,11 +98,16 @@ export const getPublicPlans = async (_req: Request, res: Response, next: NextFun
           isCore: m.isCore,
         })),
         modulesByCategory: grouped,
+        // S80 — schema fields are `label` + `price` + `moduleKeys` (not name/monthlyPrice).
+        // Both shapes returned for back-compat with consumers that haven't migrated yet.
         addons: (p.addons || []).map((a: any) => ({
           key: a.key,
-          name: a.name,
+          label: a.label || a.name,
+          name: a.label || a.name,                  // legacy alias
           description: a.description,
-          monthlyPrice: Number(a.monthlyPrice ?? 0),
+          price: Number(a.price ?? 0),
+          monthlyPrice: Number(a.price ?? 0),       // legacy alias
+          moduleKeys: Array.isArray(a.moduleKeys) ? a.moduleKeys : [],
         })),
       };
     });
@@ -137,42 +142,68 @@ export const getPublicPlans = async (_req: Request, res: Response, next: NextFun
 };
 
 // ─────────────────────────────────────────────────
-// 1. Vendor entitlement (any authenticated user)
+// 1. Entitlement (any authenticated user) — STORE-SCOPED (S80)
+//
+// Resolution order:
+//   1. Superadmin → all active modules.
+//   2. No active store/org (fresh signup) → core modules only.
+//   3. StoreSubscription for req.storeId → plan modules ∪ purchased addon modules ∪ core.
+//   4. (Transition fallback) OrgSubscription for req.orgId → plan modules ∪ core.
+//   5. Default plan fallback → default plan modules ∪ core.
+//   6. Hard fallback → core only.
 // ─────────────────────────────────────────────────
 export const getMyModules = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = req.user?.id;
     if (!userId) { res.status(401).json({ error: 'Not authorized.' }); return; }
 
-    // Superadmin shortcut: every active module.
+    const moduleSelect = { id: true, key: true, name: true, category: true, routePaths: true, icon: true, isCore: true, active: true, sortOrder: true };
+
+    // S80 Phase 3 — fetch business-module flags via raw SQL since the Prisma
+    // client may not have been regenerated yet after the schema push (DLL lock
+    // during dev). The columns exist in Postgres; we enrich the typed query
+    // results with them after the fact via this lookup map.
+    const moduleFlagsRows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT key, "isBusinessModule", "parentKey" FROM platform_modules WHERE active=true`
+    );
+    const flagsByKey = new Map<string, { isBusinessModule: boolean; parentKey: string | null }>(
+      moduleFlagsRows.map(r => [r.key, { isBusinessModule: !!r.isBusinessModule, parentKey: r.parentKey || null }])
+    );
+    const enrichModule = (m: any) => {
+      const flags = flagsByKey.get(m.key) || { isBusinessModule: false, parentKey: null };
+      return { ...m, isBusinessModule: flags.isBusinessModule, parentKey: flags.parentKey };
+    };
+
+    // 1. Superadmin shortcut: every active module.
     if (req.user?.role === 'superadmin') {
       const all = await prisma.platformModule.findMany({
         where: { active: true },
         orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
-        select: { key: true, name: true, category: true, routePaths: true, icon: true, isCore: true },
+        select: moduleSelect,
       });
       res.json({
         modules: all,
         plan: { name: 'Platform Superadmin', slug: 'superadmin', source: 'superadmin' },
+        addons: [],
         moduleKeys: all.map((m: any) => m.key),
         routePaths: all.flatMap((m: any) => m.routePaths),
       });
       return;
     }
 
-    // Resolve the active org → its OrgSubscription → SubscriptionPlan → modules.
+    // 2. No active org/store yet (fresh signup) → core only.
     const activeOrgId = req.orgId;
-    if (!activeOrgId) {
-      // No active org yet (e.g. fresh signup pre-onboarding). Grant only
-      // core modules so they can reach Account / Support / Billing.
+    const activeStoreId = req.storeId;
+    if (!activeOrgId && !activeStoreId) {
       const core = await prisma.platformModule.findMany({
         where: { active: true, isCore: true },
         orderBy: [{ sortOrder: 'asc' }],
-        select: { key: true, name: true, category: true, routePaths: true, icon: true, isCore: true },
+        select: moduleSelect,
       });
       res.json({
         modules: core,
         plan: null,
+        addons: [],
         moduleKeys: core.map((m: any) => m.key),
         routePaths: core.flatMap((m: any) => m.routePaths),
         warning: 'no_active_org',
@@ -180,44 +211,90 @@ export const getMyModules = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    const sub = await prisma.orgSubscription.findUnique({
-      where: { orgId: activeOrgId },
-      include: {
-        plan: {
-          include: {
-            modules: {
-              include: {
-                module: {
-                  select: { id: true, key: true, name: true, category: true, routePaths: true, icon: true, isCore: true, active: true, sortOrder: true },
-                },
-              },
-            },
-          },
-        },
-      },
+    // Helpers
+    const coreModules = await prisma.platformModule.findMany({
+      where: { active: true, isCore: true },
+      select: moduleSelect,
     });
 
-    let planModules: Array<{ id: string; key: string; name: string; category: string; routePaths: string[]; icon: string | null; isCore: boolean; sortOrder: number }> = [];
+    let planModules: any[] = [];
     let planSummary: { name: string; slug: string; source: string } | null = null;
+    let addonsApplied: Array<{ key: string; label: string; moduleKeys: string[] }> = [];
 
-    if (sub?.plan) {
-      planModules = (sub.plan.modules as any[])
-        .map((pm: any) => pm.module)
-        .filter((m: any) => m.active);
-      planSummary = { name: sub.plan.name, slug: sub.plan.slug, source: 'subscription' };
-    } else {
-      // Fallback: org has no OrgSubscription yet. Use the default plan.
-      const defaultPlan = await prisma.subscriptionPlan.findFirst({
-        where: { isDefault: true, isActive: true },
+    // 3. StoreSubscription (preferred, S80 per-store path)
+    let storeFeatureOverrides: Record<string, boolean> = {};
+    if (activeStoreId) {
+      const storeSub = await (prisma as any).storeSubscription.findUnique({
+        where: { storeId: activeStoreId },
         include: {
-          modules: {
+          plan: {
             include: {
-              module: {
-                select: { id: true, key: true, name: true, category: true, routePaths: true, icon: true, isCore: true, active: true, sortOrder: true },
-              },
+              modules: { include: { module: { select: moduleSelect } } },
+              addons: { where: { isActive: true } },
+            },
+          },
+          store: { select: { featureModules: true } },
+        },
+      }).catch(() => null);
+
+      if (storeSub?.plan) {
+        planModules = (storeSub.plan.modules as any[])
+          .map((pm: any) => pm.module)
+          .filter((m: any) => m.active);
+        planSummary = { name: storeSub.plan.name, slug: storeSub.plan.slug, source: 'store_subscription' };
+
+        // Merge purchased-addon modules
+        const allActiveModules = await prisma.platformModule.findMany({ where: { active: true }, select: moduleSelect });
+        const moduleByKey = new Map(allActiveModules.map((m: any) => [m.key, m]));
+        const planAddonsByKey = new Map((storeSub.plan.addons || []).map((a: any) => [a.key, a]));
+        const purchased: string[] = Array.isArray(storeSub.extraAddons) ? storeSub.extraAddons : [];
+
+        for (const addonKey of purchased) {
+          const addon = planAddonsByKey.get(addonKey);
+          if (!addon) continue;
+          const addonModuleKeys: string[] = Array.isArray((addon as any).moduleKeys) ? (addon as any).moduleKeys : [];
+          addonsApplied.push({ key: (addon as any).key, label: (addon as any).label, moduleKeys: addonModuleKeys });
+          for (const mk of addonModuleKeys) {
+            const m = moduleByKey.get(mk);
+            if (m && !planModules.find(pm => pm.id === (m as any).id)) {
+              planModules.push(m);
+            }
+          }
+        }
+
+        // Per-store overrides — admin can disable a subscribed module on this store
+        const fm = (storeSub.store?.featureModules || {}) as Record<string, boolean>;
+        if (fm && typeof fm === 'object') {
+          storeFeatureOverrides = fm;
+        }
+      }
+    }
+
+    // 4. (Transition fallback) OrgSubscription if no StoreSubscription resolved.
+    if (!planSummary && activeOrgId) {
+      const sub = await prisma.orgSubscription.findUnique({
+        where: { orgId: activeOrgId },
+        include: {
+          plan: {
+            include: {
+              modules: { include: { module: { select: moduleSelect } } },
             },
           },
         },
+      });
+      if (sub?.plan) {
+        planModules = (sub.plan.modules as any[])
+          .map((pm: any) => pm.module)
+          .filter((m: any) => m.active);
+        planSummary = { name: sub.plan.name, slug: sub.plan.slug, source: 'org_subscription_legacy' };
+      }
+    }
+
+    // 5. Default-plan fallback.
+    if (!planSummary) {
+      const defaultPlan = await prisma.subscriptionPlan.findFirst({
+        where: { isDefault: true, isActive: true },
+        include: { modules: { include: { module: { select: moduleSelect } } } },
       });
       if (defaultPlan) {
         planModules = (defaultPlan.modules as any[])
@@ -227,25 +304,48 @@ export const getMyModules = async (req: Request, res: Response, next: NextFuncti
       }
     }
 
-    // Always merge core modules in (defensive — even if a plan doesn't list them).
-    const coreModules = await prisma.platformModule.findMany({
-      where: { active: true, isCore: true },
-      select: { id: true, key: true, name: true, category: true, routePaths: true, icon: true, isCore: true, sortOrder: true },
-    });
+    // Merge core modules (defensive — even if a plan doesn't list them).
+    const merged = new Map<string, any>();
+    for (const m of planModules) merged.set(m.id, enrichModule(m));
+    for (const m of coreModules) if (!merged.has(m.id)) merged.set(m.id, enrichModule(m));
 
-    const merged = new Map<string, typeof planModules[number]>();
-    for (const m of planModules) merged.set(m.id, m);
-    for (const m of coreModules) if (!merged.has(m.id)) merged.set(m.id, m);
-
-    const modules = Array.from(merged.values()).sort(
-      (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+    const subscribedModules = Array.from(merged.values()).sort(
+      (a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
     );
 
+    // ── Grouped architecture: parent → child cascade ──────────────────────
+    // featureOverrides keys are BUSINESS MODULE keys only (the 12 toggleable
+    // parents). When a parent business module is disabled, all its children
+    // (modules with parentKey === that key) hide too.
+    //
+    // Sidebar items that ARE business modules themselves (lottery, fuel, etc.)
+    // hide directly when their key is overridden off.
+    //
+    // Core modules are never overridable.
+    const activeModules = subscribedModules.filter((m: any) => {
+      if (m.isCore) return true;
+      // Direct override: this module's own key flagged off
+      if (storeFeatureOverrides[m.key] === false) return false;
+      // Parent cascade: my parent business module is overridden off
+      if (m.parentKey && storeFeatureOverrides[m.parentKey] === false) return false;
+      return true;
+    });
+
+    // Build the list of toggleable business modules (subset of subscribed,
+    // isBusinessModule=true). StoreSettings renders one toggle per row.
+    const businessModules = subscribedModules.filter((m: any) => m.isBusinessModule);
+
     res.json({
-      modules,
+      modules: activeModules,                        // gated by both sub + override
+      subscribedModules,                              // includes per-store-disabled ones
+      businessModules,                                // S80 Phase 3: just the 12 toggleable parents (subset)
       plan: planSummary,
-      moduleKeys: modules.map(m => m.key),
-      routePaths: modules.flatMap(m => m.routePaths),
+      addons: addonsApplied,
+      featureOverrides: storeFeatureOverrides,        // raw per-store overrides (keyed by business module key)
+      moduleKeys: activeModules.map((m: any) => m.key),
+      subscribedModuleKeys: subscribedModules.map((m: any) => m.key),
+      businessModuleKeys: businessModules.map((m: any) => m.key),
+      routePaths: activeModules.flatMap((m: any) => m.routePaths),
     });
   } catch (err) { next(err); }
 };

@@ -19,6 +19,7 @@ import PinLoginScreen      from './screens/PinLoginScreen.jsx';
 import POSScreen           from './screens/POSScreen.jsx';
 import CustomerDisplayScreen from './screens/CustomerDisplayScreen.jsx';
 import AIAssistantWidget   from './components/AIAssistantWidget.jsx';
+import Gate                from './components/Gate.jsx';
 import LabelPrintIndicator from './components/LabelPrintIndicator.jsx';
 import { ConfirmDialogProvider } from './hooks/useConfirmDialog.jsx';
 import { ChooserDialogProvider } from './hooks/useChooserDialog.jsx';
@@ -182,7 +183,8 @@ export default function App() {
     return (
       <>
         <POSScreen />
-        <AIAssistantWidget />
+        {/* S80 — AI Assistant gated by `ai_assistant` module subscription */}
+        <Gate module="ai_assistant"><AIAssistantWidget /></Gate>
         <LabelPrintIndicator />
       </>
     );

@@ -217,3 +217,76 @@
   .gcm-grid { grid-template-columns: 1fr; }
   .gcm-field.is-wide { grid-column: span 1; }
 }
+
+/* ── S81 — plan resolution banner above SaaS Subscription block ── */
+.gcm-plan-banner {
+  margin: -4px 0 14px 0;
+  padding: 10px 12px;
+  background: rgba(61, 86, 181, 0.08);
+  border: 1px solid rgba(61, 86, 181, 0.22);
+  border-left: 3px solid #3d56b5;
+  border-radius: 8px;
+  color: var(--text-primary, #0f172a);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.gcm-plan-banner strong { color: #3d56b5; margin-right: 6px; }
+.gcm-plan-banner-warn {
+  background: rgba(217, 119, 6, 0.10);
+  border-color: rgba(217, 119, 6, 0.32);
+  border-left-color: #d97706;
+  color: #92400e;
+}
+
+/* ── S81 — onboarding context (read-only) + vendor-edit hint ── */
+.gcm-context {
+  margin: 0 0 16px 0;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.03);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+}
+.gcm-context-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #475569);
+  margin-bottom: 8px;
+}
+.gcm-context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 18px;
+  font-size: 0.85rem;
+  color: var(--text-primary, #0f172a);
+}
+.gcm-context-grid > div { line-height: 1.55; }
+.gcm-context-grid span {
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  margin-right: 4px;
+  text-transform: capitalize;
+}
+.gcm-context-special {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.12);
+  font-size: 0.85rem;
+}
+.gcm-context-special strong { color: var(--text-secondary, #475569); display: block; margin-bottom: 4px; }
+.gcm-context-special p { margin: 0; color: var(--text-primary, #0f172a); line-height: 1.5; }
+
+.gcm-vendor-hint {
+  margin: 0 0 16px 0;
+  padding: 9px 12px;
+  background: rgba(34, 197, 94, 0.07);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-left: 3px solid #16a34a;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #14532d;
+}
+.gcm-vendor-hint strong { color: #14532d; margin-right: 4px; }
+.gcm-vendor-hint em { font-style: italic; }

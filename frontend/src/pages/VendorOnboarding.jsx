@@ -18,6 +18,7 @@ import {
   submitMyVendorOnboarding,
   listEquipmentProducts,
   resolveStaticUrl,
+  getPublicPlans,   // S80 Phase 3 — dynamic plan + addon catalog for Step 3
 } from '../services/api';
 import './VendorOnboarding.css';
 
@@ -49,21 +50,9 @@ const TIMELINES = [
   { value: 'exploring', label: 'Just exploring' },
 ];
 
-const MODULES = [
-  { value: 'pos_core',      label: 'Core POS', desc: 'Register, cart, payments, receipts (always included)', required: true },
-  { value: 'lottery',       label: 'Lottery', desc: 'Scratch ticket sales, EoD reconciliation, settlement reports' },
-  { value: 'fuel',          label: 'Fuel', desc: 'Pump-attributed sales, FIFO tank inventory, BOL deliveries' },
-  { value: 'ecommerce',     label: 'eCommerce / Online Storefront', desc: 'Branded online store, customer accounts, online orders' },
-  { value: 'marketplace',   label: 'Marketplace Integration', desc: 'DoorDash, UberEats, Instacart sync' },
-  { value: 'exchange',      label: 'Storeveu Exchange', desc: 'B2B trading network with other stores' },
-  { value: 'loyalty',       label: 'Loyalty / Customer Accounts', desc: 'Points, house accounts, customer profiles' },
-  { value: 'scan_data',     label: 'Tobacco Scan Data', desc: 'Altria / RJR / ITG manufacturer reporting + coupon redemption' },
-  { value: 'ai_assistant',  label: 'AI Assistant', desc: 'Claude-powered help + AI promo suggestions' },
-  { value: 'vendor_orders', label: 'Vendor Orders / Auto-Reorder', desc: '14-factor demand-driven purchase orders' },
-  { value: 'invoice_ocr',   label: 'Invoice OCR / Bulk Import', desc: 'AI-extracted vendor invoices, CSV/XLSX import' },
-  { value: 'multi_store',   label: 'Multi-Store Dashboard', desc: 'Roll-up reports across multiple locations' },
-  { value: 'predictions',   label: 'Sales Predictions', desc: 'Holt-Winters forecasts with weather correlation' },
-];
+// S80 Phase 3 — MODULES list removed. Step 3 now loads the plan + addon
+// catalog from /api/billing/plans (see `getPublicPlans()` in services/api).
+// New addons added by admin show up automatically.
 
 // Hardware items are fetched live from /api/equipment/products (the same
 // catalog the admin Billing → Equipment tab manages). Fuel + Scale
@@ -128,11 +117,21 @@ export default function VendorOnboarding() {
     industry: '', numStoresRange: '', numStoresExact: '', numRegistersPerStore: '',
     monthlyVolumeRange: '', avgTxPerDay: '', currentPOS: '', goLiveTimeline: '',
     requestedModules: ['pos_core'],
+    // S80 Phase 3 — plan + addon picker (interest-only at this stage; admin
+    // sees the picks at approval time and can apply them to the resulting
+    // StoreSubscription, but they aren't auto-applied today).
+    selectedPlanSlug: 'starter',
+    selectedAddonKeys: [],
     hardwareNeeds: {},
     hearAboutUs: '', referralSource: '', specialRequirements: '',
     agreedToTerms: false,
   });
   const dirty = useRef(false);
+
+  // S80 Phase 3 — live plan + addon catalog from /api/billing/plans.
+  // Falls back to a small static set if the API is unreachable so the form
+  // still renders during signup before the backend is reachable.
+  const [planCatalog, setPlanCatalog] = useState([]);
 
   // ── Load equipment catalog (single source of truth — same data the
   //    Billing → Equipment tab manages). Failure is non-fatal: vendors
@@ -147,6 +146,24 @@ export default function VendorOnboarding() {
         setDevices(rows.filter(d => d.isActive !== false));
       } catch (err) {
         if (!cancelled) console.warn('[VendorOnboarding] device catalog fetch failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Load plan catalog (S80 Phase 3 — drives the dynamic plan + addon picker).
+  //    Same /api/billing/plans the marketing pricing page reads, so any new
+  //    add-on added by admin shows up here automatically. ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await getPublicPlans();
+        if (cancelled) return;
+        const plans = Array.isArray(list) ? list : (list?.plans || []);
+        setPlanCatalog(plans.filter(p => p.isActive !== false));
+      } catch (err) {
+        if (!cancelled) console.warn('[VendorOnboarding] plan catalog fetch failed', err);
       }
     })();
     return () => { cancelled = true; };
@@ -190,6 +207,9 @@ export default function VendorOnboarding() {
           currentPOS: o.currentPOS || '',
           goLiveTimeline: o.goLiveTimeline || '',
           requestedModules: o.requestedModules?.length ? o.requestedModules : ['pos_core'],
+          // S80 Phase 3 — restore prior picks if vendor saved a draft earlier
+          selectedPlanSlug: o.selectedPlanSlug || 'starter',
+          selectedAddonKeys: Array.isArray(o.selectedAddonKeys) ? o.selectedAddonKeys : [],
           hardwareNeeds: o.hardwareNeeds || {},
           hearAboutUs: o.hearAboutUs || '',
           referralSource: o.referralSource || '',
@@ -248,22 +268,57 @@ export default function VendorOnboarding() {
     return { lines, total, totalUnits };
   }, [devices, form.hardwareNeeds]);
 
-  const toggleModule = (value) => {
-    if (value === 'pos_core') return; // always required
+  // ── S80 Phase 3 — plan + addon picker handlers ──
+  const selectedPlan = useMemo(() => {
+    return planCatalog.find(p => p.slug === form.selectedPlanSlug) || null;
+  }, [planCatalog, form.selectedPlanSlug]);
+
+  const selectPlan = (slug) => {
     dirty.current = true;
     setForm(prev => ({
       ...prev,
-      requestedModules: prev.requestedModules.includes(value)
-        ? prev.requestedModules.filter(m => m !== value)
-        : [...prev.requestedModules, value],
+      selectedPlanSlug: slug,
+      // When switching to Pro, wipe addons (Pro includes everything by default)
+      selectedAddonKeys: slug === 'pro' ? [] : prev.selectedAddonKeys,
     }));
   };
+
+  const toggleAddon = (key) => {
+    dirty.current = true;
+    setForm(prev => ({
+      ...prev,
+      selectedAddonKeys: prev.selectedAddonKeys.includes(key)
+        ? prev.selectedAddonKeys.filter(k => k !== key)
+        : [...prev.selectedAddonKeys, key],
+    }));
+  };
+
+  // Live monthly total — base price + selected addon prices.
+  const subscriptionTotal = useMemo(() => {
+    if (!selectedPlan) return { base: 0, addons: 0, total: 0, addonLines: [] };
+    const base = Number(selectedPlan.basePrice ?? 0);
+    if (form.selectedPlanSlug === 'pro') {
+      // Pro = everything included, no addons
+      return { base, addons: 0, total: base, addonLines: [] };
+    }
+    const addonLines = (selectedPlan.addons || [])
+      .filter(a => form.selectedAddonKeys.includes(a.key))
+      .map(a => ({ key: a.key, label: a.label || a.name || a.key, price: Number(a.price ?? a.monthlyPrice ?? 0) }));
+    const addons = addonLines.reduce((s, a) => s + a.price, 0);
+    return { base, addons, total: base + addons, addonLines };
+  }, [selectedPlan, form.selectedPlanSlug, form.selectedAddonKeys]);
 
   // ── Save draft (called on Next) ──
   const saveDraft = async (nextStep = step) => {
     setSaving(true);
     try {
-      const payload = { ...form, currentStep: nextStep + 1 };
+      const payload = {
+        ...form,
+        currentStep: nextStep + 1,
+        // S80 Phase 3 — mirror live cart total to the saved record so admin
+        // can see the monthly estimate without recomputing on the server.
+        estimatedMonthlyTotal: subscriptionTotal.total,
+      };
       await updateMyVendorOnboarding(payload);
       dirty.current = false;
       return true;
@@ -291,7 +346,8 @@ export default function VendorOnboarding() {
       if (!form.goLiveTimeline)     e.goLiveTimeline = 'Please select';
     }
     if (idx === 2) {
-      if (form.requestedModules.length < 1) e.requestedModules = 'Select at least one module';
+      // S80 Phase 3 — must pick a plan (Starter or Pro). Addons optional.
+      if (!form.selectedPlanSlug) e.selectedPlanSlug = 'Please pick a plan';
     }
     if (idx === 4) {
       if (!form.agreedToTerms) e.agreedToTerms = 'You must agree to continue';
@@ -318,7 +374,11 @@ export default function VendorOnboarding() {
     if (!validateStep(4)) return;
     setSubmitting(true);
     try {
-      await submitMyVendorOnboarding({ ...form, currentStep: TOTAL_STEPS });
+      await submitMyVendorOnboarding({
+        ...form,
+        currentStep: TOTAL_STEPS,
+        estimatedMonthlyTotal: subscriptionTotal.total,
+      });
       // Update localStorage user flag so ProtectedRoute can route correctly.
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       u.onboardingSubmitted = true;
@@ -472,30 +532,105 @@ export default function VendorOnboarding() {
           </div>
         )}
 
-        {/* ── Step 2 — Modules ── */}
+        {/* ── Step 2 — Plan + Add-on picker (S80 Phase 3) ──
+            Dynamic from /api/billing/plans so any add-on the admin enables
+            shows up here automatically. Captures interest only — admin
+            applies the picks at approval time when creating the
+            StoreSubscription. ── */}
         {step === 2 && (
           <div>
-            <p className="vob-step-desc">Pick the modules you want enabled for your account. You can change this later.</p>
-            {errors.requestedModules && <p className="vob-field-error">{errors.requestedModules}</p>}
-            <div className="vob-modules">
-              {MODULES.map(m => {
-                const checked = form.requestedModules.includes(m.value);
-                const disabled = m.required;
+            <p className="vob-step-desc">
+              Pick the plan that fits your store. You're not charged today — onboarding
+              starts a 14-day free trial after admin approval.
+            </p>
+
+            {/* Plan tiles */}
+            <div className="vob-plan-tiles">
+              {planCatalog.length === 0 ? (
+                <div className="vob-plan-empty">Loading plan catalog…</div>
+              ) : planCatalog.map(p => {
+                const sel = form.selectedPlanSlug === p.slug;
                 return (
-                  <label key={m.value} className={`vob-module ${checked ? 'is-checked' : ''} ${disabled ? 'is-disabled' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={() => toggleModule(m.value)}
-                    />
-                    <div>
-                      <div className="vob-module-name">{m.label}{m.required && <span className="vob-req-pill">REQUIRED</span>}</div>
-                      <div className="vob-module-desc">{m.desc}</div>
+                  <button
+                    key={p.slug}
+                    type="button"
+                    className={`vob-plan-tile ${sel ? 'is-selected' : ''} ${p.highlighted ? 'is-highlighted' : ''}`}
+                    onClick={() => selectPlan(p.slug)}
+                  >
+                    <div className="vob-plan-tile-head">
+                      <span className="vob-plan-tile-name">{p.name}</span>
+                      {p.highlighted && <span className="vob-plan-tile-badge">Most Popular</span>}
                     </div>
-                  </label>
+                    <div className="vob-plan-tile-price">
+                      ${Number(p.basePrice ?? 0)}<span className="vob-plan-tile-period">/mo per store</span>
+                    </div>
+                    {p.tagline && <div className="vob-plan-tile-tagline">{p.tagline}</div>}
+                    {p.slug === 'pro' && (
+                      <div className="vob-plan-tile-pro-pill">All add-ons included</div>
+                    )}
+                  </button>
                 );
               })}
+            </div>
+
+            {/* Add-ons — only when Starter selected (Pro = all included) */}
+            {form.selectedPlanSlug === 'starter' && selectedPlan && (
+              <>
+                <div className="vob-addons-header">
+                  <h3 className="vob-addons-title">Add-ons</h3>
+                  <span className="vob-addons-hint">Add only what you need. Skip if you're not sure — you can add anytime.</span>
+                </div>
+                <div className="vob-addons-grid">
+                  {(selectedPlan.addons || []).map(a => {
+                    const sel = form.selectedAddonKeys.includes(a.key);
+                    return (
+                      <label key={a.key} className={`vob-addon-card ${sel ? 'is-checked' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={sel}
+                          onChange={() => toggleAddon(a.key)}
+                        />
+                        <div className="vob-addon-card-body">
+                          <div className="vob-addon-card-head">
+                            <span className="vob-addon-card-name">{a.label || a.name}</span>
+                            <span className="vob-addon-card-price">+${Number(a.price ?? a.monthlyPrice ?? 0)}/mo</span>
+                          </div>
+                          {a.description && <div className="vob-addon-card-desc">{a.description}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {form.selectedPlanSlug === 'pro' && (
+              <div className="vob-pro-summary">
+                <strong>Pro includes everything</strong> — Lottery, Fuel, E-Commerce, Marketplace,
+                Loyalty, AI Assistant, Tobacco Scan Data, and every other module. No add-ons to pick.
+              </div>
+            )}
+
+            {/* Live cart — estimated monthly subscription */}
+            <div className="vob-sub-cart">
+              <div className="vob-sub-cart-title">Your monthly subscription estimate</div>
+              <div className="vob-sub-cart-line">
+                <span>{selectedPlan?.name || 'No plan selected'}</span>
+                <span>${subscriptionTotal.base.toFixed(2)}</span>
+              </div>
+              {subscriptionTotal.addonLines.map(a => (
+                <div key={a.key} className="vob-sub-cart-line vob-sub-cart-addon">
+                  <span>+ {a.label}</span>
+                  <span>+${a.price.toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="vob-sub-cart-total">
+                <span>Total</span>
+                <span>${subscriptionTotal.total.toFixed(2)} / month</span>
+              </div>
+              <div className="vob-sub-cart-note">
+                14-day free trial · No credit card required · Cancel anytime.
+              </div>
             </div>
           </div>
         )}
@@ -671,7 +806,9 @@ export default function VendorOnboarding() {
                 <div><strong>Stores:</strong> {form.numStoresRange || '—'}</div>
                 <div><strong>Volume:</strong> {VOLUME_RANGES.find(v => v.value === form.monthlyVolumeRange)?.label || '—'}</div>
                 <div><strong>Go-live:</strong> {TIMELINES.find(t => t.value === form.goLiveTimeline)?.label || '—'}</div>
-                <div><strong>Modules:</strong> {form.requestedModules.length} selected</div>
+                <div><strong>Plan:</strong> {selectedPlan?.name || '—'}</div>
+                <div><strong>Add-ons:</strong> {form.selectedAddonKeys.length > 0 ? form.selectedAddonKeys.length + ' selected' : (form.selectedPlanSlug === 'pro' ? 'all included' : 'none')}</div>
+                <div><strong>Est. Monthly:</strong> ${subscriptionTotal.total.toFixed(2)}/mo</div>
               </div>
             </div>
 

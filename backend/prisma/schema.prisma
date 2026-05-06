@@ -885,6 +885,7 @@ model Organization {
   members        UserOrg[]
   invitations    Invitation[]
   promoSuggestions PromoSuggestion[]
+  storeSubscriptions StoreSubscription[]
 
   @@map("organizations")
 }
@@ -914,6 +915,27 @@ model PlatformModule {
   sortOrder   Int      @default(0)
   active      Boolean  @default(true)
 
+  // S80 Phase 3 — Grouped business-module architecture.
+  //
+  //   isBusinessModule = true  → top-level toggleable parent. The 12 user-
+  //                              facing add-ons (Lottery, Fuel, E-Commerce,
+  //                              Marketplace, Exchange, Loyalty, Scan Data,
+  //                              AI Assistant, Vendor Orders, Invoice OCR,
+  //                              Multi-Store, Predictions). StoreSettings
+  //                              shows toggles ONLY for these.
+  //   parentKey        = "..."  → child sidebar items grouped under a parent.
+  //                              When the parent business module is enabled,
+  //                              all children with this parentKey activate.
+  //                              When disabled, all children hide.
+  //
+  // Some business modules ARE sidebar items themselves (lottery, fuel,
+  // exchange, scan_data, vendor_orders) — their own routePaths are populated
+  // and parentKey is null. Pure parents (ecommerce, marketplace_integration,
+  // invoice_ocr, ai_assistant, predictions, loyalty, multi_store_dashboard)
+  // have empty routePaths and just gate their children.
+  isBusinessModule Boolean @default(false)
+  parentKey        String?
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -921,6 +943,7 @@ model PlatformModule {
 
   @@index([category, sortOrder])
   @@index([active])
+  @@index([parentKey])
   @@map("platform_modules")
 }
 
@@ -1063,10 +1086,24 @@ model VendorOnboarding {
   currentPOS           String? // None | NCR | Verifone | Square | Clover | Shopify | Other
   goLiveTimeline       String? // immediate | 1month | 3months | exploring
 
-  // ── Step 3 — Modules of interest (multi-select) ──
-  // Possible values: pos_core, lottery, fuel, ecommerce, marketplace, exchange,
-  //                  loyalty, scan_data, ai_assistant, vendor_orders, invoice_ocr,
-  //                  multi_store, predictions
+  // ── Step 3 — Plan + add-on interest (S80 Phase 3) ──
+  // Stored as "interest only" — admin sees the prospect's intended plan + addons
+  // and uses this to negotiate / approve. The actual StoreSubscription gets
+  // applied at approval time, not here.
+  //
+  //   selectedPlanSlug    : 'starter' | 'pro' | null  — plan tile they picked
+  //   selectedAddonKeys   : addon keys from PlanAddon catalog (Starter only — Pro
+  //                         hides the addon picker since it includes everything)
+  //   estimatedMonthlyTotal : computed at submit time, mirrors the live cart
+  //   requestedModules    : legacy multi-select kept for back-compat. New
+  //                         selections write to selectedAddonKeys; admin UI
+  //                         can read either.
+  selectedPlanSlug      String?
+  selectedAddonKeys     String[]   @default([])
+  estimatedMonthlyTotal Decimal?   @db.Decimal(10, 2)
+
+  // Legacy: pos_core, lottery, fuel, ecommerce, marketplace, exchange, loyalty,
+  // scan_data, ai_assistant, vendor_orders, invoice_ocr, multi_store, predictions
   requestedModules    String[]  @default([])
 
   // ── Step 4 — Hardware needs ──
@@ -1443,6 +1480,15 @@ model Store {
   isActive Boolean @default(true)
   branding Json?   @default("{}")
 
+  // S80 — per-store module on/off overrides. Shape: { moduleKey: bool }.
+  // A module is ACTIVE at a store iff (subscription includes it) AND
+  // (featureModules[key] !== false). Default behavior when key is absent
+  // is "on" — every subscribed module renders unless the admin disabled
+  // it here. Legacy per-module flags (store.pos.lottery.enabled,
+  // store.pos.ecomEnabled, FuelSettings.enabled, etc.) are mirrored on
+  // write for back-compat; phased out in Phase 3.
+  featureModules Json @default("{}")
+
   // ── Storeveu Exchange (B2B wholesale between stores) ──
   // Globally unique human-friendly code used by trading partners to find
   // and invite this store, e.g. "NORTH-MAIN" or "STV-4F9K2A". Claimable at
@@ -1505,6 +1551,10 @@ model Store {
 
   // Session 50 — pricing model audit trail
   pricingModelChanges PricingModelChange[]
+
+  // S80 — per-store subscription (Phase 1). One sub per store; addons/billing
+  // tracked here. Org-level OrgSubscription kept for transition (Phase 3 retires).
+  subscription StoreSubscription?
 
   @@index([orgId, isActive])
   @@index([storeCode])
@@ -3069,8 +3119,21 @@ model SubscriptionPlan {
   highlighted       Boolean  @default(false)    // shown as "most popular" in pricing UI
   isDefault         Boolean  @default(false)    // assigned to fresh orgs as fallback
 
-  addons        PlanAddon[]
-  subscriptions OrgSubscription[]
+  // S81 — dynamic bundle pricing for Pro-style "everything included" plans.
+  //   bundleDiscountPercent: when set, basePrice is computed as
+  //     (default plan basePrice + Σ default plan addon prices) × (1 - pct/100).
+  //     Re-derived by the seeder + admin pricing endpoints whenever Starter base,
+  //     addon prices, or this percentage change. Stored alongside basePrice so
+  //     reads stay O(1) and don't need to join PlanAddon at request time.
+  //   priceOverride: admin manual override. When set, computeEffectivePlanPrice()
+  //     returns this verbatim and ignores the dynamic bundle calc. Lets ops
+  //     hand-tune Pro for a promo without losing the underlying formula.
+  bundleDiscountPercent Decimal? @db.Decimal(5, 2)
+  priceOverride         Decimal? @db.Decimal(10, 2)
+
+  addons             PlanAddon[]
+  subscriptions      OrgSubscription[]   // legacy — kept for transition; phased out in Phase 3
+  storeSubscriptions StoreSubscription[]
   // S78 — modules this plan grants access to
   modules       PlanModule[]
 
@@ -3089,6 +3152,9 @@ model PlanAddon {
   price       Decimal          @db.Decimal(10, 2)
   description String?
   isActive    Boolean          @default(true)
+  // S80 — module keys this addon unlocks when purchased.
+  // Resolver: store's modules = plan modules ∪ (purchased-addon modules) ∪ core.
+  moduleKeys  String[]         @default([])
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -3139,13 +3205,79 @@ model OrgSubscription {
 }
 
 // ─────────────────────────────────────────────────
+// STORE SUBSCRIPTION (S80 — per-store billing/entitlement)
+// One subscription per store. Org with N stores = N StoreSubscription rows,
+// each potentially on a different plan + different addon set. Entitlement
+// resolver scopes by active X-Store-Id header.
+//
+// extraAddons: array of PlanAddon.key values purchased on this store. Each
+// addon's moduleKeys[] union into the store's effective module set.
+//
+// Phase 1: lives alongside OrgSubscription. New code reads StoreSubscription;
+// fallback to OrgSubscription kept for safety during transition.
+// Phase 3: BillingInvoice repointed here, OrgSubscription retired.
+// ─────────────────────────────────────────────────
+model StoreSubscription {
+  id      String           @id @default(cuid())
+  storeId String           @unique
+  store   Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orgId   String           // denormalized for fast org-scoped queries
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  planId  String
+  plan    SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  status             String    @default("trial")   // trial | active | past_due | cancelled | suspended
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+
+  registerCount Int      @default(1)
+  extraAddons   String[] @default([])   // PlanAddon.key values purchased on this store
+
+  basePriceOverride Decimal? @db.Decimal(10, 2)
+
+  discountType   String?
+  discountValue  Decimal?  @db.Decimal(10, 2)
+  discountNote   String?
+  discountExpiry DateTime?
+
+  paymentToken  String?
+  paymentMasked String?
+  paymentMethod String?
+
+  retryCount   Int       @default(0)
+  lastFailedAt DateTime?
+  nextRetryAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices BillingInvoice[]
+
+  @@index([orgId, status])
+  @@index([planId])
+  @@index([status, currentPeriodEnd])
+  @@map("store_subscriptions")
+}
+
+// ─────────────────────────────────────────────────
 // BILLING INVOICE
 // ─────────────────────────────────────────────────
 model BillingInvoice {
-  id             String          @id @default(cuid())
-  invoiceNumber  String          @unique
-  subscriptionId String
-  subscription   OrgSubscription @relation(fields: [subscriptionId], references: [id])
+  id             String           @id @default(cuid())
+  invoiceNumber  String           @unique
+
+  // Legacy org-level link (kept for transition; nullable from S80 Phase 3b).
+  // Old invoices reference an OrgSubscription; new invoices reference a
+  // StoreSubscription via storeSubscriptionId. Reads should prefer the
+  // newer field; writers populate the appropriate one based on the
+  // subscription type. Phase 4 retires `subscriptionId` entirely.
+  subscriptionId String?
+  subscription   OrgSubscription? @relation(fields: [subscriptionId], references: [id])
+
+  // S80 Phase 3b — per-store invoice linkage (preferred for new invoices).
+  storeSubscriptionId String?
+  storeSubscription   StoreSubscription? @relation(fields: [storeSubscriptionId], references: [id])
 
   periodStart DateTime
   periodEnd   DateTime
@@ -3167,6 +3299,7 @@ model BillingInvoice {
   updatedAt DateTime @updatedAt
 
   @@index([subscriptionId, status])
+  @@index([storeSubscriptionId, status])
   @@map("billing_invoices")
 }
 
@@ -5206,4 +5339,35 @@ model PromoSuggestion {
   @@index([orgId, status, generatedAt])
   @@index([orgId, storeId, status])
   @@map("promo_suggestions")
+}
+
+// ─────────────────────────────────────────────────
+// SEEDER EXECUTION TRACKING — S81
+// Records every run of the production seeder system. Catalog seeders write
+// a row on every successful re-run (idempotent — newest row reflects latest
+// state). One-shot seeders use the unique (seederName, version) constraint
+// as the gate: a successful row blocks re-runs at that version, and bumping
+// the version forces a new run.
+//
+// To force a one-shot to re-run on production, either:
+//   1. Bump the version in src/services/seeder/registry.ts (preferred —
+//      survives a database reset and is captured in git history), OR
+//   2. Delete the row directly: DELETE FROM seeder_executions
+//      WHERE "seederName" = 'foo' AND version = 1;
+// ─────────────────────────────────────────────────
+model SeederExecution {
+  id         String   @id @default(cuid())
+  seederName String   // matches SeederTask.name in registry
+  version    Int      // bump in registry to force a re-run
+  category   String   // 'catalog' | 'one_shot' — copied from registry for visibility
+  runAt      DateTime @default(now())
+  durationMs Int?
+  success    Boolean  @default(true)
+  summary    Json?    // optional task-specific stats (rows created/updated/skipped)
+  errorMsg   String?  @db.Text
+
+  @@unique([seederName, version])
+  @@index([seederName])
+  @@index([runAt])
+  @@map("seeder_executions")
 }

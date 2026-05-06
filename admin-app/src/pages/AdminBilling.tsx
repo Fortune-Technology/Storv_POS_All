@@ -24,6 +24,10 @@ import {
   adminCreateAddon, adminUpdateAddon,
   adminListSubscriptions, adminUpsertSubscription,
   adminListInvoices, adminWriteOffInvoice, adminRetryInvoice,
+  // S80 Phase 3b — per-store subs
+  adminListStoreSubscriptions, adminUpdateStoreSubscription,
+  adminGenerateStoreInvoice, adminMarkInvoicePaid,
+  adminDownloadInvoicePdf, adminSendInvoiceEmail,
   adminListEquipmentOrders, adminUpdateEquipmentOrder,
   adminListEquipmentProducts, adminCreateEquipmentProduct, adminUpdateEquipmentProduct,
   adminDeleteEquipmentProduct, adminUploadEquipmentImage,
@@ -733,6 +737,23 @@ function SubscriptionsTab() {
 
   return (
     <div>
+      {/* S80 Phase 3a — transition banner. Org-level OrgSubscription is the
+          legacy model; per-store StoreSubscription rows are the new model.
+          Both coexist while admin-side per-store mgmt is built (Phase 3b). */}
+      <div style={{
+        padding: '10px 14px',
+        marginBottom: 16,
+        background: 'rgba(59, 130, 246, 0.08)',
+        border: '1px solid rgba(59, 130, 246, 0.25)',
+        borderRadius: 8,
+        fontSize: 13,
+        color: '#1e40af',
+      }}>
+        <strong>Heads up:</strong> Subscriptions are transitioning to per-store. The list below shows
+        legacy org-level subscriptions. Customers manage their per-store subs in the portal Billing &amp; Plan
+        page. Full per-store admin tooling lands in Phase 3b.
+      </div>
+
       {/* Stat row */}
       <div className="ab-stat-row">
         {([['Total', total, '#3b82f6'], ['Active', STATUS_COUNTS.active, '#22c55e'], ['Trial', STATUS_COUNTS.trial, '#3b82f6'],
@@ -913,6 +934,39 @@ function InvoicesTab() {
     catch { toast.error('Failed'); }
   };
 
+  // S81 — download an existing invoice as PDF (no new invoice generated; this
+  // re-renders the SAME data the email would attach).
+  const [busyInv, setBusyInv] = useState<string>('');
+  const handleDownloadInv = async (inv: Invoice) => {
+    setBusyInv(`dl-${inv.id}`);
+    try {
+      const blob = await adminDownloadInvoicePdf(String(inv.id));
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${inv.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Could not download invoice');
+    } finally { setBusyInv(''); }
+  };
+  const handleSendInv = async (inv: Invoice) => {
+    setBusyInv(`send-${inv.id}`);
+    try {
+      const result = await adminSendInvoiceEmail(String(inv.id));
+      if (result.ok) {
+        toast.success(`Invoice ${inv.invoiceNumber} → ${(result.recipients || []).join(', ') || 'recipient'}`);
+      } else {
+        toast.warn(result.message || 'SMTP not configured — email skipped.');
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Could not send invoice');
+    } finally { setBusyInv(''); }
+  };
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -949,6 +1003,24 @@ function InvoicesTab() {
                 <td className="ab-inv-attempt">{inv.attemptCount}</td>
                 <td>
                   <div className="ab-inv-actions">
+                    <button
+                      onClick={() => handleDownloadInv(inv)}
+                      disabled={busyInv === `dl-${inv.id}`}
+                      className="admin-btn admin-btn-secondary"
+                      style={{ fontSize: 11, padding: '3px 8px' }}
+                      title="Download invoice PDF"
+                    >
+                      {busyInv === `dl-${inv.id}` ? '…' : 'Get'}
+                    </button>
+                    <button
+                      onClick={() => handleSendInv(inv)}
+                      disabled={busyInv === `send-${inv.id}`}
+                      className="admin-btn admin-btn-secondary"
+                      style={{ fontSize: 11, padding: '3px 8px' }}
+                      title="Email invoice PDF to billing recipients"
+                    >
+                      {busyInv === `send-${inv.id}` ? '…' : 'Send'}
+                    </button>
                     {inv.status === 'failed' && <>
                       <button onClick={()=>handleRetry(inv.id)} className="admin-btn-icon" title="Retry charge"><RefreshCw size={14} /></button>
                       <button onClick={()=>handleWriteOff(inv.id)} className="admin-btn-icon danger" title="Write off"><Ban size={14} /></button>
@@ -1443,21 +1515,230 @@ function EquipmentTab() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// S80 Phase 3b — Store Subscriptions Tab (per-store)
+// Each store has its own subscription (plan + addons + status). Superadmin
+// can: change plan/addons, generate invoice, mark paid (test mode), see
+// invoice history per store.
+// ═══════════════════════════════════════════════════════════════════════════
+function StoreSubscriptionsTab() {
+  const [subs, setSubs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusF, setStatusF] = useState('');
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState<string>('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await adminListStoreSubscriptions({
+        status: statusF || undefined,
+        search: search || undefined,
+        limit: 100,
+      });
+      setSubs(r.data || []);
+    } catch { toast.error('Failed to load store subscriptions'); }
+    finally { setLoading(false); }
+  }, [statusF, search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // S81 — "Get Invoice" now ensures an invoice exists for the period and then
+  // downloads it as a properly-formatted PDF in one click. The PDF is rendered
+  // by the backend (PDFKit) so the file is identical to the email attachment.
+  const handleGetInvoice = async (sub: any) => {
+    setBusy(`gen-${sub.id}`);
+    try {
+      const r = await adminGenerateStoreInvoice(sub.id);
+      const inv = r.invoice;
+      // Stream the PDF to a download.
+      const blob = await adminDownloadInvoicePdf(inv.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${inv.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      // Free the object URL after the click registers (slight delay because
+      // some browsers race the download otherwise).
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`Invoice ${inv.invoiceNumber} — $${Number(inv.totalAmount).toFixed(2)}`);
+      load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Could not generate invoice');
+    } finally { setBusy(''); }
+  };
+
+  // S81 — "Send Invoice" generates (or reuses) an invoice and emails the same
+  // PDF as the download to the store/org billing addresses. Recipients are
+  // resolved server-side from the org billingEmail + store owners.
+  const handleSendInvoice = async (sub: any) => {
+    setBusy(`send-${sub.id}`);
+    try {
+      const r = await adminGenerateStoreInvoice(sub.id);
+      const inv = r.invoice;
+      const result = await adminSendInvoiceEmail(inv.id);
+      if (result.ok) {
+        const recipients = (result.recipients || []).join(', ') || 'recipient';
+        toast.success(`Invoice ${inv.invoiceNumber} → ${recipients}`);
+      } else {
+        toast.warn(result.message || 'SMTP not configured — email skipped.');
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Could not send invoice');
+    } finally { setBusy(''); }
+  };
+
+  const handleQuickPaid = async (sub: any) => {
+    // Find the most recent unpaid invoice for this sub and mark it paid
+    setBusy(`paid-${sub.id}`);
+    try {
+      // First generate one if none exists. Idempotent.
+      const r = await adminGenerateStoreInvoice(sub.id);
+      const inv = r.invoice;
+      if (inv.status === 'paid') {
+        toast.info('Already paid');
+      } else {
+        await adminMarkInvoicePaid(inv.id, 'Quick mark from store subs tab');
+        toast.success(`✓ ${sub.storeName} → active`);
+      }
+      load();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Mark paid failed');
+    } finally { setBusy(''); }
+  };
+
+  const STATUS_COLORS: Record<string, string> = {
+    trial:    '#3b82f6',
+    active:   '#22c55e',
+    past_due: '#f97316',
+    suspended:'#ef4444',
+    cancelled:'#6b7280',
+  };
+
+  return (
+    <div>
+      {/* Banner */}
+      <div style={{
+        padding: '10px 14px',
+        marginBottom: 16,
+        background: 'rgba(34, 197, 94, 0.08)',
+        border: '1px solid rgba(34, 197, 94, 0.25)',
+        borderRadius: 8,
+        fontSize: 13,
+        color: '#15803d',
+      }}>
+        <strong>Per-store subscriptions (S80).</strong> Each store has its own plan + add-ons.
+        Use <strong>Mark Paid</strong> for test-mode payment bypass — flips trial/past_due to active
+        and marks the latest invoice paid.
+      </div>
+
+      {/* Filter row */}
+      <div className="ab-filter-row">
+        <input
+          type="text"
+          className="admin-select ab-select-inline"
+          placeholder="Search store or org…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ minWidth: 200 }}
+        />
+        <select className="admin-select ab-select-inline" value={statusF} onChange={e => setStatusF(e.target.value)}>
+          <option value="">All Statuses</option>
+          {['trial','active','past_due','suspended','cancelled'].map(s => <option key={s} value={s}>{s.replace('_',' ')}</option>)}
+        </select>
+        <button className="admin-btn admin-btn-secondary" onClick={load}>Refresh</button>
+      </div>
+
+      <div className="admin-table-wrapper ab-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Store</th><th>Org</th><th>Plan</th><th>Add-ons</th><th>Status</th><th>Period End</th><th>Monthly</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} className="ab-empty">Loading…</td></tr>
+            ) : subs.length === 0 ? (
+              <tr><td colSpan={8} className="ab-empty">No store subscriptions found</td></tr>
+            ) : subs.map(s => (
+              <tr key={s.id}>
+                <td className="ab-cell-bold">{s.storeName}</td>
+                <td className="ab-cell-sm">{s.orgName}</td>
+                <td className="ab-cell-sm">{s.plan?.name || '—'}</td>
+                <td className="ab-cell-sm" style={{ fontSize: 11 }}>
+                  {s.purchasedAddons?.length > 0 ? s.purchasedAddons.join(', ') : (s.plan?.slug === 'pro' ? '(all included)' : '—')}
+                </td>
+                <td>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: STATUS_COLORS[s.status] || '#6b7280',
+                  }}>
+                    {String(s.status).replace('_',' ')}
+                  </span>
+                </td>
+                <td className="ab-cell-sm">{s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : '—'}</td>
+                <td className="ab-cell-bold">${Number(s.monthlyTotal || 0).toFixed(2)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <button
+                    className="admin-btn admin-btn-secondary"
+                    onClick={() => handleGetInvoice(s)}
+                    disabled={busy === `gen-${s.id}`}
+                    style={{ marginRight: 4, fontSize: 11 }}
+                    title="Generate + download invoice as PDF"
+                  >
+                    {busy === `gen-${s.id}` ? '…' : 'Get Invoice'}
+                  </button>
+                  <button
+                    className="admin-btn admin-btn-secondary"
+                    onClick={() => handleSendInvoice(s)}
+                    disabled={busy === `send-${s.id}`}
+                    style={{ marginRight: 4, fontSize: 11 }}
+                    title="Generate + email invoice PDF to the store / billing email"
+                  >
+                    {busy === `send-${s.id}` ? '…' : 'Send Invoice'}
+                  </button>
+                  <button
+                    className="admin-btn admin-btn-primary"
+                    onClick={() => handleQuickPaid(s)}
+                    disabled={busy === `paid-${s.id}`}
+                    style={{ fontSize: 11 }}
+                  >
+                    {busy === `paid-${s.id}` ? '…' : 'Mark Paid'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 
-type TopTab = 'plans' | 'subscriptions' | 'invoices' | 'equipment';
+type TopTab = 'plans' | 'subscriptions' | 'store-subs' | 'invoices' | 'equipment';
 
 interface TabDef { id: TopTab; label: string; icon: ReactNode }
 
 const TABS: TabDef[] = [
-  { id:'plans',         label:'Plans & Add-ons', icon:<CreditCard size={14}/> },
-  { id:'subscriptions', label:'Subscriptions',   icon:<Building2  size={14}/> },
-  { id:'invoices',      label:'Invoices',         icon:<FileText   size={14}/> },
-  { id:'equipment',     label:'Equipment',        icon:<Package    size={14}/> },
+  { id:'plans',         label:'Plans & Add-ons',     icon:<CreditCard size={14}/> },
+  { id:'store-subs',    label:'Store Subscriptions', icon:<Building2  size={14}/> },
+  { id:'subscriptions', label:'Subscriptions (Legacy)', icon:<Building2  size={14}/> },
+  { id:'invoices',      label:'Invoices',            icon:<FileText   size={14}/> },
+  { id:'equipment',     label:'Equipment',           icon:<Package    size={14}/> },
 ];
 
 export default function AdminBilling() {
-  const [tab, setTab] = useState<TopTab>('plans');
+  const [tab, setTab] = useState<TopTab>('store-subs');
 
   return (
     <>
@@ -1466,7 +1747,7 @@ export default function AdminBilling() {
             <div className="admin-header-icon"><CreditCard size={22} /></div>
             <div>
               <h1>Billing Management</h1>
-              <p>Subscription plans, org billing, invoices, and equipment orders</p>
+              <p>Subscription plans, per-store subscriptions, invoices, and equipment orders</p>
             </div>
           </div>
         </div>
@@ -1481,6 +1762,7 @@ export default function AdminBilling() {
         </div>
 
         {tab === 'plans'         && <PlansTab />}
+        {tab === 'store-subs'    && <StoreSubscriptionsTab />}
         {tab === 'subscriptions' && <SubscriptionsTab />}
         {tab === 'invoices'      && <InvoicesTab />}
         {tab === 'equipment'     && <EquipmentTab />}

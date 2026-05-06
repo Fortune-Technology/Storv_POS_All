@@ -16,6 +16,8 @@ import { X, FileText, Loader, CheckCircle2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
   adminCreateContract,
+  adminListPlans,
+  adminListEquipmentProducts,
   type VendorOnboardingRecord,
 } from '../services/api';
 import './GenerateContractModal.css';
@@ -27,33 +29,116 @@ interface Props {
   onCreated?: (contractId: string) => void;
 }
 
-// Build a sensible mergeValues blob from onboarding data.
-function buildInitialMergeValues(o: VendorOnboardingRecord) {
-  // Hardware: convert hardwareNeeds counts into line items with placeholder prices.
-  // Admin can edit the real prices on the contract detail page later.
-  const hwLabels: Record<string, { description: string; defaultUnitPrice: number }> = {
-    posTerminal:     { description: 'Dejavoo Terminal',    defaultUnitPrice: 295 },
-    receiptPrinter:  { description: 'Receipt Printer',     defaultUnitPrice: 250 },
-    cashDrawer:      { description: 'Cash Drawer',         defaultUnitPrice: 95 },
-    scanner:         { description: 'Barcode Scanner',     defaultUnitPrice: 110 },
-    cardTerminal:    { description: 'Card Terminal',       defaultUnitPrice: 245 },
-    customerDisplay: { description: 'Customer Display',    defaultUnitPrice: 195 },
-    labelPrinter:    { description: 'Label Printer',       defaultUnitPrice: 170 },
-  };
+// Plan + addons resolved at modal-open time and threaded into buildInitialMergeValues
+// so SaaS Subscription is pre-filled with the plan the prospect actually picked
+// (instead of a hardcoded $79/0). Falls back to the legacy $79 if the lookup fails.
+interface PlanResolution {
+  planSlug: string | null;
+  planLabel: string;          // 'Starter' | 'Pro' | '—' (display only)
+  baseMonthlyFee: number;     // SubscriptionPlan.basePrice (Pro = computed bundle)
+  addonsTotalMonthly: number; // sum of selected addon prices (Starter only)
+  addonLines: Array<{ key: string; label: string; price: number }>; // for hint UI
+  source: 'plan' | 'fallback';
+}
+
+function emptyResolution(): PlanResolution {
+  return { planSlug: null, planLabel: '—', baseMonthlyFee: 79, addonsTotalMonthly: 0, addonLines: [], source: 'fallback' };
+}
+
+// `numStoresRange` is captured as a string like "1", "2-5", "6-10", "11+".
+// When the prospect didn't fill in `numStoresExact`, parse the lower bound of
+// the range so the contract's # Locations starts with the right minimum
+// instead of always defaulting to 1.
+function inferLocationCount(o: VendorOnboardingRecord): number {
+  if (typeof o.numStoresExact === 'number' && o.numStoresExact > 0) return o.numStoresExact;
+  const r = (o.numStoresRange || '').trim();
+  if (!r) return 1;
+  const m = r.match(/^(\d+)/);
+  if (m) return Math.max(1, Number(m[1]) || 1);
+  return 1;
+}
+
+// Convert hardwareNeeds → contract hardware line items.
+//
+// Reality of the data model:
+//   • Counted devices are keyed by `EquipmentProduct.slug` (kebab-case like
+//     'card-terminal', 'receipt-printer') — the same catalog the onboarding
+//     wizard uses. The slug map is authoritative; we look up the live product
+//     to get the real `name` + `price` instead of guessing with a hardcoded
+//     dictionary.
+//   • Integration toggles (`fuelIntegration`, `scaleIntegration`) are
+//     booleans, not counts. These are surfaced as $0 line items so the
+//     contract reflects them — admin can set the actual fee inline.
+//
+// Legacy fallback:
+//   Older onboarding data (pre S81) wrote camelCase keys into hardwareNeeds.
+//   We map those to their kebab equivalents before lookup so existing
+//   submissions keep working.
+const LEGACY_KEY_MAP: Record<string, string> = {
+  posTerminal:     'pos-terminal',
+  receiptPrinter:  'receipt-printer',
+  cashDrawer:      'cash-drawer',
+  scanner:         'barcode-scanner',
+  cardTerminal:    'card-terminal',
+  customerDisplay: 'customer-display',
+  labelPrinter:    'label-printer',
+};
+// Last-resort labels for slugs that the equipment catalog doesn't include —
+// e.g. discontinued items still referenced on old onboardings.
+const FALLBACK_LABELS: Record<string, string> = {
+  'pos-terminal':     'POS Terminal',
+  'receipt-printer':  'Receipt Printer',
+  'cash-drawer':      'Cash Drawer',
+  'barcode-scanner':  'Barcode Scanner',
+  'card-terminal':    'Card Terminal',
+  'customer-display': 'Customer Display',
+  'label-printer':    'Label Printer',
+};
+
+interface EquipmentLookup {
+  bySlug: Map<string, { name: string; price: number }>;
+}
+
+function buildHardwareLines(o: VendorOnboardingRecord, eq: EquipmentLookup) {
   const hardware: Array<{ description: string; qty: number; unitPrice: number; total: number }> = [];
   const hw = (o.hardwareNeeds || {}) as Record<string, number | boolean | null>;
-  for (const [key, def] of Object.entries(hwLabels)) {
-    const raw = hw[key];
-    const qty = typeof raw === 'number' ? raw : 0;
-    if (qty > 0) {
-      hardware.push({
-        description: def.description,
-        qty,
-        unitPrice: def.defaultUnitPrice,
-        total: qty * def.defaultUnitPrice,
-      });
-    }
+
+  // Track which slugs we've already added so a legacy camelCase entry doesn't
+  // duplicate a kebab-case one if both somehow exist on the same record.
+  const seenSlugs = new Set<string>();
+
+  const pushSlug = (slug: string, qty: number) => {
+    if (qty <= 0 || seenSlugs.has(slug)) return;
+    seenSlugs.add(slug);
+    const live = eq.bySlug.get(slug);
+    const description = live?.name || FALLBACK_LABELS[slug] || slug;
+    const unitPrice = live?.price ?? 0;
+    hardware.push({ description, qty, unitPrice, total: qty * unitPrice });
+  };
+
+  for (const [rawKey, rawVal] of Object.entries(hw)) {
+    // Integration toggles are handled as $0 line items below — skip here.
+    if (rawKey === 'fuelIntegration' || rawKey === 'scaleIntegration') continue;
+    if (typeof rawVal !== 'number' || rawVal <= 0) continue;
+    const slug = LEGACY_KEY_MAP[rawKey] || rawKey; // camelCase legacy → kebab; otherwise pass through
+    pushSlug(slug, rawVal);
   }
+
+  // Surface integration toggles so the contract reflects what the prospect
+  // asked for. Admin can set the real $ fee on the line.
+  if (hw.fuelIntegration === true) {
+    hardware.push({ description: 'Fuel Pump Integration', qty: 1, unitPrice: 0, total: 0 });
+  }
+  if (hw.scaleIntegration === true) {
+    hardware.push({ description: 'Scale Integration',     qty: 1, unitPrice: 0, total: 0 });
+  }
+
+  return hardware;
+}
+
+// Build a sensible mergeValues blob from onboarding data.
+function buildInitialMergeValues(o: VendorOnboardingRecord, plan: PlanResolution, eq: EquipmentLookup) {
+  const hardware = buildHardwareLines(o, eq);
 
   return {
     merchant: {
@@ -67,7 +152,7 @@ function buildInitialMergeValues(o: VendorOnboardingRecord) {
       ein:               o.ein || '',
       businessType:      o.businessType || '',
       stateOfIncorporation: o.businessState || '',
-      numLocations:      o.numStoresExact || 1,
+      numLocations:      inferLocationCount(o),
       ownerName:         o.fullName || '',
       ownerSsnLast4:     '',
       ownerDob:          '',
@@ -77,9 +162,9 @@ function buildInitialMergeValues(o: VendorOnboardingRecord) {
     agreementDate: new Date().toISOString().slice(0, 10),
     pricing: {
       saas: {
-        baseMonthlyFee: 79,
+        baseMonthlyFee: plan.baseMonthlyFee,
         additionalLicenseFee: 0,
-        addonsTotalMonthly: 0,
+        addonsTotalMonthly: plan.addonsTotalMonthly,
       },
       hardware,
       processing: {
@@ -108,12 +193,78 @@ export default function GenerateContractModal({ open, onboarding, onClose, onCre
   const [submitting, setSubmitting] = useState(false);
   const [mergeValues, setMergeValues] = useState<Record<string, any>>({});
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [planResolution, setPlanResolution] = useState<PlanResolution>(emptyResolution());
 
+  // Resolve the prospect's plan + addons + equipment catalog once when the
+  // modal opens. Plan lookup gives us the authoritative basePrice (which
+  // respects bundleDiscountPercent / priceOverride for Pro) and addon prices
+  // to sum for Starter. Equipment catalog gives us live names + prices so
+  // hardware lines pull real data instead of a hardcoded camelCase dictionary
+  // that didn't match the kebab-case slugs the onboarding wizard actually writes.
   useEffect(() => {
-    if (open && onboarding) {
-      setMergeValues(buildInitialMergeValues(onboarding));
-      setCreatedId(null);
-    }
+    let cancelled = false;
+    if (!open || !onboarding) return;
+    setCreatedId(null);
+
+    (async () => {
+      // Run plan + equipment fetches in parallel — they're independent.
+      const [planRes, equipRes] = await Promise.allSettled([
+        adminListPlans(),
+        adminListEquipmentProducts(),
+      ]);
+
+      // Plan resolution
+      let resolution: PlanResolution = emptyResolution();
+      if (planRes.status === 'fulfilled') {
+        const r = planRes.value;
+        const plans = r?.plans ?? [];
+        const slug = onboarding.selectedPlanSlug;
+        const matched = slug ? plans.find((p: any) => p.slug === slug) : null;
+        if (matched) {
+          const base = Number(matched.basePrice ?? 0);
+          const allAddons = (matched.addons || []) as Array<{ key: string; label?: string; name?: string; price?: number; monthlyPrice?: number }>;
+          const wanted = new Set(onboarding.selectedAddonKeys || []);
+          const selected = allAddons
+            .filter(a => wanted.has(a.key))
+            .map(a => ({
+              key: a.key,
+              label: a.label || a.name || a.key,
+              price: Number(a.price ?? a.monthlyPrice ?? 0),
+            }));
+          // Pro includes everything by default — addon picker is hidden in
+          // onboarding so selectedAddonKeys is empty. Don't double-charge.
+          const addonsTotal = slug === 'pro' ? 0 : selected.reduce((s, a) => s + a.price, 0);
+          resolution = {
+            planSlug: slug,
+            planLabel: matched.name || (slug === 'pro' ? 'Pro' : 'Starter'),
+            baseMonthlyFee: base > 0 ? base : 79,
+            addonsTotalMonthly: addonsTotal,
+            addonLines: selected,
+            source: 'plan',
+          };
+        }
+      }
+
+      // Equipment catalog — flatten into a slug → {name, price} map. On error
+      // we still proceed with an empty map; buildHardwareLines falls back to
+      // FALLBACK_LABELS so the admin sees something rather than nothing.
+      const bySlug = new Map<string, { name: string; price: number }>();
+      if (equipRes.status === 'fulfilled') {
+        const list = (equipRes.value || []) as Array<{ slug: string; name: string; price: any; isActive?: boolean }>;
+        for (const item of list) {
+          if (!item?.slug) continue;
+          // Decimal arrives as a string — coerce defensively.
+          const priceNum = Number(item.price ?? 0);
+          bySlug.set(item.slug, { name: item.name || item.slug, price: Number.isFinite(priceNum) ? priceNum : 0 });
+        }
+      }
+
+      if (cancelled) return;
+      setPlanResolution(resolution);
+      setMergeValues(buildInitialMergeValues(onboarding, resolution, { bySlug }));
+    })();
+
+    return () => { cancelled = true; };
   }, [open, onboarding]);
 
   // Esc to close
@@ -219,6 +370,44 @@ export default function GenerateContractModal({ open, onboarding, onClose, onCre
                 After saving, you'll be able to review the rendered contract and send it to the vendor for signature.
               </p>
 
+              {/* Read-only context panel — surfaces the rest of the onboarding
+                  data (industry, volume, current POS, etc.) that doesn't go on
+                  the contract but is useful for choosing processing tier +
+                  hardware quantities. Hidden when the prospect provided
+                  nothing in this section. */}
+              {(onboarding.industry || onboarding.numStoresRange || onboarding.monthlyVolumeRange ||
+                onboarding.avgTxPerDay || onboarding.currentPOS || onboarding.goLiveTimeline ||
+                onboarding.yearsInBusiness || onboarding.specialRequirements) && (
+                <div className="gcm-context">
+                  <div className="gcm-context-title">Onboarding Context (read-only)</div>
+                  <div className="gcm-context-grid">
+                    {onboarding.industry && <div><span>Industry:</span> {onboarding.industry.replace(/_/g, ' ')}</div>}
+                    {onboarding.yearsInBusiness && <div><span>Years in Business:</span> {onboarding.yearsInBusiness}</div>}
+                    {onboarding.numStoresRange && (
+                      <div>
+                        <span># Stores:</span> {onboarding.numStoresRange}
+                        {onboarding.numStoresExact ? ` (${onboarding.numStoresExact} exact)` : ''}
+                      </div>
+                    )}
+                    {onboarding.numRegistersPerStore && <div><span>Registers/Store:</span> {onboarding.numRegistersPerStore}</div>}
+                    {onboarding.monthlyVolumeRange && <div><span>Monthly Volume:</span> {onboarding.monthlyVolumeRange}</div>}
+                    {onboarding.avgTxPerDay && <div><span>Avg Tx/Day:</span> {onboarding.avgTxPerDay}</div>}
+                    {onboarding.currentPOS && <div><span>Current POS:</span> {onboarding.currentPOS}</div>}
+                    {onboarding.goLiveTimeline && <div><span>Go-Live Timeline:</span> {onboarding.goLiveTimeline}</div>}
+                  </div>
+                  {onboarding.specialRequirements && (
+                    <div className="gcm-context-special">
+                      <strong>Special requirements from prospect:</strong>
+                      <p>{onboarding.specialRequirements}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="gcm-vendor-hint">
+                <strong>Note:</strong> after you send this contract, the vendor can edit Merchant Identity, Owner, and Bank fields on the signing page before signing. Pricing, hardware quantities, and processing terms are <em>locked</em> for the vendor — only the admin can change those before send.
+              </div>
+
               <Section title="Merchant Identity">
                 <Grid>
                   <Field label="Legal Business Name" required value={merchant.businessLegalName} onChange={v => setMv('merchant.businessLegalName', v)} />
@@ -241,6 +430,27 @@ export default function GenerateContractModal({ open, onboarding, onClose, onCre
               </Section>
 
               <Section title="SaaS Subscription">
+                {planResolution.source === 'plan' ? (
+                  <div className="gcm-plan-banner">
+                    <strong>Plan Selected:</strong> {planResolution.planLabel}
+                    {planResolution.planSlug === 'pro' && ' — all modules included'}
+                    {planResolution.addonLines.length > 0 && (
+                      <>
+                        {' '}— add-ons:{' '}
+                        {planResolution.addonLines.map((a, i) => (
+                          <span key={a.key}>
+                            {i > 0 && ', '}
+                            {a.label} (${a.price.toFixed(2)})
+                          </span>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                ) : onboarding.selectedPlanSlug ? (
+                  <div className="gcm-plan-banner gcm-plan-banner-warn">
+                    Could not load plan catalog — showing default fallback values. Please verify before sending.
+                  </div>
+                ) : null}
                 <Grid>
                   <Field label="Base Monthly Fee ($)" type="number" value={saas.baseMonthlyFee} onChange={v => setMv('pricing.saas.baseMonthlyFee', Number(v) || 0)} />
                   <Field label="Per-Additional-License ($)" type="number" value={saas.additionalLicenseFee} onChange={v => setMv('pricing.saas.additionalLicenseFee', Number(v) || 0)} />

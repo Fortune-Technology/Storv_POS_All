@@ -223,6 +223,25 @@ router.get('/billing/invoices',                   adminListInvoices);
 router.post('/billing/invoices/:id/write-off',    adminWriteOffInvoice);
 router.post('/billing/invoices/:id/retry',        adminRetryInvoiceNow);
 
+// ── Admin Billing — Per-Store Subscriptions (S80 Phase 3b) ─────────────────
+import {
+  listStoreSubscriptions,
+  getStoreSubscription,
+  updateStoreSubscriptionAdmin,
+  adminGenerateStoreInvoice,
+  adminMarkInvoicePaid,
+  adminDownloadInvoicePdf,
+  adminSendInvoiceEmail,
+} from '../controllers/adminStoreSubscriptionController.js';
+router.get('/store-subscriptions',                            listStoreSubscriptions);
+router.get('/store-subscriptions/:id',                        getStoreSubscription);
+router.patch('/store-subscriptions/:id',                      updateStoreSubscriptionAdmin);
+router.post('/store-subscriptions/:id/generate-invoice',      adminGenerateStoreInvoice);
+router.post('/billing/invoices/:id/mark-paid-test-mode',      adminMarkInvoicePaid);
+// S81 — Get/Send Invoice routes (PDF download + email-with-attachment).
+router.get('/billing/invoices/:id/pdf',                       adminDownloadInvoicePdf);
+router.post('/billing/invoices/:id/send',                     adminSendInvoiceEmail);
+
 // ── Admin Billing — Equipment Products ─────────────────────────────────────
 router.get('/billing/equipment/products',         adminListEquipmentProducts);
 router.post('/billing/equipment/products',        adminCreateEquipmentProduct);

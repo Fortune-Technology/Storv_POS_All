@@ -20,6 +20,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import WeatherWidget from '../components/WeatherWidget';
+import Gate from '../components/Gate';
 import { getRealtimeSales } from '../services/api';
 import { downloadCSV, downloadPDF } from '../utils/exportUtils';
 import '../styles/portal.css';
@@ -515,8 +516,9 @@ export default function RealTimeDashboard({ embedded = false }) {
         )}
       </div>
 
-      {/* ── Lottery ──────────────────────────────────────────────────────── */}
+      {/* ── Lottery (S80 — gated by `lottery` module subscription) ───────── */}
       {lt && (
+        <Gate module="lottery">
         <div className="p-card rtd-lottery-card" style={{ marginBottom: '1.25rem' }}>
           <div className="rtd-card-title">
             <Ticket size={15} style={{ color: '#f59e0b' }} />
@@ -597,6 +599,7 @@ export default function RealTimeDashboard({ embedded = false }) {
             </div>
           )}
         </div>
+        </Gate>
       )}
 
       {/* ── Live Feed + Top Products ─────────────────────────────────────── */}

@@ -97,8 +97,18 @@ export default function Onboarding() {
         billingEmail: billing.trim() || undefined,
       });
 
+      // S81 — Persist BOTH `tenantId` and `orgId` so every gate / scope check
+      // sees the new org. Server returns Prisma `id` (cuid), not `_id`. The
+      // legacy line read `tenant._id` and wrote `undefined`, which left the
+      // ProtectedRoute "approved but no tenantId" gate stuck → after the
+      // wizard finished, "Go to Dashboard" bounced right back to step 1.
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      localStorage.setItem('user', JSON.stringify({ ...user, tenantId: tenant._id }));
+      const orgId = tenant.id || tenant._id;
+      localStorage.setItem('user', JSON.stringify({
+        ...user,
+        tenantId: orgId,
+        orgId,
+      }));
 
       setStep(1);
     } catch (err) {

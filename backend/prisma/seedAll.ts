@@ -15,7 +15,7 @@
  * Steps:
  *   1. seed.js                 — core (org/store/depts/tax/deposits/products/users/lottery)
  *   2. seedRbac.js             — permissions + system roles
- *   3. seedPlanModules         — [S78] sidebar-module catalog + 3 default plans
+ *   3. seedPlanModules         — sidebar-module catalog + 2 plans (Starter + Pro) + 12 add-ons
  *                                (Starter/Growth/Enterprise) with module entitlements.
  *                                Required for /pricing page + sidebar gating.
  *   4. seedContractTemplates   — [S77] default merchant agreement template +
@@ -68,7 +68,7 @@ const CORE_STEPS = [
   { file: 'seed.ts',                  args: [ORG_ID],        label: 'core (org/store/depts/users/products/lottery)' },
   { file: 'seedRbac.ts',              args: [],              label: 'RBAC permissions + system roles' },
   // S78 — drives the marketing /pricing page + plan-based sidebar gating.
-  { file: 'seedPlanModules.ts',       args: [],              label: 'sidebar modules + 3 default subscription plans (S78)' },
+  { file: 'seedPlanModules.ts',       args: [],              label: 'plan modules + 2 plans (Starter + Pro) + 12 add-ons (grouped business modules)' },
   // S77 — default merchant agreement template for the vendor-onboarding flow.
   { file: 'seedContractTemplates.ts', args: [],              label: 'default contract template (S77)' },
   // Default 7-device equipment catalog (admin Billing → Equipment tab +

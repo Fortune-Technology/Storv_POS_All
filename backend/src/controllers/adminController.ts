@@ -1684,10 +1684,25 @@ export const adminListPlans = async (_req: Request, res: Response, next: NextFun
       include: { addons: true },
       orderBy: { sortOrder: 'asc' },
     });
-    type PlanRow = (typeof plans)[number];
-    // Return { plans, addons } — frontend reads r.data.plans and r.data.addons
-    const addons = (plans as PlanRow[]).flatMap((p) => p.addons);
-    res.json({ plans, addons });
+
+    // S80 Phase 3 — schema uses `label` + `price` + `moduleKeys`. Older
+    // admin-app callers still expect `name` + `monthlyPrice`. Map both
+    // shapes onto the response so old + new consumers keep working.
+    const mapAddon = (a: any) => ({
+      ...a,
+      name:         a.label || a.name || a.key,
+      label:        a.label || a.name || a.key,
+      monthlyPrice: a.price !== undefined ? Number(a.price) : Number(a.monthlyPrice ?? 0),
+      price:        a.price !== undefined ? Number(a.price) : Number(a.monthlyPrice ?? 0),
+      moduleKeys:   Array.isArray(a.moduleKeys) ? a.moduleKeys : [],
+    });
+
+    const plansShaped = plans.map((p: any) => ({
+      ...p,
+      addons: (p.addons || []).map(mapAddon),
+    }));
+    const addons = plansShaped.flatMap((p: any) => p.addons);
+    res.json({ plans: plansShaped, addons });
   } catch (err) { next(err); }
 };
 
@@ -1784,9 +1799,30 @@ export const adminDeletePlan = async (req: Request, res: Response, next: NextFun
 };
 
 /* POST /api/admin/billing/addons */
+// S80 Phase 3 — accept both legacy {name, monthlyPrice} and new
+// {label, price, moduleKeys} shapes from the admin form. Map to schema fields.
+function mapAddonInput(body: any): any {
+  const data: any = {};
+  if (body.key !== undefined)         data.key         = body.key;
+  if (body.planId !== undefined)      data.planId      = body.planId;
+  if (body.label !== undefined)       data.label       = body.label;
+  else if (body.name !== undefined)   data.label       = body.name;     // legacy alias
+  if (body.description !== undefined) data.description = body.description;
+  if (body.price !== undefined)       data.price       = body.price;
+  else if (body.monthlyPrice !== undefined) data.price = body.monthlyPrice;  // legacy alias
+  if (body.moduleKeys !== undefined && Array.isArray(body.moduleKeys)) data.moduleKeys = body.moduleKeys;
+  if (body.isActive !== undefined)    data.isActive    = !!body.isActive;
+  return data;
+}
+
 export const adminCreateAddon = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const addon = await prisma.planAddon.create({ data: req.body as Prisma.PlanAddonCreateInput });
+    const data = mapAddonInput(req.body);
+    if (!data.key || !data.planId || !data.label || data.price === undefined) {
+      res.status(400).json({ error: 'key, planId, label/name, and price/monthlyPrice are required.' });
+      return;
+    }
+    const addon = await prisma.planAddon.create({ data });
     res.status(201).json(addon);
   } catch (err) { next(err); }
 };
@@ -1794,9 +1830,10 @@ export const adminCreateAddon = async (req: Request, res: Response, next: NextFu
 /* PUT /api/admin/billing/addons/:id */
 export const adminUpdateAddon = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const data = mapAddonInput(req.body);
     const addon = await prisma.planAddon.update({
       where: { id: req.params.id },
-      data:  req.body as Prisma.PlanAddonUpdateInput,
+      data,
     });
     res.json(addon);
   } catch (err) { next(err); }
