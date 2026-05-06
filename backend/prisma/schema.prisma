@@ -1947,7 +1947,11 @@ model Transform {
   transformId String @unique // legacy UUID
 
   uploadId String
-  upload   Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  // S80: FK references Upload.uploadId (the @unique legacy UUID column),
+  // NOT Upload.id (the cuid PK). The route handler in routes/api.ts writes
+  // a UUID into Transform.uploadId — pointing the FK at Upload.id (a cuid)
+  // made the FK unsatisfiable for every insert. See CLAUDE.md S80.
+  upload   Upload @relation(fields: [uploadId], references: [uploadId], onDelete: Cascade)
 
   depositMapId  String?
   outputPath    String?
