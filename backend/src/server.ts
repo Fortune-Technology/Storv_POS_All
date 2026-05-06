@@ -16,6 +16,8 @@ import authRoutes from './routes/authRoutes.js';
 import vendorOnboardingRoutes, { adminRouter as vendorOnboardingAdminRoutes } from './routes/vendorOnboardingRoutes.js';
 // S77 — Contracts (Phase 2)
 import { vendorContractRoutes, adminContractRoutes, adminTemplateRoutes } from './routes/contractRoutes.js';
+// S80 — Unified vendor pipeline (one row per vendor, joined onboarding + latest contract)
+import vendorPipelineRoutes from './routes/vendorPipelineRoutes.js';
 // S78 — Plans + Modules (feature gating)
 import { userPlanRoutes, adminPlanRoutes, adminModuleRoutes } from './routes/planRoutes.js';
 import tenantRoutes from './routes/tenantRoutes.js';
@@ -192,6 +194,8 @@ app.use('/api/admin/vendor-onboardings', vendorOnboardingAdminRoutes);
 // S77 Phase 2 — Admin contract management + template library
 app.use('/api/admin/contracts',         adminContractRoutes);
 app.use('/api/admin/contract-templates', adminTemplateRoutes);
+// S80 — Unified vendor pipeline (read-only join surface)
+app.use('/api/admin/vendor-pipeline',   vendorPipelineRoutes);
 // S78 — Admin: subscription plans + module catalog
 app.use('/api/admin/plans',             adminPlanRoutes);
 app.use('/api/admin/modules',           adminModuleRoutes);

@@ -677,6 +677,28 @@ export const adminGetContractTemplate   = (id: string): Promise<{ template: Cont
 export const adminUpdateVendorOnboarding = (id: string, data: Record<string, unknown>): Promise<{ onboarding: VendorOnboardingRecord }> =>
   api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
 
+// ── S80 — Unified vendor pipeline (one row per vendor; latest contract joined) ──
+export type PipelineStatus = 'submitted' | 'drafts' | 'sent' | 'signed' | 'activated' | 'rejected';
+
+export interface VendorPipelineRow {
+  id: string;                                 // VendorOnboarding.id — stable per-vendor key
+  pipelineStatus: PipelineStatus;
+  onboarding: VendorOnboardingRecord;
+  latestContract: (ContractRecord & { template?: { id: string; name: string } | null }) | null;
+  viewCount: number;                          // count of `viewed` ContractEvent rows on the latest contract
+  userId: string;
+  userName: string;
+  userEmail: string;
+  businessName: string;
+  lastActivityAt: string | null;
+  rejectionReason: string | null;             // onboarding's reason → contract cancelReason fallback
+}
+
+export const adminListVendorPipeline = (
+  params?: { status?: PipelineStatus },
+): Promise<{ rows: VendorPipelineRow[]; countsByStatus: Record<PipelineStatus, number> }> =>
+  api.get('/admin/vendor-pipeline', { params }).then(r => r.data);
+
 export default api;
 
 // Re-export types for consumers — makes `import { AdminUser } from '../services/api'` work too.

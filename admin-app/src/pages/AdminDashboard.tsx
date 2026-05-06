@@ -165,7 +165,7 @@ const AdminDashboard = () => {
                   straight to the Vendor Onboardings review queue since that's
                   where pending signups now live. */}
               <StatCard icon={<Users size={18} />}        label="Total Users"      value={stats?.totalUsers}   color="#3b82f6" onClick={() => navigate('/org-store')} />
-              <StatCard icon={<Clock size={18} />}         label="Pending Approval" value={stats?.pendingUsers} color="#f59e0b" onClick={() => navigate('/vendor-onboardings?status=submitted')} />
+              <StatCard icon={<Clock size={18} />}         label="Pending Approval" value={stats?.pendingUsers} color="#f59e0b" onClick={() => navigate('/vendor-pipeline?tab=submitted')} />
               <StatCard icon={<Building2 size={18} />}     label="Organizations"    value={stats?.totalOrgs}    color="var(--accent-primary)" onClick={() => navigate('/org-store')} />
               <StatCard icon={<CheckCircle size={18} />}   label="Active Orgs"      value={stats?.activeOrgs}   color="#10b981" onClick={() => navigate('/org-store')} />
               <StatCard icon={<Ticket size={18} />}        label="Open Tickets"     value={stats?.openTickets}  color="#ef4444" onClick={() => navigate('/tickets')} />

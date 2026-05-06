@@ -37,11 +37,11 @@ export const ADMIN_ROUTE_PERMISSIONS: Record<string, string> = {
   // prerequisites. Legacy paths kept so the redirect routes evaluate
   // RBAC consistently before falling through to <Navigate>.
   '/vendor-pipeline':              'admin_organizations.view',
+  // Legacy paths — redirected in App.tsx but kept here so the gate fires
+  // BEFORE the redirect, matching how every other route is handled.
   '/vendor-onboardings':           'admin_organizations.view',
   '/contracts':                    'admin_organizations.view',
   '/contracts/:id':                'admin_organizations.view',
-  // S78 — Subscription plans + module catalog (uses pricing-tier perm family)
-  '/plans':                        'admin_pricing_tiers.view',
 };
 
 export function getRoutePermission(pathname: string): string | null {
