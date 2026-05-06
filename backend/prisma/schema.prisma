@@ -5340,3 +5340,34 @@ model PromoSuggestion {
   @@index([orgId, storeId, status])
   @@map("promo_suggestions")
 }
+
+// ─────────────────────────────────────────────────
+// SEEDER EXECUTION TRACKING — S81
+// Records every run of the production seeder system. Catalog seeders write
+// a row on every successful re-run (idempotent — newest row reflects latest
+// state). One-shot seeders use the unique (seederName, version) constraint
+// as the gate: a successful row blocks re-runs at that version, and bumping
+// the version forces a new run.
+//
+// To force a one-shot to re-run on production, either:
+//   1. Bump the version in src/services/seeder/registry.ts (preferred —
+//      survives a database reset and is captured in git history), OR
+//   2. Delete the row directly: DELETE FROM seeder_executions
+//      WHERE "seederName" = 'foo' AND version = 1;
+// ─────────────────────────────────────────────────
+model SeederExecution {
+  id         String   @id @default(cuid())
+  seederName String   // matches SeederTask.name in registry
+  version    Int      // bump in registry to force a re-run
+  category   String   // 'catalog' | 'one_shot' — copied from registry for visibility
+  runAt      DateTime @default(now())
+  durationMs Int?
+  success    Boolean  @default(true)
+  summary    Json?    // optional task-specific stats (rows created/updated/skipped)
+  errorMsg   String?  @db.Text
+
+  @@unique([seederName, version])
+  @@index([seederName])
+  @@index([runAt])
+  @@map("seeder_executions")
+}
