@@ -750,6 +750,13 @@
   pointer-events: none;
 }
 
+/* May 2026 — direction-violation row. Pink/red tint pairs with the
+   WRONG-DIR pill in the action column. Outranks dirty + saved. */
+.lbo-cnt-row--wrongdir {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
 .lbo-cnt-row--unchanged {
   /* No tint — same as default but with subtler border */
   border-color: var(--border-color, #e5e7eb);
@@ -911,6 +918,17 @@
 .lbo-cnt-statuspill--returned {
   background: #fef3c7;
   color: #92400e;
+}
+
+/* Direction-violation error pill (May 2026 — Box 098015 reproduction).
+   Shows when today's ticket count moves the wrong way for the store's
+   sellDirection (e.g. desc book with today > yesterday). Solid red so
+   the cashier can't miss it; replaces the green Save tick to also block
+   accidental commits of bad data. */
+.lbo-cnt-statuspill--err {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
 }
 
 /* May 2026 — audit-trail day chips. Tiny pills shown next to a book's

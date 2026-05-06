@@ -60,6 +60,32 @@ export default function CounterRow({
   const tNum = todayVal === '' ? null : Number(todayVal);
   const sold = tNum != null && Number.isFinite(yNum) && Number.isFinite(tNum) ? Math.abs(yNum - tNum) : 0;
   const amt = sold * price;
+
+  // May 2026 — direction-aware validation. If sellDirection=desc the ticket
+  // count goes DOWN as tickets sell (149 → 148 → … → 0). If today > yesterday
+  // (or for asc: today < yesterday), something is wrong: either a typo, the
+  // book direction was misconfigured, or a stale snapshot has bad numbers.
+  // Show a red WRONG-DIR chip so the cashier doesn't save bad data.
+  // Skip the check when:
+  //   • either side is the soldout sentinel (-1 desc or totalTickets asc),
+  //     because that's a valid "book ended" marker, not a movement
+  //   • either side is missing/empty/non-finite
+  const isSentinelVal = (n) => {
+    if (!Number.isFinite(n)) return false;
+    if (sellDirection === 'asc' && total > 0) return n === total;
+    return n === -1; // desc
+  };
+  const yIsSentinel = isSentinelVal(yNum);
+  const tIsSentinel = tNum != null && isSentinelVal(tNum);
+  const wrongDirection =
+    tNum != null &&
+    Number.isFinite(yNum) &&
+    Number.isFinite(tNum) &&
+    !yIsSentinel &&
+    !tIsSentinel &&
+    yNum !== tNum &&
+    ((sellDirection === 'desc' && tNum > yNum) ||
+      (sellDirection === 'asc'  && tNum < yNum));
   // Dirty when the user has typed something different from the current
   // baseline. For historical views the baseline is the day's close; for
   // today, it's box.currentTicket.
@@ -117,9 +143,14 @@ export default function CounterRow({
   //   • untouched — nothing entered + no live currentTicket (lighter still)
   const todayNum = Number(todayVal);
   const hasTodayValue = todayVal !== '' && Number.isFinite(todayNum);
-  const rowState = dirty
-    ? 'dirty'
-    : (hasTodayValue ? 'saved' : 'untouched');
+  // wrongDirection ranks above 'dirty' so the row visually flags the issue
+  // before the user even hits Save. Once they correct the value or revert,
+  // the chip disappears.
+  const rowState = wrongDirection
+    ? 'wrongdir'
+    : dirty
+      ? 'dirty'
+      : (hasTodayValue ? 'saved' : 'untouched');
 
   return (
     <div className={`lbo-cnt-row lbo-cnt-row--${rowState} ${dirty ? 'dirty' : ''}`}>
@@ -233,7 +264,19 @@ export default function CounterRow({
           can't act on it from here." Without these, a click on Sold Out
           would 400 with "Cannot soldout from status depleted" (Issue B). */}
       <span className="lbo-cnt-act">
-        {dirty && (
+        {wrongDirection && (
+          <span
+            className="lbo-cnt-statuspill lbo-cnt-statuspill--err"
+            title={
+              sellDirection === 'desc'
+                ? `Today (${tNum}) is higher than yesterday (${yNum}). For descending books, today must be ≤ yesterday.`
+                : `Today (${tNum}) is lower than yesterday (${yNum}). For ascending books, today must be ≥ yesterday.`
+            }
+          >
+            ⚠ WRONG DIR
+          </span>
+        )}
+        {dirty && !wrongDirection && (
           <button onClick={onSave} className="lbo-cnt-save" title={historicalView ? 'Save corrected close' : 'Save'}>✓</button>
         )}
         {historicalView && !dirty && (
