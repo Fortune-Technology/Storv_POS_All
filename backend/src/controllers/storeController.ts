@@ -106,6 +106,72 @@ export const createStore = async (req: Request, res: Response, next: NextFunctio
       },
     });
 
+    // S80 — every new store gets its own subscription (per-store billing model).
+    //
+    // S81 — Trials removed. Every new store starts ACTIVE on whichever plan
+    // admin assigned during contract activation (read from VendorOnboarding),
+    // OR the platform default plan (Starter) when no admin-approved plan is
+    // on file. period end = +30 days; status = 'active' from day 1.
+    //
+    // Best-effort: failure must not block store creation. If it fails the
+    // entitlement resolver's default-plan fallback still keeps the store usable.
+    try {
+      const userOnboarding = await (prisma as any).vendorOnboarding.findFirst({
+        where: { userId: req.user!.id, status: 'approved' },
+        select: { selectedPlanSlug: true, selectedAddonKeys: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      let chosenPlan: { id: string; slug: string } | null = null;
+      let extraAddons: string[] = [];
+
+      if (userOnboarding?.selectedPlanSlug) {
+        const approvedPlan = await prisma.subscriptionPlan.findUnique({
+          where: { slug: userOnboarding.selectedPlanSlug },
+          select: { id: true, slug: true, isActive: true },
+        });
+        if (approvedPlan && approvedPlan.isActive) {
+          chosenPlan = { id: approvedPlan.id, slug: approvedPlan.slug };
+          // Pro auto-includes everything; Starter carries the prospect's addon picks.
+          extraAddons = approvedPlan.slug === 'pro'
+            ? []
+            : (Array.isArray(userOnboarding.selectedAddonKeys) ? userOnboarding.selectedAddonKeys : []);
+        }
+      }
+
+      if (!chosenPlan) {
+        const def = await prisma.subscriptionPlan.findFirst({
+          where: { isDefault: true, isActive: true },
+          select: { id: true, slug: true },
+        });
+        if (def) chosenPlan = def;
+      }
+
+      if (chosenPlan) {
+        const now = new Date();
+        // 30-day billing period from today. No trial.
+        const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        await (prisma as any).storeSubscription.create({
+          data: {
+            storeId: store.id,
+            orgId: req.orgId,
+            planId: chosenPlan.id,
+            status: 'active',
+            trialEndsAt: null,
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            registerCount: registers,
+            extraAddons,
+          },
+        });
+        console.log(`[createStore] StoreSubscription created — plan=${chosenPlan.slug} status=active addons=${extraAddons.length}`);
+      }
+    } catch (subErr) {
+      // Log but don't fail the store creation. User can buy a sub later from
+      // the billing portal; entitlement resolver falls back to default plan.
+      console.warn('[createStore] failed to auto-create StoreSubscription:', (subErr as Error).message);
+    }
+
     logAudit(req, 'create', 'store', store.id, {
       name: store.name,
       address: store.address ?? null,
@@ -385,6 +451,71 @@ export const updateStoreBranding = async (req: Request, res: Response, next: Nex
     }
 
     res.json(stripCredentials(store as StoreWithExtras));
+  } catch (err) { next(err); }
+};
+
+/* ── GET /api/stores/:id/feature-modules ──────────────────────────────────── */
+export const getFeatureModules = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const where: Prisma.StoreWhereInput = req.orgId
+      ? { id: req.params.id, orgId: req.orgId }
+      : { id: req.params.id, ownerId: req.user!.id };
+    const store = await prisma.store.findFirst({
+      where,
+      select: { id: true, featureModules: true },
+    });
+    if (!store) { res.status(404).json({ error: 'Store not found.' }); return; }
+    const fm = (store as any).featureModules;
+    res.json({ featureModules: (fm && typeof fm === 'object') ? fm : {} });
+  } catch (err) { next(err); }
+};
+
+/* ── PUT /api/stores/:id/feature-modules ──────────────────────────────────── */
+// Body: { featureModules: { [moduleKey]: boolean } }
+// Merges with existing overrides; pass `false` to disable a module on this
+// store, `true` (or omit) to enable. Core modules cannot be disabled.
+export const updateFeatureModules = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!isOwnerOrAdmin(req)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    const { featureModules } = req.body as { featureModules?: Record<string, boolean> };
+    if (!featureModules || typeof featureModules !== 'object') {
+      res.status(400).json({ error: 'featureModules must be an object.' });
+      return;
+    }
+
+    // Fetch current store + core module list (core can't be disabled)
+    const store = await prisma.store.findFirst({
+      where: { id: req.params.id, orgId: req.orgId as string },
+      select: { id: true, featureModules: true },
+    });
+    if (!store) { res.status(404).json({ error: 'Store not found.' }); return; }
+
+    const coreKeys = new Set(
+      (await prisma.platformModule.findMany({
+        where: { active: true, isCore: true },
+        select: { key: true },
+      })).map((m: any) => m.key),
+    );
+
+    const prev: Record<string, boolean> = ((store as any).featureModules && typeof (store as any).featureModules === 'object')
+      ? (store as any).featureModules
+      : {};
+
+    // Merge: only allow keys not in coreKeys, only allow boolean values.
+    const merged: Record<string, boolean> = { ...prev };
+    for (const [k, v] of Object.entries(featureModules)) {
+      if (typeof v !== 'boolean') continue;
+      if (coreKeys.has(k)) continue; // refuse to disable core
+      merged[k] = v;
+    }
+
+    await prisma.store.update({
+      where: { id: req.params.id },
+      data: { featureModules: merged } as any,
+    });
+
+    logAudit(req, 'update', 'store_feature_modules', req.params.id, { changes: featureModules });
+    res.json({ featureModules: merged });
   } catch (err) { next(err); }
 };
 

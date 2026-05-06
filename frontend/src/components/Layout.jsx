@@ -6,6 +6,7 @@ import BillingBanner from './BillingBanner';
 import AIAssistantWidget from './AIAssistantWidget';
 import TourRunner from './TourRunner';
 import OnboardingTour from './OnboardingTour';
+import Gate from './Gate';
 
 const Layout = ({ children }) => {
   return (
@@ -18,7 +19,8 @@ const Layout = ({ children }) => {
           {children || <Outlet />}
         </main>
       </div>
-      <AIAssistantWidget />
+      {/* S80 — AI Assistant gated by `ai_assistant` module subscription */}
+      <Gate module="ai_assistant"><AIAssistantWidget /></Gate>
       <TourRunner />
       <OnboardingTour />
     </div>

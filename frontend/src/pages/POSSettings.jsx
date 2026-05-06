@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { Monitor, Save, Check, Palette, Sun, Moon, ShoppingBag, Settings, ShieldCheck } from 'lucide-react';
 import { getStores } from '../services/api.js';
 import api from '../services/api.js';
+import Gate from '../components/Gate';
 
 import './POSSettings.css';
 
@@ -1147,7 +1148,8 @@ export default function POSSettings({ embedded }) {
               </div>
             </div>
 
-            {/* ── Lottery Settings ────────────────────────────────────────────────── */}
+            {/* ── Lottery Settings (S80 — gated by `lottery` module) ──────────────── */}
+            <Gate module="lottery">
             <div style={{ marginBottom: 28 }}>
               <h3 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                 🎟️ Lottery
@@ -1187,6 +1189,7 @@ export default function POSSettings({ embedded }) {
                 </label>
               </div>
             </div>
+            </Gate>
 
             {/* ── S67: End of Day Report Settings ────────────────────────── */}
             <div style={{ marginBottom: 28 }}>

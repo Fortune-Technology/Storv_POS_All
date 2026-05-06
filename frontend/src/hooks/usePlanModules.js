@@ -31,10 +31,22 @@ async function fetchEntitlements() {
     try {
       const { data } = await api.get('/plans/me/modules');
       _cache = {
+        // S80 Phase 3 — grouped architecture:
+        //   moduleKeys           : ACTIVE set (subscription ∩ per-store enabled)
+        //   subscribedModuleKeys : what the subscription grants regardless of overrides
+        //   businessModules      : the 12 toggleable parent modules (subset of subscribed)
+        //                          — StoreSettings renders one toggle per row from THIS list
+        //   featureOverrides     : per-store overrides keyed by business module key only
         moduleKeys: new Set(data.moduleKeys || []),
+        subscribedModuleKeys: new Set(data.subscribedModuleKeys || data.moduleKeys || []),
+        businessModuleKeys: new Set(data.businessModuleKeys || []),
         routePaths: new Set(data.routePaths || []),
         plan: data.plan || null,
+        addons: data.addons || [],
         modules: data.modules || [],
+        subscribedModules: data.subscribedModules || data.modules || [],
+        businessModules: data.businessModules || [],
+        featureOverrides: data.featureOverrides || {},
         fetchedAt: Date.now(),
         warning: data.warning || null,
       };
@@ -45,9 +57,15 @@ async function fetchEntitlements() {
       // so a transient blip doesn't lock the user out of every page.
       _cache = {
         moduleKeys: new Set(),
+        subscribedModuleKeys: new Set(),
+        businessModuleKeys: new Set(),
         routePaths: new Set(),
         plan: null,
+        addons: [],
         modules: [],
+        subscribedModules: [],
+        businessModules: [],
+        featureOverrides: {},
         fetchedAt: Date.now(),
         error: err?.message || 'fetch_failed',
       };
@@ -140,13 +158,33 @@ export default function usePlanModules() {
     return false;
   }, [snap]);
 
+  /**
+   * `isSubscribed(moduleKey)` — is the module included in the org's
+   * subscription (regardless of per-store overrides)? Used by StoreSettings
+   * to decide which toggles to show.
+   */
+  const isSubscribed = useCallback((moduleKey) => {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (user?.role === 'superadmin') return true;
+    if (!snap) return true;
+    if (snap.error) return true;
+    return snap.subscribedModuleKeys.has(moduleKey);
+  }, [snap]);
+
   return {
     ready: !!snap && !_inflight,
     has,
     hasRoute,
+    isSubscribed,
     plan: snap?.plan || null,
+    addons: snap?.addons || [],
     modules: snap?.modules || [],
+    subscribedModules: snap?.subscribedModules || [],
+    businessModules: snap?.businessModules || [],   // S80 Phase 3 — toggleable parents
     moduleKeys: snap?.moduleKeys || new Set(),
+    subscribedModuleKeys: snap?.subscribedModuleKeys || new Set(),
+    businessModuleKeys: snap?.businessModuleKeys || new Set(),
+    featureOverrides: snap?.featureOverrides || {},
     refresh: refreshPlanModules,
   };
 }

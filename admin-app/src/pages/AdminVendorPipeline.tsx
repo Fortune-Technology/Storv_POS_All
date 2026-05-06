@@ -24,6 +24,7 @@ import { toast } from 'react-toastify';
 import {
   Workflow, Loader, RefreshCw, Eye, FilePlus, Send, X, Repeat, CheckCircle2, Download, AlertCircle,
   Building2, Mail, Phone, Briefcase, Calendar, Hash, MapPin, Store, Cpu, Sparkles, FileText,
+  Tag, DollarSign,
 } from 'lucide-react';
 import {
   adminListVendorPipeline,
@@ -35,6 +36,7 @@ import {
   adminCancelContract,
   adminActivateContract,
   adminDownloadContractPdf,
+  adminListPlans,
   type VendorPipelineRow,
   type PipelineStatus,
   type VendorOnboardingRecord,
@@ -81,6 +83,27 @@ const MODULE_LABELS: Record<string, string> = {
   scan_data: 'Scan Data (Tobacco)', ai_assistant: 'AI Assistant',
   vendor_orders: 'Vendor Orders', invoice_ocr: 'Invoice OCR',
   multi_store: 'Multi-Store Dashboard', predictions: 'Predictions',
+};
+// Plan add-on keys come from PlanAddon.key (see backend/prisma/seedPlanModules.ts
+// STARTER_ADDONS). Kept in sync with the seeder; falls back to the raw key.
+const ADDON_LABELS: Record<string, string> = {
+  lottery: 'Lottery',
+  fuel: 'Fuel',
+  ecommerce: 'E-Commerce / Online Store',
+  marketplace: 'Marketplace Integration',
+  exchange: 'StoreVeu Exchange',
+  loyalty: 'Loyalty Program',
+  scan_data: 'Tobacco Scan Data',
+  ai_assistant: 'AI Assistant',
+  vendor_orders: 'Vendor Orders / Auto Reorder',
+  invoice_ocr: 'Invoice OCR / Bulk Imports',
+  multi_store_dashboard: 'Multi-Store Dashboard',
+  predictions: 'Sales Predictions',
+  grocery: 'Grocery & Scale Features',
+};
+const PLAN_LABELS: Record<string, string> = {
+  starter: 'Starter',
+  pro: 'Pro',
 };
 const HARDWARE_LABELS: Record<string, string> = {
   posTerminal: 'POS Terminal', receiptPrinter: 'Receipt Printer',
@@ -537,6 +560,53 @@ export default function AdminVendorPipeline() {
                 </div>
               </div>
 
+              {/* Plan + add-on interest captured during onboarding (S80 Phase 3).
+                  Distinct from Requested Modules below — this reflects what they
+                  put in their cart at submit time. Requested Modules is the legacy
+                  multi-select kept for back-compat. Show both so the admin can
+                  reconcile. */}
+              {(detailOnboarding.selectedPlanSlug || detailOnboarding.selectedAddonKeys.length > 0 || detailOnboarding.estimatedMonthlyTotal != null) && (
+                <div className="vp-section">
+                  <h3><Tag size={14} /> Plan Selection</h3>
+                  <div className="vp-grid">
+                    <Item
+                      icon={<Sparkles size={12} />}
+                      label="Selected Plan"
+                      value={
+                        detailOnboarding.selectedPlanSlug
+                          ? `${PLAN_LABELS[detailOnboarding.selectedPlanSlug] || detailOnboarding.selectedPlanSlug}${
+                              detailOnboarding.selectedPlanSlug === 'starter' && detailOnboarding.selectedAddonKeys.length > 0
+                                ? ` + ${detailOnboarding.selectedAddonKeys.length} add-on${detailOnboarding.selectedAddonKeys.length === 1 ? '' : 's'}`
+                                : detailOnboarding.selectedPlanSlug === 'pro'
+                                  ? ' (all modules included)'
+                                  : ''
+                            }`
+                          : '—'
+                      }
+                    />
+                    <Item
+                      icon={<DollarSign size={12} />}
+                      label="Estimated Monthly"
+                      value={
+                        detailOnboarding.estimatedMonthlyTotal == null
+                          ? '—'
+                          : `$${Number(detailOnboarding.estimatedMonthlyTotal).toFixed(2)}/mo`
+                      }
+                    />
+                  </div>
+                  {detailOnboarding.selectedAddonKeys.length > 0 && (
+                    <>
+                      <div className="vp-subhead">Selected Add-ons ({detailOnboarding.selectedAddonKeys.length})</div>
+                      <div className="vp-chips">
+                        {detailOnboarding.selectedAddonKeys.map(k => (
+                          <span key={k} className="vp-chip">{ADDON_LABELS[k] || k}</span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div className="vp-section">
                 <h3><Sparkles size={14} /> Requested Modules ({detailOnboarding.requestedModules.length})</h3>
                 <div className="vp-chips">
@@ -644,6 +714,7 @@ export default function AdminVendorPipeline() {
       <ActivateContractModal
         open={showActivate}
         contract={detailContract}
+        onboarding={detailOnboarding}
         onClose={() => setShowActivate(false)}
         onActivated={async () => {
           setShowActivate(false);
@@ -684,35 +755,98 @@ function Item({ icon, label, value }: { icon?: React.ReactNode; label: string; v
 
 // ─── Activate modal — preserved from former AdminContracts page ─────────
 interface PricingTierLite { id: string; key: string; name: string; description?: string | null; surchargePercent: any; surchargeFixedFee: any; isDefault?: boolean; }
+interface PlanLite {
+  id: string | number;
+  slug: string;
+  name: string;
+  basePrice: any;
+  description?: string;
+  bundleDiscountPercent?: any;
+  priceOverride?: any;
+  addons?: Array<{ id: string | number; key: string; label?: string; name?: string; price?: any; monthlyPrice?: any; description?: string }>;
+}
 
 function ActivateContractModal({
-  open, contract, onClose, onActivated,
+  open, contract, onboarding, onClose, onActivated,
 }: {
   open: boolean;
   contract: ContractRecord | null;
+  onboarding: VendorOnboardingRecord | null;
   onClose: () => void;
   onActivated: () => void;
 }) {
   const [tiers, setTiers] = useState<PricingTierLite[]>([]);
   const [pricingTierId, setPricingTierId] = useState<string | null>(null);
+  const [plans, setPlans] = useState<PlanLite[]>([]);
+  const [planSlug, setPlanSlug] = useState<string | null>(null);
+  const [addonKeys, setAddonKeys] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    // Load surcharge tiers and subscription plans in parallel.
     api.get('/pricing/tiers').then(r => {
       const list: PricingTierLite[] = (r.data?.tiers || []).filter((t: PricingTierLite) => (t as any).active && t.key !== 'custom');
       setTiers(list);
       const def = list.find(t => t.isDefault) || list[0];
       if (def) setPricingTierId(def.id);
     }).catch(() => toast.error('Failed to load pricing tiers.'));
-  }, [open]);
+
+    adminListPlans().then(r => {
+      const list = (r?.plans || []) as PlanLite[];
+      // Show only public/active plans, sorted by sortOrder.
+      const visible = list.filter((p: any) => p.isActive !== false && p.isPublic !== false);
+      setPlans(visible);
+      // Default plan + addons from the prospect's onboarding picks. If they
+      // skipped the picker, fall back to the seeded default ('starter').
+      const prospectSlug = onboarding?.selectedPlanSlug || null;
+      const fallback = visible.find((p: any) => p.isDefault)?.slug || visible[0]?.slug || null;
+      const initialSlug = prospectSlug && visible.some(p => p.slug === prospectSlug) ? prospectSlug : fallback;
+      setPlanSlug(initialSlug);
+      // Pro includes everything — addon list stays empty.
+      setAddonKeys(initialSlug === 'pro' ? [] : (onboarding?.selectedAddonKeys || []));
+    }).catch(() => toast.error('Failed to load subscription plans.'));
+  }, [open, onboarding]);
+
+  // Live monthly total — re-derived whenever plan or addon selection changes.
+  const monthlyTotal = useMemo(() => {
+    const plan = plans.find(p => p.slug === planSlug);
+    if (!plan) return 0;
+    const base = Number(plan.basePrice ?? 0);
+    if (planSlug === 'pro') return base; // Pro already bundles every addon
+    const wanted = new Set(addonKeys);
+    const addonsTotal = (plan.addons || [])
+      .filter(a => wanted.has(a.key))
+      .reduce((s, a) => s + Number(a.price ?? a.monthlyPrice ?? 0), 0);
+    return base + addonsTotal;
+  }, [plans, planSlug, addonKeys]);
+
+  const selectedPlan = useMemo(() => plans.find(p => p.slug === planSlug) || null, [plans, planSlug]);
 
   if (!open || !contract) return null;
 
+  const toggleAddon = (key: string) => {
+    setAddonKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handlePlanChange = (slug: string) => {
+    setPlanSlug(slug);
+    // Pro auto-includes — clear the explicit addon selection.
+    if (slug === 'pro') setAddonKeys([]);
+    else if (onboarding?.selectedPlanSlug === slug) {
+      // Switching back to the prospect's original choice → restore their addon picks.
+      setAddonKeys(onboarding.selectedAddonKeys || []);
+    }
+  };
+
   const submit = async () => {
+    if (!planSlug) { toast.error('Please pick a subscription plan.'); return; }
     setSubmitting(true);
     try {
-      await adminActivateContract(contract.id, pricingTierId);
+      await adminActivateContract(contract.id, pricingTierId, {
+        subscriptionPlanSlug: planSlug,
+        subscriptionAddonKeys: planSlug === 'pro' ? [] : addonKeys,
+      });
       toast.success('Vendor activated! They can now access the platform.');
       onActivated();
     } catch (err: any) {
@@ -724,14 +858,88 @@ function ActivateContractModal({
 
   return (
     <div className="vp-modal-backdrop" onClick={onClose}>
-      <div className="vp-modal" onClick={e => e.stopPropagation()}>
+      <div className="vp-modal vp-modal-wide" onClick={e => e.stopPropagation()}>
         <header className="vp-modal-head">
           <h3><CheckCircle2 size={18} /> Approve & Activate</h3>
           <button className="vp-modal-close" onClick={onClose}><X size={16} /></button>
         </header>
         <div className="vp-modal-body">
           <p>This will activate <strong>{contract.user?.name}</strong> ({contract.user?.email}) on the platform.</p>
-          <label className="vp-modal-label">Assign Pricing Tier</label>
+
+          {/* Subscription plan picker — defaults to prospect's onboarding choice */}
+          <label className="vp-modal-label">Subscription Plan</label>
+          {onboarding?.selectedPlanSlug && (
+            <p className="vp-plan-hint">
+              Prospect picked <strong>{onboarding.selectedPlanSlug === 'pro' ? 'Pro' : 'Starter'}</strong>
+              {onboarding.selectedAddonKeys.length > 0 && ` with ${onboarding.selectedAddonKeys.length} add-on${onboarding.selectedAddonKeys.length === 1 ? '' : 's'}`}
+              {onboarding.estimatedMonthlyTotal != null && ` (~$${Number(onboarding.estimatedMonthlyTotal).toFixed(2)}/mo)`}.
+              You can override below before activating.
+            </p>
+          )}
+          <div className="vp-plan-grid">
+            {plans.length === 0 ? (
+              <p className="vp-empty-inline">No subscription plans found.</p>
+            ) : plans.map(p => {
+              const base = Number(p.basePrice ?? 0);
+              const isProspectPick = onboarding?.selectedPlanSlug === p.slug;
+              return (
+                <label key={p.slug} className={`vp-plan-card ${planSlug === p.slug ? 'is-selected' : ''}`}>
+                  <input type="radio" name="plan" value={p.slug} checked={planSlug === p.slug} onChange={() => handlePlanChange(p.slug)} />
+                  <div className="vp-plan-card-body">
+                    <div className="vp-plan-card-head">
+                      <span className="vp-plan-name">{p.name}</span>
+                      {isProspectPick && <span className="vp-plan-badge">Prospect's choice</span>}
+                    </div>
+                    <div className="vp-plan-price">${base.toFixed(2)}/mo</div>
+                    {p.description && <div className="vp-plan-desc">{p.description}</div>}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Addon picker — only meaningful for Starter (Pro includes every addon) */}
+          {selectedPlan && planSlug !== 'pro' && (selectedPlan.addons || []).length > 0 && (
+            <>
+              <label className="vp-modal-label vp-modal-label-tight">Add-ons (Starter only)</label>
+              <div className="vp-addon-grid">
+                {(selectedPlan.addons || []).map(a => {
+                  const key = a.key;
+                  const price = Number(a.price ?? a.monthlyPrice ?? 0);
+                  const checked = addonKeys.includes(key);
+                  const isProspectPick = onboarding?.selectedAddonKeys.includes(key);
+                  return (
+                    <label key={key} className={`vp-addon-row ${checked ? 'is-checked' : ''}`}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleAddon(key)} />
+                      <div className="vp-addon-body">
+                        <div className="vp-addon-head">
+                          <span className="vp-addon-label">{a.label || a.name || key}</span>
+                          {isProspectPick && <span className="vp-addon-pick-mark">★</span>}
+                        </div>
+                        <span className="vp-addon-price">+${price.toFixed(2)}/mo</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {planSlug === 'pro' && (
+            <p className="vp-plan-hint vp-plan-hint-info">
+              Pro includes every business module — no add-ons needed.
+            </p>
+          )}
+
+          {/* Live total */}
+          {selectedPlan && (
+            <div className="vp-total-row">
+              <span>Monthly Total:</span>
+              <strong>${monthlyTotal.toFixed(2)}/mo</strong>
+            </div>
+          )}
+
+          {/* Surcharge tier — separate concept from subscription plan */}
+          <label className="vp-modal-label">Payment Processing Tier</label>
           <div className="vp-tier-list">
             {tiers.length === 0 ? <p className="vp-empty-inline">No active pricing tiers found.</p> : tiers.map(t => (
               <label key={t.id} className={`vp-tier-row ${pricingTierId === t.id ? 'is-selected' : ''}`}>
@@ -754,7 +962,7 @@ function ActivateContractModal({
         </div>
         <footer className="vp-modal-foot">
           <button className="vp-btn" onClick={onClose}>Cancel</button>
-          <button className="vp-btn vp-btn-success" onClick={submit} disabled={submitting}>
+          <button className="vp-btn vp-btn-success" onClick={submit} disabled={submitting || !planSlug}>
             {submitting ? <Loader size={14} className="vp-spin" /> : <><CheckCircle2 size={14} /> Activate Vendor</>}
           </button>
         </footer>

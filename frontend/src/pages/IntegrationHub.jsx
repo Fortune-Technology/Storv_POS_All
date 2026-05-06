@@ -12,6 +12,7 @@ import {
   Loader2, Download, Timer, Truck, User, Sliders,
 } from 'lucide-react';
 import MarketplacePricingDrawer from '../components/MarketplacePricingDrawer';
+import usePlanModules from '../hooks/usePlanModules';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -86,6 +87,9 @@ export default function IntegrationHub() {
   const [tab, setTab] = useState('orders');
   const [platforms, setPlatforms] = useState({}); // keyed by platform id
   const [loading, setLoading] = useState(true);
+  // S80 — gate: delivery_platforms module must be subscribed to use marketplaces
+  const { has, ready } = usePlanModules();
+  const hasMarketplace = has('delivery_platforms');
 
   // ── Load platforms ──────────────────────────────────────────────────────────
   const fetchPlatforms = useCallback(async () => {
@@ -108,6 +112,37 @@ export default function IntegrationHub() {
   const connectedKeys = Object.keys(platforms).filter(k => platforms[k]?.connected);
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  // S80 — when the org isn't subscribed to the marketplace addon, show an
+  // upgrade nudge instead of the full integration UI. Wait for entitlement
+  // load before deciding so we don't flash the upgrade screen on initial paint.
+  if (ready && !hasMarketplace) {
+    return (
+      <div className="p-page">
+        <div className="p-header">
+          <div className="p-header-left">
+            <div className="p-header-icon"><Link2 size={22} /></div>
+            <div>
+              <h1 className="p-title">Delivery Platforms</h1>
+              <p className="p-subtitle">Manage DoorDash, Uber Eats, Instacart, Grubhub &amp; Postmates integrations</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-card" style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🚚</div>
+          <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem', color: 'var(--text-primary)' }}>
+            Marketplace Integration not subscribed
+          </h2>
+          <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            DoorDash, Uber Eats, Instacart, Grubhub, and Postmates inventory + order routing requires the Marketplace add-on.
+          </p>
+          <a href="/portal/billing" className="p-btn p-btn-primary" style={{ display: 'inline-block', textDecoration: 'none' }}>
+            View plans &amp; add-ons →
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-page">
       {/* Header */}

@@ -304,3 +304,184 @@
     font-size: 1.3rem;
   }
 }
+/* ─────────────────────────────────────────────────
+   S80 Phase 3 — per-store sub card additions
+   ───────────────────────────────────────────────── */
+
+.bp-loading,
+.bp-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.bp-no-sub {
+  padding: 2rem;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+}
+
+.bp-no-sub p { margin: 0 0 0.5rem; }
+
+.bp-price-was {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-decoration: line-through;
+}
+
+.bp-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 1.25rem 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bp-section-hint {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bp-plan-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.bp-plan-tile {
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.05s;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.bp-plan-tile:hover { border-color: var(--accent-primary); }
+.bp-plan-tile:active { transform: scale(0.99); }
+
+.bp-plan-tile--sel {
+  border-color: var(--accent-primary);
+  background: var(--brand-08, rgba(61, 86, 181, 0.08));
+}
+
+.bp-plan-tile-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 4px;
+  color: var(--accent-primary);
+}
+
+.bp-plan-tile-price {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.bp-plan-tile-price span {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.bp-plan-tile-tagline {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.35;
+}
+
+.bp-plan-tile-pill {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(52, 211, 153, 0.15);
+  color: #10b981;
+  border-radius: 999px;
+}
+
+.bp-addon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.bp-addon-tile {
+  text-align: left;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.8rem 0.95rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.bp-addon-tile:hover { border-color: var(--accent-primary); }
+
+.bp-addon-tile--sel {
+  border-color: var(--accent-primary);
+  background: var(--brand-08, rgba(61, 86, 181, 0.08));
+}
+
+.bp-addon-tile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 4px;
+}
+
+.bp-addon-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.bp-addon-tile-price {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  white-space: nowrap;
+}
+
+.bp-addon-tile-desc {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.bp-actions-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}

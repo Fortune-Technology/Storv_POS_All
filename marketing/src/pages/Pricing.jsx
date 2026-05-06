@@ -45,17 +45,32 @@ const Pricing = () => {
     return () => { cancelled = true; };
   }, []);
 
-  // ── Static fallback (matches the seedPlanModules.ts defaults) ─────────────
+  // ── Static fallback (matches seedPlanModulesV2.ts — S80 Phase 1) ──────────
+  // Renders only when the API is unreachable. The 12 addons each unlock a
+  // specific module on the Starter plan; Pro includes everything.
   const fallbackPayload = useMemo(() => ({
     plans: [
       {
         id: 'starter', slug: 'starter', name: 'Starter',
-        tagline: 'Perfect for single-location retailers getting started.',
-        description: 'Perfect for single-location retailers getting started.',
-        basePrice: 49, annualPrice: 39, isCustomPriced: false,
+        tagline: 'Everything you need to run one store.',
+        description: '$39/month per store. Add features as you grow.',
+        basePrice: 39, annualPrice: 468, isCustomPriced: false,
         currency: 'USD', includedStores: 1, includedRegisters: 1,
         maxUsers: 5, trialDays: 14, highlighted: false, isDefault: true,
-        addons: [],
+        addons: [
+          { key: 'lottery',                label: 'Lottery',                       price: 15, description: 'Scratch ticket sales, EoD reconciliation, weekly settlement.', moduleKeys: ['lottery'] },
+          { key: 'fuel',                   label: 'Fuel',                          price: 15, description: 'Pump-attributed sales, FIFO tank inventory, multi-tank topology.', moduleKeys: ['fuel'] },
+          { key: 'ecommerce',              label: 'E-Commerce / Online Store',     price: 15, description: 'Branded online storefront, product sync, online orders.', moduleKeys: ['ecom_setup', 'ecom_orders', 'ecom_analytics'] },
+          { key: 'marketplace',            label: 'Marketplace Integration',       price: 15, description: 'DoorDash, UberEats, Instacart inventory + order routing.', moduleKeys: ['delivery_platforms'] },
+          { key: 'exchange',               label: 'StoreVeu Exchange',             price: 10, description: 'B2B trading network. Wholesale POs to/from partner stores.', moduleKeys: ['exchange', 'wholesale_orders'] },
+          { key: 'loyalty',                label: 'Loyalty',                       price: 10, description: 'Points accrual, redemption, member tiers, charge accounts.', moduleKeys: ['loyalty'] },
+          { key: 'scan_data',              label: 'Tobacco Scan Data',             price: 15, description: 'Altria/RJR/ITG scan-data + manufacturer coupon redemption.', moduleKeys: ['scan_data'] },
+          { key: 'ai_assistant',           label: 'AI Assistant',                  price: 10, description: 'Floating chat widget for feature help + live-store Q&A.', moduleKeys: ['ai_assistant'] },
+          { key: 'vendor_orders',          label: 'Vendor Orders / Auto Reorder',  price: 12, description: '14-factor demand forecasting + smart purchase orders.', moduleKeys: ['vendor_orders'] },
+          { key: 'invoice_ocr',            label: 'Invoice OCR / Bulk Imports',    price: 15, description: 'AI invoice OCR + bulk CSV/XLSX product import.', moduleKeys: ['invoice_import', 'bulk_import'] },
+          { key: 'multi_store_dashboard',  label: 'Multi-Store Dashboard',         price: 10, description: 'Cross-store rollup view (best on orgs with 2+ stores).', moduleKeys: ['multi_store_dashboard'] },
+          { key: 'predictions',            label: 'Sales Predictions',             price: 10, description: 'Holt-Winters forecasts with weather + holiday adjustments.', moduleKeys: ['predictions'] },
+        ],
         modules: [
           { key: 'live_dashboard', name: 'Live Dashboard', category: 'Operations', isCore: true },
           { key: 'chat',           name: 'Chat',           category: 'Operations', isCore: true },
@@ -63,6 +78,8 @@ const Pricing = () => {
           { key: 'departments',    name: 'Departments',    category: 'Catalog',    isCore: false },
           { key: 'transactions',   name: 'Transactions',   category: 'Reports & Analytics', isCore: false },
           { key: 'employees',      name: 'Employees',      category: 'Reports & Analytics', isCore: false },
+          { key: 'analytics',      name: 'Analytics',      category: 'Reports & Analytics', isCore: false },
+          { key: 'pos_config',     name: 'POS Config',     category: 'POS',        isCore: false },
           { key: 'support_tickets',name: 'Support Tickets',category: 'Support & Billing', isCore: true },
           { key: 'billing',        name: 'Billing',        category: 'Support & Billing', isCore: true },
           { key: 'account',        name: 'Account',        category: 'Account', isCore: true },
@@ -70,24 +87,14 @@ const Pricing = () => {
         ],
       },
       {
-        id: 'growth', slug: 'growth', name: 'Growth',
-        tagline: 'Scale across multiple locations with full analytics.',
-        description: 'Our most popular plan for scaling retail operations.',
-        basePrice: 99, annualPrice: 79, isCustomPriced: false,
-        currency: 'USD', includedStores: 3, includedRegisters: 3,
-        maxUsers: 25, trialDays: 14, highlighted: true, isDefault: false,
-        addons: [],
-        modules: [],
-      },
-      {
-        id: 'enterprise', slug: 'enterprise', name: 'Enterprise',
-        tagline: 'Unlimited capacity with dedicated support.',
-        description: 'Full-scale solution.',
-        basePrice: 0, annualPrice: null, isCustomPriced: true,
-        currency: 'USD', includedStores: 9999, includedRegisters: 9999,
-        maxUsers: null, trialDays: 14, highlighted: false, isDefault: false,
-        addons: [],
-        modules: [],
+        id: 'pro', slug: 'pro', name: 'Pro',
+        tagline: 'Full platform. Every module included.',
+        description: '$129/month per store. All add-ons included by default.',
+        basePrice: 129, annualPrice: 1548, isCustomPriced: false,
+        currency: 'USD', includedStores: 1, includedRegisters: 5,
+        maxUsers: null, trialDays: 14, highlighted: true, isDefault: false,
+        addons: [],   // Pro includes everything; no addons offered
+        modules: [],  // Catalog list elided — too long for a fallback. Live API returns full list.
       },
     ],
     categories: [],
@@ -178,11 +185,11 @@ const Pricing = () => {
     },
     {
       q: 'Can I add more stores or registers?',
-      a: 'Yes. Most plans include extra-store and extra-register pricing — you can scale up at any time. Enterprise includes unlimited stores and registers as standard.',
+      a: 'Yes. Each store you add is its own subscription — choose Starter (with the add-ons you need) or Pro per location. You can mix-and-match across stores: one store on Starter + Lottery, another on Pro, etc.',
     },
     {
       q: 'Can I manage lottery through Storeveu?',
-      a: 'Yes. The Lottery Module is included on Growth and Enterprise plans. It handles provincial/state game management, box activation, cashier shift scanning, variance reporting, and commission calculations — all built in at no extra cost.',
+      a: 'Yes. The Lottery module is available as a $15/mo add-on on Starter, and is included by default on Pro. It handles provincial/state game management, box activation, cashier shift scanning, variance reporting, and commission calculations.',
     },
     {
       q: 'Do you offer a free trial?',
@@ -190,7 +197,7 @@ const Pricing = () => {
     },
     {
       q: 'Is there a contract?',
-      a: 'No long-term contracts on standard plans — month-to-month with no cancellation fee. Enterprise plans have flexible terms discussed directly with our team.',
+      a: 'No long-term contracts — month-to-month per store with no cancellation fee. Cancel a store sub anytime; the rest of your stores keep running.',
     },
     {
       q: 'Does Storeveu work offline?',
@@ -346,7 +353,11 @@ const Pricing = () => {
 
       {/* Add-ons (only renders when at least one plan exposes addons) */}
       {addons.length > 0 && (
-        <MarketingSection title="Available Add-ons" subtitle="Extend any plan with powerful modules." bgVariant="white">
+        <MarketingSection
+          title="Available Add-ons"
+          subtitle="Build your Starter plan to fit your store. Pro includes every add-on by default."
+          bgVariant="white"
+        >
           <div className="addons-grid">
             {addons.map((addon, i) => (
               <div key={i} className="addon-card">
@@ -354,11 +365,13 @@ const Pricing = () => {
                   <Plus size={28} />
                 </div>
                 <div className="addon-info">
-                  <h4 className="addon-name">{addon.name}</h4>
+                  <h4 className="addon-name">{addon.label || addon.name}</h4>
                   <p className="addon-desc">{addon.description || ''}</p>
                 </div>
                 <div className="addon-price-wrap">
-                  <span className="addon-price">${Number(addon.monthlyPrice).toFixed(0)}</span>
+                  <span className="addon-price">
+                    +${Number(addon.price ?? addon.monthlyPrice ?? 0).toFixed(0)}
+                  </span>
                   <span className="addon-period">/mo</span>
                 </div>
               </div>

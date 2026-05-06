@@ -10,11 +10,13 @@ import { useConfirm } from '../hooks/useConfirmDialog.jsx';
 import {
   getStores, getPOSConfig, updatePOSConfig, getFuelSettings, updateFuelSettings,
   listStatesPublic, setStoreStateCode, applyStoreStateDefaults,
+  getStoreFeatureModules, updateStoreFeatureModules,
   // Session C: lottery sellDirection + cashOnly + scanRequired moved to
   // Lottery > Settings tab. Master enable/disable lives in store.pos JSON
   // and is written via updatePOSConfig — no direct LotterySettings RPC here.
 } from '../services/api.js';
 import { MoneyInput, CountInput } from '../components/NumericInputs';
+import usePlanModules from '../hooks/usePlanModules.js';
 
 import './StoreSettings.css';
 
@@ -46,6 +48,12 @@ export default function StoreSettings({ embedded }) {
   const [ecomEnabled,    setEcomEnabled]    = useState(false);
   const [lotteryEnabled, setLotteryEnabled] = useState(true);
   const [fuelEnabled,    setFuelEnabled]    = useState(false);
+
+  // S80 Phase 3 — per-store overrides keyed by BUSINESS MODULE key only.
+  // Each toggle controls one parent business module; sidebar children
+  // (e.g. ecom_setup, ecom_orders) cascade automatically via parentKey.
+  const [featureModules, setFeatureModules] = useState({});
+  const { businessModules, refresh: refreshEntitlements } = usePlanModules();
 
   // Grocery settings (only relevant when groceryEnabled)
   const [groceryConfig, setGroceryConfig] = useState({
@@ -153,9 +161,10 @@ export default function StoreSettings({ embedded }) {
     if (!storeId) return;
     setLoading(true);
     try {
-      const [cfg, fuelCfg] = await Promise.all([
+      const [cfg, fuelCfg, fmRes] = await Promise.all([
         getPOSConfig(storeId),
         getFuelSettings(storeId).catch(() => null),
+        getStoreFeatureModules(storeId).catch(() => ({ featureModules: {} })),
       ]);
       setRawConfig(cfg);
       setTenderMethods(cfg.vendorTenderMethods || DEFAULT_TENDER_METHODS);
@@ -163,6 +172,7 @@ export default function StoreSettings({ embedded }) {
       setEcomEnabled(cfg.ecomEnabled ?? false);
       setLotteryEnabled(cfg.lottery?.enabled ?? true);
       setFuelEnabled(fuelCfg?.enabled ?? false);
+      setFeatureModules(fmRes?.featureModules || {});
       if (cfg.groceryConfig) setGroceryConfig(prev => ({ ...prev, ...cfg.groceryConfig }));
       if (cfg.ageLimits) setAgeLimits(prev => ({ ...prev, ...cfg.ageLimits }));
       // Session 52 — Dual Pricing config (read-only mirror + refund toggle)
@@ -225,13 +235,20 @@ export default function StoreSettings({ embedded }) {
         // upserts on write so the first save always succeeds.
         console.warn('updateFuelSettings:', err?.response?.data?.error || err.message);
       });
-      await Promise.all([posSave, fuelSave]);
+      // S80 — per-store module overrides save
+      const fmSave = updateStoreFeatureModules(storeId, featureModules).catch(err => {
+        console.warn('updateStoreFeatureModules:', err?.response?.data?.error || err.message);
+      });
+      await Promise.all([posSave, fuelSave, fmSave]);
       setDirty(false);
       setSaved(true);
       // Tell every mounted useStoreModules() consumer (Sidebar in particular)
       // to refetch immediately so module-gated nav items show/hide without a
       // page reload after the user toggles the feature flags.
       window.dispatchEvent(new CustomEvent('storv:modules-changed', { detail: { storeId } }));
+      // Bust the entitlements cache so <Gate> components re-render with new overrides
+      window.dispatchEvent(new CustomEvent('storv:plan-change', { detail: { storeId } }));
+      try { refreshEntitlements?.(); } catch { /* swallow */ }
       toast.success('Store settings saved');
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -498,21 +515,15 @@ export default function StoreSettings({ embedded }) {
             </div>
 
             <div className="ss-tender-list">
-              {/* Grocery / Scale */}
-              <div className="ss-tender-item">
-                <div className="ss-tender-info">
-                  <span className="ss-tender-label">Enable Grocery & Scale Features</span>
-                  <span className="ss-tender-sub">
-                    Scale products, tare weights, ingredients, nutrition facts, WIC, PLU types
-                  </span>
-                </div>
-                <label className="ss-toggle">
-                  <input type="checkbox" checked={groceryEnabled} onChange={() => { setGroceryEnabled(!groceryEnabled); markDirty(); }} />
-                  <span className="ss-toggle-slider" />
-                </label>
-              </div>
+              {/* S80 Phase 3 — Grocery toggle is now part of the dynamic
+                  business-modules list below (12+1 = 13 add-ons including
+                  grocery). The legacy `groceryEnabled` flag stays as the
+                  source of truth for the sub-config block (scale weight unit,
+                  PLU format, etc.) — mirrored on save for back-compat with
+                  cashier-app readers. */}
 
-              {/* Grocery sub-settings (only when enabled) */}
+              {/* Grocery sub-settings (only when enabled — hidden when grocery
+                  business-module is off OR not subscribed) */}
               {groceryEnabled && (
                 <div style={{ padding: '0.75rem 1rem', background: 'var(--bg-tertiary)', borderRadius: 8, margin: '0 0 0.5rem' }}>
                   <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>
@@ -560,53 +571,53 @@ export default function StoreSettings({ embedded }) {
                 </div>
               )}
 
-              {/* E-Commerce */}
-              <div className="ss-tender-item">
-                <div className="ss-tender-info">
-                  <span className="ss-tender-label">Enable E-Commerce Module</span>
-                  <span className="ss-tender-sub">
-                    Online store pricing, sale prices, pack weights, external platform IDs
-                  </span>
-                </div>
-                <label className="ss-toggle">
-                  <input type="checkbox" checked={ecomEnabled} onChange={() => { setEcomEnabled(!ecomEnabled); markDirty(); }} />
-                  <span className="ss-toggle-slider" />
-                </label>
-              </div>
+              {/* S80 Phase 3 — Grouped business-module toggles.
+                  One row per BUSINESS MODULE only (12 max). When admin toggles
+                  off "E-Commerce", all 3 sidebar items under it (Store Setup /
+                  Online Orders / eCom Analytics) hide automatically via the
+                  parentKey cascade. No more confusing per-sidebar-item toggles.
+                  Pro plan = all 12 visible. Starter = only purchased addons. */}
+              {(() => {
+                const toggleable = (businessModules || []).filter(m => m.active !== false);
 
-              {/* Lottery */}
-              <div className="ss-tender-item">
-                <div className="ss-tender-info">
-                  <span className="ss-tender-label">
-                    <Ticket size={13} style={{ marginRight: 6, verticalAlign: -2 }} />
-                    Enable Lottery Module
-                  </span>
-                  <span className="ss-tender-sub">
-                    Ticket sales & payouts at the POS, inventory management, shift reconciliation, and commission reports. When disabled, the Lottery button in the cashier app and the Lottery page in the portal are hidden.
-                  </span>
-                </div>
-                <label className="ss-toggle">
-                  <input type="checkbox" checked={lotteryEnabled} onChange={() => { setLotteryEnabled(!lotteryEnabled); markDirty(); }} />
-                  <span className="ss-toggle-slider" />
-                </label>
-              </div>
+                if (toggleable.length === 0) {
+                  return (
+                    <div style={{ padding: '1rem', background: 'var(--bg-tertiary)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      No add-on modules subscribed yet. Visit{' '}
+                      <a href="/portal/billing" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>Billing &amp; Plan</a>{' '}
+                      to add Lottery, Fuel, E-Commerce, and other features.
+                    </div>
+                  );
+                }
 
-              {/* Fuel */}
-              <div className="ss-tender-item">
-                <div className="ss-tender-info">
-                  <span className="ss-tender-label">
-                    <Fuel size={13} style={{ marginRight: 6, verticalAlign: -2 }} />
-                    Enable Fuel Module
-                  </span>
-                  <span className="ss-tender-sub">
-                    Fuel grades, pump pricing, pre-authorised pump sales, and end-of-day fuel reports. When disabled, the Fuel button in the cashier app and the Fuel page in the portal are hidden.
-                  </span>
-                </div>
-                <label className="ss-toggle">
-                  <input type="checkbox" checked={fuelEnabled} onChange={() => { setFuelEnabled(!fuelEnabled); markDirty(); }} />
-                  <span className="ss-toggle-slider" />
-                </label>
-              </div>
+                return toggleable.map(m => {
+                  const enabled = featureModules[m.key] !== false;
+                  return (
+                    <div className="ss-tender-item" key={m.key}>
+                      <div className="ss-tender-info">
+                        <span className="ss-tender-label">Enable {m.name}</span>
+                        {m.description && <span className="ss-tender-sub">{m.description}</span>}
+                      </div>
+                      <label className="ss-toggle">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={() => {
+                            setFeatureModules(prev => ({ ...prev, [m.key]: !enabled }));
+                            // Mirror to legacy locations for transition. Retired in Phase 3b.
+                            if (m.key === 'lottery')   setLotteryEnabled(!enabled);
+                            if (m.key === 'fuel')      setFuelEnabled(!enabled);
+                            if (m.key === 'ecommerce') setEcomEnabled(!enabled);
+                            if (m.key === 'grocery')   setGroceryEnabled(!enabled);
+                            markDirty();
+                          }}
+                        />
+                        <span className="ss-toggle-slider" />
+                      </label>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
 
