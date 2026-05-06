@@ -260,6 +260,21 @@ const startServer = async () => {
     process.exit(1);
   }
 
+  // S81 — Production seeder runner. Gated by RUN_PRODUCTION_SEEDER=true.
+  // Catalog seeders (RBAC, plans, modules, equipment, templates) run
+  // idempotently every boot when enabled. One-shot seeders (grants,
+  // backfills) run once per (name, version) tracked in `seeder_executions`.
+  // Awaited here so the server doesn't begin serving traffic until
+  // catalog data is in place. Fast no-op (~50ms) when env var is unset.
+  try {
+    const { runProductionSeeders } = await import('./services/seeder/runner.js');
+    await runProductionSeeders();
+  } catch (err) {
+    console.error('[seeder] Fatal error during production seeder run:', err);
+    // Don't crash the boot — log and continue. Individual seeder failures
+    // are already captured in seeder_executions.
+  }
+
   startTokenRefreshScheduler();
   startBillingScheduler();
   startShiftScheduler();
