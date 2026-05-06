@@ -2,6 +2,15 @@
 // Book List — used on right column for Safe / Soldout / Returned.
 // Each row has an action menu appropriate to the list's status.
 // Extracted from LotteryBackOffice (May 2026 split).
+//
+// May 2026 (audit-trail aid) — when `selectedDate` is supplied:
+//   • variant='soldout'  → list is FILTERED to books depletedAt on that day
+//   • variant='returned' → list is FILTERED to books returnedAt on that day
+//   • variant='safe'     → all books shown, but a small "received today"
+//                          chip is rendered next to books whose createdAt
+//                          falls on the selected date.
+// Helps after-the-fact reconciliation: see at a glance what changed today
+// without scrolling through historical records.
 // ════════════════════════════════════════════════════════════════════
 import React from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
@@ -9,11 +18,37 @@ import ActionMenu from './ActionMenu.jsx';
 import { PackPill } from './shared.jsx';
 import { fmtLottery, fmtDateShort } from './utils.js';
 
-export default function BookList({ books, emptyMsg, variant, onAction }) {
+// Format an ISO timestamp as YYYY-MM-DD in the BROWSER's local tz.
+// Matches the `date` calendar selection (also browser-local YYYY-MM-DD)
+// in 95%+ of cases where the manager is in the same tz as the store.
+// `en-CA` produces `YYYY-MM-DD` consistently across browsers.
+function localDayOf(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString('en-CA');
+  } catch {
+    return null;
+  }
+}
+
+export default function BookList({ books, emptyMsg, variant, onAction, selectedDate }) {
+  // Date-filter for soldout + returned: only show books whose
+  // depletedAt / returnedAt falls on the selected calendar date. Without
+  // this, the lists grow unbounded over time and lose audit signal.
+  const filteredBooks = (() => {
+    if (!selectedDate) return books;
+    if (variant === 'soldout') {
+      return books.filter((b) => localDayOf(b.depletedAt) === selectedDate);
+    }
+    if (variant === 'returned') {
+      return books.filter((b) => localDayOf(b.returnedAt) === selectedDate);
+    }
+    return books;
+  })();
   // Sort: Safe groups books by game number ascending so tickets from the
   // same game cluster together (cashiers usually scan them in batches).
   // Soldout/Returned keep newest-first since they're audit-trail views.
-  const sorted = [...books].sort((a, b) => {
+  const sorted = [...filteredBooks].sort((a, b) => {
     if (variant === 'safe') {
       const ag = String(a.game?.gameNumber || '').padStart(8, '0');
       const bg = String(b.game?.gameNumber || '').padStart(8, '0');
@@ -77,6 +112,12 @@ export default function BookList({ books, emptyMsg, variant, onAction }) {
           </div>
           {sorted.map(b => {
             const menu = menuFor(b);
+            // May 2026 — small "today" chip on the date column. Helps the
+            // manager spot at-a-glance which books were received / returned
+            // / depleted on the SELECTED calendar date. Only Safe variant
+            // gets this since soldout/returned lists are already filtered.
+            const isReceivedToday =
+              variant === 'safe' && selectedDate && localDayOf(b.createdAt) === selectedDate;
             return (
               <div key={b.id} className="lbo-right-row">
                 <PackPill price={Number(b.ticketPrice || 0)} />
@@ -89,7 +130,17 @@ export default function BookList({ books, emptyMsg, variant, onAction }) {
                   <strong>Book {b.boxNumber || '—'}</strong>
                   <small>{b.game?.name || '—'}</small>
                 </span>
-                <span className="lbo-right-date">{fmtDateShort(b.createdAt)}</span>
+                <span className="lbo-right-date">
+                  {fmtDateShort(b.createdAt)}
+                  {isReceivedToday && (
+                    <span
+                      className="lbo-day-chip lbo-day-chip--received"
+                      title="Received today"
+                    >
+                      NEW
+                    </span>
+                  )}
+                </span>
                 <span className="lbo-right-amt">{fmtLottery(b.totalValue)}</span>
                 {menu.length > 0 ? <ActionMenu items={menu} /> : <span />}
               </div>

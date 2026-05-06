@@ -16,7 +16,7 @@ import { fmtLottery } from './utils.js';
 
 export default function CounterRow({
   box, draft, scanMode, sellDirection, isToday, historicalView,
-  openingTicket, currentTicket,
+  openingTicket, currentTicket, selectedDate,
   onDraftChange, onSave,
   onRename, onRenameSlot, onSoldout, onReturn, onMoveToSafe,
 }) {
@@ -74,6 +74,18 @@ export default function CounterRow({
   const activatedLabel = box.activatedAt
     ? new Date(box.activatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : null;
+
+  // May 2026 — quick-glance audit chips. Helps the manager spot which
+  // books had a state change on the SELECTED calendar date without
+  // scrolling through the per-row meta. Compares the box's lifecycle
+  // timestamps against the selected date, both formatted in browser
+  // local tz (matches store tz in 95%+ of cases).
+  const localDayOf = (iso) => {
+    if (!iso) return null;
+    try { return new Date(iso).toLocaleDateString('en-CA'); } catch { return null; }
+  };
+  const isActivatedToday = selectedDate && localDayOf(box.activatedAt) === selectedDate;
+  const isReceivedToday  = selectedDate && localDayOf(box.createdAt)   === selectedDate;
 
   // Editable slot number + book number (click to toggle)
   const [editingSlot, setEditingSlot] = useState(false);
@@ -158,6 +170,18 @@ export default function CounterRow({
             title={historicalView ? 'Viewing a past date (read-only)' : 'Click to edit book number'}
           >
             {box.game?.gameNumber || '—'}-{box.boxNumber || '—'}
+            {/* May 2026 — quick-glance audit chips. Only render when the
+                box's lifecycle event matches the selected calendar date. */}
+            {isActivatedToday && (
+              <span className="lbo-day-chip lbo-day-chip--activated" title="Activated on this date">
+                ACT
+              </span>
+            )}
+            {isReceivedToday && !isActivatedToday && (
+              <span className="lbo-day-chip lbo-day-chip--received" title="Received on this date">
+                NEW
+              </span>
+            )}
           </strong>
         )}
         <small>

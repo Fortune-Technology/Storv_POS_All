@@ -421,23 +421,29 @@ export const receiveBoxOrder = async (req: Request, res: Response): Promise<void
         res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
         return;
       }
+      // Resolve the store's tz so receivedAt lands on the right local-day.
+      // Without this, `setUTCHours(23,59,59)` only worked by accident in
+      // negative-offset zones (US) — for positive-offset zones (NZ, AU,
+      // Asia, EU) the receive showed up in the WRONG local day's bucket.
+      const storeRow = await prisma.store.findUnique({
+        where: { id: storeId as string },
+        select: { timezone: true },
+      });
+      const tz = storeRow?.timezone || 'UTC';
+      const { localDayEndUTC, formatLocalDate } = await import('../utils/dateTz.js');
       const now = new Date();
-      // Allow today (UTC). Reject any future date — receives are only retroactive.
-      const startOfTomorrowUtc = new Date();
-      startOfTomorrowUtc.setUTCHours(0, 0, 0, 0);
-      startOfTomorrowUtc.setUTCDate(startOfTomorrowUtc.getUTCDate() + 1);
-      if (parsed.getTime() >= startOfTomorrowUtc.getTime()) {
+      // Reject future dates (compared in store-local time, not UTC).
+      const todayLocal = formatLocalDate(now, tz);
+      if (dateStr > todayLocal) {
         res.status(400).json({ success: false, error: 'Receive date cannot be in the future.' });
         return;
       }
-      // Set receivedAt to the END of the selected day (23:59:59) so it
-      // sorts AFTER any earlier same-day events, AND lands cleanly inside
-      // the selected day's UTC window for the daily-inventory query.
-      // (Same convention as markBoxSoldout / returnBoxToLotto's setUTCHours.)
-      receivedAt = new Date(parsed);
-      receivedAt.setUTCHours(23, 59, 59, 0);
-      // If the resolved time is in the future relative to now (e.g., today
-      // at 23:59 vs current 14:00), clamp to now() to avoid future timestamps.
+      // Set receivedAt to the END of the selected LOCAL day so it sorts
+      // AFTER any earlier same-day events AND lands inside the selected
+      // day's local-day window for the daily-inventory query.
+      receivedAt = localDayEndUTC(dateStr, tz);
+      // If today and end-of-day is in the future, clamp to now so the
+      // timestamp isn't synthetic-future.
       if (receivedAt.getTime() > now.getTime()) receivedAt = now;
     }
 
@@ -2330,6 +2336,8 @@ export const receiveFromCatalog = async (req: Request, res: Response): Promise<v
 
     // Apr 2026 — accept `date` for retroactive receives (parity with
     // receiveBoxOrder). See that handler for full rationale.
+    // May 2026 — store-local-day boundaries (was UTC-end-of-day which
+    // misclassified the receive in non-US timezones).
     let receivedAt: Date | null = null;
     if (dateStr) {
       const parsed = parseDate(dateStr);
@@ -2337,16 +2345,19 @@ export const receiveFromCatalog = async (req: Request, res: Response): Promise<v
         res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
         return;
       }
-      const startOfTomorrowUtc = new Date();
-      startOfTomorrowUtc.setUTCHours(0, 0, 0, 0);
-      startOfTomorrowUtc.setUTCDate(startOfTomorrowUtc.getUTCDate() + 1);
-      if (parsed.getTime() >= startOfTomorrowUtc.getTime()) {
+      const storeRow = await prisma.store.findUnique({
+        where: { id: storeId as string },
+        select: { timezone: true },
+      });
+      const tz = storeRow?.timezone || 'UTC';
+      const { localDayEndUTC, formatLocalDate } = await import('../utils/dateTz.js');
+      const now = new Date();
+      const todayLocal = formatLocalDate(now, tz);
+      if (dateStr > todayLocal) {
         res.status(400).json({ success: false, error: 'Receive date cannot be in the future.' });
         return;
       }
-      const now = new Date();
-      receivedAt = new Date(parsed);
-      receivedAt.setUTCHours(23, 59, 59, 0);
+      receivedAt = localDayEndUTC(dateStr, tz);
       if (receivedAt.getTime() > now.getTime()) receivedAt = now;
     }
 
@@ -2772,6 +2783,19 @@ export const markBoxSoldout = async (req: Request, res: Response): Promise<void>
     // which worked for negative-offset zones (US) by accident but broke for
     // positive-offset zones (e.g. NZ, Berlin) where UTC-end-of-day fell into
     // the WRONG local day's bucket.
+    //
+    // May 2026 (Fix A) — the soldout's `depletedAt` doubles as the cutoff
+    // for `restoreBoxToCounter`'s correction snapshot (written at cutoff+1ms
+    // so "latest event of the day wins" in snapshotSales). When dateStr is
+    // supplied, soldoutAt = `localDayEndUTC` = `nextStart - 1ms` (the very
+    // last instant of the day). cutoff+1ms then lands at `nextStart`,
+    // pushing the restore correction into TOMORROW's window — Tuesday's
+    // snapshotSales picks up the correction as "today's value", computing
+    // a phantom |restored - prior_soldout_pos| × price as fake sales.
+    // Fix: subtract 1ms from soldoutAt so cutoff+1ms still falls in today's
+    // window. That keeps the restore correction in the SAME day as the
+    // soldout, where it belongs (and where it correctly overrides the
+    // soldout via "latest of the day wins").
     const store = await prisma.store.findUnique({
       where: { id: storeId as string },
       select: { timezone: true },
@@ -2785,8 +2809,10 @@ export const markBoxSoldout = async (req: Request, res: Response): Promise<void>
         res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
         return;
       }
-      // Past-date or current-date soldout → end of that day in the store's tz.
-      soldoutAt = localDayEndUTC(dateStr, tz);
+      // Past-date or current-date soldout → end of that day in the store's tz,
+      // minus 1ms so a future restore-correction (cutoff+1ms) still fits in
+      // today's window.
+      soldoutAt = new Date(localDayEndUTC(dateStr, tz).getTime() - 1);
     } else {
       // No date passed → "now" (live soldout while cashier is at the register).
       soldoutAt = new Date();
@@ -3054,16 +3080,29 @@ export const returnBoxToLotto = async (req: Request, res: Response): Promise<voi
     }
 
     // Resolve return date (mirrors markBoxSoldout). returnedAt is set to
-    // the selected day's 23:59:59 so the close_day_snapshot we write below
-    // sorts as the LATEST event for that day → snapshotSales picks our
-    // return-position over any prior same-day snapshot.
-    const dateParsed = dateStr ? parseDate(dateStr) : new Date();
-    if (!dateParsed) {
-      res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
-      return;
+    // the selected day's 23:59:59 LOCAL so the close_day_snapshot we
+    // write below sorts as the LATEST event for that day → snapshotSales
+    // picks our return-position over any prior same-day snapshot.
+    // May 2026 — store-local-day boundaries (was UTC, broke for non-US tz).
+    // Also subtract 1ms (Fix A pattern) so any later restore-correction
+    // event (cutoff+1ms) stays within the same day's window.
+    let returnedAt: Date;
+    if (dateStr) {
+      const dateParsed = parseDate(dateStr);
+      if (!dateParsed) {
+        res.status(400).json({ success: false, error: 'Invalid date (expected YYYY-MM-DD)' });
+        return;
+      }
+      const storeRow = await prisma.store.findUnique({
+        where: { id: storeId as string },
+        select: { timezone: true },
+      });
+      const tz = storeRow?.timezone || 'UTC';
+      const { localDayEndUTC } = await import('../utils/dateTz.js');
+      returnedAt = new Date(localDayEndUTC(dateStr, tz).getTime() - 1);
+    } else {
+      returnedAt = new Date();
     }
-    const returnedAt = new Date(dateParsed);
-    returnedAt.setUTCHours(23, 59, 59, 0);
 
     const data: Prisma.LotteryBoxUpdateInput = {
       status: 'returned',
