@@ -81,11 +81,19 @@ export function localDayStartUTC(dateStr: string, tz: string): Date {
   const [yr, mo, dy] = dateStr.split('-').map(Number);
   const wantWallAsIfUTC = Date.UTC(yr as number, (mo as number) - 1, dy as number, 0, 0, 0);
 
+  // CRITICAL: hourCycle: 'h23' (NOT hour12: false alone) — without this,
+  // en-CA / en-US format midnight as hour: '24' instead of '00' on Node 18+.
+  // The algorithm below then computes Date.UTC(yr, mo-1, dy, 24, 0, 0) which
+  // rolls over to the NEXT day, throwing the iteration off by 24h. Result:
+  // every per-day query for a non-UTC store returns the WRONG day's data
+  // (lottery / sales / EoD / commission / weekly settlement all affected).
+  // Discovered May 2026 — Highland Liquors NY tz Tuesday returning Monday's
+  // $2,995 + Monday returning Sunday's $1,370. h23 forces 00-23.
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   });
 
   // Iterate. Start with X0 = wall-clock-as-if-UTC; converges in ≤2 steps for

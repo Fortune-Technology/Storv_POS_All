@@ -795,6 +795,7 @@ export default function LotteryBackOffice() {
                       openingTicket={b.openingTicket}
                       currentTicket={b.currentTicket}
                       historicalView={!snapIsToday}
+                      selectedDate={date}
                       onDraftChange={v => setCounterDrafts(d => ({ ...d, [b.id]: v }))}
                       onSave={() => saveTicket(b.id)}
                       onRename={(newNo)    => doBoxAction('rename',       b, { boxNumber: newNo })}
@@ -839,20 +840,36 @@ export default function LotteryBackOffice() {
                 {(rightPane === 'safe' || rightPane === 'soldout' || rightPane === 'returned') && (
                   <>
                     <div className="lbo-right-tabs">
+                      {/* Tab counts: Safe shows the live total (no date filter
+                          — manager needs to know what's in inventory right now).
+                          Soldout + Returned show the count for the SELECTED day
+                          only; matches the BookList filter so the pill is honest
+                          about what's about to render. (May 2026 audit-trail aid.) */}
                       <button className={rightPane === 'safe' ? 'active' : ''} onClick={() => setRightPane('safe')}>
                         Safe <span className="lbo-count-pill">{safe.length}</span>
                       </button>
                       <button className={rightPane === 'soldout' ? 'active' : ''} onClick={() => setRightPane('soldout')}>
-                        Soldout <span className="lbo-count-pill">{soldout.length}</span>
+                        Soldout <span className="lbo-count-pill">
+                          {soldout.filter(b => b.depletedAt && new Date(b.depletedAt).toLocaleDateString('en-CA') === date).length}
+                        </span>
                       </button>
                       <button className={rightPane === 'returned' ? 'active' : ''} onClick={() => setRightPane('returned')}>
-                        Returned <span className="lbo-count-pill">{returned.length}</span>
+                        Returned <span className="lbo-count-pill">
+                          {returned.filter(b => b.returnedAt && new Date(b.returnedAt).toLocaleDateString('en-CA') === date).length}
+                        </span>
                       </button>
                     </div>
                     <BookList
                       books={rightBooks}
-                      emptyMsg={`No ${rightPane} books.`}
+                      emptyMsg={
+                        rightPane === 'soldout'
+                          ? `No books sold out on ${date}.`
+                          : rightPane === 'returned'
+                          ? `No books returned on ${date}.`
+                          : 'No books in safe.'
+                      }
                       variant={rightPane}
+                      selectedDate={date}
                       onAction={(kind, box) => doBoxAction(kind, box)}
                     />
                   </>
