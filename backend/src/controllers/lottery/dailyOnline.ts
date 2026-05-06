@@ -450,12 +450,19 @@ export const getYesterdayCloses = async (req: Request, res: Response): Promise<v
       closedAt: Date;
     }
 
+    // May 2026 — same null-skip rule as getCounterSnapshot. The cashier-app's
+    // EoD wizard writes shift_close events with ct=null for books that weren't
+    // scanned that shift. Falling back to those silently broke the EoD wizard's
+    // pre-fill (it showed yesterday=null for active books that DID have prior
+    // closes). Skip null-ticket events; keep walking back until a real close
+    // is found per box.
     const closes: Record<string, YesterdayClose> = {};
     for (const ev of events) {
       if (!ev.boxId || closes[ev.boxId]) continue; // already have newer close for this box
       const parsed =
         ev.parsed && typeof ev.parsed === 'object' ? (ev.parsed as ScanEventParsed) : {};
       const ticket = (parsed.currentTicket as string | number | null | undefined) ?? null;
+      if (ticket == null) continue; // skip null-ticket snapshots; look further back
       closes[ev.boxId] = {
         ticket,
         ticketsSold: (parsed.ticketsSold as number | null | undefined) ?? null,
@@ -554,20 +561,41 @@ export const getCounterSnapshot = async (req: Request, res: Response): Promise<v
       }),
     ]);
 
+    // May 2026 — skip NULL-ticket snapshots. The cashier-app's EoD wizard
+    // writes a `close_day_snapshot` shift_close event with parsed.currentTicket
+    // = null when the cashier closes a shift without scanning anything (e.g.
+    // for a book that wasn't on the counter that shift). The original loop
+    // used `!(ev.boxId in prevMap)` (property-existence check) so the FIRST
+    // event seen — even if its ticket was null — claimed the slot, hiding
+    // older valid snapshots. Result: yesterdayClose=null → fallback chain
+    // dropped through to stale `lastShiftEndTicket` → phantom whole-pack sale
+    // (e.g. box 098015 went from soldout(-1)→restore(149)→shift_close(null);
+    // openingTicket landed on stale lastShiftEndTicket=7 instead of 149).
+    //
+    // Fix: keep iterating until a non-null ticket is found per box. The events
+    // are already ordered DESC, so this still yields "most recent valid close".
     const prevMap: Record<string, string | number | null> = {};
     for (const ev of prevEvents) {
-      if (ev.boxId && !(ev.boxId in prevMap)) {
-        const parsed = ev.parsed as ScanEventParsed | null;
-        prevMap[ev.boxId] = (parsed?.currentTicket as string | number | null | undefined) ?? null;
-      }
+      if (!ev.boxId || prevMap[ev.boxId] != null) continue;
+      const parsed = ev.parsed as ScanEventParsed | null;
+      const ticket = (parsed?.currentTicket as string | number | null | undefined) ?? null;
+      if (ticket == null) continue; // skip null-ticket snapshots; look further back
+      prevMap[ev.boxId] = ticket;
     }
     const currMap: Record<string, string | number | null> = {};
     for (const ev of currEvents) {
-      if (ev.boxId && !(ev.boxId in currMap)) {
-        const parsed = ev.parsed as ScanEventParsed | null;
-        currMap[ev.boxId] = (parsed?.currentTicket as string | number | null | undefined) ?? null;
-      }
+      if (!ev.boxId || currMap[ev.boxId] != null) continue;
+      const parsed = ev.parsed as ScanEventParsed | null;
+      const ticket = (parsed?.currentTicket as string | number | null | undefined) ?? null;
+      if (ticket == null) continue;
+      currMap[ev.boxId] = ticket;
     }
+
+    // Pull sellDirection once (drives sentinel detection + opening fallback).
+    const settings = await prisma.lotterySettings
+      .findUnique({ where: { storeId }, select: { sellDirection: true } })
+      .catch(() => null);
+    const sellDir = settings?.sellDirection || 'desc';
 
     const enriched = boxes.map((b) => {
       const yesterdayClose = prevMap[b.id] ?? null;
@@ -576,19 +604,61 @@ export const getCounterSnapshot = async (req: Request, res: Response): Promise<v
       // dates, it's the closing snapshot for that day (null if the day
       // was never closed).
       const currentTicket = isToday ? (b.currentTicket ?? null) : todayClose;
-      // "Yesterday" / opening — must use the SAME fallback chain as the
-      // backend snapshotSales priorPosition() so the per-row sold amount the
-      // frontend computes (yesterday − today) × price equals the per-box
-      // contribution that snapshotSales/inventory.sold reports. Without
-      // `lastShiftEndTicket` in the chain, a book with prior shift activity
-      // but no close_day_snapshot would render the WRONG yesterday → wrong
-      // per-row amount → row sums diverge from the headline daily total.
-      // Chain: yesterdayClose → lastShiftEndTicket → startTicket → null.
+
+      // "Yesterday" / opening — same chain as backend snapshotSales priorPosition()
+      // so per-row math (yesterday − today) × price equals the per-box
+      // contribution snapshotSales/inventory.sold reports.
+      // Chain: yesterdayClose → [first-day override] → lastShiftEndTicket → startTicket → null.
+      //
+      // May 2026 — defensive sentinel filter: a soldout snapshot writes
+      // ct=-1 (desc) or ct=totalTickets (asc). If a book was soldout and
+      // then RESTORED back to active, the restore-to-counter snapshot
+      // (with the fresh ticket) is the more recent event and prevMap will
+      // already prefer it. But if a stale sentinel slips through
+      // `yesterdayClose` OR `lastShiftEndTicket`, treat it as null so the
+      // chain falls through to startTicket. This prevents:
+      //  • desc: yesterday=-1 → today=149 → "150 sold" phantom whole-pack
+      //  • asc:  yesterday=150 → today=0 → "150 sold" phantom whole-pack
+      const totalT = Number(b.totalTickets || 0);
+      const isSentinel = (v: string | number | null | undefined): boolean => {
+        if (v == null || v === '') return false;
+        const n = Number(v);
+        if (!Number.isFinite(n)) return false;
+        if (sellDir === 'asc' && totalT > 0) return n === totalT;
+        return n === -1; // desc
+      };
       const lastShiftEndTicket =
         (b as { lastShiftEndTicket?: string | null }).lastShiftEndTicket ?? null;
+      const cleanYesterdayClose = isSentinel(yesterdayClose) ? null : yesterdayClose;
+      const cleanLastShiftEnd = isSentinel(lastShiftEndTicket) ? null : lastShiftEndTicket;
+
+      // May 2026 — FIRST-DAY-OF-ACTIVATION OVERRIDE (mirror of
+      // realSales.priorPosition() step 1). When the book was activated
+      // WITHIN this day's window, lastShiftEndTicket is NOT a reliable
+      // "opening" — the wizard's same-day save (or any close_day_snapshot
+      // written today) sets lastShiftEndTicket = today's currentTicket,
+      // which would yield 0 sold for the row even when tickets WERE sold.
+      // Use startTicket instead so the row matches what the daily-inventory
+      // total reports via liveSalesFromCurrentTickets' first-day override.
+      // Without this, a fresh book activated and sold-down-from in the
+      // same day shows "47 - 47 = 0 sold" on the Counter row even though
+      // the daily total correctly counts $100.
+      const activatedAt =
+        (b as { activatedAt?: Date | string | null }).activatedAt ?? null;
+      const activatedAtDate = activatedAt ? new Date(activatedAt) : null;
+      const activatedToday =
+        activatedAtDate != null &&
+        activatedAtDate >= dayStart &&
+        activatedAtDate <= dayEnd;
+      const firstDayOverride =
+        activatedToday && b.startTicket != null && b.startTicket !== ''
+          ? b.startTicket
+          : null;
+
       const openingTicket =
-        yesterdayClose ??
-        lastShiftEndTicket ??
+        cleanYesterdayClose ??
+        firstDayOverride ??
+        cleanLastShiftEnd ??
         b.startTicket ??
         null;
       return {

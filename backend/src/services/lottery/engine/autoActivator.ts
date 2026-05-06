@@ -359,7 +359,13 @@ export async function processScan({
     });
     if (gapWarning) warnings.push(gapWarning);
 
-    const slot = await nextFreeSlot(orgId, storeId);
+    // May 2026 — DO NOT auto-assign a slot at activation. Per-store policy:
+    // when a book is auto-activated by a scan, the slot must remain unassigned
+    // until the cashier explicitly places the book on the machine and sets
+    // its slot number from the back-office. Auto-assigning hid the "I haven't
+    // placed it yet" state and produced confusing slot reuse when books were
+    // activated faster than the cashier could route them. Mirrors the same
+    // policy in the manual activateBox handler.
 
     // 3g — derive startTicket from store's sellDirection when the box
     // hasn't been activated before. Descending (default) → book starts at
@@ -386,7 +392,7 @@ export async function processScan({
       data: {
         status: 'active',
         activatedAt: new Date(),
-        slotNumber: box.slotNumber || slot,
+        slotNumber: box.slotNumber, // null when not yet placed (don't auto-fill)
         currentTicket: ticketNumber || resolvedStartTicket,
         startTicket: resolvedStartTicket,
         lastShiftStartTicket: ticketNumber || resolvedStartTicket,

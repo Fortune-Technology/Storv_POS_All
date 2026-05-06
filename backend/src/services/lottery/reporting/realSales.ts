@@ -90,12 +90,18 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     orderBy: { createdAt: 'desc' },
     select: { boxId: true, parsed: true },
   });
+  // May 2026 — same null-skip rule for today's snapshots. A shift_close
+  // with ct=null shouldn't claim the slot and silently skip a real
+  // close_day_snapshot earlier in the same day's window.
   const todayMap = new Map<string, string | null>();
   for (const ev of todayEvents) {
-    if (ev.boxId && !todayMap.has(ev.boxId)) {
-      const parsed = ev.parsed as ScanEventParsed | null;
-      todayMap.set(ev.boxId, (parsed?.currentTicket as string | null | undefined) ?? null);
-    }
+    if (!ev.boxId) continue;
+    const existing = todayMap.get(ev.boxId);
+    if (existing != null) continue;
+    const parsed = ev.parsed as ScanEventParsed | null;
+    const ticket = (parsed?.currentTicket as string | null | undefined) ?? null;
+    if (ticket == null) continue;
+    todayMap.set(ev.boxId, ticket);
   }
   if (todayMap.size === 0) return { totalSales: 0, byBox: new Map() };
 
@@ -111,12 +117,22 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     orderBy: { createdAt: 'desc' },
     select: { boxId: true, parsed: true },
   });
+  // May 2026 — skip null-ticket snapshots. Cashier-app's EoD wizard writes a
+  // shift_close close_day_snapshot with ct=null when a shift closes without
+  // scanning a particular book. The previous loop used `!prevMap.has(boxId)`
+  // (Map presence check) so the first event seen — even with null ticket —
+  // claimed the slot, hiding older valid snapshots. Walk back until a
+  // non-null ticket is found per box. Events are already DESC-ordered so the
+  // result is still "most recent valid close per box".
   const prevMap = new Map<string, string | null>();
   for (const ev of prevEvents) {
-    if (ev.boxId && !prevMap.has(ev.boxId)) {
-      const parsed = ev.parsed as ScanEventParsed | null;
-      prevMap.set(ev.boxId, (parsed?.currentTicket as string | null | undefined) ?? null);
-    }
+    if (!ev.boxId) continue;
+    const existing = prevMap.get(ev.boxId);
+    if (existing != null) continue;
+    const parsed = ev.parsed as ScanEventParsed | null;
+    const ticket = (parsed?.currentTicket as string | null | undefined) ?? null;
+    if (ticket == null) continue; // skip null-ticket snapshots
+    prevMap.set(ev.boxId, ticket);
   }
 
   // Need ticketPrice + startTicket + lastShiftEndTicket + activatedAt per box.
@@ -184,14 +200,34 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     ) {
       return box.startTicket;
     }
-    // Step 2-4: original chain
-    if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '')
-      return box.lastShiftEndTicket;
-    if (box.startTicket != null) return box.startTicket;
+    // Step 2: lastShiftEndTicket — but skip stale soldout sentinels.
+    // After SO-then-restore, lastShiftEndTicket may still hold -1 (desc) or
+    // totalTickets (asc) until the next shift_close updates it. Using that
+    // as prev would compute |sentinel - todayTicket| × price → phantom
+    // whole-pack sale on the row.
     const total = Number(box.totalTickets || 0);
+    const isSentinel = (n: number): boolean => {
+      if (sellDirection === 'asc' && total > 0) return n === total;
+      return n === -1; // desc
+    };
+    if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '') {
+      const candidate = Number(box.lastShiftEndTicket);
+      if (Number.isFinite(candidate) && !isSentinel(candidate)) {
+        return box.lastShiftEndTicket;
+      }
+    }
+    // Step 3: startTicket; Step 4: direction-derived
+    if (box.startTicket != null) return box.startTicket;
     if (!total) return null;
     return sellDirection === 'asc' ? '0' : String(total - 1);
   }
+
+  // Helper to detect soldout sentinel for a box (closure over sellDirection).
+  const isSoldoutSentinel = (n: number, totalTk: number): boolean => {
+    if (!Number.isFinite(n)) return false;
+    if (sellDirection === 'asc' && totalTk > 0) return n === totalTk;
+    return n === -1; // desc
+  };
 
   let totalSales = 0;
   const byBox = new Map<string, BoxSale>();
@@ -205,6 +241,21 @@ export async function snapshotSales(args: DailySalesArgs): Promise<SnapshotSales
     const prevTicketStr = prevMap.get(boxId) ?? priorPosition(box);
     const prevTicket = prevTicketStr != null ? parseInt(prevTicketStr, 10) : NaN;
     if (!Number.isFinite(prevTicket)) continue;
+
+    // May 2026 — sentinel-to-valid transition is a RESTORE, not a sale.
+    // When yesterday's position is the soldout sentinel (-1 desc / total asc)
+    // and today's position is a valid number, the book was restored from
+    // soldout state to the counter sometime in this day's window. The
+    // ticket-position movement is a state correction, not actual ticket
+    // sales — Math.abs(-1 - 149) = 150 would otherwise produce a phantom
+    // whole-pack sale (Highland Liquors box 098015 May 5: $750 ghost).
+    // Skip the box for the day; the day's REAL sales for this book are 0
+    // unless physically re-scanned post-restore (which would write a new
+    // close_day_snapshot at a higher position than the restore = positive sold).
+    const totalTk = Number(box.totalTickets || 0);
+    if (isSoldoutSentinel(prevTicket, totalTk) && !isSoldoutSentinel(todayTicket, totalTk)) {
+      continue;
+    }
 
     const sold = Math.abs(prevTicket - todayTicket);
     const price = Number(box.ticketPrice || 0);
@@ -255,13 +306,23 @@ export async function liveSalesFromCurrentTickets(args: {
     orderBy: { createdAt: 'desc' },
     select: { boxId: true, parsed: true },
   });
+  // May 2026 — null-skip in liveSalesFromCurrentTickets too. If the latest
+  // close_day_snapshot for a box has ct=null (shift_close with no scan),
+  // the live diff would compare today's currentTicket against null →
+  // priorPosition() fallback picks lastShiftEndTicket which can be a stale
+  // sentinel from a prior soldout. Walk back to find the most recent non-
+  // null close instead.
   const priorByBox = new Map<string, number | null>();
   for (const ev of priorEvents) {
-    if (ev.boxId && !priorByBox.has(ev.boxId)) {
-      const parsed = ev.parsed as ScanEventParsed | null;
-      const t = parsed?.currentTicket as string | number | null | undefined;
-      priorByBox.set(ev.boxId, t != null ? Number(t) : null);
-    }
+    if (!ev.boxId) continue;
+    const existing = priorByBox.get(ev.boxId);
+    if (existing != null) continue;
+    const parsed = ev.parsed as ScanEventParsed | null;
+    const t = parsed?.currentTicket as string | number | null | undefined;
+    if (t == null) continue;
+    const n = Number(t);
+    if (!Number.isFinite(n)) continue;
+    priorByBox.set(ev.boxId, n);
   }
 
   const settings = await prisma.lotterySettings
@@ -293,16 +354,36 @@ export async function liveSalesFromCurrentTickets(args: {
     if (prev == null && activatedToday && b.startTicket != null && b.startTicket !== '') {
       prev = Number(b.startTicket);
     }
+    // May 2026 — sentinel-skip on stale lastShiftEndTicket. After a soldout-
+    // then-restore cycle, lastShiftEndTicket can carry the soldout sentinel
+    // (-1 desc / totalTickets asc) until the next real shift close updates
+    // it. Using it as `prev` would compute sold = |sentinel - currentTicket|
+    // which produces a phantom whole-pack sale. Skip the sentinel and fall
+    // through to startTicket / direction-derived position.
+    const totalTk = Number(b.totalTickets || 0);
+    const isSentinelTicket = (n: number): boolean => {
+      if (sellDir === 'asc' && totalTk > 0) return n === totalTk;
+      return n === -1; // desc
+    };
     if (prev == null && b.lastShiftEndTicket != null && b.lastShiftEndTicket !== '') {
-      prev = Number(b.lastShiftEndTicket);
+      const candidate = Number(b.lastShiftEndTicket);
+      if (Number.isFinite(candidate) && !isSentinelTicket(candidate)) {
+        prev = candidate;
+      }
     }
     if (prev == null && b.startTicket != null) prev = Number(b.startTicket);
     if (prev == null) {
-      const total = Number(b.totalTickets || 0);
-      if (!total) continue;
-      prev = sellDir === 'asc' ? 0 : total - 1;
+      if (!totalTk) continue;
+      prev = sellDir === 'asc' ? 0 : totalTk - 1;
     }
     if (!Number.isFinite(prev)) continue;
+
+    // May 2026 — same sentinel-to-valid skip as snapshotSales. If yesterday
+    // was a soldout sentinel and today's currentTicket is a valid number,
+    // the book was restored — not sold. Skip to avoid phantom whole-pack.
+    if (isSentinelTicket(prev as number) && !isSentinelTicket(cur)) {
+      continue;
+    }
 
     const sold = Math.abs((prev as number) - cur);
     if (sold === 0) continue;
@@ -548,20 +629,42 @@ export async function shiftSales(args: {
       // mid-shift contributes 0 to the shift's sales.
       const activatedDuringShift =
         box.activatedAt != null && box.activatedAt > openedAt;
+      const total = Number(box.totalTickets || 0);
+      const isSentinel = (n: number): boolean => {
+        if (sellDirection === 'asc' && total > 0) return n === total;
+        return n === -1; // desc
+      };
       if (activatedDuringShift && box.startTicket != null && box.startTicket !== '') {
         startTicketStr = box.startTicket;
       } else if (box.lastShiftEndTicket != null && box.lastShiftEndTicket !== '') {
-        startTicketStr = box.lastShiftEndTicket;
-      } else if (box.startTicket != null) {
+        // Sentinel-skip: stale soldout sentinel (-1 desc / total asc) on
+        // a restored-from-soldout box would falsely produce a whole-pack
+        // sale on this shift. Fall through to startTicket / direction-derived.
+        const candidate = Number(box.lastShiftEndTicket);
+        if (Number.isFinite(candidate) && !isSentinel(candidate)) {
+          startTicketStr = box.lastShiftEndTicket;
+        }
+      }
+      if (!startTicketStr && box.startTicket != null) {
         startTicketStr = box.startTicket;
-      } else {
-        const total = Number(box.totalTickets || 0);
+      }
+      if (!startTicketStr) {
         if (!total) continue;
         startTicketStr = sellDirection === 'asc' ? '0' : String(total - 1);
       }
     }
     const startTicket = parseInt(startTicketStr, 10);
     if (!Number.isFinite(startTicket)) continue;
+
+    // May 2026 — same sentinel-to-valid skip as snapshotSales. If the shift's
+    // starting position was a soldout sentinel and the ending position is
+    // valid, the book was restored mid-shift (not sold). Skip.
+    const totalSh = Number(box.totalTickets || 0);
+    const isShiftSentinel = (n: number): boolean => {
+      if (sellDirection === 'asc' && totalSh > 0) return n === totalSh;
+      return n === -1; // desc
+    };
+    if (isShiftSentinel(startTicket) && !isShiftSentinel(endTicket)) continue;
 
     const sold = Math.abs(startTicket - endTicket);
     if (sold === 0) continue;
