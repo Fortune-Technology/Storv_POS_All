@@ -271,6 +271,25 @@ export const adminListInvoices           = (params?: Params): Promise<MetaPagina
 export const adminWriteOffInvoice        = (id: string | number): Promise<{ invoice: BillingInvoice }> => api.post(`/admin/billing/invoices/${id}/write-off`).then(r => r.data);
 export const adminRetryInvoice           = (id: string | number): Promise<{ invoice: BillingInvoice }> => api.post(`/admin/billing/invoices/${id}/retry`).then(r => r.data);
 
+// ── S80 Phase 3b — Per-Store Subscriptions ───────────────────────────────────
+export const adminListStoreSubscriptions = (params?: Params): Promise<{ data: any[]; meta: { total: number; page: number; limit: number; hasMore: boolean } }> =>
+  api.get('/admin/store-subscriptions', { params }).then(r => r.data);
+export const adminGetStoreSubscription   = (id: string): Promise<{ subscription: any; invoices: any[] }> =>
+  api.get(`/admin/store-subscriptions/${id}`).then(r => r.data);
+export const adminUpdateStoreSubscription = (id: string, data: unknown): Promise<{ ok: boolean; subscription: any }> =>
+  api.patch(`/admin/store-subscriptions/${id}`, data).then(r => r.data);
+export const adminGenerateStoreInvoice   = (id: string): Promise<{ invoice: any; amount: any }> =>
+  api.post(`/admin/store-subscriptions/${id}/generate-invoice`).then(r => r.data);
+export const adminMarkInvoicePaid        = (id: string, note?: string): Promise<{ invoice: any; subscription: any }> =>
+  api.post(`/admin/billing/invoices/${id}/mark-paid-test-mode`, { note }).then(r => r.data);
+
+// S81 — Get Invoice / Send Invoice (PDF download + email-with-attachment).
+// `adminDownloadInvoicePdf` returns a Blob suitable for browser download.
+export const adminDownloadInvoicePdf = (id: string): Promise<Blob> =>
+  api.get(`/admin/billing/invoices/${id}/pdf`, { responseType: 'blob' }).then(r => r.data);
+export const adminSendInvoiceEmail   = (id: string, cc?: string | string[]): Promise<{ ok: boolean; recipients: string[]; cc: string[]; message: string }> =>
+  api.post(`/admin/billing/invoices/${id}/send`, cc ? { cc } : {}).then(r => r.data);
+
 // ── Admin Billing — Equipment ─────────────────────────────────────────────────
 // Backend returns the raw array (not wrapped in { data }). Type kept as
 // EquipmentProduct[] so callers don't need to dereference `.data`.
@@ -544,6 +563,13 @@ export interface VendorOnboardingRecord {
   currentPOS: string | null;
   goLiveTimeline: string | null;
   requestedModules: string[];
+  // S80 Phase 3 — plan + addon interest captured during onboarding.
+  // selectedPlanSlug: 'starter' | 'pro' | null
+  // selectedAddonKeys: PlanAddon.key values (Starter only — Pro includes everything)
+  // estimatedMonthlyTotal: cart total at submit time (Decimal serialised as string)
+  selectedPlanSlug: string | null;
+  selectedAddonKeys: string[];
+  estimatedMonthlyTotal: string | number | null;
   hardwareNeeds: Record<string, number | boolean | null>;
   hearAboutUs: string | null;
   referralSource: string | null;
@@ -643,8 +669,16 @@ export const adminResendContract   = (id: string): Promise<{ emailSent: boolean;
   api.post(`/admin/contracts/${id}/resend`).then(r => r.data);
 export const adminCancelContract   = (id: string, reason?: string): Promise<{ contract: ContractRecord }> =>
   api.post(`/admin/contracts/${id}/cancel`, { reason }).then(r => r.data);
-export const adminActivateContract = (id: string, pricingTierId: string | null): Promise<{ contract: ContractRecord }> =>
-  api.post(`/admin/contracts/${id}/activate`, { pricingTierId }).then(r => r.data);
+// S81 — `extra` carries the admin's final subscription plan + addon picks.
+// Persisted on VendorOnboarding so the prospect's record reflects the
+// approved plan; the new StoreSubscription created when the vendor finishes
+// the org-onboarding wizard reads from those fields.
+export const adminActivateContract = (
+  id: string,
+  pricingTierId: string | null,
+  extra?: { subscriptionPlanSlug?: string | null; subscriptionAddonKeys?: string[] },
+): Promise<{ contract: ContractRecord }> =>
+  api.post(`/admin/contracts/${id}/activate`, { pricingTierId, ...(extra || {}) }).then(r => r.data);
 export const adminDownloadContractPdfUrl = (id: string): string =>
   `${api.defaults.baseURL}/admin/contracts/${id}/pdf`;
 
@@ -676,6 +710,28 @@ export const adminGetContractTemplate   = (id: string): Promise<{ template: Cont
   api.get(`/admin/contract-templates/${id}`).then(r => r.data);
 export const adminUpdateVendorOnboarding = (id: string, data: Record<string, unknown>): Promise<{ onboarding: VendorOnboardingRecord }> =>
   api.patch(`/admin/vendor-onboardings/${id}`, data).then(r => r.data);
+
+// ── S80 — Unified vendor pipeline (one row per vendor; latest contract joined) ──
+export type PipelineStatus = 'submitted' | 'drafts' | 'sent' | 'signed' | 'activated' | 'rejected';
+
+export interface VendorPipelineRow {
+  id: string;                                 // VendorOnboarding.id — stable per-vendor key
+  pipelineStatus: PipelineStatus;
+  onboarding: VendorOnboardingRecord;
+  latestContract: (ContractRecord & { template?: { id: string; name: string } | null }) | null;
+  viewCount: number;                          // count of `viewed` ContractEvent rows on the latest contract
+  userId: string;
+  userName: string;
+  userEmail: string;
+  businessName: string;
+  lastActivityAt: string | null;
+  rejectionReason: string | null;             // onboarding's reason → contract cancelReason fallback
+}
+
+export const adminListVendorPipeline = (
+  params?: { status?: PipelineStatus },
+): Promise<{ rows: VendorPipelineRow[]; countsByStatus: Record<PipelineStatus, number> }> =>
+  api.get('/admin/vendor-pipeline', { params }).then(r => r.data);
 
 export default api;
 

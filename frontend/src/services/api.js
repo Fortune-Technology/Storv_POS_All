@@ -323,6 +323,16 @@ export const getStoreBillingSummary = ()       => api.get('/stores/billing-summa
 export const getStoreBranding        = (storeId)       => api.get(`/stores/${storeId}/branding`).then(r => r.data);
 export const updateStoreBranding     = (storeId, data) => api.put(`/stores/${storeId}/branding`, data).then(r => r.data);
 
+// S80 — per-store module on/off overrides
+export const getStoreFeatureModules    = (storeId)               => api.get(`/stores/${storeId}/feature-modules`).then(r => r.data);
+export const updateStoreFeatureModules = (storeId, featureModules) => api.put(`/stores/${storeId}/feature-modules`, { featureModules }).then(r => r.data);
+
+// S80 Phase 3 — per-store subscription management
+export const listMyStoreSubscriptions   = ()                          => api.get('/billing/store-subscriptions').then(r => r.data);
+export const updateStoreSubscription    = (storeId, body)             => api.put(`/billing/store-subscriptions/${storeId}`, body).then(r => r.data);
+export const listMyStoreInvoices        = (storeId)                   => api.get('/billing/store-invoices', { params: { storeId } }).then(r => r.data);
+export const getPublicPlans             = ()                          => api.get('/billing/plans').then(r => r.data);
+
 // ── User Management ───────────────────────────────────────────────────────
 export const getTenantUsers  = ()           => api.get('/users').then(r => r.data);
 export const inviteUser      = (data)       => api.post('/users/invite', data).then(r => r.data);

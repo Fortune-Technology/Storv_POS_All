@@ -14,6 +14,8 @@ import {
   getBillingSummary,
   getStoreBranding,
   updateStoreBranding,
+  getFeatureModules,
+  updateFeatureModules,
 } from '../controllers/storeController.js';
 import { setStoreState, applyStateDefaults } from '../controllers/stateController.js';
 
@@ -35,6 +37,11 @@ router.route('/:id')
 router.route('/:id/branding')
   .get(requirePermission('stores.view'),  getStoreBranding)
   .put(requirePermission('stores.edit'),  updateStoreBranding);
+
+// S80 — per-store module on/off overrides
+router.route('/:id/feature-modules')
+  .get(requirePermission('stores.view'),  getFeatureModules)
+  .put(requirePermission('stores.edit'),  updateFeatureModules);
 
 // State assignment + default-apply (Store Settings UI)
 router.put ('/:id/state',                  requirePermission('stores.edit'), setStoreState);

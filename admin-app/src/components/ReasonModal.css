@@ -1,0 +1,156 @@
+/* ReasonModal — themed mandatory-reason capture before destructive actions.
+   Prefix: .reason-modal-
+   Same visual language as ConfirmModal — backdrop dim + blur, white card,
+   red accent — but with a textarea + a min-length gate on Confirm. */
+
+.reason-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay, rgba(15, 23, 42, 0.55));
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 16px;
+  animation: reason-modal-fade-in 0.15s ease-out;
+}
+
+@keyframes reason-modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.reason-modal {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: #ffffff;
+  border-radius: 14px;
+  border-top: 3px solid #dc2626;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  animation: reason-modal-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes reason-modal-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.reason-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.reason-modal-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.reason-modal-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.reason-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.reason-modal-close:hover    { background: rgba(15, 23, 42, 0.08); color: #0f172a; }
+.reason-modal-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.reason-modal-body {
+  padding: 14px 18px 6px;
+}
+
+.reason-modal-message {
+  margin: 0 0 12px;
+  color: #475569;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.reason-modal-textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  resize: vertical;
+  background: #ffffff;
+  color: #0f172a;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+}
+.reason-modal-textarea:focus {
+  outline: none;
+  border-color: #3d56b5;
+  box-shadow: 0 0 0 3px rgba(61, 86, 181, 0.18);
+}
+.reason-modal-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.reason-modal-hint {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.reason-modal-foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 18px 18px;
+}
+
+.reason-modal-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+.reason-modal-btn:hover    { background: #e2e8f0; border-color: #cbd5e1; }
+.reason-modal-btn:active   { transform: translateY(1px); }
+.reason-modal-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.reason-modal-btn-danger {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: transparent;
+}
+.reason-modal-btn-danger:hover:not(:disabled)    { background: #b91c1c; }
+.reason-modal-btn-danger:disabled                { background: #fca5a5; color: #fff5f5; }
+
+@media (max-width: 480px) {
+  .reason-modal-foot      { flex-direction: column-reverse; }
+  .reason-modal-btn       { width: 100%; }
+}

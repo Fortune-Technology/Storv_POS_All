@@ -9,7 +9,13 @@ import { StoreProvider } from '../lib/store';
 import { CartProvider } from '../lib/cart';
 import { AuthProvider } from '../lib/auth';
 import { ConfirmDialogProvider } from '../lib/useConfirmDialog.jsx';
+import { installScrollProofNumberInputs } from '../lib/scrollProofNumberInputs.js';
 import type { Store } from '@storeveu/types';
+
+// S81 — Next.js boots both server-side (no `document`) and client-side. The
+// installer is a no-op on SSR and idempotent on the client, so calling it at
+// module top-level is safe — it executes once when the JS bundle loads.
+installScrollProofNumberInputs();
 
 /**
  * Apply store branding (colors, fonts) as CSS custom properties.

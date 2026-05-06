@@ -341,7 +341,11 @@ export const adminCancelContract = async (req: Request, res: Response, next: Nex
 export const adminActivateContract = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (!isSuperadmin(req)) { res.status(403).json({ error: 'Superadmin only.' }); return; }
-    const { pricingTierId } = req.body as { pricingTierId?: string };
+    const { pricingTierId, subscriptionPlanSlug, subscriptionAddonKeys } = req.body as {
+      pricingTierId?: string;
+      subscriptionPlanSlug?: string | null;
+      subscriptionAddonKeys?: string[];
+    };
 
     const existing = await prisma.contract.findUnique({ where: { id: req.params.id }, include: { user: true } });
     if (!existing) { res.status(404).json({ error: 'Contract not found.' }); return; }
@@ -354,6 +358,33 @@ export const adminActivateContract = async (req: Request, res: Response, next: N
     if (pricingTierId) {
       const tier = await prisma.pricingTier.findUnique({ where: { id: pricingTierId } });
       if (!tier || !tier.active) { res.status(400).json({ error: 'Invalid pricing tier.' }); return; }
+    }
+
+    // S81 — Validate subscription plan choice. Plan slug must reference an
+    // active plan; addon keys must reference active addons attached to that
+    // plan. Pro plans clear addon keys server-side as well (Pro includes
+    // every addon by default — picker is hidden in the UI).
+    let resolvedPlanSlug: string | null = null;
+    let resolvedAddonKeys: string[] = [];
+    if (subscriptionPlanSlug) {
+      const plan = await prisma.subscriptionPlan.findUnique({
+        where: { slug: subscriptionPlanSlug },
+        include: { addons: { where: { isActive: true } } },
+      });
+      if (!plan || !plan.isActive) {
+        res.status(400).json({ error: `Invalid subscription plan: ${subscriptionPlanSlug}` });
+        return;
+      }
+      resolvedPlanSlug = plan.slug;
+      if (plan.slug !== 'pro' && Array.isArray(subscriptionAddonKeys) && subscriptionAddonKeys.length > 0) {
+        const validKeys = new Set(plan.addons.map((a: { key: string }) => a.key));
+        const filtered = subscriptionAddonKeys.filter(k => typeof k === 'string' && validKeys.has(k));
+        if (filtered.length !== subscriptionAddonKeys.length) {
+          res.status(400).json({ error: 'One or more add-on keys are not valid for this plan.' });
+          return;
+        }
+        resolvedAddonKeys = filtered;
+      }
     }
 
     // S77 Phase 2 — On activation we ALSO:
@@ -389,17 +420,34 @@ export const adminActivateContract = async (req: Request, res: Response, next: N
           ...(isOnPlaceholder ? { orgId: null } : {}),
         },
       }),
-      // Mirror the activation to the related VendorOnboarding row if present
+      // Mirror the activation to the related VendorOnboarding row if present.
+      // S81 — also persist the admin's final subscription plan + addon picks
+      // so the StoreSubscription created later in the org-onboarding wizard
+      // can read from this row instead of defaulting to Pro for everyone.
       ...(existing.vendorOnboardingId
         ? [prisma.vendorOnboarding.update({
             where: { id: existing.vendorOnboardingId },
-            data: { status: 'approved', suggestedPricingTierId: pricingTierId ?? null },
+            data: {
+              status: 'approved',
+              suggestedPricingTierId: pricingTierId ?? null,
+              ...(resolvedPlanSlug ? { selectedPlanSlug: resolvedPlanSlug } : {}),
+              ...(resolvedPlanSlug ? { selectedAddonKeys: resolvedAddonKeys } : {}),
+            },
           })]
         : []),
     ]);
 
-    await logEvent(contract.id, 'activated', req, { pricingTierId: pricingTierId ?? null });
-    await logAudit(req, 'activate', 'contract', contract.id, { pricingTierId, userId: existing.userId });
+    await logEvent(contract.id, 'activated', req, {
+      pricingTierId: pricingTierId ?? null,
+      subscriptionPlanSlug: resolvedPlanSlug,
+      subscriptionAddonKeys: resolvedAddonKeys,
+    });
+    await logAudit(req, 'activate', 'contract', contract.id, {
+      pricingTierId,
+      userId: existing.userId,
+      subscriptionPlanSlug: resolvedPlanSlug,
+      subscriptionAddonKeys: resolvedAddonKeys,
+    });
 
     // Notify the vendor that their account is live (best-effort).
     let pricingTierName: string | null = null;

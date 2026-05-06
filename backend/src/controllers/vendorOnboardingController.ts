@@ -54,6 +54,10 @@ interface OnboardingBody {
   currentPOS?: string | null;
   goLiveTimeline?: string | null;
   requestedModules?: string[];
+  // S80 Phase 3 — plan + addons (interest only; admin reads at approval time)
+  selectedPlanSlug?: string | null;
+  selectedAddonKeys?: string[];
+  estimatedMonthlyTotal?: number | string | null;
   hardwareNeeds?: Record<string, unknown>;
   hearAboutUs?: string | null;
   referralSource?: string | null;
@@ -114,6 +118,43 @@ function shapeOnboarding(body: OnboardingBody, userEmail: string, userName: stri
     agreedToTerms:      body.agreedToTerms === true,
     currentStep:        intOrNull(body.currentStep) ?? 1,
   };
+}
+
+// S80 Phase 3 — pull the plan-picker fields out of the body separately, since
+// the Prisma client may not yet know about them (DLL lock). We persist them
+// via a raw UPDATE after the typed upsert.
+function shapePlanPicker(body: OnboardingBody) {
+  return {
+    selectedPlanSlug:
+      body.selectedPlanSlug == null ? null : String(body.selectedPlanSlug).slice(0, 50),
+    selectedAddonKeys: Array.isArray(body.selectedAddonKeys)
+      ? body.selectedAddonKeys.filter((k): k is string => typeof k === 'string').slice(0, 50)
+      : [],
+    estimatedMonthlyTotal:
+      body.estimatedMonthlyTotal == null
+        ? null
+        : Number.isFinite(Number(body.estimatedMonthlyTotal))
+          ? Number(body.estimatedMonthlyTotal)
+          : null,
+  };
+}
+
+// Raw UPDATE for the plan-picker fields. Idempotent — always runs after the
+// typed upsert. Safe even if the row has just been created (matches by userId).
+async function persistPlanPicker(userId: string, picker: ReturnType<typeof shapePlanPicker>) {
+  const addonKeysLiteral = `{${picker.selectedAddonKeys.map(k => `"${k.replace(/"/g, '\\"')}"`).join(',')}}`;
+  await prisma.$executeRawUnsafe(
+    `UPDATE vendor_onboardings
+        SET "selectedPlanSlug"      = $1,
+            "selectedAddonKeys"     = $2::text[],
+            "estimatedMonthlyTotal" = $3,
+            "updatedAt"             = NOW()
+      WHERE "userId" = $4`,
+    picker.selectedPlanSlug,
+    addonKeysLiteral,
+    picker.estimatedMonthlyTotal,
+    userId,
+  );
 }
 
 // ── @desc    Get current vendor's own onboarding draft (creates one if absent)
@@ -179,14 +220,25 @@ export const updateMyOnboarding = async (req: Request, res: Response, next: Next
     }
 
     const data = shapeOnboarding(req.body || {}, user.email, user.name);
+    const picker = shapePlanPicker(req.body || {});
 
+    // Typed Prisma upsert on the legacy field set (its client doesn't yet
+    // know about the plan-picker columns). Plan-picker fields persisted via
+    // a follow-up raw UPDATE in `persistPlanPicker` so the typed call doesn't
+    // reject Unknown args at runtime.
     const onboarding = await prisma.vendorOnboarding.upsert({
       where: { userId },
       create: { userId, status: 'draft', ...data },
       update: { ...data, status: 'draft' },
     });
+    await persistPlanPicker(userId, picker);
 
-    res.json({ onboarding });
+    // Re-read so the response includes the new fields.
+    const fresh: any[] = await prisma.$queryRawUnsafe(
+      `SELECT * FROM vendor_onboardings WHERE id = $1 LIMIT 1`,
+      onboarding.id,
+    );
+    res.json({ onboarding: fresh[0] || onboarding });
   } catch (err) { next(err); }
 };
 
@@ -211,6 +263,7 @@ export const submitMyOnboarding = async (req: Request, res: Response, next: Next
 
     // Persist any final edits the wizard sent in this same request.
     const data = shapeOnboarding(req.body || {}, user.email, user.name);
+    const picker = shapePlanPicker(req.body || {});
 
     // Minimal completeness check — the wizard is in charge of full validation.
     if (!data.businessLegalName) {
@@ -244,6 +297,9 @@ export const submitMyOnboarding = async (req: Request, res: Response, next: Next
         submittedAt: new Date(),
       },
     });
+    // S80 Phase 3 — persist plan-picker fields via raw SQL (typed client may
+    // not yet know about them; columns exist via migration).
+    await persistPlanPicker(userId, picker);
 
     // Flip the user flag so the protect middleware + frontend gate can rely on
     // a single boolean instead of joining VendorOnboarding on every request.

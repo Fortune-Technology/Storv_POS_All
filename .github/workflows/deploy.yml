@@ -176,6 +176,36 @@ jobs:
             fi
           fi
 
+          # S81 — ONE-TIME: every existing active store gets a Pro StoreSubscription.
+          #
+          # Same sentinel pattern as the Enterprise grant above. Runs on the
+          # FIRST deploy after S81 lands, then never again. Real-world effect:
+          #   • Stores with no StoreSubscription      → get Pro / active
+          #   • Stores with Starter trial             → upgraded to Pro / active
+          #   • Stores already on Pro / active        → no-op (script tally only)
+          #   • Organization.plan='trial'/'basic'     → flipped to 'pro' for legacy parity
+          #
+          # Why gated: subsequent deploys must NOT bump admin-driven downgrades
+          # (e.g. customer manually moved to Starter for billing) back up to Pro.
+          # Without the sentinel, every deploy would silently overwrite that.
+          #
+          # To force re-run (e.g. another wave of beta customers needing full
+          # access for a migration window):
+          #   ssh prod && sudo rm /var/www/Storv_POS_All/.grant-pro-existing-stores-v1.done
+          #   ...then push to main.
+          PRO_SENTINEL=/var/www/Storv_POS_All/.grant-pro-existing-stores-v1.done
+          if [ -f "$PRO_SENTINEL" ]; then
+            echo "→ Skipping grantProToExistingStores (already ran on $(stat -c %y "$PRO_SENTINEL" 2>/dev/null || echo 'unknown date'))"
+          else
+            echo "→ First-time run: granting Pro StoreSubscription to existing stores"
+            if npx tsx prisma/grantProToExistingStores.ts; then
+              touch "$PRO_SENTINEL"
+              echo "✓ Sentinel created at $PRO_SENTINEL — won't run again on future deploys"
+            else
+              echo "  ⚠ grantProToExistingStores.ts errored — sentinel NOT created so next deploy will retry"
+            fi
+          fi
+
           # PM2 restart — then VERIFY the process actually recycled. The old
           # `|| echo` fallback silently swallowed failures; PM2 would print
           # success messages even when the Node process hadn't truly

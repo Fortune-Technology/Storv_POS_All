@@ -60,6 +60,8 @@ export async function runBillingCycle(): Promise<void> {
     await processTrialExpirations();
     await processNewBills();
     await processRetries();
+    // S80 Phase 3b — per-store cycle (runs alongside legacy org-level cycle)
+    await processStoreSubscriptionCycle();
     console.log('[Billing] Cycle complete');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -239,6 +241,71 @@ async function attemptCharge(sub: SubscriptionWithPlan, invoice: BillingInvoiceR
       });
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[Billing] ✗ Failed for ${sub.orgId}, retry #${newRetryCount} scheduled ${nextRetry.toISOString()}: ${message}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────
+// S80 Phase 3b — Per-store subscription cycle
+//
+// Runs alongside the legacy org-level cycle. Until Dejavoo integration lands,
+// this scheduler does NOT auto-charge. Trial expiry flips status to 'past_due'
+// and generates the first invoice (admin marks paid in test mode). Active
+// subs whose period ends get the next invoice generated; status flips to
+// past_due if previous invoice is still pending.
+// ─────────────────────────────────────────────────
+async function processStoreSubscriptionCycle(): Promise<void> {
+  const now = new Date();
+
+  // 1. Trial expirations → flip to past_due + generate first invoice
+  const expiredTrials: any[] = await (prisma as any).storeSubscription.findMany({
+    where: { status: 'trial', trialEndsAt: { lte: now } },
+    include: {
+      plan: { include: { addons: { where: { isActive: true } } } },
+      store: { select: { id: true, name: true } },
+    },
+  });
+  for (const sub of expiredTrials) {
+    try {
+      const { generateStoreInvoice } = await import('./billingService.js');
+      await generateStoreInvoice(sub.id);
+      await (prisma as any).storeSubscription.update({
+        where: { id: sub.id },
+        data: { status: 'past_due', lastFailedAt: now },
+      });
+      console.log(`[Billing/store] Trial expired → past_due for ${sub.store?.name || sub.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Billing/store] ✗ Trial expiry handling failed for ${sub.id}: ${message}`);
+    }
+  }
+
+  // 2. Period rolls — active subs whose currentPeriodEnd has passed get a new invoice
+  const dueForBilling: any[] = await (prisma as any).storeSubscription.findMany({
+    where: { status: 'active', currentPeriodEnd: { lte: now } },
+    include: {
+      plan: { include: { addons: { where: { isActive: true } } } },
+      store: { select: { id: true, name: true } },
+    },
+  });
+  for (const sub of dueForBilling) {
+    try {
+      const { generateStoreInvoice } = await import('./billingService.js');
+      const { invoice } = await generateStoreInvoice(sub.id);
+      // Advance period (next 30 days). Sub stays 'active' for now — payment
+      // bypass means we trust admin to mark paid. When Dejavoo lands, this
+      // path will charge and flip to past_due on failure.
+      await (prisma as any).storeSubscription.update({
+        where: { id: sub.id },
+        data: {
+          currentPeriodStart: now,
+          currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+      console.log(`[Billing/store] New invoice ${invoice.invoiceNumber} for ${sub.store?.name || sub.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Billing/store] ✗ Bill generation failed for ${sub.id}: ${message}`);
     }
   }
 }

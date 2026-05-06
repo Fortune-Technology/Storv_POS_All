@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './analytics.css';
 import './Organisation.css';
@@ -8,120 +8,105 @@ import {
   CheckCircle2, Store, Layers, Zap, X, ArrowRight,
   Users, ShieldCheck, TrendingUp, Phone, Trash2,
 } from 'lucide-react';
-import { getMyTenant, updateMyTenant, getStoreBillingSummary, updateTenantPlan, deleteMyTenant } from '../services/api';
+import { getMyTenant, updateMyTenant, getStoreBillingSummary, updateTenantPlan, deleteMyTenant, listMyStoreSubscriptions, getPublicPlans } from '../services/api';
 import { toast } from 'react-toastify';
 
-/* ── Plan definitions ────────────────────────────────────────────────────── */
-const PLANS = [
-  {
-    value:    'trial',
-    label:    'Trial',
-    price:    'Free',
-    subPrice: '14-day trial',
-    color:    '#f59e0b',
-    bg:       'rgba(245,158,11,0.12)',
-    maxStores: 1,
-    maxUsers:  3,
-    features: [
-      '1 store location',
-      'Up to 3 users',
-      'POS integration',
-      'Basic analytics',
-      'Email support',
-    ],
-  },
-  {
-    value:    'basic',
-    label:    'Basic',
-    price:    '$49',
-    subPrice: 'per month',
-    color:    '#3b82f6',
-    bg:       'rgba(59,130,246,0.12)',
-    maxStores: 3,
-    maxUsers:  10,
-    features: [
-      'Up to 3 store locations',
-      'Up to 10 users',
-      'POS + eComm integration',
-      'Full analytics suite',
-      'Invoice import',
-      'Priority email support',
-    ],
-  },
-  {
-    value:    'pro',
-    label:    'Pro',
-    price:    '$149',
-    subPrice: 'per month',
-    color:    '#8b5cf6',
-    bg:       'rgba(139,92,246,0.12)',
-    popular:  true,
-    maxStores: 25,
-    maxUsers:  100,
-    features: [
-      'Up to 25 store locations',
-      'Up to 100 users',
-      'All Basic features',
-      'Sales predictions (AI)',
-      'Multi-store reporting',
-      'API access',
-      'Phone & chat support',
-    ],
-  },
-  {
-    value:    'enterprise',
-    label:    'Enterprise',
-    price:    'Custom',
-    subPrice: 'contact us',
-    color:    'var(--accent-primary)',
-    bg:       'var(--brand-12)',
-    maxStores: '∞',
-    maxUsers:  '∞',
-    features: [
-      'Unlimited store locations',
-      'Unlimited users',
-      'All Pro features',
-      'Dedicated account manager',
-      'Custom integrations',
-      'SLA guarantee',
-      'On-site onboarding',
-    ],
-  },
-];
-
-const PLAN_COLORS = Object.fromEntries(
-  PLANS.map(p => [p.value, { bg: p.bg, color: p.color, label: p.label }])
-);
+/* ── Plan styling — colors only. The plans themselves are fetched live ─────
+   from the SubscriptionPlan catalog (`getPublicPlans()`). Removing the legacy
+   hardcoded PLANS / PLAN_COLORS dictionaries was S81 — they referenced 'trial',
+   'basic', 'pro', 'enterprise' which don't match the new Starter / Pro slugs
+   and contained marketing copy that drifted from what admin had configured.
+   ───────────────────────────────────────────────────────────────────────── */
+const PLAN_STYLES = {
+  starter:    { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', label: 'Starter' },
+  pro:        { bg: 'rgba(139,92,246,0.12)',  color: '#8b5cf6', label: 'Pro' },
+  // Legacy mappings kept ONLY for the chip color on existing rows that still
+  // carry an old enum value in `Organization.plan`. Once those are migrated
+  // these can drop entirely.
+  trial:      { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', label: 'Starter' }, // alias → starter
+  basic:      { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', label: 'Starter' },
+  enterprise: { bg: 'var(--brand-12)',        color: 'var(--accent-primary)', label: 'Pro' },
+};
+const PLAN_COLORS = PLAN_STYLES; // back-compat alias for the few remaining call sites
 
 /* ── Plan Change Modal ───────────────────────────────────────────────────── */
-function PlanModal({ currentPlan, onClose, onChanged }) {
-  const [selected,  setSelected]  = useState(currentPlan);
-  const [loading,   setLoading]   = useState(false);
+function PlanModal({ currentPlan, currentSub, onClose, onChanged, navigate }) {
+  // S81 — fetches the LIVE SubscriptionPlan catalog (Starter + Pro). The
+  // legacy 4-tier modal (Trial/Basic/Pro/Enterprise) was hardcoded with
+  // marketing copy that drifted from what admin actually configured. Source
+  // of truth is now `prisma.subscriptionPlan` via /api/billing/plans.
+  const [plans,    setPlans]    = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [selected, setSelected] = useState(currentPlan);
+  const [submitting, setSubmitting] = useState(false);
 
-  const current = PLANS.find(p => p.value === currentPlan);
-  const chosen  = PLANS.find(p => p.value === selected);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getPublicPlans();
+        const list = Array.isArray(res?.plans) ? res.plans : [];
+        if (cancelled) return;
+        setPlans(list);
+        // Default selection: the user's current plan if it matches one in the
+        // catalog, otherwise the live `isDefault` plan (Starter).
+        const matched = list.find(p => p.slug === currentPlan);
+        if (!matched) {
+          const def = list.find(p => p.isDefault) || list[0];
+          if (def) setSelected(def.slug);
+        }
+      } catch {
+        toast.error('Could not load plan catalog.');
+      } finally {
+        if (!cancelled) setLoadingPlans(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentPlan]);
 
-  const isDowngrade = PLANS.findIndex(p => p.value === selected) <
-                      PLANS.findIndex(p => p.value === currentPlan);
+  const chosen = plans.find(p => p.slug === selected);
 
+  // The Account → Organisation card is org-scoped, but plans now live per-store
+  // (S80). We can either: (a) update only the active store's StoreSubscription,
+  // (b) redirect to /portal/billing where each store can be edited separately.
+  // Path (b) is correct for multi-store orgs. We keep it simple — the modal
+  // shows the live plans for confirmation, and on submit we route to the
+  // per-store billing page so the user explicitly chooses which store to apply.
   const handleConfirm = async () => {
-    if (selected === currentPlan) { onClose(); return; }
-    if (selected === 'enterprise') {
-      toast.info('Please contact us at sales@storeveu.com to set up an Enterprise plan.');
-      onClose();
-      return;
-    }
-    setLoading(true);
+    if (!chosen) { onClose(); return; }
+    if (chosen.slug === currentPlan) { onClose(); return; }
+    setSubmitting(true);
     try {
-      const updated = await updateTenantPlan(selected);
-      toast.success(`Plan changed to ${chosen.label}.`);
-      onChanged(updated);
+      // Multi-store org → can't blanket-apply. Redirect to billing page where
+      // user sees per-store subscriptions and can change each one.
       onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Could not change plan.');
+      toast.info(`Pick the store(s) you want to switch to ${chosen.name} on the Billing page.`);
+      navigate('/portal/billing');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
+  };
+
+  // Marketing-style copy derived from each plan's actual data — no hardcoded
+  // feature lists. Pro shows "all modules included"; Starter shows the addon
+  // catalog inline.
+  const featureLines = (p) => {
+    const isPro = p.slug === 'pro';
+    if (isPro) {
+      return [
+        'All business modules included',
+        'Unlimited add-ons',
+        'Per-store pricing',
+        'Priority support',
+      ];
+    }
+    const addonCount = Array.isArray(p.addons) ? p.addons.length : 0;
+    return [
+      'Per-store pricing',
+      `${addonCount} add-on${addonCount === 1 ? '' : 's'} available (purchased à la carte)`,
+      'POS integration',
+      'Basic analytics',
+    ];
   };
 
   return (
@@ -137,20 +122,22 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
         background: 'var(--bg-secondary)',
         borderRadius: 'var(--radius-lg)',
         padding: '2rem',
-        width: '100%', maxWidth: '860px',
+        width: '100%', maxWidth: '720px',
         boxShadow: 'var(--shadow-lg)',
         maxHeight: '92vh', overflowY: 'auto',
         animation: 'fadeIn 0.2s ease',
       }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Zap size={20} style={{ color: 'var(--accent-primary)' }} />
               Change plan
             </h2>
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              Currently on <strong style={{ color: current?.color }}>{current?.label}</strong>. Select a new plan below.
+              {currentSub?.plan?.name
+                ? <>Currently on <strong style={{ color: PLAN_STYLES[currentPlan]?.color || 'var(--accent-primary)' }}>{currentSub.plan.name}</strong>. Select a new plan below.</>
+                : <>Select a plan below to set your subscription.</>}
             </p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem' }}>
@@ -158,130 +145,107 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
           </button>
         </div>
 
-        {/* Plan cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
-          {PLANS.map(plan => {
-            const isSelected = selected === plan.value;
-            const isCurrent  = currentPlan === plan.value;
-            return (
-              <div
-                key={plan.value}
-                onClick={() => setSelected(plan.value)}
-                style={{
-                  position: 'relative',
-                  border: `2px solid ${isSelected ? plan.color : 'var(--border-color)'}`,
-                  borderRadius: 'var(--radius-lg)',
-                  padding: '1.25rem',
-                  cursor: 'pointer',
-                  background: isSelected ? plan.bg : 'var(--bg-tertiary)',
-                  transition: 'all 0.15s',
-                  boxShadow: isSelected ? `0 0 0 3px ${plan.color}22` : 'none',
-                }}
-              >
-                {/* Popular badge */}
-                {plan.popular && (
-                  <div style={{
-                    position: 'absolute', top: '-11px', left: '50%', transform: 'translateX(-50%)',
-                    background: plan.color, color: '#fff',
-                    fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    padding: '0.2rem 0.65rem', borderRadius: '9999px', whiteSpace: 'nowrap',
-                  }}>
-                    Most popular
-                  </div>
-                )}
-
-                {/* Current indicator */}
-                {isCurrent && (
-                  <div style={{
-                    position: 'absolute', top: 10, right: 10,
-                    background: plan.color, color: '#fff',
-                    fontSize: '0.6rem', fontWeight: 700,
-                    padding: '0.1rem 0.45rem', borderRadius: '9999px',
-                  }}>Current</div>
-                )}
-
-                {/* Plan name */}
-                <div style={{ fontSize: '1rem', fontWeight: 700, color: isSelected ? plan.color : 'var(--text-primary)', marginBottom: '0.25rem' }}>
-                  {plan.label}
-                </div>
-
-                {/* Price */}
-                <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ fontSize: '1.6rem', fontWeight: 800, color: isSelected ? plan.color : 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}>
-                    {plan.price}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.25rem' }}>
-                    {plan.subPrice}
-                  </span>
-                </div>
-
-                {/* Limits */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    <Store size={12} style={{ color: plan.color }} />
-                    {plan.maxStores === '∞' ? 'Unlimited stores' : `${plan.maxStores} store${plan.maxStores !== 1 ? 's' : ''}`}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    <Users size={12} style={{ color: plan.color }} />
-                    {plan.maxUsers === '∞' ? 'Unlimited users' : `${plan.maxUsers} user${plan.maxUsers !== 1 ? 's' : ''}`}
-                  </div>
-                </div>
-
-                {/* Feature list */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                  {plan.features.map(f => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      <CheckCircle2 size={12} style={{ color: plan.color, flexShrink: 0, marginTop: '1px' }} />
-                      {f}
+        {/* Plan cards — driven by live data */}
+        {loadingPlans ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Loader size={18} className="animate-spin" /> Loading plans…
+          </div>
+        ) : plans.length === 0 ? (
+          <div style={{ padding: '1.5rem', background: 'var(--error-bg)', border: '1px solid var(--error)', borderRadius: 'var(--radius-md)', color: 'var(--error)', fontSize: '0.875rem' }}>
+            No active plans found. Contact your administrator.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            {plans.map(plan => {
+              const style = PLAN_STYLES[plan.slug] || PLAN_STYLES.starter;
+              const isSelected = selected === plan.slug;
+              const isCurrent  = currentPlan === plan.slug;
+              const base = Number(plan.basePrice ?? 0);
+              return (
+                <div
+                  key={plan.slug}
+                  onClick={() => setSelected(plan.slug)}
+                  style={{
+                    position: 'relative',
+                    border: `2px solid ${isSelected ? style.color : 'var(--border-color)'}`,
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '1.25rem',
+                    cursor: 'pointer',
+                    background: isSelected ? style.bg : 'var(--bg-tertiary)',
+                    transition: 'all 0.15s',
+                    boxShadow: isSelected ? `0 0 0 3px ${style.color}22` : 'none',
+                  }}
+                >
+                  {plan.highlighted && (
+                    <div style={{
+                      position: 'absolute', top: '-11px', left: '50%', transform: 'translateX(-50%)',
+                      background: style.color, color: '#fff',
+                      fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      padding: '0.2rem 0.65rem', borderRadius: '9999px', whiteSpace: 'nowrap',
+                    }}>
+                      Most popular
                     </div>
-                  ))}
-                </div>
-
-                {/* Selected check */}
-                {isSelected && (
-                  <div style={{
-                    position: 'absolute', bottom: 10, right: 10,
-                    width: 22, height: 22, borderRadius: '50%',
-                    background: plan.color,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <CheckCircle2 size={13} color="#fff" />
+                  )}
+                  {isCurrent && (
+                    <div style={{
+                      position: 'absolute', top: 10, right: 10,
+                      background: style.color, color: '#fff',
+                      fontSize: '0.6rem', fontWeight: 700,
+                      padding: '0.1rem 0.45rem', borderRadius: '9999px',
+                    }}>Current</div>
+                  )}
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: isSelected ? style.color : 'var(--text-primary)', marginBottom: '0.25rem' }}>
+                    {plan.name}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                  {plan.tagline && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.4 }}>
+                      {plan.tagline}
+                    </div>
+                  )}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '1.6rem', fontWeight: 800, color: isSelected ? style.color : 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}>
+                      ${base.toFixed(2)}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.25rem' }}>
+                      per store / month
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    {featureLines(plan).map(f => (
+                      <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        <CheckCircle2 size={12} style={{ color: style.color, flexShrink: 0, marginTop: '1px' }} />
+                        {f}
+                      </div>
+                    ))}
+                  </div>
+                  {isSelected && (
+                    <div style={{
+                      position: 'absolute', bottom: 10, right: 10,
+                      width: 22, height: 22, borderRadius: '50%',
+                      background: style.color,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <CheckCircle2 size={13} color="#fff" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Per-store pricing notice */}
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+          padding: '0.875rem 1rem', marginBottom: '1.25rem',
+          background: 'var(--brand-05)', border: '1px solid var(--brand-30)',
+          borderRadius: 'var(--radius-md)',
+        }}>
+          <AlertCircle size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0, marginTop: '1px' }} />
+          <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Plans apply per-store. After confirming, you'll be taken to the <strong>Billing</strong> page to choose which stores to switch to <strong>{chosen?.name || 'this plan'}</strong> and pick add-ons.
+          </div>
         </div>
-
-        {/* Downgrade warning */}
-        {isDowngrade && selected !== currentPlan && (
-          <div style={{
-            display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
-            padding: '0.875rem 1rem', marginBottom: '1.25rem',
-            background: 'var(--error-bg)', border: '1px solid var(--error)',
-            borderRadius: 'var(--radius-md)',
-          }}>
-            <AlertCircle size={16} style={{ color: 'var(--error)', flexShrink: 0, marginTop: '1px' }} />
-            <div style={{ fontSize: '0.825rem', color: 'var(--error)' }}>
-              <strong>Downgrading to {chosen?.label}</strong> — if you have more stores or users than the plan allows, the change will be blocked. Deactivate extra stores or remove users first.
-            </div>
-          </div>
-        )}
-
-        {/* Enterprise contact note */}
-        {selected === 'enterprise' && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.6rem',
-            padding: '0.875rem 1rem', marginBottom: '1.25rem',
-            background: 'var(--brand-05)', border: '1px solid var(--brand-30)',
-            borderRadius: 'var(--radius-md)',
-          }}>
-            <Phone size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-            <div style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-              Enterprise plans are set up with our team. Clicking confirm will direct you to contact sales.
-            </div>
-          </div>
-        )}
 
         {/* Action row */}
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
@@ -290,15 +254,13 @@ function PlanModal({ currentPlan, onClose, onChanged }) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={loading || selected === currentPlan}
+            disabled={submitting || !chosen || selected === currentPlan}
             className="btn btn-primary"
-            style={{ padding: '0.75rem 1.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: selected === currentPlan ? 0.5 : 1 }}
+            style={{ padding: '0.75rem 1.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: !chosen || selected === currentPlan ? 0.5 : 1 }}
           >
-            {loading
-              ? <><Loader size={15} className="animate-spin" />Changing…</>
-              : selected === 'enterprise'
-                ? <><Phone size={15} />Contact sales</>
-                : <><ArrowRight size={15} />Confirm {chosen?.label} plan</>
+            {submitting
+              ? <><Loader size={15} className="animate-spin" />Opening Billing…</>
+              : <><ArrowRight size={15} />Continue to Billing</>
             }
           </button>
         </div>
@@ -392,6 +354,11 @@ export default function Organisation({ embedded }) {
   const navigate = useNavigate();
   const [tenant,    setTenant]    = useState(null);
   const [billing,   setBilling]   = useState(null);
+  // S81 — live StoreSubscription rows for this org. Source of truth for the
+  // "Plan & Subscription" card. The legacy `tenant.plan` field is a free-text
+  // string ('trial'/'basic'/'pro'/'enterprise') that doesn't reflect what the
+  // org's stores actually pay for under S80's per-store billing model.
+  const [storeSubs, setStoreSubs] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState(null);
@@ -415,12 +382,14 @@ export default function Organisation({ embedded }) {
     setLoading(true);
     setError(null);
     try {
-      const [t, b] = await Promise.all([
+      const [t, b, subsRes] = await Promise.all([
         getMyTenant(),
         getStoreBillingSummary().catch(() => null),
+        listMyStoreSubscriptions().catch(() => ({ subscriptions: [] })),
       ]);
       setTenant(t);
       setBilling(b);
+      setStoreSubs(Array.isArray(subsRes?.subscriptions) ? subsRes.subscriptions : []);
       setName(t.name || '');
       setBillingEmail(t.billingEmail || '');
       setTimezone(t.settings?.timezone || 'America/New_York');
@@ -476,15 +445,76 @@ export default function Organisation({ embedded }) {
   };
 
   /* ── Plan info ──────────────────────────────────────────────────────────── */
-  const plan      = tenant?.plan || 'trial';
-  const planMeta  = PLANS.find(p => p.value === plan) || PLANS[0];
-  const planStyle = PLAN_COLORS[plan] || PLAN_COLORS.trial;
+  // S81 — Prefer the live StoreSubscription for the org's first/active store.
+  // The legacy `tenant.plan` enum is kept as a fallback for orgs that haven't
+  // had a StoreSubscription created yet (rare — every store gets one in S80).
+  const liveSub = useMemo(() => {
+    if (!Array.isArray(storeSubs) || storeSubs.length === 0) return null;
+    // Prefer a non-trial active sub if multiple stores exist; else first one.
+    return storeSubs.find(s => s.status === 'active') || storeSubs[0];
+  }, [storeSubs]);
 
-  const trialDaysLeft = tenant?.trialEndsAt
-    ? Math.max(0, Math.ceil((new Date(tenant.trialEndsAt) - Date.now()) / 86_400_000))
-    : null;
+  // Map live SubscriptionPlan slug → the legacy PLANS card entry for color/style.
+  // Pro→pro, Starter→trial visually (since Starter is the entry-level paid tier).
+  // When there's no live sub, fall back to legacy `tenant.plan`.
+  const livePlanSlug = liveSub?.plan?.slug || null;
+  const plan = livePlanSlug || tenant?.plan || 'trial';
+  const planMeta = useMemo(() => {
+    if (liveSub?.plan) {
+      // Build a synthetic PLANS-shape entry from the live data so the card
+      // renders the actual plan name + price without falling back to hardcoded
+      // strings. Features are the addon list (or "all modules" for Pro).
+      const base = Number(liveSub.plan.basePrice ?? 0);
+      const isPro = livePlanSlug === 'pro';
+      const addons = Array.isArray(liveSub.purchasedAddons) ? liveSub.purchasedAddons : [];
+      const features = isPro
+        ? ['All business modules included', 'Unlimited add-ons', 'Per-store pricing', 'POS + integrations']
+        : addons.length > 0
+          ? [...addons.map(k => `Add-on: ${k}`), 'POS integration', 'Basic analytics']
+          : ['Per-store pricing', 'POS integration', 'Basic analytics', 'Add features as you grow'];
+      return {
+        value: livePlanSlug,
+        label: liveSub.plan.name || (isPro ? 'Pro' : 'Starter'),
+        price: `$${base.toFixed(2)}`,
+        subPrice: liveSub.status === 'trial' ? 'trial / mo' : 'per month',
+        maxStores: '∞',
+        maxUsers: '∞',
+        features,
+      };
+    }
+    // Fallback shape when no live StoreSubscription is available — only used
+    // by orgs in the rare state of "no StoreSubscription created yet". Mirrors
+    // the original Starter trial appearance without referencing the deleted
+    // PLANS dictionary.
+    const styleFallback = PLAN_STYLES[plan] || PLAN_STYLES.starter;
+    return {
+      value: plan,
+      label: styleFallback.label,
+      price: 'Free',
+      subPrice: 'no subscription',
+      maxStores: '∞',
+      maxUsers: '∞',
+      features: ['No active subscription. Visit Billing to choose a plan.'],
+    };
+  }, [liveSub, livePlanSlug, plan]);
+  const planStyle = useMemo(() => {
+    if (livePlanSlug === 'pro') return { bg: 'rgba(139,92,246,0.12)', color: '#8b5cf6', label: 'Pro' };
+    if (livePlanSlug === 'starter') return { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6', label: 'Starter' };
+    return PLAN_COLORS[plan] || PLAN_COLORS.trial;
+  }, [livePlanSlug, plan]);
 
-  const nextPlan = PLANS[PLANS.findIndex(p => p.value === plan) + 1] || null;
+  const trialDaysLeft = liveSub?.status === 'trial' && liveSub?.trialEndsAt
+    ? Math.max(0, Math.ceil((new Date(liveSub.trialEndsAt) - Date.now()) / 86_400_000))
+    : (tenant?.trialEndsAt
+      ? Math.max(0, Math.ceil((new Date(tenant.trialEndsAt) - Date.now()) / 86_400_000))
+      : null);
+
+  // No upgrade nudge when on Pro or when live data is in use — vendors should
+  // change plans via the dedicated /portal/billing page (each store separately).
+  // S81 — Upsell nudge removed. The legacy PLANS array (Trial→Basic→Pro→Enterprise)
+  // doesn't match the new Starter/Pro structure; subscription management is
+  // per-store at /portal/billing. Vendors can switch plans there directly.
+  const nextPlan = null;
 
   const content = (
     <>
@@ -523,24 +553,10 @@ export default function Organisation({ embedded }) {
         ) : tenant ? (
           <>
             {/* ── Trial banner ──────────────────────────────────────────── */}
-            {plan === 'trial' && trialDaysLeft !== null && (
-              <div className="weather-setup-banner" style={{
-                marginBottom: '1.5rem',
-                borderColor: trialDaysLeft <= 3 ? 'var(--error)' : 'rgba(245,158,11,0.4)',
-                background:  trialDaysLeft <= 3 ? 'var(--error-bg)' : 'rgba(245,158,11,0.06)',
-              }}>
-                <CreditCard size={15} style={{ color: trialDaysLeft <= 3 ? 'var(--error)' : '#f59e0b' }} />
-                <span style={{ color: trialDaysLeft <= 3 ? 'var(--error)' : '#f59e0b' }}>
-                  {trialDaysLeft > 0
-                    ? <><strong>{trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''}</strong> remaining on your free trial.</>
-                    : <><strong>Trial expired.</strong> Upgrade to continue using all features.</>}
-                </span>
-                <button className="btn btn-primary" onClick={() => setShowPlan(true)}
-                  style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <ArrowRight size={13} />Upgrade now
-                </button>
-              </div>
-            )}
+            {/* S81 — trial-warning banner removed. Trials are no longer offered;
+                every store starts on Starter (or whatever plan admin assigns
+                during contract activation). Subscription state is shown by
+                the Plan & Subscription card below, which reads live data. */}
 
             {/* ── Plan & subscription ───────────────────────────────────── */}
             <SectionCard
@@ -548,7 +564,7 @@ export default function Organisation({ embedded }) {
               title="Plan & Subscription"
               action={
                 <button
-                  onClick={() => setShowPlan(true)}
+                  onClick={() => liveSub ? navigate('/portal/billing') : setShowPlan(true)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.4rem',
                     padding: '0.4rem 0.9rem', fontSize: '0.8rem', fontWeight: 600,
@@ -841,8 +857,10 @@ export default function Organisation({ embedded }) {
       {showPlan && tenant && (
         <PlanModal
           currentPlan={plan}
+          currentSub={liveSub}
           onClose={() => setShowPlan(false)}
           onChanged={(updated) => setTenant(updated)}
+          navigate={navigate}
         />
       )}
 

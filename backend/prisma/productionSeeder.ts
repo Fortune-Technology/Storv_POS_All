@@ -7,7 +7,7 @@
  *
  *   1.  seedAdmin                 superadmin user (admin@storeveu.com)
  *   2.  seedRbac                  permission catalog + 6 built-in system roles
- *   3.  seedPlanModules           [S78] PlatformModule catalog + 3 starter
+ *   3.  seedPlanModules           PlatformModule catalog + 2 plans + 12 add-ons
  *                                 SubscriptionPlans (Starter/Growth/Enterprise)
  *                                 with sidebar-module entitlements. Required
  *                                 for the marketing /pricing page + plan-based
@@ -96,10 +96,11 @@ const DRY_RUN           = args.includes('--dry-run');
 const STEPS = [
   { file: 'seedAdmin.ts',                label: 'Superadmin user' },
   { file: 'seedRbac.ts',                 label: 'RBAC permissions + system roles' },
-  // S78 — sidebar-module catalog + the 3 default SubscriptionPlans
-  // (Starter/Growth/Enterprise) with module entitlements. Drives plan-based
-  // sidebar gating + the marketing /pricing page + vendor activation.
-  { file: 'seedPlanModules.ts',          label: 'Plan modules + default subscription plans' },
+  // Plan modules + 2 plans (Starter + Pro) + 12 add-ons. Grouped business-
+  // module architecture: each addon unlocks ONE parent business module which
+  // cascades to its sidebar children via parentKey. Drives the marketing
+  // /pricing page + portal sidebar/route gating + StoreSettings toggles.
+  { file: 'seedPlanModules.ts',          label: 'Plan modules + 2 plans (Starter + Pro) + 12 add-ons' },
   // S77 — default merchant agreement template (v1 published). Required for
   // the vendor-onboarding contract pipeline (admin Generate Contract flow).
   { file: 'seedContractTemplates.ts',    label: 'Default merchant agreement contract template' },
